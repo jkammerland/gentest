@@ -478,26 +478,30 @@ auto BatchAsyncScheduler::has_unfinished_adopted_work() const -> bool {
 
 void BatchAsyncScheduler::wait_for_ready_or_adopted_release(const StopCallback &should_stop,
                                                             const StopCallback &should_stop_waiting_for_adopted) {
-    std::unique_lock<std::mutex> lk(mtx_);
+    const auto stop_or_progress_locked = [&] {
+        return !ready_.empty() || (!has_unfinished_adopted_work() && !next_timer_deadline_locked()) || (should_stop && should_stop()) ||
+               (should_stop_waiting_for_adopted && should_stop_waiting_for_adopted());
+    };
+
     while (true) {
-        auto       wake_deadline    = next_timer_deadline_locked();
-        const auto stop_or_progress = [&] {
-            return !ready_.empty() || (!has_unfinished_adopted_work() && !next_timer_deadline_locked()) || (should_stop && should_stop()) ||
-                   (should_stop_waiting_for_adopted && should_stop_waiting_for_adopted());
-        };
-        if (stop_or_progress()) {
-            break;
-        }
-        if (wake_deadline) {
-            if (!adopted_release_wake_->cv.wait_until(lk, *wake_deadline, stop_or_progress)) {
+        std::unique_lock<std::mutex>                         wake_lk(adopted_release_wake_->mtx);
+        const auto                                           wake_generation = adopted_release_wake_->generation;
+        std::optional<std::chrono::steady_clock::time_point> wake_deadline;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            if (stop_or_progress_locked()) {
                 break;
             }
-            continue;
+            wake_deadline = next_timer_deadline_locked();
         }
-        adopted_release_wake_->cv.wait(lk, stop_or_progress);
+        const auto wake_observed = [&] { return adopted_release_wake_->generation != wake_generation; };
+        if (wake_deadline) {
+            (void)adopted_release_wake_->cv.wait_until(wake_lk, *wake_deadline, wake_observed);
+        } else {
+            adopted_release_wake_->cv.wait(wake_lk, wake_observed);
+        }
         break;
     }
-    lk.unlock();
     post_due_timers();
 }
 

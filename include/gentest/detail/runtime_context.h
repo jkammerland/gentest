@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
@@ -35,10 +36,25 @@ struct TestContextInfo {
     std::mutex               adopted_mtx;
     std::condition_variable  adopted_cv;
     struct AdoptedReleaseWake {
-        void notify_one() noexcept { cv.notify_one(); }
-        void notify_all() noexcept { cv.notify_all(); }
+        void notify_one() noexcept {
+            {
+                std::lock_guard<std::mutex> lk(mtx);
+                ++generation;
+            }
+            cv.notify_one();
+        }
 
+        void notify_all() noexcept {
+            {
+                std::lock_guard<std::mutex> lk(mtx);
+                ++generation;
+            }
+            cv.notify_all();
+        }
+
+        std::mutex              mtx;
         std::condition_variable cv;
+        std::uint64_t           generation = 0;
     };
     std::vector<std::weak_ptr<AdoptedReleaseWake>> adopted_release_wakes;
     NoExceptionsFatalHookState                     noexceptions_fatal_hook;

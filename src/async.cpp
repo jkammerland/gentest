@@ -218,21 +218,26 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
     }
 
     void wait_for_ready_or_adopted_release() {
-        std::unique_lock<std::mutex> lk(mtx_);
-        const auto                   no_pending_wait = [&] {
+        const auto no_pending_wait_locked = [&] {
             return (!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !next_timer_deadline_locked();
         };
-        const auto ready_or_done_waiting = [&] { return !ready_.empty() || no_pending_wait(); };
-        while (!ready_or_done_waiting()) {
-            auto wake_deadline = next_timer_deadline_locked();
-            if (!wake_deadline) {
-                adopted_release_wake_->cv.wait(lk, ready_or_done_waiting);
+        const auto ready_or_done_waiting_locked = [&] { return !ready_.empty() || no_pending_wait_locked(); };
+
+        std::unique_lock<std::mutex>                         wake_lk(adopted_release_wake_->mtx);
+        const auto                                           wake_generation = adopted_release_wake_->generation;
+        std::optional<std::chrono::steady_clock::time_point> wake_deadline;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            if (ready_or_done_waiting_locked()) {
                 return;
             }
-            if (adopted_release_wake_->cv.wait_until(lk, *wake_deadline, ready_or_done_waiting)) {
-                return;
-            }
-            return;
+            wake_deadline = next_timer_deadline_locked();
+        }
+        const auto wake_observed = [&] { return adopted_release_wake_->generation != wake_generation; };
+        if (wake_deadline) {
+            (void)adopted_release_wake_->cv.wait_until(wake_lk, *wake_deadline, wake_observed);
+        } else {
+            adopted_release_wake_->cv.wait(wake_lk, wake_observed);
         }
     }
 

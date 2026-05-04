@@ -5,6 +5,25 @@
 #include <string>
 
 namespace gentest {
+namespace {
+
+void acquire_adopted_context(const CurrentContext &context) {
+    if (!context) {
+        return;
+    }
+    std::lock_guard<std::mutex> lk(context->adopted_mtx);
+    context->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
+}
+
+[[nodiscard]] auto release_adopted_context(const CurrentContext &context) noexcept -> bool {
+    if (!context) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lk(context->adopted_mtx);
+    return context->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1;
+}
+
+} // namespace
 
 auto get_current_context() -> CurrentContext { return detail::current_test(); }
 
@@ -15,13 +34,11 @@ auto get_current_token() -> CurrentToken { return get_current_context(); }
 auto set_current_token(CurrentToken context) -> CurrentContextLease { return set_current_context(std::move(context)); }
 
 CurrentContextLease::CurrentContextLease(CurrentContext context) : previous_(get_current_context()), leased_(std::move(context)) {
-    if (leased_) {
-        leased_->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
-    }
+    acquire_adopted_context(leased_);
     try {
         detail::set_current_test(leased_);
     } catch (...) {
-        if (leased_ && leased_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        if (release_adopted_context(leased_)) {
             detail::notify_adopted_contexts_released(*leased_);
         }
         throw;
@@ -30,7 +47,7 @@ CurrentContextLease::CurrentContextLease(CurrentContext context) : previous_(get
 
 CurrentContextLease::~CurrentContextLease() {
     detail::set_current_test(std::move(previous_));
-    if (leased_ && leased_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    if (release_adopted_context(leased_)) {
         detail::close_canceled_context_if_released(*leased_);
         detail::notify_adopted_contexts_released(*leased_);
     }
