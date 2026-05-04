@@ -1072,18 +1072,18 @@ std::string third_party_constructors_block(const MockClassInfo &cls, std::string
 std::string gmock_specs(const MockClassInfo &cls, const MockMethodInfo &method) {
     std::vector<std::string> specs;
     if (method.qualifiers.cv == MockMethodCvQualifier::Const) {
-        specs.push_back("const");
+        specs.emplace_back("const");
     }
     if (method.qualifiers.is_noexcept) {
-        specs.push_back("noexcept");
+        specs.emplace_back("noexcept");
     }
     switch (method.qualifiers.ref) {
-    case MockMethodRefQualifier::LValue: specs.push_back("ref(&)"); break;
-    case MockMethodRefQualifier::RValue: specs.push_back("ref(&&)"); break;
+    case MockMethodRefQualifier::LValue: specs.emplace_back("ref(&)"); break;
+    case MockMethodRefQualifier::RValue: specs.emplace_back("ref(&&)"); break;
     case MockMethodRefQualifier::None: break;
     }
     if (cls.derive_for_virtual && method.is_virtual) {
-        specs.push_back("override");
+        specs.emplace_back("override");
     }
     std::string out;
     for (std::size_t i = 0; i < specs.size(); ++i) {
@@ -1137,10 +1137,10 @@ std::string trompeloeil_signature(std::size_t method_index, const MockMethodInfo
 std::string trompeloeil_specs(const MockClassInfo &cls, const MockMethodInfo &method) {
     std::vector<std::string> specs;
     if (cls.derive_for_virtual && method.is_virtual) {
-        specs.push_back("override");
+        specs.emplace_back("override");
     }
     if (method.qualifiers.is_noexcept) {
-        specs.push_back("noexcept");
+        specs.emplace_back("noexcept");
     }
     std::string out;
     for (const auto &spec : specs) {
