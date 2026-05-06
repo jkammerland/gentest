@@ -1439,7 +1439,20 @@ gentest_add_cmake_script_test(
     PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
     ARGS --run=regressions/async_adopted_failure_wake/00_completed_adopted_worker_fails --kind=test --fail-fast --no-color
-    DEFINES TIMEOUT_SEC=5 EXPECT_RC=1)
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=1
+        "REQUIRED_SUBSTRING=adopted worker failure should wake fail-fast adopted drain")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_adopted_failure_cancels_suspended_owner
+    PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --run=regressions/async_adopted_failure_wake/01_suspended_adopted_worker_fails --kind=test --fail-fast --no-color
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=1
+        "REQUIRED_SUBSTRING=adopted worker failure while owner remains suspended")
 
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(

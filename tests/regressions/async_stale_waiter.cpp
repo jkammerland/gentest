@@ -1,10 +1,10 @@
+#include "../../src/async_scheduler_core.h"
 #include "gentest/async.h"
 
 #include <any>
 #include <atomic>
 #include <chrono>
 #include <coroutine>
-#include <deque>
 #include <exception>
 #include <iostream>
 #include <memory>
@@ -14,6 +14,12 @@
 #include <thread>
 #include <type_traits>
 #include <vector>
+
+#if defined(__has_feature)
+#define GENTEST_REGRESSION_HAS_TSAN_FEATURE __has_feature(thread_sanitizer)
+#else
+#define GENTEST_REGRESSION_HAS_TSAN_FEATURE 0
+#endif
 
 namespace {
 
@@ -78,73 +84,60 @@ constexpr auto kLateCompletionDelay   = std::chrono::milliseconds(650);
 
 class TrackingScheduler final : public gentest::detail::AsyncScheduler {
   public:
-    void post(std::coroutine_handle<> handle) override {
+    void post(std::coroutine_handle<> handle) override { post_frame_from_core(handle); }
+
+    void post_frame(const gentest::detail::AsyncFramePtr &frame) override {
         std::lock_guard<std::mutex> lk(mtx_);
         if (record_late_posts_) {
             ++late_posts_;
             return;
         }
-        ready_.push_back(handle);
+        core_.post(frame);
     }
 
-    void block(std::coroutine_handle<> handle, std::string reason) override {
-        (void)handle;
-        (void)reason;
-    }
+    void block(std::coroutine_handle<> handle, std::string reason) override { core_.block(handle, std::move(reason)); }
 
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-    void attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) override {
-        (void)child;
-        (void)parent;
+    void attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) override { core_.attach_child(child, parent); }
+
+    void attach_child_frame(const gentest::detail::AsyncFramePtr &child, std::coroutine_handle<> parent) override {
+        core_.attach_child(child, parent);
     }
 
     [[nodiscard]] auto make_waiter(std::coroutine_handle<> handle) -> WaiterTokenPtr override {
-        auto                        token = AsyncScheduler::make_waiter(handle);
-        std::lock_guard<std::mutex> lk(mtx_);
-        waiters_.push_back(token);
-        return token;
+        return core_.make_waiter(handle, control());
     }
 
     void schedule_timer(std::chrono::steady_clock::time_point deadline, const WaiterTokenPtr &token) override {
-        std::lock_guard<std::mutex> lk(mtx_);
-        timers_.push_back(Timer{.deadline = deadline, .token = token});
+        core_.schedule_timer(deadline, token);
     }
 
     void run_until_blocked(gentest::detail::AsyncTask &task) {
         gentest::detail::AsyncSchedulerScope scheduler_scope(this);
         task.set_scheduler(this);
-        post(task.handle());
+        core_.register_frame(0, task.frame());
+        core_.post(task.frame());
         run_ready();
     }
 
     void run_ready() {
         gentest::detail::AsyncSchedulerScope scheduler_scope(this);
         while (true) {
-            std::coroutine_handle<> handle;
-            {
-                std::lock_guard<std::mutex> lk(mtx_);
-                if (ready_.empty()) {
-                    return;
-                }
-                handle = ready_.front();
-                ready_.pop_front();
+            auto frame = core_.pop_ready();
+            if (!frame) {
+                return;
             }
-            if (handle && !handle.done()) {
-                handle.resume();
+            if (frame->handle && !frame->is_canceled() && !frame->done()) {
+                core_.clear_suspend_state(frame);
+                frame->handle.resume();
             }
         }
     }
 
     void cancel_waiters() {
-        std::vector<WaiterTokenPtr> waiters;
-        {
-            std::lock_guard<std::mutex> lk(mtx_);
-            waiters.swap(waiters_);
-            record_late_posts_ = true;
-        }
-        for (auto &waiter : waiters) {
-            waiter->cancel();
-        }
+        core_.cancel_all();
+        std::lock_guard<std::mutex> lk(mtx_);
+        record_late_posts_ = true;
     }
 
     void record_late_posts_without_canceling_waiters() {
@@ -160,15 +153,17 @@ class TrackingScheduler final : public gentest::detail::AsyncScheduler {
     }
 
   private:
-    struct Timer {
-        std::chrono::steady_clock::time_point deadline;
-        WaiterTokenPtr                        token;
-    };
+    void post_frame_from_core(std::coroutine_handle<> handle) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (record_late_posts_) {
+            ++late_posts_;
+            return;
+        }
+        core_.post(handle);
+    }
 
     mutable std::mutex                  mtx_;
-    std::deque<std::coroutine_handle<>> ready_;
-    std::vector<WaiterTokenPtr>         waiters_;
-    std::vector<Timer>                  timers_;
+    gentest::runner::AsyncSchedulerCore core_;
     bool                                record_late_posts_ = false;
     int                                 late_posts_        = 0;
 };
@@ -183,6 +178,10 @@ auto wait_for_manual_event_key(gentest::async::manual_event &event, std::string 
 auto wait_for_int_event_key(gentest::async::event<int> &event, std::string key) -> gentest::async_test<int *> {
     int &payload = co_await event.wait(std::move(key));
     co_return &payload;
+}
+
+auto wait_for_int_event(gentest::async::event<int> &event, std::string key) -> gentest::async_test<void> {
+    (void)co_await event.wait(std::move(key));
 }
 
 auto wait_for_string_event_key(gentest::async::event<std::string> &event, std::string key) -> gentest::async_test<std::string *> {
@@ -316,6 +315,70 @@ auto blocking_timer_stress_task() -> gentest::async_test<void> {
     if (!flush.ready()) {
         throw std::runtime_error("blocking scheduler did not flush canceled inner timers");
     }
+}
+
+auto stress_producer_completion_races_task_destruction() -> bool {
+#if defined(__SANITIZE_THREAD__) || GENTEST_REGRESSION_HAS_TSAN_FEATURE
+    constexpr int kIterations    = 256;
+    constexpr int kTasksPerRound = 128;
+#else
+    constexpr int kIterations    = 16;
+    constexpr int kTasksPerRound = 16;
+#endif
+
+    for (int iteration = 0; iteration != kIterations; ++iteration) {
+        {
+            gentest::async::event<int>                 event;
+            TrackingScheduler                          scheduler;
+            std::vector<gentest::detail::AsyncTaskPtr> tasks;
+            std::atomic<bool>                          start{false};
+            const std::string                          key = "event.race." + std::to_string(iteration);
+
+            tasks.reserve(kTasksPerRound);
+            for (int i = 0; i != kTasksPerRound; ++i) {
+                auto task = gentest::detail::make_async_task(wait_for_int_event(event, key));
+                scheduler.run_until_blocked(*task);
+                tasks.push_back(std::move(task));
+            }
+
+            std::thread producer([&] {
+                while (!start.load(std::memory_order_acquire)) {
+                    std::this_thread::yield();
+                }
+                event.set(key, 42);
+            });
+
+            start.store(true, std::memory_order_release);
+            for (auto &task : tasks) {
+                task.reset();
+            }
+            producer.join();
+            scheduler.run_ready();
+        }
+
+        {
+            gentest::async::promise<int> promise;
+            auto                         future = promise.get_future();
+            TrackingScheduler            scheduler;
+            auto                         task = gentest::detail::make_async_task(wait_for_int_future(std::move(future)));
+            std::atomic<bool>            start{false};
+
+            scheduler.run_until_blocked(*task);
+            std::thread producer([&] {
+                while (!start.load(std::memory_order_acquire)) {
+                    std::this_thread::yield();
+                }
+                promise.set_value(42);
+            });
+
+            start.store(true, std::memory_order_release);
+            task.reset();
+            producer.join();
+            scheduler.run_ready();
+        }
+    }
+
+    return true;
 }
 
 auto fail(std::string_view message) -> int {
@@ -1062,6 +1125,10 @@ int main() try {
         if (!gentest::detail::run_async_task_blocking(blocking_timer_stress_task(), "blocking timer stress", error)) {
             return fail(std::string("blocking timer stress failed: ") + error);
         }
+    }
+
+    if (!stress_producer_completion_races_task_destruction()) {
+        return fail("producer completion racing task destruction failed");
     }
 
     return 0;

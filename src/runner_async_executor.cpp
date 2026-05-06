@@ -9,6 +9,7 @@
 #include "runner_fixture_runtime.h"
 #include "runner_reporting.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <fmt/color.h>
@@ -176,18 +177,28 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
 
     BatchAsyncScheduler scheduler(async_runs, renderer.enabled() ? &renderer : nullptr);
 
-    bool        fail_fast_stop_requested = false;
-    const auto  should_stop = [&] { return fail_fast && (fail_fast_stop_requested || counters.failures > 0 || counters.blocked > 0); };
+    const auto has_adopted_work = [](const AsyncCaseRun &run) {
+        return run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
+    };
+    const auto context_failed = [](const AsyncCaseRun &run) {
+        return run.ctxinfo && !async_run_requests_xfail(run) && run.ctxinfo->has_failures.load(std::memory_order_acquire);
+    };
+    const auto any_unfinalized_adopted_context_failed = [&] {
+        return std::ranges::any_of(async_runs,
+                                   [&](const AsyncCaseRun &run) { return !run.finalized && has_adopted_work(run) && context_failed(run); });
+    };
+
+    bool       fail_fast_stop_requested = false;
+    const auto should_stop              = [&] {
+        return fail_fast &&
+               (fail_fast_stop_requested || counters.failures > 0 || counters.blocked > 0 || any_unfinalized_adopted_context_failed());
+    };
     std::size_t first_unfinalized_scan = 0;
 
     const auto advance_first_unfinalized = [&] {
         while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
             ++first_unfinalized_scan;
         }
-    };
-
-    const auto has_adopted_work = [](const AsyncCaseRun &run) {
-        return run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
     };
 
     struct DeferredCanceledTask {
@@ -337,9 +348,16 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         if (finalize_completed_runs()) {
             return true;
         }
+        const auto failed_adopted_context = [&] {
+            return std::ranges::any_of(
+                async_runs, [&](const AsyncCaseRun &run) { return !run.finalized && has_adopted_work(run) && context_failed(run); });
+        };
         const BatchAsyncScheduler::StopCallback drain_should_stop =
             fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{};
-        const bool stopped_while_draining = scheduler.finish_unresumable(drain_should_stop, [&] { return finalize_completed_runs(); });
+        const BatchAsyncScheduler::StopCallback stop_waiting_for_adopted =
+            fail_fast ? BatchAsyncScheduler::StopCallback(failed_adopted_context) : BatchAsyncScheduler::StopCallback{};
+        const bool stopped_while_draining =
+            scheduler.finish_unresumable(drain_should_stop, [&] { return finalize_completed_runs(); }, stop_waiting_for_adopted);
         if (finalize_completed_runs()) {
             return true;
         }
@@ -353,9 +371,10 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                 continue;
             }
             if (has_adopted_work(run)) {
+                const bool failed_context = context_failed(run);
                 if (run.ready_to_finalize) {
                     classify_async_exception(run);
-                } else if (run.exception == InvokeException::None) {
+                } else if (!failed_context && run.exception == InvokeException::None) {
                     run.exception = InvokeException::Failure;
                     run.message   = "async test canceled before completion";
                     record_context_failure(run.ctxinfo, run.message);
@@ -397,7 +416,8 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             if (run.finalized) {
                 continue;
             }
-            const bool adopted_work = has_adopted_work(run);
+            const bool adopted_work   = has_adopted_work(run);
+            const bool failed_context = context_failed(run);
             if (adopted_work && run.ready_to_finalize) {
                 classify_async_exception(run);
             }
@@ -405,10 +425,11 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             gentest::runner::detail::cancel_active_test_context_without_wait(run.ctxinfo);
             gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
             if (adopted_work) {
-                deferred_canceled_tasks.push_back(DeferredCanceledTask{.task                     = std::move(run.task),
-                                                                       .ctx                      = run.ctxinfo,
-                                                                       .run_index                = run_index,
-                                                                       .record_result_on_cleanup = run.ready_to_finalize});
+                deferred_canceled_tasks.push_back(
+                    DeferredCanceledTask{.task                     = std::move(run.task),
+                                         .ctx                      = run.ctxinfo,
+                                         .run_index                = run_index,
+                                         .record_result_on_cleanup = run.ready_to_finalize || failed_context});
             }
             run.finalized = true;
         }

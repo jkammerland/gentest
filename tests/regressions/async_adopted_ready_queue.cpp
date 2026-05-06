@@ -15,6 +15,7 @@ namespace {
 using namespace gentest::asserts;
 
 gentest::async::manual_event        complete_first_case;
+gentest::async::manual_event        never_resume_after_failure;
 std::shared_ptr<std::promise<void>> worker_release;
 std::atomic<bool>                   first_case_resumed{false};
 std::atomic<bool>                   releaser_case_resumed{false};
@@ -101,6 +102,34 @@ auto completed_case_with_adopted_failure_worker_fn(void *) -> gentest::detail::A
     return gentest::detail::make_async_task(completed_case_with_adopted_failure_worker());
 }
 
+auto suspended_case_with_adopted_failure_worker() -> gentest::async_test<void> {
+    never_resume_after_failure.reset_all();
+
+    auto context = gentest::get_current_context();
+    ASSERT_TRUE(context != nullptr);
+
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto lease = gentest::set_current_context(context);
+        started->set_value();
+
+        EXPECT_TRUE(false, "adopted worker failure while owner remains suspended");
+
+        while (context && context->active.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }).detach();
+
+    ready.wait();
+    co_await never_resume_after_failure.wait("owner remains suspended after adopted failure");
+}
+
+auto suspended_case_with_adopted_failure_worker_fn(void *) -> gentest::detail::AsyncTaskPtr {
+    return gentest::detail::make_async_task(suspended_case_with_adopted_failure_worker());
+}
+
 gentest::Case kCases[] = {
     {
         .name             = "regressions/async_adopted_ready_queue/00_completed_waits_for_later_ready",
@@ -154,6 +183,24 @@ gentest::Case kCases[] = {
         .fixture_lifetime = gentest::FixtureLifetime::None,
         .suite            = "regressions",
         .async_fn         = &completed_case_with_adopted_failure_worker_fn,
+        .is_async         = true,
+    },
+    {
+        .name             = "regressions/async_adopted_failure_wake/01_suspended_adopted_worker_fails",
+        .fn               = &unused_sync,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+        .async_fn         = &suspended_case_with_adopted_failure_worker_fn,
         .is_async         = true,
     },
 };

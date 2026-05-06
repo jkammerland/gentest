@@ -30,11 +30,36 @@ template <typename T = void> class async_test;
 
 namespace detail {
 
+struct AsyncFrame {
+    explicit AsyncFrame(std::coroutine_handle<> coroutine) noexcept : handle(coroutine) {}
+
+    AsyncFrame(const AsyncFrame &)            = delete;
+    AsyncFrame &operator=(const AsyncFrame &) = delete;
+
+    ~AsyncFrame() {
+        if (handle) {
+            handle.destroy();
+        }
+    }
+
+    [[nodiscard]] auto address() const noexcept -> void * { return handle.address(); }
+    [[nodiscard]] auto done() const noexcept -> bool { return !handle || handle.done(); }
+
+    void               cancel() noexcept { canceled.store(true, std::memory_order_release); }
+    [[nodiscard]] auto is_canceled() const noexcept -> bool { return canceled.load(std::memory_order_acquire); }
+
+    std::coroutine_handle<> handle{};
+    std::atomic_bool        canceled{false};
+};
+
+using AsyncFramePtr = std::shared_ptr<AsyncFrame>;
+
 class AsyncScheduler {
   public:
     class Control {
       public:
         void post(std::coroutine_handle<> handle) const;
+        void post(const AsyncFramePtr &frame) const;
         void cancel_waiters(std::coroutine_handle<> handle) const noexcept;
 
       private:
@@ -48,7 +73,8 @@ class AsyncScheduler {
       public:
         using BeforePost = std::function<bool()>;
 
-        WaiterToken(std::weak_ptr<Control> control, std::coroutine_handle<> handle) : control_(std::move(control)), handle_(handle) {}
+        WaiterToken(std::weak_ptr<Control> control, std::weak_ptr<AsyncFrame> frame)
+            : control_(std::move(control)), frame_(std::move(frame)) {}
 
         void               post();
         void               cancel() noexcept;
@@ -56,11 +82,11 @@ class AsyncScheduler {
         [[nodiscard]] auto active() const noexcept -> bool;
 
       private:
-        mutable std::mutex      mtx_;
-        std::weak_ptr<Control>  control_;
-        std::coroutine_handle<> handle_{};
-        BeforePost              before_post_;
-        std::atomic_bool        active_{true};
+        mutable std::mutex        mtx_;
+        std::weak_ptr<Control>    control_;
+        std::weak_ptr<AsyncFrame> frame_;
+        BeforePost                before_post_;
+        std::atomic_bool          active_{true};
     };
 
     using WaiterTokenPtr = std::shared_ptr<WaiterToken>;
@@ -68,9 +94,19 @@ class AsyncScheduler {
     AsyncScheduler() : control_(std::make_shared<Control>()) { control_->scheduler_ = this; }
     virtual ~AsyncScheduler() { deactivate(); }
 
-    virtual void post(std::coroutine_handle<> handle)                                        = 0;
+    virtual void post(std::coroutine_handle<> handle) = 0;
+    virtual void post_frame(const AsyncFramePtr &frame) {
+        if (frame && frame->handle) {
+            post(frame->handle);
+        }
+    }
     virtual void block(std::coroutine_handle<> handle, std::string reason)                   = 0;
     virtual void attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) = 0;
+    virtual void attach_child_frame(const AsyncFramePtr &child, std::coroutine_handle<> parent) {
+        if (child && child->handle) {
+            attach_child(child->handle, parent);
+        }
+    }
 
     virtual void block_at(std::coroutine_handle<> handle, std::string reason, const std::source_location &) {
         block(handle, std::move(reason));
@@ -91,7 +127,10 @@ class AsyncScheduler {
     [[nodiscard]] auto control() const noexcept -> std::shared_ptr<Control> { return control_; }
 
     [[nodiscard]] virtual auto make_waiter(std::coroutine_handle<> handle) -> WaiterTokenPtr {
-        return std::make_shared<WaiterToken>(control_, handle);
+        (void)handle;
+        auto token = std::make_shared<WaiterToken>(control_, std::weak_ptr<AsyncFrame>{});
+        token->cancel();
+        return token;
     }
 
   protected:
@@ -114,6 +153,13 @@ inline void AsyncScheduler::Control::post(std::coroutine_handle<> handle) const 
     }
 }
 
+inline void AsyncScheduler::Control::post(const AsyncFramePtr &frame) const {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (scheduler_) {
+        scheduler_->post_frame(frame);
+    }
+}
+
 inline void AsyncScheduler::Control::cancel_waiters(std::coroutine_handle<> handle) const noexcept {
     std::lock_guard<std::mutex> lk(mtx_);
     if (scheduler_) {
@@ -126,21 +172,21 @@ inline void AsyncScheduler::WaiterToken::post() {
         return;
     }
     std::shared_ptr<Control> control;
-    std::coroutine_handle<>  handle{};
+    AsyncFramePtr            frame;
     BeforePost               before_post;
     {
         std::lock_guard<std::mutex> lk(mtx_);
         control = control_.lock();
-        handle  = handle_;
-        handle_ = {};
+        frame   = frame_.lock();
+        frame_.reset();
         control_.reset();
         before_post = std::move(before_post_);
     }
     if (before_post && !before_post()) {
         return;
     }
-    if (control && handle) {
-        control->post(handle);
+    if (control && frame && !frame->is_canceled()) {
+        control->post(frame);
     }
 }
 
@@ -149,8 +195,8 @@ inline void AsyncScheduler::WaiterToken::cancel() noexcept {
         return;
     }
     std::lock_guard<std::mutex> lk(mtx_);
-    handle_      = {};
     before_post_ = {};
+    frame_.reset();
     control_.reset();
 }
 
@@ -194,6 +240,7 @@ class AsyncTask {
     virtual ~AsyncTask() = default;
 
     [[nodiscard]] virtual auto handle() const noexcept -> std::coroutine_handle<> = 0;
+    [[nodiscard]] virtual auto frame() const noexcept -> AsyncFramePtr            = 0;
     virtual void               set_scheduler(AsyncScheduler *scheduler) noexcept  = 0;
     [[nodiscard]] virtual auto exception() const noexcept -> std::exception_ptr   = 0;
 };
@@ -685,12 +732,12 @@ template <typename T> class async_test final : public detail::AsyncTask {
     };
 
     async_test() = default;
-    explicit async_test(std::coroutine_handle<promise_type> handle) noexcept : handle_(handle) {}
-    async_test(async_test &&other) noexcept : handle_(std::exchange(other.handle_, {})) {}
+    explicit async_test(std::coroutine_handle<promise_type> handle) : frame_(std::make_shared<detail::AsyncFrame>(handle)) {}
+    async_test(async_test &&other) noexcept : frame_(std::move(other.frame_)) {}
     auto operator=(async_test &&other) noexcept -> async_test & {
         if (this != &other) {
             reset();
-            handle_ = std::exchange(other.handle_, {});
+            frame_ = std::move(other.frame_);
         }
         return *this;
     }
@@ -700,23 +747,30 @@ template <typename T> class async_test final : public detail::AsyncTask {
 
     ~async_test() override { reset(); }
 
-    [[nodiscard]] auto handle() const noexcept -> std::coroutine_handle<> override { return handle_; }
+    [[nodiscard]] auto handle() const noexcept -> std::coroutine_handle<> override {
+        return frame_ ? frame_->handle : std::coroutine_handle<>{};
+    }
+
+    [[nodiscard]] auto frame() const noexcept -> detail::AsyncFramePtr override { return frame_; }
 
     void set_scheduler(detail::AsyncScheduler *scheduler) noexcept override {
-        if (handle_) {
-            handle_.promise().scheduler = scheduler;
+        if (auto handle = typed_handle()) {
+            handle.promise().scheduler = scheduler;
         }
     }
 
     [[nodiscard]] auto exception() const noexcept -> std::exception_ptr override {
-        return handle_ ? handle_.promise().exception : std::exception_ptr{};
+        if (auto handle = typed_handle()) {
+            return handle.promise().exception;
+        }
+        return {};
     }
 
-    [[nodiscard]] auto await_ready() const noexcept -> bool { return !handle_ || handle_.done(); }
+    [[nodiscard]] auto await_ready() const noexcept -> bool { return !frame_ || frame_->done(); }
 
     void await_suspend(std::coroutine_handle<> continuation) {
         auto *scheduler = detail::current_async_scheduler();
-        if (!scheduler || !handle_) {
+        if (!scheduler || !frame_ || !frame_->handle) {
             std::abort();
         }
         await_suspend_with_token(continuation, *scheduler, scheduler->make_waiter(continuation));
@@ -724,53 +778,62 @@ template <typename T> class async_test final : public detail::AsyncTask {
 
     void await_suspend_with_token(std::coroutine_handle<> continuation, detail::AsyncScheduler &scheduler,
                                   const detail::AsyncScheduler::WaiterTokenPtr &token) {
-        if (!handle_) {
+        auto handle = typed_handle();
+        if (!handle) {
             std::abort();
         }
-        handle_.promise().scheduler          = &scheduler;
-        handle_.promise().continuation       = continuation;
-        handle_.promise().continuation_token = token;
-        scheduler.attach_child(handle_, continuation);
-        scheduler.post(handle_);
+        handle.promise().scheduler          = &scheduler;
+        handle.promise().continuation       = continuation;
+        handle.promise().continuation_token = token;
+        scheduler.attach_child_frame(frame_, continuation);
+        scheduler.post_frame(frame_);
     }
 
     void cancel_wait(const detail::AsyncScheduler::Control &control) noexcept {
-        if (handle_) {
-            control.cancel_waiters(handle_);
-            handle_.promise().continuation_token.reset();
+        if (auto handle = typed_handle()) {
+            control.cancel_waiters(handle);
+            handle.promise().continuation_token.reset();
         }
     }
 
     auto await_resume() -> T {
-        if (!handle_) {
+        auto handle = typed_handle();
+        if (!handle) {
 #if GENTEST_EXCEPTIONS_ENABLED
             throw std::runtime_error("gentest::async_test resumed without coroutine state");
 #else
             std::abort();
 #endif
         }
-        if (handle_.promise().exception) {
-            std::rethrow_exception(handle_.promise().exception);
+        if (handle.promise().exception) {
+            std::rethrow_exception(handle.promise().exception);
         }
-        if (!handle_.promise().value) {
+        if (!handle.promise().value) {
 #if GENTEST_EXCEPTIONS_ENABLED
             throw std::runtime_error("gentest::async_test resumed without return value");
 #else
             std::abort();
 #endif
         }
-        return std::move(*handle_.promise().value);
+        return std::move(*handle.promise().value);
     }
 
   private:
+    [[nodiscard]] auto typed_handle() const noexcept -> std::coroutine_handle<promise_type> {
+        if (!frame_ || !frame_->handle) {
+            return {};
+        }
+        return std::coroutine_handle<promise_type>::from_address(frame_->handle.address());
+    }
+
     void reset() noexcept {
-        if (handle_) {
-            handle_.destroy();
-            handle_ = {};
+        if (frame_) {
+            frame_->cancel();
+            frame_.reset();
         }
     }
 
-    std::coroutine_handle<promise_type> handle_{};
+    detail::AsyncFramePtr frame_;
 };
 
 template <> class async_test<void> final : public detail::AsyncTask {
@@ -795,12 +858,12 @@ template <> class async_test<void> final : public detail::AsyncTask {
     };
 
     async_test() = default;
-    explicit async_test(std::coroutine_handle<promise_type> handle) noexcept : handle_(handle) {}
-    async_test(async_test &&other) noexcept : handle_(std::exchange(other.handle_, {})) {}
+    explicit async_test(std::coroutine_handle<promise_type> handle) : frame_(std::make_shared<detail::AsyncFrame>(handle)) {}
+    async_test(async_test &&other) noexcept : frame_(std::move(other.frame_)) {}
     auto operator=(async_test &&other) noexcept -> async_test & {
         if (this != &other) {
             reset();
-            handle_ = std::exchange(other.handle_, {});
+            frame_ = std::move(other.frame_);
         }
         return *this;
     }
@@ -810,23 +873,30 @@ template <> class async_test<void> final : public detail::AsyncTask {
 
     ~async_test() override { reset(); }
 
-    [[nodiscard]] auto handle() const noexcept -> std::coroutine_handle<> override { return handle_; }
+    [[nodiscard]] auto handle() const noexcept -> std::coroutine_handle<> override {
+        return frame_ ? frame_->handle : std::coroutine_handle<>{};
+    }
+
+    [[nodiscard]] auto frame() const noexcept -> detail::AsyncFramePtr override { return frame_; }
 
     void set_scheduler(detail::AsyncScheduler *scheduler) noexcept override {
-        if (handle_) {
-            handle_.promise().scheduler = scheduler;
+        if (auto handle = typed_handle()) {
+            handle.promise().scheduler = scheduler;
         }
     }
 
     [[nodiscard]] auto exception() const noexcept -> std::exception_ptr override {
-        return handle_ ? handle_.promise().exception : std::exception_ptr{};
+        if (auto handle = typed_handle()) {
+            return handle.promise().exception;
+        }
+        return {};
     }
 
-    [[nodiscard]] auto await_ready() const noexcept -> bool { return !handle_ || handle_.done(); }
+    [[nodiscard]] auto await_ready() const noexcept -> bool { return !frame_ || frame_->done(); }
 
     void await_suspend(std::coroutine_handle<> continuation) {
         auto *scheduler = detail::current_async_scheduler();
-        if (!scheduler || !handle_) {
+        if (!scheduler || !frame_ || !frame_->handle) {
             std::abort();
         }
         await_suspend_with_token(continuation, *scheduler, scheduler->make_waiter(continuation));
@@ -834,45 +904,54 @@ template <> class async_test<void> final : public detail::AsyncTask {
 
     void await_suspend_with_token(std::coroutine_handle<> continuation, detail::AsyncScheduler &scheduler,
                                   const detail::AsyncScheduler::WaiterTokenPtr &token) {
-        if (!handle_) {
+        auto handle = typed_handle();
+        if (!handle) {
             std::abort();
         }
-        handle_.promise().scheduler          = &scheduler;
-        handle_.promise().continuation       = continuation;
-        handle_.promise().continuation_token = token;
-        scheduler.attach_child(handle_, continuation);
-        scheduler.post(handle_);
+        handle.promise().scheduler          = &scheduler;
+        handle.promise().continuation       = continuation;
+        handle.promise().continuation_token = token;
+        scheduler.attach_child_frame(frame_, continuation);
+        scheduler.post_frame(frame_);
     }
 
     void cancel_wait(const detail::AsyncScheduler::Control &control) noexcept {
-        if (handle_) {
-            control.cancel_waiters(handle_);
-            handle_.promise().continuation_token.reset();
+        if (auto handle = typed_handle()) {
+            control.cancel_waiters(handle);
+            handle.promise().continuation_token.reset();
         }
     }
 
     void await_resume() const {
-        if (!handle_) {
+        auto handle = typed_handle();
+        if (!handle) {
 #if GENTEST_EXCEPTIONS_ENABLED
             throw std::runtime_error("gentest::async_test resumed without coroutine state");
 #else
             std::abort();
 #endif
         }
-        if (handle_.promise().exception) {
-            std::rethrow_exception(handle_.promise().exception);
+        if (handle.promise().exception) {
+            std::rethrow_exception(handle.promise().exception);
         }
     }
 
   private:
+    [[nodiscard]] auto typed_handle() const noexcept -> std::coroutine_handle<promise_type> {
+        if (!frame_ || !frame_->handle) {
+            return {};
+        }
+        return std::coroutine_handle<promise_type>::from_address(frame_->handle.address());
+    }
+
     void reset() noexcept {
-        if (handle_) {
-            handle_.destroy();
-            handle_ = {};
+        if (frame_) {
+            frame_->cancel();
+            frame_.reset();
         }
     }
 
-    std::coroutine_handle<promise_type> handle_{};
+    detail::AsyncFramePtr frame_;
 };
 
 namespace async {
