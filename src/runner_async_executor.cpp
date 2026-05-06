@@ -210,7 +210,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             ctx->event_lines.emplace_back(issue);
             ctx->event_kinds.push_back('F');
         }
-        ctx->has_failures.store(true, std::memory_order_release);
+        gentest::detail::mark_context_failed(*ctx);
     };
 
     const auto record_canceled_completed_result = [&](DeferredCanceledTask &deferred) {

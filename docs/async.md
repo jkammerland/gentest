@@ -275,8 +275,9 @@ gentest::async_test<void> event_timeout() {
 
 For `future<T>::wait(reason)`, a ready result contains the future value by
 value. A timeout contains no value and cancels that waiter. `future<T>` remains
-single-consumer: starting a timed wait counts as the future's one waiter, even
-if the timeout wins.
+single-consumer for active waits and final value consumption: a timed-out or
+dropped wait does not consume the future, so a later wait can still receive the
+value, exception, or blocked result.
 
 ```cpp
 [[using gentest: test("async/future_timeout")]]

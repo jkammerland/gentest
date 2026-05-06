@@ -1434,6 +1434,13 @@ gentest_add_cmake_script_test(
     ARGS --filter=regressions/async_adopted_ready_queue/* --kind=test --no-color
     DEFINES TIMEOUT_SEC=5 EXPECT_RC=0)
 
+gentest_add_cmake_script_test(
+    NAME regression_async_adopted_failure_wakes_fail_fast
+    PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --run=regressions/async_adopted_failure_wake/00_completed_adopted_worker_fails --kind=test --fail-fast --no-color
+    DEFINES TIMEOUT_SEC=5 EXPECT_RC=1)
+
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(
         regression_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown

@@ -217,24 +217,39 @@ inline void register_adopted_release_wake(const std::shared_ptr<TestContextInfo>
     wakes.push_back(wake);
 }
 
-inline void notify_adopted_contexts_released(TestContextInfo &ctx) noexcept {
+inline auto collect_adopted_release_wakes(TestContextInfo &ctx) -> std::vector<std::shared_ptr<TestContextInfo::AdoptedReleaseWake>> {
     std::vector<std::shared_ptr<TestContextInfo::AdoptedReleaseWake>> wakes;
-    {
-        std::lock_guard<std::mutex> lk(ctx.adopted_mtx);
-        auto                       &registered_wakes = ctx.adopted_release_wakes;
-        for (auto it = registered_wakes.begin(); it != registered_wakes.end();) {
-            if (auto wake = it->lock()) {
-                wakes.push_back(std::move(wake));
-                ++it;
-            } else {
-                it = registered_wakes.erase(it);
-            }
+
+    std::lock_guard<std::mutex> lk(ctx.adopted_mtx);
+    auto                       &registered_wakes = ctx.adopted_release_wakes;
+    for (auto it = registered_wakes.begin(); it != registered_wakes.end();) {
+        if (auto wake = it->lock()) {
+            wakes.push_back(std::move(wake));
+            ++it;
+        } else {
+            it = registered_wakes.erase(it);
         }
     }
+
+    return wakes;
+}
+
+inline void notify_context_progress(TestContextInfo &ctx) noexcept {
+    auto wakes = collect_adopted_release_wakes(ctx);
     for (auto &wake : wakes) {
         wake->notify_all();
     }
+}
+
+inline void notify_adopted_contexts_released(TestContextInfo &ctx) noexcept {
+    notify_context_progress(ctx);
     ctx.adopted_cv.notify_all();
+}
+
+inline void mark_context_failed(TestContextInfo &ctx) noexcept {
+    if (!ctx.has_failures.exchange(true, std::memory_order_acq_rel)) {
+        notify_context_progress(ctx);
+    }
 }
 
 inline std::string first_recorded_failure(const std::shared_ptr<TestContextInfo> &ctx) {

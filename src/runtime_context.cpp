@@ -156,7 +156,7 @@ void record_failure(std::string msg) {
     auto  ctx    = current_test_storage();
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
     buffer.failures.push_back(std::move(msg));
-    ctx->has_failures.store(true, std::memory_order_relaxed);
+    mark_context_failed(*ctx);
     buffer.failure_locations.push_back({std::string{}, 0});
     buffer.event_lines.push_back(buffer.failures.back());
     buffer.event_kinds.push_back('F');
@@ -171,7 +171,7 @@ void record_failure_at(std::string msg, std::string file, unsigned line) {
     auto  ctx    = current_test_storage();
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
     buffer.failures.push_back(std::move(msg));
-    ctx->has_failures.store(true, std::memory_order_relaxed);
+    mark_context_failed(*ctx);
     buffer.failure_locations.push_back({normalize_failure_file(std::move(file)), line});
     buffer.event_lines.push_back(buffer.failures.back());
     buffer.event_kinds.push_back('F');

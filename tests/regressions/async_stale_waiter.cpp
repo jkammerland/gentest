@@ -152,6 +152,8 @@ class TrackingScheduler final : public gentest::detail::AsyncScheduler {
         record_late_posts_ = true;
     }
 
+    void shutdown() noexcept { deactivate(); }
+
     [[nodiscard]] auto late_posts() const -> int {
         std::lock_guard<std::mutex> lk(mtx_);
         return late_posts_;
@@ -224,6 +226,72 @@ auto wait_for_late_event_after_deadline(gentest::async::event<int> &event) -> ge
 auto wait_for_late_future_after_deadline(gentest::async::future<int> future) -> gentest::async_test<gentest::async::wait_status> {
     auto result = co_await gentest::async::wait_for(future.wait("late future"), kLateCompletionTimeout);
     co_return result.status();
+}
+
+auto future_wait_after_timeout_task() -> gentest::async_test<void> {
+    gentest::async::promise<int> promise;
+    auto                         future = promise.get_future();
+
+    auto timed = co_await gentest::async::wait_for(future.wait("future timed waiter"), std::chrono::milliseconds(1));
+    if (!timed.timed_out()) {
+        throw std::runtime_error("future timed wait did not time out");
+    }
+
+    promise.set_value(77);
+    const int value = co_await future.wait("future second waiter after timeout");
+    if (value != 77) {
+        throw std::runtime_error("future wait after timeout returned the wrong value");
+    }
+}
+
+auto future_wait_after_dropped_awaitable_task() -> gentest::async_test<void> {
+    gentest::async::promise<int> promise;
+    auto                         future = promise.get_future();
+
+    {
+        auto dropped = future.wait("future dropped waiter");
+        (void)dropped;
+    }
+
+    promise.set_value(88);
+    const int value = co_await future.wait("future real waiter after dropped awaitable");
+    if (value != 88) {
+        throw std::runtime_error("future wait after dropped awaitable returned the wrong value");
+    }
+}
+
+struct SchedulerLifetimeProbeAwaitable {
+    using gentest_async_wait_supported = void;
+
+    explicit SchedulerLifetimeProbeAwaitable(std::shared_ptr<std::atomic<bool>> shutdown) : scheduler_shutdown(std::move(shutdown)) {}
+
+    [[nodiscard]] auto await_ready() const noexcept -> bool { return false; }
+
+    void await_suspend_with_token(std::coroutine_handle<> handle, gentest::detail::AsyncScheduler &scheduler,
+                                  gentest::detail::AsyncScheduler::WaiterTokenPtr token) {
+        waiter = std::move(token);
+        scheduler.block(handle, "scheduler lifetime probe blocked");
+    }
+
+    constexpr void await_resume() const noexcept {}
+
+    void cancel_wait(gentest::detail::AsyncScheduler &) noexcept {
+        if (scheduler_shutdown && scheduler_shutdown->load(std::memory_order_acquire)) {
+            raw_cancel_after_shutdown.fetch_add(1, std::memory_order_acq_rel);
+        }
+    }
+
+    static inline std::atomic<int> raw_cancel_after_shutdown{0};
+
+    std::shared_ptr<std::atomic<bool>>              scheduler_shutdown;
+    gentest::detail::AsyncScheduler::WaiterTokenPtr waiter;
+};
+
+auto timed_wait_cleanup_after_scheduler_shutdown_task(std::shared_ptr<std::atomic<bool>> scheduler_shutdown) -> gentest::async_test<void> {
+    auto result = co_await gentest::async::wait_for(SchedulerLifetimeProbeAwaitable{std::move(scheduler_shutdown)}, std::chrono::hours(1));
+    if (!result.timed_out()) {
+        throw std::runtime_error("scheduler lifetime probe unexpectedly became ready");
+    }
 }
 
 auto blocking_timer_stress_task() -> gentest::async_test<void> {
@@ -896,15 +964,13 @@ int main() try {
         auto                          future  = promise.get_future();
         auto                          awaiter = future.wait("first waiter");
         (void)awaiter;
-        try {
-            (void)future.wait("second waiter");
-            return fail("future allowed multiple waiters");
-        } catch (const std::logic_error &ex) {
-            if (std::string_view(ex.what()).empty()) {
-                return fail("future multiple waiter error had no diagnostic");
-            }
-        }
         promise.set_value();
+        TrackingScheduler scheduler;
+        auto              task = wait_for_promise(std::move(future));
+        scheduler.run_until_blocked(task);
+        if (!task.handle().done()) {
+            return fail("future dropped waiter blocked a later real waiter");
+        }
     }
 
     {
@@ -957,6 +1023,37 @@ int main() try {
         }
         if (task.await_resume() != gentest::async::wait_status::timeout) {
             return fail("late future completion after expired deadline won wait_for race");
+        }
+    }
+
+    {
+        std::string error;
+        if (!gentest::detail::run_async_task_blocking(future_wait_after_timeout_task(), "future wait after timeout", error)) {
+            return fail(std::string("future wait after timeout failed: ") + error);
+        }
+    }
+
+    {
+        std::string error;
+        if (!gentest::detail::run_async_task_blocking(future_wait_after_dropped_awaitable_task(), "future wait after dropped awaitable",
+                                                      error)) {
+            return fail(std::string("future wait after dropped awaitable failed: ") + error);
+        }
+    }
+
+    {
+        SchedulerLifetimeProbeAwaitable::raw_cancel_after_shutdown.store(0, std::memory_order_release);
+        auto              scheduler_shutdown = std::make_shared<std::atomic<bool>>(false);
+        TrackingScheduler scheduler;
+        auto              task = gentest::detail::make_async_task(timed_wait_cleanup_after_scheduler_shutdown_task(scheduler_shutdown));
+
+        scheduler.run_until_blocked(*task);
+        scheduler_shutdown->store(true, std::memory_order_release);
+        scheduler.shutdown();
+        task.reset();
+
+        if (SchedulerLifetimeProbeAwaitable::raw_cancel_after_shutdown.load(std::memory_order_acquire) != 0) {
+            return fail("timed wait cleanup used a deactivated raw scheduler");
         }
     }
 

@@ -3,6 +3,7 @@
 #include "gentest/runner.h"
 
 #include <atomic>
+#include <chrono>
 #include <future>
 #include <memory>
 #include <span>
@@ -17,6 +18,7 @@ gentest::async::manual_event        complete_first_case;
 std::shared_ptr<std::promise<void>> worker_release;
 std::atomic<bool>                   first_case_resumed{false};
 std::atomic<bool>                   releaser_case_resumed{false};
+std::atomic<bool>                   failure_worker_started{false};
 
 void unused_sync(void *) {}
 
@@ -67,6 +69,38 @@ auto release_adopted_worker_after_yield_fn(void *) -> gentest::detail::AsyncTask
     return gentest::detail::make_async_task(release_adopted_worker_after_yield());
 }
 
+auto completed_case_with_adopted_failure_worker() -> gentest::async_test<void> {
+    failure_worker_started.store(false, std::memory_order_release);
+
+    co_await gentest::async::yield();
+
+    auto context = gentest::get_current_context();
+    ASSERT_TRUE(context != nullptr);
+
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto lease = gentest::set_current_context(context);
+        failure_worker_started.store(true, std::memory_order_release);
+        started->set_value();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        EXPECT_TRUE(false, "adopted worker failure should wake fail-fast adopted drain");
+
+        while (context && context->active.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }).detach();
+
+    ready.wait();
+    co_return;
+}
+
+auto completed_case_with_adopted_failure_worker_fn(void *) -> gentest::detail::AsyncTaskPtr {
+    return gentest::detail::make_async_task(completed_case_with_adopted_failure_worker());
+}
+
 gentest::Case kCases[] = {
     {
         .name             = "regressions/async_adopted_ready_queue/00_completed_waits_for_later_ready",
@@ -102,6 +136,24 @@ gentest::Case kCases[] = {
         .fixture_lifetime = gentest::FixtureLifetime::None,
         .suite            = "regressions",
         .async_fn         = &release_adopted_worker_after_yield_fn,
+        .is_async         = true,
+    },
+    {
+        .name             = "regressions/async_adopted_failure_wake/00_completed_adopted_worker_fails",
+        .fn               = &unused_sync,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+        .async_fn         = &completed_case_with_adopted_failure_worker_fn,
         .is_async         = true,
     },
 };
