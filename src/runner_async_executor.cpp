@@ -180,12 +180,15 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
     const auto has_adopted_work = [](const AsyncCaseRun &run) {
         return run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
     };
-    const auto context_failed = [](const AsyncCaseRun &run) {
-        return run.ctxinfo && !async_run_requests_xfail(run) && run.ctxinfo->has_failures.load(std::memory_order_acquire);
+    const auto context_has_failure = [](const AsyncCaseRun &run) {
+        return run.ctxinfo && run.ctxinfo->has_failures.load(std::memory_order_acquire);
+    };
+    const auto context_counts_as_failure = [&](const AsyncCaseRun &run) {
+        return context_has_failure(run) && !async_run_requests_xfail(run);
     };
     const auto any_unfinalized_adopted_context_failed = [&] {
-        return std::ranges::any_of(async_runs,
-                                   [&](const AsyncCaseRun &run) { return !run.finalized && has_adopted_work(run) && context_failed(run); });
+        return std::ranges::any_of(
+            async_runs, [&](const AsyncCaseRun &run) { return !run.finalized && has_adopted_work(run) && context_counts_as_failure(run); });
     };
 
     bool       fail_fast_stop_requested = false;
@@ -345,24 +348,48 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
     };
 
     const auto finish_pending_async_group = [&] {
-        if (finalize_completed_runs()) {
-            return true;
-        }
-        const auto failed_adopted_context = [&] {
-            return std::ranges::any_of(
-                async_runs, [&](const AsyncCaseRun &run) { return !run.finalized && has_adopted_work(run) && context_failed(run); });
-        };
-        const BatchAsyncScheduler::StopCallback drain_should_stop =
-            fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{};
-        const BatchAsyncScheduler::StopCallback stop_waiting_for_adopted = BatchAsyncScheduler::StopCallback(failed_adopted_context);
-        const bool                              stopped_while_draining =
-            scheduler.finish_unresumable(drain_should_stop, [&] { return finalize_completed_runs(); }, stop_waiting_for_adopted);
-        if (finalize_completed_runs()) {
-            return true;
-        }
-        if (stopped_while_draining && fail_fast) {
-            advance_first_unfinalized();
-            return true;
+        while (true) {
+            if (finalize_completed_runs()) {
+                return true;
+            }
+            const auto failed_adopted_context = [&] {
+                return std::ranges::any_of(async_runs, [&](const AsyncCaseRun &run) {
+                    return !run.finalized && has_adopted_work(run) && context_has_failure(run);
+                });
+            };
+            const BatchAsyncScheduler::StopCallback drain_should_stop =
+                fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{};
+            const BatchAsyncScheduler::StopCallback stop_waiting_for_adopted = BatchAsyncScheduler::StopCallback(failed_adopted_context);
+            const bool                              stopped_while_draining =
+                scheduler.finish_unresumable(drain_should_stop, [&] { return finalize_completed_runs(); }, stop_waiting_for_adopted);
+            if (finalize_completed_runs()) {
+                return true;
+            }
+
+            bool finalized_failed_adopted_context = false;
+            bool fail_fast_failure_finalized      = false;
+            for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
+                auto &run = async_runs[run_index];
+                if (run.finalized || !has_adopted_work(run) || !context_has_failure(run)) {
+                    continue;
+                }
+                const bool request_fail_fast_stop = fail_fast && context_counts_as_failure(run);
+                fail_fast_failure_finalized       = fail_fast_failure_finalized || request_fail_fast_stop;
+                finalized_failed_adopted_context  = true;
+                finalize_canceled_adopted_run(run_index, request_fail_fast_stop);
+            }
+            if (finalized_failed_adopted_context) {
+                advance_first_unfinalized();
+                if (fail_fast_failure_finalized || should_stop()) {
+                    return true;
+                }
+                continue;
+            }
+            if (stopped_while_draining && fail_fast) {
+                advance_first_unfinalized();
+                return true;
+            }
+            break;
         }
         for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
             auto &run = async_runs[run_index];
@@ -370,7 +397,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                 continue;
             }
             if (has_adopted_work(run)) {
-                const bool failed_context = context_failed(run);
+                const bool failed_context = context_has_failure(run);
                 if (run.ready_to_finalize) {
                     classify_async_exception(run);
                 } else if (!failed_context && run.exception == InvokeException::None) {
@@ -416,7 +443,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                 continue;
             }
             const bool adopted_work   = has_adopted_work(run);
-            const bool failed_context = context_failed(run);
+            const bool failed_context = context_has_failure(run);
             if (adopted_work && run.ready_to_finalize) {
                 classify_async_exception(run);
             }

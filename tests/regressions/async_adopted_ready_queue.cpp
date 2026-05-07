@@ -210,7 +210,8 @@ auto unrelated_adopted_worker_finishes_after_neighbor_failure() -> gentest::asyn
     auto started = std::make_shared<std::promise<void>>();
     auto ready   = started->get_future();
 
-    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+    auto worker_context = context;
+    std::thread([context = std::move(worker_context), started = std::move(started)]() mutable {
         auto lease = gentest::set_current_context(context);
         isolated_neighbor_started.store(true, std::memory_order_release);
         started->set_value();

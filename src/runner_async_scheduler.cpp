@@ -179,7 +179,7 @@ void BatchAsyncScheduler::complete(std::size_t owner) {
     }
     cancel_owner(owner);
     if (runs_[owner].ctxinfo) {
-        gentest::detail::request_context_stop(*runs_[owner].ctxinfo);
+        gentest::runner::detail::request_active_test_context_stop(runs_[owner].ctxinfo);
     }
     runs_[owner].ready_to_finalize = true;
     adopted_release_wake_->notify_one();

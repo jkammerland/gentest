@@ -30,11 +30,19 @@ class CurrentTestContextScope {
     std::shared_ptr<gentest::detail::TestContextInfo> previous_;
 };
 
+inline void request_active_test_context_stop(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
+    if (!ctx) {
+        return;
+    }
+    CurrentTestContextScope current_scope(ctx);
+    gentest::detail::request_context_stop(*ctx);
+}
+
 inline void finish_active_test_context(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
     if (!ctx) {
         return;
     }
-    gentest::detail::request_context_stop(*ctx);
+    request_active_test_context_stop(ctx);
     gentest::detail::wait_for_adopted_contexts(ctx);
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
     gentest::detail::close_context_to_late_operations(*ctx);
@@ -44,7 +52,7 @@ inline void deactivate_active_test_context_without_wait(const std::shared_ptr<ge
     if (!ctx) {
         return;
     }
-    gentest::detail::request_context_stop(*ctx);
+    request_active_test_context_stop(ctx);
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
     gentest::detail::close_context_if_released(*ctx);
 }
@@ -53,9 +61,9 @@ inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentes
     if (!ctx) {
         return;
     }
-    gentest::detail::request_context_stop(*ctx);
     {
         CurrentTestContextScope current_scope(ctx);
+        gentest::detail::request_context_stop(*ctx);
         gentest::detail::run_context_cancel_hooks(ctx);
     }
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);

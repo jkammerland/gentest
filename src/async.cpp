@@ -3,6 +3,7 @@
 #include "async_scheduler_core.h"
 #include "gentest/detail/runtime_context.h"
 #include "gentest/detail/runtime_support.h"
+#include "runner_context_scope.h"
 
 #include <algorithm>
 #include <chrono>
@@ -195,7 +196,7 @@ auto run_async_task_blocking(async_test<void> task, std::string_view label, std:
     BlockingAsyncScheduler scheduler(ctx);
     const auto             status = task_ptr ? scheduler.run(*task_ptr, blocked_reason) : BlockingAsyncStatus::Blocked;
 
-    request_context_stop(*ctx);
+    gentest::runner::detail::request_active_test_context_stop(ctx);
     wait_for_adopted_contexts(ctx);
     close_context_to_late_operations(*ctx);
     flush_current_buffer_for(ctx.get());
