@@ -18,14 +18,19 @@ using namespace gentest::asserts;
 
 gentest::async::manual_event        complete_first_case;
 gentest::async::manual_event        never_resume_after_failure;
+gentest::async::manual_event        unrelated_adopted_finish;
 std::shared_ptr<std::promise<void>> worker_release;
 std::atomic<bool>                   first_case_resumed{false};
 std::atomic<bool>                   releaser_case_resumed{false};
 std::atomic<bool>                   failure_worker_started{false};
+std::atomic<bool>                   isolated_failure_recorded{false};
+std::atomic<bool>                   isolated_neighbor_started{false};
 
 void unused_sync(void *) {}
 
 auto completed_case_with_adopted_worker() -> gentest::async_test<void> {
+    gentest::set_log_policy(gentest::LogPolicy::Always);
+
     complete_first_case.reset_all();
     worker_release = std::make_shared<std::promise<void>>();
     first_case_resumed.store(false, std::memory_order_release);
@@ -41,6 +46,7 @@ auto completed_case_with_adopted_worker() -> gentest::async_test<void> {
         auto lease = gentest::set_current_context(context);
         started->set_value();
         release_future.wait();
+        gentest::log("adopted worker released after owner completion");
     }).detach();
 
     ready.wait();
@@ -130,6 +136,102 @@ auto suspended_case_with_adopted_failure_worker_fn(void *) -> gentest::detail::A
     return gentest::detail::make_async_task(suspended_case_with_adopted_failure_worker());
 }
 
+auto suspended_xfail_case_with_adopted_failure_worker() -> gentest::async_test<void> {
+    never_resume_after_failure.reset_all();
+    gentest::xfail("expected adopted worker failure");
+
+    auto context = gentest::get_current_context();
+    ASSERT_TRUE(static_cast<bool>(context));
+
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto lease = gentest::set_current_context(context);
+        started->set_value();
+
+        EXPECT_TRUE(false, "xfail adopted worker failure should wake adopted drain");
+
+        while (context && !context.stop_requested()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }).detach();
+
+    ready.wait();
+    co_await never_resume_after_failure.wait("xfail owner remains suspended after adopted failure");
+}
+
+auto suspended_xfail_case_with_adopted_failure_worker_fn(void *) -> gentest::detail::AsyncTaskPtr {
+    return gentest::detail::make_async_task(suspended_xfail_case_with_adopted_failure_worker());
+}
+
+auto isolated_failed_adopted_worker() -> gentest::async_test<void> {
+    never_resume_after_failure.reset_all();
+    unrelated_adopted_finish.reset_all();
+    isolated_failure_recorded.store(false, std::memory_order_release);
+    isolated_neighbor_started.store(false, std::memory_order_release);
+
+    auto context = gentest::get_current_context();
+    ASSERT_TRUE(static_cast<bool>(context));
+
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto lease = gentest::set_current_context(context);
+        started->set_value();
+
+        while (!isolated_neighbor_started.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        EXPECT_TRUE(false, "isolated adopted worker failure");
+        isolated_failure_recorded.store(true, std::memory_order_release);
+
+        while (context && !context.stop_requested()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }).detach();
+
+    ready.wait();
+    co_await never_resume_after_failure.wait("failed adopted worker owner remains suspended");
+}
+
+auto isolated_failed_adopted_worker_fn(void *) -> gentest::detail::AsyncTaskPtr {
+    return gentest::detail::make_async_task(isolated_failed_adopted_worker());
+}
+
+auto unrelated_adopted_worker_finishes_after_neighbor_failure() -> gentest::async_test<void> {
+    gentest::set_log_policy(gentest::LogPolicy::Always);
+
+    auto context = gentest::get_current_context();
+    ASSERT_TRUE(static_cast<bool>(context));
+
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto lease = gentest::set_current_context(context);
+        isolated_neighbor_started.store(true, std::memory_order_release);
+        started->set_value();
+
+        while (!isolated_failure_recorded.load(std::memory_order_acquire)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        unrelated_adopted_finish.set("isolated.neighbor.ready");
+    }).detach();
+
+    ready.wait();
+    co_await unrelated_adopted_finish.wait("isolated.neighbor.ready");
+    EXPECT_FALSE(context.stop_requested(), "unrelated adopted context should not be stopped by neighbor failure");
+    gentest::log("unrelated adopted case completed naturally");
+}
+
+auto unrelated_adopted_worker_finishes_after_neighbor_failure_fn(void *) -> gentest::detail::AsyncTaskPtr {
+    return gentest::detail::make_async_task(unrelated_adopted_worker_finishes_after_neighbor_failure());
+}
+
 struct StopConditionState {
     std::mutex                  mtx;
     std::condition_variable_any cv_any;
@@ -194,6 +296,35 @@ auto condition_variable_worker_observes_stop() -> gentest::async_test<void> {
 
 auto condition_variable_worker_observes_stop_fn(void *) -> gentest::detail::AsyncTaskPtr {
     return gentest::detail::make_async_task(condition_variable_worker_observes_stop());
+}
+
+auto stop_callback_can_use_gentest_context() -> gentest::async_test<void> {
+    gentest::set_log_policy(gentest::LogPolicy::Always);
+
+    auto context = gentest::get_current_context();
+    ASSERT_TRUE(static_cast<bool>(context));
+
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), started = std::move(started)]() mutable {
+        auto lease = gentest::set_current_context(context);
+        auto stop  = context.stop_token();
+
+        std::stop_callback log_on_stop(stop, [] { gentest::log("stop callback observed active gentest context"); });
+
+        started->set_value();
+        while (!stop.stop_requested()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }).detach();
+
+    ready.wait();
+    co_return;
+}
+
+auto stop_callback_can_use_gentest_context_fn(void *) -> gentest::detail::AsyncTaskPtr {
+    return gentest::detail::make_async_task(stop_callback_can_use_gentest_context());
 }
 
 gentest::Case kCases[] = {
@@ -270,6 +401,60 @@ gentest::Case kCases[] = {
         .is_async         = true,
     },
     {
+        .name             = "regressions/async_adopted_xfail_failure_wake/00_suspended_adopted_worker_xfails",
+        .fn               = &unused_sync,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+        .async_fn         = &suspended_xfail_case_with_adopted_failure_worker_fn,
+        .is_async         = true,
+    },
+    {
+        .name             = "regressions/async_adopted_failure_isolation/00_failed_adopted_owner_suspended",
+        .fn               = &unused_sync,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+        .async_fn         = &isolated_failed_adopted_worker_fn,
+        .is_async         = true,
+    },
+    {
+        .name             = "regressions/async_adopted_failure_isolation/01_unrelated_adopted_finishes",
+        .fn               = &unused_sync,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+        .async_fn         = &unrelated_adopted_worker_finishes_after_neighbor_failure_fn,
+        .is_async         = true,
+    },
+    {
         .name             = "regressions/async_adopted_stop_token/00_condition_variable_any",
         .fn               = &unused_sync,
         .file             = __FILE__,
@@ -303,6 +488,24 @@ gentest::Case kCases[] = {
         .fixture_lifetime = gentest::FixtureLifetime::None,
         .suite            = "regressions",
         .async_fn         = &condition_variable_worker_observes_stop_fn,
+        .is_async         = true,
+    },
+    {
+        .name             = "regressions/async_adopted_stop_token/02_stop_callback_can_log",
+        .fn               = &unused_sync,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+        .async_fn         = &stop_callback_can_use_gentest_context_fn,
         .is_async         = true,
     },
 };
