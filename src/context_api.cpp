@@ -5,27 +5,52 @@
 #include <string>
 
 namespace gentest {
+namespace detail {
+
+struct CurrentContextAccess {
+    [[nodiscard]] static auto get(const CurrentContext &context) noexcept -> const std::shared_ptr<TestContextInfo> & {
+        return context.ctx_;
+    }
+};
+
+} // namespace detail
+
 namespace {
+
+[[nodiscard]] auto context_info(const CurrentContext &context) noexcept -> const std::shared_ptr<detail::TestContextInfo> & {
+    return detail::CurrentContextAccess::get(context);
+}
 
 void acquire_adopted_context(const CurrentContext &context) {
     if (!context) {
         return;
     }
-    std::lock_guard<std::mutex> lk(context->adopted_mtx);
-    context->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
+    const auto                 &ctx = context_info(context);
+    std::lock_guard<std::mutex> lk(ctx->adopted_mtx);
+    ctx->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
 }
 
 [[nodiscard]] auto release_adopted_context(const CurrentContext &context) noexcept -> bool {
     if (!context) {
         return false;
     }
-    std::lock_guard<std::mutex> lk(context->adopted_mtx);
-    return context->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1;
+    const auto                 &ctx = context_info(context);
+    std::lock_guard<std::mutex> lk(ctx->adopted_mtx);
+    return ctx->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1;
 }
 
 } // namespace
 
-auto get_current_context() -> CurrentContext { return detail::current_test(); }
+auto CurrentContext::stop_token() const noexcept -> std::stop_token {
+    if (!ctx_) {
+        return {};
+    }
+    return ctx_->stop_source.get_token();
+}
+
+auto CurrentContext::stop_requested() const noexcept -> bool { return stop_token().stop_requested(); }
+
+auto get_current_context() -> CurrentContext { return CurrentContext(detail::current_test()); }
 
 auto set_current_context(CurrentContext context) -> CurrentContextLease { return CurrentContextLease(std::move(context)); }
 
@@ -36,20 +61,20 @@ auto set_current_token(CurrentToken context) -> CurrentContextLease { return set
 CurrentContextLease::CurrentContextLease(CurrentContext context) : previous_(get_current_context()), leased_(std::move(context)) {
     acquire_adopted_context(leased_);
     try {
-        detail::set_current_test(leased_);
+        detail::set_current_test(context_info(leased_));
     } catch (...) {
         if (release_adopted_context(leased_)) {
-            detail::notify_adopted_contexts_released(*leased_);
+            detail::notify_adopted_contexts_released(*context_info(leased_));
         }
         throw;
     }
 }
 
 CurrentContextLease::~CurrentContextLease() {
-    detail::set_current_test(std::move(previous_));
+    detail::set_current_test(context_info(previous_));
     if (release_adopted_context(leased_)) {
-        detail::close_canceled_context_if_released(*leased_);
-        detail::notify_adopted_contexts_released(*leased_);
+        detail::close_context_if_released(*context_info(leased_));
+        detail::notify_adopted_contexts_released(*context_info(leased_));
     }
 }
 
@@ -90,7 +115,7 @@ void log(std::string_view message) {
 
 void set_log_policy(LogPolicy policy) {
     auto ctx = detail::current_test_storage();
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
+    if (!detail::accepts_late_test_operation(ctx)) {
         return;
     }
     std::lock_guard<std::mutex> lk(ctx->mtx);

@@ -21,7 +21,7 @@ class ActiveProofContext {
     explicit ActiveProofContext(std::string_view display_name)
         : previous_(gentest::detail::current_test()), ctx_(std::make_shared<gentest::detail::TestContextInfo>()) {
         ctx_->display_name = std::string(display_name);
-        ctx_->active       = true;
+        gentest::detail::start_context(*ctx_);
         gentest::detail::set_current_test(ctx_);
     }
 
@@ -30,8 +30,9 @@ class ActiveProofContext {
 
     ~ActiveProofContext() {
         if (ctx_) {
+            gentest::detail::request_context_stop(*ctx_);
             gentest::detail::wait_for_adopted_contexts(ctx_);
-            ctx_->active = false;
+            gentest::detail::close_context_to_late_operations(*ctx_);
         }
         gentest::detail::set_current_test(std::move(previous_));
     }

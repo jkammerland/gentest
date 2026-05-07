@@ -651,7 +651,7 @@ gentest::async_test<void> fail_fast_self_adopted_async_fails_with_adopted_worker
         auto lease = gentest::set_current_context(context);
         fail_fast_self_adopted_worker_started.store(true, std::memory_order_release);
         started->set_value();
-        while (context && context->active.load(std::memory_order_acquire)) {
+        while (context && !context.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         gentest::log("self-adopted worker observed fail-fast cancellation");
@@ -677,7 +677,7 @@ gentest::async_test<void> fail_fast_done_adopted_late_done_with_late_worker_fail
     std::thread([context = std::move(context), started = std::move(started)]() mutable {
         auto lease = gentest::set_current_context(context);
         started->set_value();
-        while (context && context->active.load(std::memory_order_acquire)) {
+        while (context && !context.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(700));
@@ -713,7 +713,7 @@ gentest::async_test<void> fail_fast_cancel_adopted_context_pending_worker_logs_a
         auto lease = gentest::set_current_context(context);
         fail_fast_cancel_adopted_context_worker_started.store(true, std::memory_order_release);
         started->set_value();
-        while (context && context->active.load(std::memory_order_acquire)) {
+        while (context && !context.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         gentest::log("adopted worker logged after fail-fast cancellation");
@@ -746,7 +746,7 @@ gentest::async_test<void> fail_fast_cancel_released_context_pending_worker_reuse
             auto lease = gentest::set_current_context(context);
             fail_fast_cancel_released_context_worker_started.store(true, std::memory_order_release);
             started->set_value();
-            while (context && context->active.load(std::memory_order_acquire)) {
+            while (context && !context.stop_requested()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
             gentest::log("adopted worker logged during fail-fast cancellation");
@@ -796,7 +796,7 @@ gentest::async_test<void> fail_fast_cancel_adopted_local_fixture_pending(FailFas
         auto lease = gentest::set_current_context(context);
         fail_fast_cancel_adopted_local_fixture_started.store(true, std::memory_order_release);
         started->set_value();
-        while (context && context->active.load(std::memory_order_acquire)) {
+        while (context && !context.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         gentest::log("adopted worker observed fail-fast local fixture cancellation");
@@ -829,7 +829,7 @@ gentest::async_test<void> fail_fast_cancel_slow_adopted_pending_needs_resume() {
         auto lease = gentest::set_current_context(context);
         fail_fast_cancel_slow_adopted_worker_started.store(true, std::memory_order_release);
         started->set_value();
-        while (context && context->active.load(std::memory_order_acquire)) {
+        while (context && !context.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(800));
@@ -861,7 +861,7 @@ gentest::async_test<void> fail_fast_cancel_adopted_skip_pending_worker_skips_aft
         auto lease = gentest::set_current_context(context);
         fail_fast_cancel_adopted_skip_worker_started.store(true, std::memory_order_release);
         started->set_value();
-        while (context && context->active.load(std::memory_order_acquire)) {
+        while (context && !context.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         try {

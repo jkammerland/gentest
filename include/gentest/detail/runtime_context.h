@@ -12,12 +12,19 @@
 #include <cstdlib>
 #include <memory>
 #include <mutex>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 namespace gentest::detail {
+
+enum class ContextState : unsigned char {
+    Running,
+    Stopping,
+    Closed,
+};
 
 struct TestContextInfo {
     std::string              display_name;
@@ -65,8 +72,8 @@ struct TestContextInfo {
     };
     std::vector<ContextCancelHookEntry> context_cancel_hooks;
     std::size_t                         next_context_cancel_hook_id = 0;
-    std::atomic<bool>                   active{false};
-    std::atomic<bool>                   canceled{false};
+    std::stop_source                    stop_source{};
+    std::atomic<ContextState>           state{ContextState::Closed};
     std::atomic<bool>                   has_failures{false};
     std::atomic<std::size_t>            adopted_contexts{0};
     gentest::LogPolicy                  log_policy{gentest::LogPolicy::Never};
@@ -157,29 +164,43 @@ inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
 
 inline std::shared_ptr<TestContextInfo> current_test() { return current_test_storage(); }
 
+inline void notify_context_progress(TestContextInfo &ctx) noexcept;
+
+inline void start_context(TestContextInfo &ctx) noexcept {
+    ctx.stop_source = std::stop_source{};
+    ctx.state.store(ContextState::Running, std::memory_order_release);
+}
+
+inline void request_context_stop(TestContextInfo &ctx) noexcept {
+    const auto state = ctx.state.load(std::memory_order_acquire);
+    if (state == ContextState::Closed) {
+        return;
+    }
+    ctx.state.store(ContextState::Stopping, std::memory_order_release);
+    (void)ctx.stop_source.request_stop();
+    notify_context_progress(ctx);
+}
+
 inline bool accepts_late_test_operation(const std::shared_ptr<TestContextInfo> &ctx) {
     if (!ctx) {
         return false;
     }
-    if (ctx->active.load(std::memory_order_acquire)) {
-        return true;
-    }
-    return ctx->canceled.load(std::memory_order_acquire);
+    return ctx->state.load(std::memory_order_acquire) != ContextState::Closed;
 }
 
-inline void close_canceled_context_if_released(TestContextInfo &ctx) noexcept {
+inline void close_context_if_released(TestContextInfo &ctx) noexcept {
+    std::lock_guard<std::mutex> lk(ctx.adopted_mtx);
     if (ctx.adopted_contexts.load(std::memory_order_acquire) != 0) {
         return;
     }
-    if (ctx.active.load(std::memory_order_acquire)) {
+    if (ctx.state.load(std::memory_order_acquire) == ContextState::Running) {
         return;
     }
-    ctx.canceled.store(false, std::memory_order_release);
+    ctx.state.store(ContextState::Closed, std::memory_order_release);
 }
 
-inline void close_canceled_context_to_late_operations(TestContextInfo &ctx) noexcept {
-    ctx.active.store(false, std::memory_order_release);
-    ctx.canceled.store(false, std::memory_order_release);
+inline void close_context_to_late_operations(TestContextInfo &ctx) noexcept {
+    ctx.state.store(ContextState::Closed, std::memory_order_release);
 }
 
 inline void wait_for_adopted_contexts(const std::shared_ptr<TestContextInfo> &ctx) {

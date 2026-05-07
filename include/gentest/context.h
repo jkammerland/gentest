@@ -5,18 +5,38 @@
 
 #include <memory>
 #include <source_location>
+#include <stop_token>
 #include <string_view>
 #include <utility>
 
 namespace gentest {
 
+class CurrentContext;
+
 namespace detail {
+struct CurrentContextAccess;
 struct TestContextInfo;
-}
+} // namespace detail
 
 // Public context lease API for multi-threaded/coroutine tests.
-using CurrentContext = std::shared_ptr<detail::TestContextInfo>;
-using CurrentToken   = CurrentContext;
+class CurrentContext {
+  public:
+    CurrentContext() noexcept = default;
+
+    [[nodiscard]] explicit                 operator bool() const noexcept { return static_cast<bool>(ctx_); }
+    [[nodiscard]] GENTEST_RUNTIME_API auto stop_token() const noexcept -> std::stop_token;
+    [[nodiscard]] GENTEST_RUNTIME_API auto stop_requested() const noexcept -> bool;
+
+  private:
+    friend struct detail::CurrentContextAccess;
+    friend auto get_current_context() -> CurrentContext;
+
+    explicit CurrentContext(std::shared_ptr<detail::TestContextInfo> ctx) noexcept : ctx_(std::move(ctx)) {}
+
+    std::shared_ptr<detail::TestContextInfo> ctx_{};
+};
+
+using CurrentToken = CurrentContext;
 
 struct CurrentContextLease;
 

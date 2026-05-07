@@ -43,7 +43,7 @@ class AsyncSchedulerCore {
 
     void set_wake_callback(WakeCallback wake) { wake_ = std::move(wake); }
 
-    void register_frame(std::size_t owner, FramePtr frame) {
+    void register_frame(std::size_t owner, const FramePtr &frame) {
         if (!frame || !frame->handle) {
             return;
         }
@@ -65,7 +65,7 @@ class AsyncSchedulerCore {
         return owner_for_locked(frame->address());
     }
 
-    [[nodiscard]] auto make_waiter(std::coroutine_handle<> handle, std::shared_ptr<gentest::detail::AsyncScheduler::Control> control)
+    [[nodiscard]] auto make_waiter(std::coroutine_handle<> handle, const std::shared_ptr<gentest::detail::AsyncScheduler::Control> &control)
         -> WaiterTokenPtr {
         FramePtr frame;
         {
@@ -73,7 +73,7 @@ class AsyncSchedulerCore {
             frame = frame_for_locked(handle.address());
         }
 
-        auto token = std::make_shared<gentest::detail::AsyncScheduler::WaiterToken>(std::move(control), frame);
+        auto token = std::make_shared<gentest::detail::AsyncScheduler::WaiterToken>(control, frame);
         if (!frame || frame->is_canceled()) {
             token->cancel();
             return token;
@@ -167,7 +167,7 @@ class AsyncSchedulerCore {
         notify_wake(should_wake);
     }
 
-    void attach_child(FramePtr child, std::coroutine_handle<> parent) {
+    void attach_child(const FramePtr &child, std::coroutine_handle<> parent) {
         if (!child || !child->handle || !parent) {
             return;
         }
@@ -181,6 +181,7 @@ class AsyncSchedulerCore {
         children_[parent.address()].push_back(child->address());
     }
 
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters) - Mirrors the public scheduler hook.
     void attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) {
         if (!child) {
             return;
@@ -190,7 +191,7 @@ class AsyncSchedulerCore {
             std::lock_guard<std::mutex> lk(mtx_);
             child_frame = frame_for_locked(child.address());
         }
-        attach_child(std::move(child_frame), parent);
+        attach_child(child_frame, parent);
     }
 
     void schedule_timer(std::chrono::steady_clock::time_point deadline, const WaiterTokenPtr &token) {

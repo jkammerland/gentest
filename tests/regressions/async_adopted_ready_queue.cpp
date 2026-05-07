@@ -4,8 +4,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <thread>
 #include <utility>
@@ -42,14 +44,12 @@ auto completed_case_with_adopted_worker() -> gentest::async_test<void> {
     }).detach();
 
     ready.wait();
-    ASSERT_TRUE(context != nullptr);
-    ASSERT_TRUE(context->adopted_contexts.load(std::memory_order_acquire) != 0);
+    ASSERT_TRUE(static_cast<bool>(context));
 
     co_await complete_first_case.wait("later ready case released first adopted case");
 
     first_case_resumed.store(true, std::memory_order_release);
     EXPECT_FALSE(releaser_case_resumed.load(std::memory_order_acquire));
-    EXPECT_TRUE(context->adopted_contexts.load(std::memory_order_acquire) != 0);
 }
 
 auto release_adopted_worker_after_yield() -> gentest::async_test<void> {
@@ -76,7 +76,7 @@ auto completed_case_with_adopted_failure_worker() -> gentest::async_test<void> {
     co_await gentest::async::yield();
 
     auto context = gentest::get_current_context();
-    ASSERT_TRUE(context != nullptr);
+    ASSERT_TRUE(static_cast<bool>(context));
 
     auto started = std::make_shared<std::promise<void>>();
     auto ready   = started->get_future();
@@ -89,7 +89,7 @@ auto completed_case_with_adopted_failure_worker() -> gentest::async_test<void> {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         EXPECT_TRUE(false, "adopted worker failure should wake fail-fast adopted drain");
 
-        while (context && context->active.load(std::memory_order_acquire)) {
+        while (context && !context.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }).detach();
@@ -106,7 +106,7 @@ auto suspended_case_with_adopted_failure_worker() -> gentest::async_test<void> {
     never_resume_after_failure.reset_all();
 
     auto context = gentest::get_current_context();
-    ASSERT_TRUE(context != nullptr);
+    ASSERT_TRUE(static_cast<bool>(context));
 
     auto started = std::make_shared<std::promise<void>>();
     auto ready   = started->get_future();
@@ -117,7 +117,7 @@ auto suspended_case_with_adopted_failure_worker() -> gentest::async_test<void> {
 
         EXPECT_TRUE(false, "adopted worker failure while owner remains suspended");
 
-        while (context && context->active.load(std::memory_order_acquire)) {
+        while (context && !context.stop_requested()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }).detach();
@@ -128,6 +128,72 @@ auto suspended_case_with_adopted_failure_worker() -> gentest::async_test<void> {
 
 auto suspended_case_with_adopted_failure_worker_fn(void *) -> gentest::detail::AsyncTaskPtr {
     return gentest::detail::make_async_task(suspended_case_with_adopted_failure_worker());
+}
+
+struct StopConditionState {
+    std::mutex                  mtx;
+    std::condition_variable_any cv_any;
+    std::condition_variable     cv;
+    bool                        ready = false;
+};
+
+auto condition_variable_any_worker_observes_stop() -> gentest::async_test<void> {
+    gentest::set_log_policy(gentest::LogPolicy::Always);
+
+    auto context = gentest::get_current_context();
+    ASSERT_TRUE(static_cast<bool>(context));
+
+    auto state   = std::make_shared<StopConditionState>();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), state = std::move(state), started = std::move(started)]() mutable {
+        auto lease = gentest::set_current_context(context);
+        auto stop  = context.stop_token();
+
+        started->set_value();
+        std::unique_lock lk(state->mtx);
+        const bool       completed = state->cv_any.wait(lk, stop, [&] { return state->ready; });
+        EXPECT_FALSE(completed, "condition_variable_any wait should stop before predicate becomes ready");
+        EXPECT_TRUE(stop.stop_requested(), "condition_variable_any worker should observe context stop");
+        gentest::log("condition_variable_any worker observed context stop");
+    }).detach();
+
+    ready.wait();
+    co_return;
+}
+
+auto condition_variable_any_worker_observes_stop_fn(void *) -> gentest::detail::AsyncTaskPtr {
+    return gentest::detail::make_async_task(condition_variable_any_worker_observes_stop());
+}
+
+auto condition_variable_worker_observes_stop() -> gentest::async_test<void> {
+    auto context = gentest::get_current_context();
+    ASSERT_TRUE(static_cast<bool>(context));
+
+    auto state   = std::make_shared<StopConditionState>();
+    auto started = std::make_shared<std::promise<void>>();
+    auto ready   = started->get_future();
+
+    std::thread([context = std::move(context), state = std::move(state), started = std::move(started)]() mutable {
+        auto lease = gentest::set_current_context(context);
+        auto stop  = context.stop_token();
+
+        std::stop_callback wake_on_stop(stop, [&] { state->cv.notify_all(); });
+
+        started->set_value();
+        std::unique_lock lk(state->mtx);
+        state->cv.wait(lk, [&] { return state->ready || stop.stop_requested(); });
+        EXPECT_FALSE(state->ready, "plain condition_variable wait should stop before predicate becomes ready");
+        EXPECT_TRUE(stop.stop_requested(), "plain condition_variable worker should observe context stop");
+    }).detach();
+
+    ready.wait();
+    co_return;
+}
+
+auto condition_variable_worker_observes_stop_fn(void *) -> gentest::detail::AsyncTaskPtr {
+    return gentest::detail::make_async_task(condition_variable_worker_observes_stop());
 }
 
 gentest::Case kCases[] = {
@@ -201,6 +267,42 @@ gentest::Case kCases[] = {
         .fixture_lifetime = gentest::FixtureLifetime::None,
         .suite            = "regressions",
         .async_fn         = &suspended_case_with_adopted_failure_worker_fn,
+        .is_async         = true,
+    },
+    {
+        .name             = "regressions/async_adopted_stop_token/00_condition_variable_any",
+        .fn               = &unused_sync,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+        .async_fn         = &condition_variable_any_worker_observes_stop_fn,
+        .is_async         = true,
+    },
+    {
+        .name             = "regressions/async_adopted_stop_token/01_condition_variable",
+        .fn               = &unused_sync,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+        .async_fn         = &condition_variable_worker_observes_stop_fn,
         .is_async         = true,
     },
 };

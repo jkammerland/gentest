@@ -149,7 +149,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
 auto make_context(std::string_view label) -> std::shared_ptr<TestContextInfo> {
     auto ctx          = std::make_shared<TestContextInfo>();
     ctx->display_name = std::string(label);
-    ctx->active       = true;
+    start_context(*ctx);
     return ctx;
 }
 
@@ -195,8 +195,9 @@ auto run_async_task_blocking(async_test<void> task, std::string_view label, std:
     BlockingAsyncScheduler scheduler(ctx);
     const auto             status = task_ptr ? scheduler.run(*task_ptr, blocked_reason) : BlockingAsyncStatus::Blocked;
 
+    request_context_stop(*ctx);
     wait_for_adopted_contexts(ctx);
-    ctx->active = false;
+    close_context_to_late_operations(*ctx);
     flush_current_buffer_for(ctx.get());
 
     if (status != BlockingAsyncStatus::Completed) {

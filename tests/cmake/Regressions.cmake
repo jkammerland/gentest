@@ -1416,10 +1416,11 @@ gentest_add_cmake_script_test(
         "REQUIRED_SUBSTRING=terminating after fatal assertion"
         "FORBID_SUBSTRING=async-local-fixture-teardown-noexc-second-marker")
 
-gentest_add_check_exit_code(
+gentest_add_cmake_script_test(
     NAME regression_async_stale_waiter_tokens_ignore_canceled_posts
     PROG $<TARGET_FILE:gentest_regression_async_stale_waiter>
-    EXPECT_RC 0)
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    DEFINES TIMEOUT_SEC=10 EXPECT_RC=0)
 
 gentest_add_cmake_script_test(
     NAME regression_async_blocking_timer_starvation_times_out_yielding_child
@@ -1432,7 +1433,50 @@ gentest_add_cmake_script_test(
     PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
     ARGS --filter=regressions/async_adopted_ready_queue/* --kind=test --no-color
-    DEFINES TIMEOUT_SEC=5 EXPECT_RC=0)
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=0
+        "REQUIRED_SUBSTRING=Summary: passed 2/2")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_adopted_stop_token_condition_variable_any
+    PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --run=regressions/async_adopted_stop_token/00_condition_variable_any --kind=test --no-color
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=0
+        "REQUIRED_SUBSTRING=condition_variable_any worker observed context stop")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_adopted_stop_token_condition_variable
+    PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --run=regressions/async_adopted_stop_token/01_condition_variable --kind=test --no-color
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=0
+        "REQUIRED_SUBSTRING=Summary: passed 1/1")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_adopted_failure_wakes_without_fail_fast
+    PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --run=regressions/async_adopted_failure_wake/00_completed_adopted_worker_fails --kind=test --no-color
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=1
+        "REQUIRED_SUBSTRING=adopted worker failure should wake fail-fast adopted drain")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_adopted_failure_cancels_suspended_owner_without_fail_fast
+    PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --run=regressions/async_adopted_failure_wake/01_suspended_adopted_worker_fails --kind=test --no-color
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=1
+        "REQUIRED_SUBSTRING=adopted worker failure while owner remains suspended")
 
 gentest_add_cmake_script_test(
     NAME regression_async_adopted_failure_wakes_fail_fast

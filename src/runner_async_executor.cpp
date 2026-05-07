@@ -252,7 +252,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             gentest::detail::wait_for_adopted_contexts(deferred.ctx);
             deferred.task.reset();
             if (deferred.ctx) {
-                gentest::detail::close_canceled_context_if_released(*deferred.ctx);
+                gentest::detail::close_context_if_released(*deferred.ctx);
             }
             if (deferred.record_result_on_cleanup) {
                 record_canceled_completed_result(deferred);
@@ -281,7 +281,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         gentest::detail::wait_for_adopted_contexts(run.ctxinfo);
         run.task.reset();
         if (run.ctxinfo) {
-            gentest::detail::close_canceled_context_if_released(*run.ctxinfo);
+            gentest::detail::close_context_if_released(*run.ctxinfo);
         }
 
         gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
@@ -354,9 +354,8 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         };
         const BatchAsyncScheduler::StopCallback drain_should_stop =
             fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{};
-        const BatchAsyncScheduler::StopCallback stop_waiting_for_adopted =
-            fail_fast ? BatchAsyncScheduler::StopCallback(failed_adopted_context) : BatchAsyncScheduler::StopCallback{};
-        const bool stopped_while_draining =
+        const BatchAsyncScheduler::StopCallback stop_waiting_for_adopted = BatchAsyncScheduler::StopCallback(failed_adopted_context);
+        const bool                              stopped_while_draining =
             scheduler.finish_unresumable(drain_should_stop, [&] { return finalize_completed_runs(); }, stop_waiting_for_adopted);
         if (finalize_completed_runs()) {
             return true;

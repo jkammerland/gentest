@@ -468,6 +468,52 @@ gentest::async_test<void> worker_thread_reports_back() {
 }
 ```
 
+Use the context stop token for cooperative worker shutdown. This works directly
+with `std::condition_variable_any`.
+
+```cpp
+[[using gentest: test("async/threaded_stop")]]
+gentest::async_test<void> worker_thread_stops() {
+    std::mutex                  m;
+    std::condition_variable_any cv;
+    bool                        ready = false;
+    std::latch                  started(1);
+
+    auto context = gentest::get_current_context();
+
+    std::thread worker([context, &m, &cv, &ready, &started] {
+        auto lease = gentest::set_current_context(context);
+        auto stop  = context.stop_token();
+        started.count_down();
+
+        std::unique_lock lk(m);
+        const bool completed = cv.wait(lk, stop, [&] { return ready; });
+        if (!completed) {
+            gentest::log("worker stopped");
+            return;
+        }
+
+        EXPECT_TRUE(ready);
+    });
+    worker.detach();
+
+    started.wait();
+    co_return;
+}
+```
+
+For plain `std::condition_variable`, bridge the stop token with a callback.
+
+```cpp
+std::stop_callback wake_on_stop(context.stop_token(), [&] {
+    cv.notify_all();
+});
+
+cv.wait(lock, [&] {
+    return ready || context.stop_requested();
+});
+```
+
 Without a leased context, test operations from a worker are a hard test program
 error. Keep the `CurrentContextLease` object alive for the whole worker region
 that uses gentest APIs. Prefer non-fatal `EXPECT_*` and `gentest::log()` in
