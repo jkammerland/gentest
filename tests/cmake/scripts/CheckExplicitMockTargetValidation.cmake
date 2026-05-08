@@ -313,6 +313,11 @@ _gentest_expect_build_failure("third_party_final_method_rejected"
   "gmock mock backend does not support final methods")
 _gentest_expect_build_failure("third_party_private_pure_rejected"
   "gentest::mock cannot mock private pure virtual methods")
+_gentest_expect_configure_success("third_party_inherited_public_pure_surface" _third_party_inherited_public_pure_build_dir)
+_gentest_expect_build_success("${_third_party_inherited_public_pure_build_dir}"
+  "explicit_validation_third_party_inherited_public_pure_consumer")
+_gentest_expect_build_failure("third_party_inherited_private_pure_rejected"
+  "gentest::mock cannot mock private pure virtual methods")
 _gentest_expect_build_failure("missing_named_module" "is not a named module source")
 _gentest_expect_build_failure("provider_only_module" "has no named-module mocks to re-export")
 _gentest_expect_build_failure("implementation_unit_module" "module implementation unit")
