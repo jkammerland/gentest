@@ -988,6 +988,10 @@ std::string third_party_unsupported_reason(MockBackend backend, const MockClassI
         return fmt::format("{} mock backend does not support static methods: {}::{}", third_party_backend_name(backend), cls.qualified_name,
                            method.method_name);
     }
+    if (method.is_final) {
+        return fmt::format("{} mock backend does not support final methods: {}::{}", third_party_backend_name(backend), cls.qualified_name,
+                           method.method_name);
+    }
     if (has_volatile_qualifier(method)) {
         return fmt::format("{} mock backend does not support volatile-qualified methods: {}::{}", third_party_backend_name(backend),
                            cls.qualified_name, method.method_name);

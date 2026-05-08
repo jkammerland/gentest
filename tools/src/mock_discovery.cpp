@@ -357,6 +357,7 @@ struct CallableTemplateInfo {
     key += method.is_static ? 'S' : 's';
     key += method.is_virtual ? 'V' : 'v';
     key += method.is_pure_virtual ? 'P' : 'p';
+    key += method.is_final ? 'F' : 'f';
     key += method.is_variadic ? 'A' : 'a';
     key += method.is_overloaded_operator ? 'O' : 'o';
     key += method.is_conversion_operator ? 'C' : 'c';
@@ -720,6 +721,20 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         report(*result.SourceManager, use_loc, "gentest::mock requires a non-private destructor");
         return;
     }
+    for (const auto *method : definition_record->methods()) {
+        if (llvm::isa<CXXConstructorDecl>(method) || llvm::isa<CXXDestructorDecl>(method)) {
+            continue;
+        }
+        if (method->isDeleted()) {
+            continue;
+        }
+        if (method->isPureVirtual() && method->getAccess() == AS_private) {
+            had_error_ = true;
+            report(*result.SourceManager, use_loc,
+                   fmt::format("gentest::mock cannot mock private pure virtual methods: {}", method->getQualifiedNameAsString()));
+            return;
+        }
+    }
 
     MockClassInfo info;
     info.qualified_name             = trim_leading_global_qualifier(print_type(target_type, ctx));
@@ -841,6 +856,7 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         method_info.is_static              = method->isStatic();
         method_info.is_virtual             = method->isVirtual();
         method_info.is_pure_virtual        = method->isPureVirtual();
+        method_info.is_final               = method->hasAttr<FinalAttr>();
         method_info.is_variadic            = method->isVariadic();
         method_info.is_overloaded_operator = method->isOverloadedOperator();
         method_info.is_conversion_operator = llvm::isa<CXXConversionDecl>(method);

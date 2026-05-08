@@ -276,6 +276,7 @@ struct MockMethodInfo {
     bool                           is_static              = false;
     bool                           is_virtual             = false;
     bool                           is_pure_virtual        = false;
+    bool                           is_final               = false;
     bool                           is_variadic            = false;
     bool                           is_overloaded_operator = false;
     bool                           is_conversion_operator = false;
