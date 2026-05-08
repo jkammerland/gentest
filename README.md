@@ -597,9 +597,10 @@ void trompeloeil_clock() {
 Keep the interface declaration in a separate header from the `gentest::mock<T>` marker alias; the generated third-party public header
 includes the interface header, not the marker header. If the target type is namespaced, the mock class follows that namespace:
 `myapp::Clock` becomes `myapp::mocks::ClockMock`. `BACKEND gmock` and `BACKEND trompeloeil` currently support textual/header mock
-targets only. Named-module mocks, nested target types, template-specialized target types, static methods, method templates, operators,
-and volatile-qualified methods require the default `BACKEND gentest`. The Trompeloeil backend emits the current arity-deducing
-`MAKE_MOCK`/`MAKE_CONST_MOCK` form, so use Trompeloeil v49 or newer.
+targets only. Use the default `BACKEND gentest` for named-module mocks, nested target types, template-specialized target types, final
+classes, static methods, member function templates, final methods, private pure virtual methods, C-style variadic methods, operators,
+and volatile-qualified methods. The Trompeloeil backend emits the current arity-deducing `MAKE_MOCK`/`MAKE_CONST_MOCK` form, so use
+Trompeloeil v49 or newer.
 
 Named-module mock usage is the same idea, but the public surface is a generated module:
 
