@@ -1,6 +1,8 @@
 include(GentestTests)
 include("${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFixtureCommon.cmake")
 
+option(GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS "Require real GMock/doctest generated-mock consumers in CMake regressions" OFF)
+
 if(NOT TARGET gentest_test_suites)
     add_custom_target(gentest_test_suites)
 endif()
@@ -3422,7 +3424,8 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/third_party_mock_consumers
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckThirdPartyMockConsumers.cmake
     cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DREQUIRE_REAL_CONSUMERS=${GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS})
 set_property(TEST gentest_third_party_mock_consumers APPEND PROPERTY LABELS "cmake")
 
 _gentest_add_cmake_helper_test(

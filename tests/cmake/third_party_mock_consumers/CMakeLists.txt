@@ -16,6 +16,8 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+option(GENTEST_REQUIRE_REAL_THIRD_PARTY_MOCK_CONSUMERS "Require real GMock and doctest generated-mock consumers" OFF)
+
 find_package(GTest CONFIG QUIET)
 if(NOT GTest_FOUND)
     find_package(GTest QUIET)
@@ -55,6 +57,15 @@ if(GTest_FOUND AND TARGET GTest::gmock AND TARGET GTest::gtest_main)
     endif()
 else()
     message(STATUS "GTest/GMock package not found; real generated-mock consumers will be skipped")
+endif()
+
+if(GENTEST_REQUIRE_REAL_THIRD_PARTY_MOCK_CONSUMERS)
+    if(NOT EXISTS "${_gentest_real_consumer_stamp_dir}/gtest.txt")
+        message(FATAL_ERROR "GENTEST_REQUIRE_REAL_THIRD_PARTY_MOCK_CONSUMERS=ON requires GTest with GMock targets")
+    endif()
+    if(NOT EXISTS "${_gentest_real_consumer_stamp_dir}/doctest.txt")
+        message(FATAL_ERROR "GENTEST_REQUIRE_REAL_THIRD_PARTY_MOCK_CONSUMERS=ON requires doctest::doctest")
+    endif()
 endif()
 
 if(_gentest_real_consumer_targets)

@@ -51,11 +51,11 @@ jobs:
         run: |
           brew update
           if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
-            brew install llvm@20 ninja ccache gtest doctest
+            brew install llvm@20 ninja ccache googletest doctest
           elif [ "${{ matrix.compiler }}" = "llvm@21" ]; then
-            brew install llvm@21 ninja ccache gtest doctest
+            brew install llvm@21 ninja ccache googletest doctest
           else
-            brew install llvm ninja ccache gtest doctest
+            brew install llvm ninja ccache googletest doctest
           fi
           if [ "${{ matrix.compiler }}" = "llvm@21" ] && [ "${{ matrix.build-type }}" = "debug" ] && [ "${{ matrix.variant }}" = "default" ]; then
             brew install bazelisk
@@ -126,6 +126,8 @@ jobs:
           if [ -n "${{ matrix.enable_package_tests }}" ]; then
             CMAKE_ARGS+=("-DGENTEST_ENABLE_PACKAGE_TESTS=${{ matrix.enable_package_tests }}")
           fi
+          CMAKE_ARGS+=("-DGENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS=ON")
+          CMAKE_ARGS+=("-DCMAKE_PREFIX_PATH=$(brew --prefix googletest);$(brew --prefix doctest)")
           cmake "${CMAKE_ARGS[@]}"
 
       - name: Build
@@ -661,6 +663,7 @@ jobs:
             libunwind-dev \
             libfmt-dev \
             libgtest-dev \
+            libgmock-dev \
             doctest-dev
           if [ "${{ matrix.setup_mode }}" = "apt-llvm-org" ]; then
             curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
@@ -713,6 +716,7 @@ jobs:
               libffi-devel \
               libxml2-devel \
               gtest-devel \
+              gmock-devel \
               doctest-devel \
               gcc \
               gcc-c++ \
@@ -750,6 +754,7 @@ jobs:
               libffi-devel \
               libxml2-devel \
               gtest-devel \
+              gmock-devel \
               doctest-devel \
               gcc \
               gcc-c++ \
@@ -883,6 +888,9 @@ jobs:
             if [ -n "$scan_deps" ]; then
               CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${scan_deps}")
             fi
+          fi
+          if [ "${{ matrix.pkg_manager }}" != "apk" ]; then
+            CMAKE_ARGS+=("-DGENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS=ON")
           fi
           cmake "${CMAKE_ARGS[@]}"
       - name: Build
