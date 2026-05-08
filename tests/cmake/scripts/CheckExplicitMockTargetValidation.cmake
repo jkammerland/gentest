@@ -249,6 +249,18 @@ function(_gentest_expect_file_excludes file forbidden_substring)
   endif()
 endfunction()
 
+function(_gentest_expect_single_glob out_file pattern)
+  file(GLOB _matches "${pattern}")
+  list(LENGTH _matches _match_count)
+  if(NOT _match_count EQUAL 1)
+    message(FATAL_ERROR
+      "Expected exactly one file matching '${pattern}', got ${_match_count}.\n"
+      "Matches: ${_matches}")
+  endif()
+  list(GET _matches 0 _match)
+  set(${out_file} "${_match}" PARENT_SCOPE)
+endfunction()
+
 _gentest_expect_configure_failure("duplicate_output_dir" "Each explicit mock target must")
 _gentest_expect_configure_failure("textual_module_name" "MODULE_NAME is not")
 _gentest_expect_configure_failure("module_header_name" "HEADER_NAME is only")
@@ -279,6 +291,16 @@ _gentest_expect_file_excludes("${_third_party_domain_header}" "#include \"gentes
 _gentest_expect_file_excludes("${_third_party_domain_header}" "#include \"gentest/mock.h\"")
 _gentest_expect_file_excludes("${_third_party_domain_header}" "namespace gentest")
 _gentest_expect_file_excludes("${_third_party_domain_header}" "struct mock<")
+_gentest_expect_configure_success("third_party_defs_include_mock_h" _third_party_defs_include_mock_h_build_dir)
+_gentest_expect_build_success("${_third_party_defs_include_mock_h_build_dir}" "explicit_validation_third_party_consumer")
+_gentest_expect_single_glob(_third_party_rewritten_defs
+  "${_third_party_defs_include_mock_h_build_dir}/generated/defs/*_third_party_defs_include_mock_h.hpp")
+_gentest_expect_file_excludes("${_third_party_rewritten_defs}" "#include \"gentest/mock.h\"")
+_gentest_expect_file_contains("${_third_party_rewritten_defs}" "#include \"gentest/mock_fwd.h\"")
+_gentest_expect_build_failure("third_party_same_file_defs_rejected"
+  "third-party mock targets must be declared in a header separate from the mocked target definition")
+_gentest_expect_build_failure("third_party_nested_target_rejected"
+  "gmock mock backend does not support nested target types")
 _gentest_expect_build_failure("missing_named_module" "is not a named module source")
 _gentest_expect_build_failure("provider_only_module" "has no named-module mocks to re-export")
 _gentest_expect_build_failure("implementation_unit_module" "module implementation unit")

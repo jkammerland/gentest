@@ -161,6 +161,35 @@ int main() {
 
     {
         MockClassInfo cls             = service_mock();
+        cls.qualified_name            = "fixture::Repo<int>";
+        cls.display_name              = cls.qualified_name;
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {std::move(cls)});
+        t.expect(!result.error.empty(), "gmock backend rejects template-specialized target types");
+        t.contains(result.error, "does not support template-specialized target types",
+                   "gmock backend diagnoses template-specialized target types");
+    }
+
+    {
+        MockClassInfo cls             = service_mock();
+        cls.methods[0].method_name    = "operatorValue";
+        cls.methods[0].qualified_name = "fixture::Service::operatorValue";
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {std::move(cls)});
+        t.expect(result.error.empty(), "gmock backend accepts normal methods whose names start with operator");
+    }
+
+    {
+        CollectorOptions options             = mock_options(MockBackend::GMock);
+        options.mock_output_domain_modules   = {"fixture.validation"};
+        options.mock_domain_registry_outputs = {"generated/public_mocks_registry.hpp", "generated/public_mocks_registry_module.hpp"};
+        options.mock_domain_impl_outputs     = {"generated/public_mocks_inline.hpp", "generated/public_mocks_inline_module.hpp"};
+        const MockRenderResult result        = gentest::codegen::render::render_mocks(options, {});
+        t.expect(result.error.empty(), "gmock backend accepts unused named-module output domains");
+        const MockGeneratedFile *module_registry = find_file(result, "public_mocks_registry_module.hpp");
+        t.expect(module_registry != nullptr, "gmock backend emits an empty registry for unused named-module domains");
+    }
+
+    {
+        MockClassInfo cls             = service_mock();
         cls.methods[0].is_static      = true;
         const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::Trompeloeil), {std::move(cls)});
         t.expect(!result.error.empty(), "trompeloeil backend rejects static methods");
