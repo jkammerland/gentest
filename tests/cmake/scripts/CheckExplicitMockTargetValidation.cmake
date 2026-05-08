@@ -307,6 +307,12 @@ _gentest_expect_build_failure("third_party_variadic_method_rejected"
   "gmock mock backend does not support C-style variadic methods")
 _gentest_expect_build_failure("third_party_conversion_operator_rejected"
   "gmock mock backend does not support operator mocks")
+_gentest_expect_build_failure("third_party_final_target_rejected"
+  "gentest::mock cannot mock a final class")
+_gentest_expect_build_failure("third_party_final_method_rejected"
+  "gmock mock backend does not support final methods")
+_gentest_expect_build_failure("third_party_private_pure_rejected"
+  "gentest::mock cannot mock private pure virtual methods")
 _gentest_expect_build_failure("missing_named_module" "is not a named module source")
 _gentest_expect_build_failure("provider_only_module" "has no named-module mocks to re-export")
 _gentest_expect_build_failure("implementation_unit_module" "module implementation unit")
