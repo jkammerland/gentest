@@ -249,6 +249,28 @@ function(_gentest_expect_file_excludes file forbidden_substring)
   endif()
 endfunction()
 
+function(_gentest_expect_file_ordered file)
+  if(NOT EXISTS "${file}")
+    message(FATAL_ERROR "Expected file does not exist: ${file}")
+  endif()
+  file(READ "${file}" _content)
+  set(_previous_pos -1)
+  foreach(_expected IN LISTS ARGN)
+    string(FIND "${_content}" "${_expected}" _current_pos)
+    if(_current_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Expected file '${file}' to contain '${_expected}'.\n"
+        "--- content ---\n${_content}")
+    endif()
+    if(_current_pos LESS_EQUAL _previous_pos)
+      message(FATAL_ERROR
+        "Expected file '${file}' to contain ordered entries, but '${_expected}' was out of order.\n"
+        "--- content ---\n${_content}")
+    endif()
+    set(_previous_pos "${_current_pos}")
+  endforeach()
+endfunction()
+
 function(_gentest_expect_single_glob out_file pattern)
   file(GLOB _matches "${pattern}")
   list(LENGTH _matches _match_count)
@@ -291,6 +313,15 @@ _gentest_expect_file_excludes("${_third_party_domain_header}" "#include \"gentes
 _gentest_expect_file_excludes("${_third_party_domain_header}" "#include \"gentest/mock.h\"")
 _gentest_expect_file_excludes("${_third_party_domain_header}" "namespace gentest")
 _gentest_expect_file_excludes("${_third_party_domain_header}" "struct mock<")
+_gentest_expect_configure_success("third_party_overload_order_surface" _third_party_overload_order_build_dir)
+_gentest_expect_build_success("${_third_party_overload_order_build_dir}" "explicit_validation_third_party_overload_order_consumer")
+set(_third_party_overload_order_header
+  "${_third_party_overload_order_build_dir}/generated/explicit_validation_third_party_overload_order_mock_registry__domain_0000_header.hpp")
+_gentest_expect_file_ordered("${_third_party_overload_order_header}"
+  "using __gentest_mock_0_arg_0 = double"
+  "using __gentest_mock_1_arg_0 = float"
+  "using __gentest_mock_2_arg_0 = int"
+  "using __gentest_mock_3_arg_0 = long")
 _gentest_expect_configure_success("third_party_defs_include_mock_h" _third_party_defs_include_mock_h_build_dir)
 _gentest_expect_build_success("${_third_party_defs_include_mock_h_build_dir}" "explicit_validation_third_party_consumer")
 _gentest_expect_single_glob(_third_party_rewritten_defs
