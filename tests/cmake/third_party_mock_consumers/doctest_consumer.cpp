@@ -88,3 +88,22 @@ TEST_CASE("generated gmock mock keeps indirect template method types") {
     EXPECT_CALL(mock, consume(Pointee(37))).WillOnce(Return(true));
     CHECK(factory->consume(std::make_unique<int>(37)));
 }
+
+TEST_CASE("generated gmock mock keeps inherited virtual aliases") {
+    using fixture::third_party::InheritedWorkflow;
+    using fixture::third_party::aliases::IntPair;
+    using fixture::third_party::mocks::InheritedWorkflowMock;
+    using ::testing::Return;
+
+    InheritedWorkflowMock mock;
+    InheritedWorkflow    *workflow = &mock;
+
+    EXPECT_CALL(mock, inherited(3)).WillOnce(Return(5));
+    CHECK(workflow->inherited(3) == 5);
+
+    EXPECT_CALL(mock, label()).WillOnce(Return(std::string{"doctest"}));
+    CHECK(workflow->label() == "doctest");
+
+    EXPECT_CALL(mock, finish(IntPair{8, 13})).WillOnce(Return(21));
+    CHECK(workflow->finish(IntPair{8, 13}) == 21);
+}

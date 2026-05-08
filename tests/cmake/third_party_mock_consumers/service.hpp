@@ -22,6 +22,12 @@ using PairBatch = Alias<std::vector<IntPair>>;
 
 } // namespace aliases
 
+template <typename T> struct NestedAlias {
+    using type = typename Identity<Alias<T>>::type;
+};
+
+template <typename T> using DeepAlias = typename NestedAlias<T>::type;
+
 struct Calculator {
     virtual ~Calculator()                     = default;
     virtual int         add(int lhs, int rhs) = 0;
@@ -34,6 +40,17 @@ struct ResourceFactory {
     virtual int              &value()                            = 0;
     virtual aliases::IntPair  combine(aliases::PairBatch values) = 0;
     virtual bool              consume(aliases::OwnedInt ptr)     = 0;
+};
+
+struct WorkflowBase {
+    virtual ~WorkflowBase()                              = default;
+    virtual int                      inherited(int seed) = 0;
+    virtual DeepAlias<aliases::Text> label() const       = 0;
+};
+
+struct InheritedWorkflow : WorkflowBase {
+    virtual ~InheritedWorkflow()                         = default;
+    virtual int finish(DeepAlias<aliases::IntPair> pair) = 0;
 };
 
 } // namespace fixture::third_party

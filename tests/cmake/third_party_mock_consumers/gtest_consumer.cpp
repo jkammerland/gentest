@@ -53,4 +53,23 @@ TEST(GeneratedGMockConsumer, HandlesIndirectTemplateTypes) {
     EXPECT_TRUE(factory->consume(std::make_unique<int>(9)));
 }
 
+TEST(GeneratedGMockConsumer, HandlesInheritedVirtualAliases) {
+    using fixture::third_party::InheritedWorkflow;
+    using fixture::third_party::aliases::IntPair;
+    using fixture::third_party::mocks::InheritedWorkflowMock;
+    using ::testing::Return;
+
+    InheritedWorkflowMock mock;
+    InheritedWorkflow    *workflow = &mock;
+
+    EXPECT_CALL(mock, inherited(8)).WillOnce(Return(13));
+    EXPECT_EQ(workflow->inherited(8), 13);
+
+    EXPECT_CALL(mock, label()).WillOnce(Return(std::string{"gtest"}));
+    EXPECT_EQ(workflow->label(), "gtest");
+
+    EXPECT_CALL(mock, finish(IntPair{21, 34})).WillOnce(Return(55));
+    EXPECT_EQ(workflow->finish(IntPair{21, 34}), 55);
+}
+
 } // namespace
