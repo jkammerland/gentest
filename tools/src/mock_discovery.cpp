@@ -8,6 +8,7 @@
 #include <cctype>
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/Attr.h>
+#include <clang/AST/CXXInheritance.h>
 #include <clang/AST/Decl.h>
 #include <clang/AST/DeclCXX.h>
 #include <clang/AST/DeclTemplate.h>
@@ -364,6 +365,24 @@ struct CallableTemplateInfo {
     key += static_cast<char>('0' + static_cast<int>(method.qualifiers.cv));
     key += static_cast<char>('0' + static_cast<int>(method.qualifiers.ref));
     key += method.qualifiers.is_noexcept ? 'N' : 'n';
+    return key;
+}
+
+[[nodiscard]] std::string method_signature_key(const MockMethodInfo &method) {
+    std::string key;
+    key.reserve(method.method_name.size() + method.parameters.size() * 32 + 32);
+    key += method.method_name;
+    key += '\0';
+    for (const auto &param : method.parameters) {
+        key += param.type;
+        key += '\0';
+    }
+    key += static_cast<char>('0' + static_cast<int>(method.qualifiers.cv));
+    key += static_cast<char>('0' + static_cast<int>(method.qualifiers.ref));
+    key += method.qualifiers.is_noexcept ? 'N' : 'n';
+    key += method.template_prefix;
+    key += '\0';
+    key += method.return_type;
     return key;
 }
 
@@ -735,6 +754,25 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
             return;
         }
     }
+    if (definition_record->isPolymorphic()) {
+        CXXFinalOverriderMap final_overriders;
+        definition_record->getFinalOverriders(final_overriders);
+        for (const auto &entry : final_overriders) {
+            const auto &overriding_methods = entry.second;
+            for (const auto &subobject_entry : overriding_methods) {
+                for (const auto &overrider : subobject_entry.second) {
+                    const auto *method = overrider.Method;
+                    if (method == nullptr || !method->isPureVirtual() || method->getAccess() != AS_private) {
+                        continue;
+                    }
+                    had_error_ = true;
+                    report(*result.SourceManager, use_loc,
+                           fmt::format("gentest::mock cannot mock private pure virtual methods: {}", method->getQualifiedNameAsString()));
+                    return;
+                }
+            }
+        }
+    }
 
     MockClassInfo info;
     info.qualified_name             = trim_leading_global_qualifier(print_type(target_type, ctx));
@@ -835,8 +873,13 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         return;
     }
 
-    auto capture_method = [&](const CXXMethodDecl *method) {
+    llvm::SmallPtrSet<const CXXMethodDecl *, 32> captured_method_decls;
+    std::vector<std::string>                     captured_method_signatures;
+    auto                                         capture_method = [&](const CXXMethodDecl *method) {
         if (llvm::isa<CXXConstructorDecl>(method) || llvm::isa<CXXDestructorDecl>(method)) {
+            return;
+        }
+        if (!captured_method_decls.insert(method->getCanonicalDecl()).second) {
             return;
         }
         if (method->isCopyAssignmentOperator() || method->isMoveAssignmentOperator()) {
@@ -866,6 +909,11 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         method_info.template_params        = std::move(template_info.params);
         method_info.parameters             = capture_callable_parameters(*method, ctx);
 
+        const std::string signature = method_signature_key(method_info);
+        if (std::ranges::find(captured_method_signatures, signature) != captured_method_signatures.end()) {
+            return;
+        }
+        captured_method_signatures.push_back(signature);
         info.methods.push_back(std::move(method_info));
     };
 
@@ -878,6 +926,22 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         if (const auto *ft = llvm::dyn_cast<FunctionTemplateDecl>(decl)) {
             if (const auto *templated = llvm::dyn_cast<CXXMethodDecl>(ft->getTemplatedDecl())) {
                 capture_method(templated);
+            }
+        }
+    }
+    if (definition_record->isPolymorphic()) {
+        CXXFinalOverriderMap final_overriders;
+        definition_record->getFinalOverriders(final_overriders);
+        for (const auto &entry : final_overriders) {
+            const auto &overriding_methods = entry.second;
+            for (const auto &subobject_entry : overriding_methods) {
+                for (const auto &overrider : subobject_entry.second) {
+                    const auto *method = overrider.Method;
+                    if (method == nullptr || !method->isPureVirtual()) {
+                        continue;
+                    }
+                    capture_method(method);
+                }
             }
         }
     }
