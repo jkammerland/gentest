@@ -343,6 +343,29 @@ struct CallableTemplateInfo {
     return parameters;
 }
 
+[[nodiscard]] std::string method_sort_key(const MockMethodInfo &method) {
+    std::string key;
+    key.reserve(method.qualified_name.size() + method.return_type.size() + method.parameters.size() * 32 + 32);
+    key += method.qualified_name;
+    key += '\0';
+    key += method.return_type;
+    key += '\0';
+    for (const auto &param : method.parameters) {
+        key += param.type;
+        key += '\0';
+    }
+    key += method.is_static ? 'S' : 's';
+    key += method.is_virtual ? 'V' : 'v';
+    key += method.is_pure_virtual ? 'P' : 'p';
+    key += method.is_variadic ? 'A' : 'a';
+    key += method.is_overloaded_operator ? 'O' : 'o';
+    key += method.is_conversion_operator ? 'C' : 'c';
+    key += static_cast<char>('0' + static_cast<int>(method.qualifiers.cv));
+    key += static_cast<char>('0' + static_cast<int>(method.qualifiers.ref));
+    key += method.qualifiers.is_noexcept ? 'N' : 'n';
+    return key;
+}
+
 [[nodiscard]] bool has_accessible_default_ctor(const CXXRecordDecl &record) {
     if (!record.hasDefinition())
         return false;
@@ -818,7 +841,9 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         method_info.is_static              = method->isStatic();
         method_info.is_virtual             = method->isVirtual();
         method_info.is_pure_virtual        = method->isPureVirtual();
+        method_info.is_variadic            = method->isVariadic();
         method_info.is_overloaded_operator = method->isOverloadedOperator();
+        method_info.is_conversion_operator = llvm::isa<CXXConversionDecl>(method);
         method_info.qualifiers             = capture_method_qualifiers(*method);
         auto template_info                 = capture_callable_template_info(*method, ctx);
         method_info.template_prefix        = std::move(template_info.prefix);
@@ -842,7 +867,7 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     }
 
     // Stable order for deterministic output.
-    std::ranges::sort(info.methods, {}, &MockMethodInfo::qualified_name);
+    std::ranges::sort(info.methods, {}, method_sort_key);
 
     out_.push_back(std::move(info));
     seen_[canonical] = out_.size() - 1;
