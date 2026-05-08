@@ -6,14 +6,43 @@
 #include <gmock/gmock.h>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
+namespace {
+
+bool has_arg(int argc, char **argv, std::string_view expected) {
+    for (int i = 1; i < argc; ++i) {
+        if (argv[i] != nullptr && std::string_view{argv[i]} == expected) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int run_gmock_failure_probe() {
+    {
+        ::testing::MockFunction<void()> callback;
+        EXPECT_CALL(callback, Call()).Times(1);
+    }
+    return ::testing::Test::HasFailure() ? 1 : 0;
+}
+
+} // namespace
+
 int main(int argc, char **argv) {
     ::testing::InitGoogleMock(&argc, argv);
+    if (has_arg(argc, argv, "--gentest-probe-gmock-failure")) {
+        return run_gmock_failure_probe();
+    }
     doctest::Context context;
     context.applyCommandLine(argc, argv);
-    return context.run();
+    const int doctest_rc = context.run();
+    if (::testing::Test::HasFailure()) {
+        return doctest_rc == 0 ? 1 : doctest_rc;
+    }
+    return doctest_rc;
 }
 
 TEST_CASE("generated gmock mock is usable from doctest") {

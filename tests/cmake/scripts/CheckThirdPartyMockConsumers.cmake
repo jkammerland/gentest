@@ -139,6 +139,20 @@ if(EXISTS "${_build_dir}/consumer-stamps/doctest.txt")
     COMMAND "${_doctest_exe}"
     WORKING_DIRECTORY "${_work_dir}"
     STRIP_TRAILING_WHITESPACE)
+  message(STATUS "Run ${_doctest_exe} --gentest-probe-gmock-failure...")
+  execute_process(
+    COMMAND "${_doctest_exe}" "--gentest-probe-gmock-failure"
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _doctest_probe_rc
+    OUTPUT_VARIABLE _doctest_probe_out
+    ERROR_VARIABLE _doctest_probe_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(_doctest_probe_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Expected doctest generated-mock consumer to propagate GMock failures.\n"
+      "--- stdout ---\n${_doctest_probe_out}\n--- stderr ---\n${_doctest_probe_err}")
+  endif()
 else()
   if(REQUIRE_REAL_CONSUMERS)
     message(FATAL_ERROR "third-party mock consumer regression: required doctest consumer was not configured")
