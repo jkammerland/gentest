@@ -26,6 +26,10 @@ find_package(doctest CONFIG QUIET)
 if(NOT doctest_FOUND)
     find_package(doctest QUIET)
 endif()
+find_package(trompeloeil CONFIG QUIET)
+if(NOT trompeloeil_FOUND)
+    find_package(trompeloeil QUIET)
+endif()
 
 set(_gentest_real_consumer_targets "")
 set(_gentest_real_consumer_stamp_dir "${CMAKE_CURRENT_BINARY_DIR}/consumer-stamps")
@@ -57,6 +61,24 @@ if(GTest_FOUND AND TARGET GTest::gmock AND TARGET GTest::gtest_main)
     endif()
 else()
     message(STATUS "GTest/GMock package not found; real generated-mock consumers will be skipped")
+endif()
+
+if(trompeloeil_FOUND AND TARGET trompeloeil::trompeloeil)
+    gentest_add_mocks(real_trompeloeil_mocks
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/gmock_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/trompeloeil"
+        HEADER_NAME public/real_trompeloeil_mocks.hpp
+        BACKEND trompeloeil
+        LINK_LIBRARIES trompeloeil::trompeloeil)
+
+    add_executable(real_trompeloeil_mock_consumer trompeloeil_consumer.cpp)
+    target_compile_features(real_trompeloeil_mock_consumer PRIVATE cxx_std_20)
+    target_link_libraries(real_trompeloeil_mock_consumer PRIVATE real_trompeloeil_mocks trompeloeil::trompeloeil)
+    list(APPEND _gentest_real_consumer_targets real_trompeloeil_mock_consumer)
+    file(WRITE "${_gentest_real_consumer_stamp_dir}/trompeloeil.txt" "real_trompeloeil_mock_consumer\n")
+else()
+    message(STATUS "Trompeloeil package not found; real generated-mock consumer will be skipped")
 endif()
 
 if(GENTEST_REQUIRE_REAL_THIRD_PARTY_MOCK_CONSUMERS)

@@ -159,3 +159,16 @@ else()
   endif()
   message(STATUS "doctest generated-mock consumer skipped: doctest package not found")
 endif()
+
+if(EXISTS "${_build_dir}/consumer-stamps/trompeloeil.txt")
+  file(READ "${_build_dir}/consumer-stamps/trompeloeil.txt" _trompeloeil_exe)
+  string(STRIP "${_trompeloeil_exe}" _trompeloeil_exe)
+  set(_trompeloeil_exe "${_build_dir}/${_trompeloeil_exe}${CMAKE_EXECUTABLE_SUFFIX}")
+  message(STATUS "Run ${_trompeloeil_exe}...")
+  gentest_check_run_or_fail(
+    COMMAND "${_trompeloeil_exe}"
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE)
+else()
+  message(STATUS "Trompeloeil generated-mock consumer skipped: trompeloeil package not found")
+endif()
