@@ -206,6 +206,66 @@ elseif(TEST_CASE STREQUAL "third_party_conversion_operator_rejected")
 
     add_executable(explicit_validation_third_party_conversion_consumer third_party_conversion_consumer.cpp)
     target_link_libraries(explicit_validation_third_party_conversion_consumer PRIVATE explicit_validation_third_party_conversion)
+elseif(TEST_CASE STREQUAL "third_party_overloaded_operator_rejected")
+    add_library(explicit_validation_fake_gmock INTERFACE)
+    target_include_directories(explicit_validation_fake_gmock INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/fake_gmock")
+
+    gentest_add_mocks(explicit_validation_third_party_operator
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party_operator_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/fixture_validation.hpp
+        BACKEND gmock
+        LINK_LIBRARIES explicit_validation_fake_gmock)
+
+    add_executable(explicit_validation_third_party_operator_consumer third_party_operator_consumer.cpp)
+    target_link_libraries(explicit_validation_third_party_operator_consumer PRIVATE explicit_validation_third_party_operator)
+elseif(TEST_CASE STREQUAL "third_party_static_method_rejected")
+    add_library(explicit_validation_fake_gmock INTERFACE)
+    target_include_directories(explicit_validation_fake_gmock INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/fake_gmock")
+
+    gentest_add_mocks(explicit_validation_third_party_static_method
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party_static_method_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/fixture_validation.hpp
+        BACKEND gmock
+        LINK_LIBRARIES explicit_validation_fake_gmock)
+
+    add_executable(explicit_validation_third_party_static_method_consumer third_party_static_method_consumer.cpp)
+    target_link_libraries(explicit_validation_third_party_static_method_consumer PRIVATE explicit_validation_third_party_static_method)
+elseif(TEST_CASE STREQUAL "third_party_member_template_rejected")
+    add_library(explicit_validation_fake_gmock INTERFACE)
+    target_include_directories(explicit_validation_fake_gmock INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/fake_gmock")
+
+    gentest_add_mocks(explicit_validation_third_party_member_template
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party_member_template_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/fixture_validation.hpp
+        BACKEND gmock
+        LINK_LIBRARIES explicit_validation_fake_gmock)
+
+    add_executable(explicit_validation_third_party_member_template_consumer third_party_member_template_consumer.cpp)
+    target_link_libraries(explicit_validation_third_party_member_template_consumer PRIVATE explicit_validation_third_party_member_template)
+elseif(TEST_CASE STREQUAL "third_party_volatile_method_rejected")
+    add_library(explicit_validation_fake_gmock INTERFACE)
+    target_include_directories(explicit_validation_fake_gmock INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/fake_gmock")
+
+    gentest_add_mocks(explicit_validation_third_party_volatile
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party_volatile_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/fixture_validation.hpp
+        BACKEND gmock
+        LINK_LIBRARIES explicit_validation_fake_gmock)
+
+    add_executable(explicit_validation_third_party_volatile_consumer third_party_volatile_consumer.cpp)
+    target_link_libraries(explicit_validation_third_party_volatile_consumer PRIVATE explicit_validation_third_party_volatile)
 elseif(TEST_CASE STREQUAL "third_party_final_target_rejected")
     add_library(explicit_validation_fake_gmock INTERFACE)
     target_include_directories(explicit_validation_fake_gmock INTERFACE

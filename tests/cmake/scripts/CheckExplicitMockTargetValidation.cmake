@@ -307,6 +307,14 @@ _gentest_expect_build_failure("third_party_variadic_method_rejected"
   "gmock mock backend does not support C-style variadic methods")
 _gentest_expect_build_failure("third_party_conversion_operator_rejected"
   "gmock mock backend does not support operator mocks")
+_gentest_expect_build_failure("third_party_overloaded_operator_rejected"
+  "gmock mock backend does not support operator mocks")
+_gentest_expect_build_failure("third_party_static_method_rejected"
+  "gmock mock backend does not support static methods")
+_gentest_expect_build_failure("third_party_member_template_rejected"
+  "gmock mock backend does not support member function templates")
+_gentest_expect_build_failure("third_party_volatile_method_rejected"
+  "gmock mock backend does not support volatile-qualified methods")
 _gentest_expect_build_failure("third_party_final_target_rejected"
   "gentest::mock cannot mock a final class")
 _gentest_expect_build_failure("third_party_final_method_rejected"
