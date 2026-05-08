@@ -111,10 +111,9 @@ int main() {
         const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
         t.expect(registry != nullptr, "gmock backend emits a registry file");
         if (registry != nullptr) {
-            t.contains(registry->content, "#include \"gentest/mock_fwd.h\"", "gmock backend uses the forward mock surface");
             t.contains(registry->content, "#include <gmock/gmock.h>", "gmock backend includes gmock");
-            t.contains(registry->content, "struct mock<::fixture::Service> final : public ::fixture::Service",
-                       "gmock backend specializes gentest::mock");
+            t.contains(registry->content, "namespace fixture {\nnamespace mocks {\n", "gmock backend mirrors the target namespace");
+            t.contains(registry->content, "struct ServiceMock final : public ::fixture::Service", "gmock backend emits a native mock class");
             t.contains(registry->content, "using __gentest_mock_0_return = ::std::pair<int, int>;",
                        "gmock backend aliases comma-bearing return types");
             t.contains(registry->content, "using __gentest_mock_0_arg_0 = ::std::vector<int>;",
@@ -122,6 +121,9 @@ int main() {
             t.contains(registry->content,
                        "MOCK_METHOD(__gentest_mock_0_return, compute, (__gentest_mock_0_arg_0), (const, noexcept, ref(&), override));",
                        "gmock backend preserves cv/ref/noexcept/override qualifiers");
+            t.excludes(registry->content, "#include \"gentest/mock_fwd.h\"", "gmock backend does not include gentest mock forwarding");
+            t.excludes(registry->content, "namespace gentest", "gmock backend does not emit into gentest namespace");
+            t.excludes(registry->content, "struct mock<", "gmock backend does not specialize gentest::mock");
             t.excludes(registry->content, "detail::MockAccess", "gmock backend does not emit native gentest access plumbing");
         }
     }
@@ -132,13 +134,17 @@ int main() {
         const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
         t.expect(registry != nullptr, "trompeloeil backend emits a registry file");
         if (registry != nullptr) {
-            t.contains(registry->content, "#include \"gentest/mock_fwd.h\"", "trompeloeil backend uses the forward mock surface");
             t.contains(registry->content, "#include <trompeloeil/mock.hpp>", "trompeloeil backend includes trompeloeil");
-            t.contains(registry->content, "struct mock<::fixture::Service> final : public ::fixture::Service",
-                       "trompeloeil backend specializes gentest::mock");
+            t.contains(registry->content, "namespace fixture {\nnamespace mocks {\n", "trompeloeil backend mirrors the target namespace");
+            t.contains(registry->content, "struct ServiceMock final : public ::fixture::Service",
+                       "trompeloeil backend emits a native mock class");
             t.contains(registry->content,
                        "MAKE_CONST_MOCK(compute, auto (__gentest_mock_0_arg_0) & -> __gentest_mock_0_return, override, noexcept);",
                        "trompeloeil backend preserves const/ref/noexcept/override qualifiers");
+            t.excludes(registry->content, "#include \"gentest/mock_fwd.h\"",
+                       "trompeloeil backend does not include gentest mock forwarding");
+            t.excludes(registry->content, "namespace gentest", "trompeloeil backend does not emit into gentest namespace");
+            t.excludes(registry->content, "struct mock<", "trompeloeil backend does not specialize gentest::mock");
             t.excludes(registry->content, "__gentest_state_", "trompeloeil backend does not emit native gentest state");
         }
     }
