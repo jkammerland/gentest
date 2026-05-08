@@ -207,6 +207,22 @@ function(_gentest_expect_configure_success test_case out_build_dir)
   set(${out_build_dir} "${_build_dir}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_expect_build_success build_dir target_name)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" --build "${build_dir}" --target "${target_name}"
+    RESULT_VARIABLE _build_rc
+    OUTPUT_VARIABLE _build_out
+    ERROR_VARIABLE _build_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(NOT _build_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Expected build success for target '${target_name}', but build failed.\n"
+      "--- stdout ---\n${_build_out}\n--- stderr ---\n${_build_err}")
+  endif()
+endfunction()
+
 function(_gentest_expect_file_contains file expected_substring)
   if(NOT EXISTS "${file}")
     message(FATAL_ERROR "Expected file does not exist: ${file}")
@@ -247,12 +263,22 @@ _gentest_expect_configure_failure("invalid_mock_backend" "BACKEND must be")
 _gentest_expect_configure_failure("third_party_module_backend" "supports textual DEFS only")
 _gentest_expect_configure_success("third_party_textual_backend_surface" _third_party_textual_backend_build_dir)
 set(_third_party_public_header "${_third_party_textual_backend_build_dir}/generated/public/fixture_validation.hpp")
-_gentest_expect_file_contains("${_third_party_public_header}" "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1")
+_gentest_expect_file_excludes("${_third_party_public_header}" "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1")
 _gentest_expect_file_excludes("${_third_party_public_header}" "#define GENTEST_NO_EXPECT_CALL_MACROS 1")
 _gentest_expect_file_excludes("${_third_party_public_header}" "#include \"gentest/mock_fwd.h\"")
 _gentest_expect_file_excludes("${_third_party_public_header}" "#include \"gentest/mock.h\"")
 _gentest_expect_file_excludes("${_third_party_public_header}" "#undef GENTEST_NO_EXPECT_CALL_MACROS")
-_gentest_expect_file_contains("${_third_party_public_header}" "#undef GENTEST_NO_AUTO_MOCK_INCLUDE")
+_gentest_expect_file_excludes("${_third_party_public_header}" "#undef GENTEST_NO_AUTO_MOCK_INCLUDE")
+_gentest_expect_build_success("${_third_party_textual_backend_build_dir}" "explicit_validation_third_party_consumer")
+set(_third_party_domain_header
+  "${_third_party_textual_backend_build_dir}/generated/explicit_validation_third_party_textual_backend_mock_registry__domain_0000_header.hpp")
+_gentest_expect_file_contains("${_third_party_domain_header}" "namespace fixture {\nnamespace validation {\nnamespace mocks {\n")
+_gentest_expect_file_contains("${_third_party_domain_header}"
+  "struct ThirdPartyServiceMock final : public ::fixture::validation::ThirdPartyService")
+_gentest_expect_file_excludes("${_third_party_domain_header}" "#include \"gentest/mock_fwd.h\"")
+_gentest_expect_file_excludes("${_third_party_domain_header}" "#include \"gentest/mock.h\"")
+_gentest_expect_file_excludes("${_third_party_domain_header}" "namespace gentest")
+_gentest_expect_file_excludes("${_third_party_domain_header}" "struct mock<")
 _gentest_expect_build_failure("missing_named_module" "is not a named module source")
 _gentest_expect_build_failure("provider_only_module" "has no named-module mocks to re-export")
 _gentest_expect_build_failure("implementation_unit_module" "module implementation unit")

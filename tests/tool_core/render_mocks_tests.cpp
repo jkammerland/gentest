@@ -113,7 +113,8 @@ int main() {
         if (registry != nullptr) {
             t.contains(registry->content, "#include <gmock/gmock.h>", "gmock backend includes gmock");
             t.contains(registry->content, "namespace fixture {\nnamespace mocks {\n", "gmock backend mirrors the target namespace");
-            t.contains(registry->content, "struct ServiceMock final : public ::fixture::Service", "gmock backend emits a native mock class");
+            t.contains(registry->content, "struct ServiceMock final : public ::fixture::Service",
+                       "gmock backend emits a native mock class");
             t.contains(registry->content, "using __gentest_mock_0_return = ::std::pair<int, int>;",
                        "gmock backend aliases comma-bearing return types");
             t.contains(registry->content, "using __gentest_mock_0_arg_0 = ::std::vector<int>;",

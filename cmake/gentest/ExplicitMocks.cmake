@@ -443,6 +443,13 @@ function(gentest_add_mocks target)
     set_property(GLOBAL PROPERTY "GENTEST_EXPLICIT_MOCK_SEARCH_ROOTS_${_gentest_search_roots_key}" "${_gentest_explicit_mock_search_roots}")
 
     _gentest_materialize_explicit_mock_defs("${_gentest_output_dir}" _gentest_materialized_textual_defs _gentest_textual_public_files ${_gentest_textual_defs})
+    set(_gentest_textual_dependency_public_files "")
+    foreach(_gentest_textual_public_file IN LISTS _gentest_textual_public_files)
+        list(FIND _gentest_materialized_textual_defs "${_gentest_textual_public_file}" _gentest_textual_def_index)
+        if(_gentest_textual_def_index EQUAL -1)
+            list(APPEND _gentest_textual_dependency_public_files "${_gentest_textual_public_file}")
+        endif()
+    endforeach()
     _gentest_materialize_explicit_module_mock_defs(
         "${_gentest_output_dir}"
         _gentest_materialized_module_defs
@@ -464,19 +471,15 @@ function(gentest_add_mocks target)
 \n\
 #pragma once\n\
 \n")
-        string(APPEND _gentest_public_header_content "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n")
-        if(NOT _gentest_mock_backend STREQUAL "gentest")
-            string(APPEND _gentest_public_header_content "#define GENTEST_NO_EXPECT_CALL_MACROS 1\n")
+        if(_gentest_mock_backend STREQUAL "gentest")
+            string(APPEND _gentest_public_header_content "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n")
+            string(APPEND _gentest_public_header_content "#include \"${_gentest_mock_api_header}\"\n")
+            foreach(_gentest_def IN LISTS _gentest_materialized_textual_defs)
+                file(RELATIVE_PATH _gentest_public_def_include "${_gentest_public_header_dir}" "${_gentest_def}")
+                string(APPEND _gentest_public_header_content "#include \"${_gentest_public_def_include}\"\n")
+            endforeach()
+            string(APPEND _gentest_public_header_content "#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n")
         endif()
-        string(APPEND _gentest_public_header_content "#include \"${_gentest_mock_api_header}\"\n")
-        foreach(_gentest_def IN LISTS _gentest_materialized_textual_defs)
-            file(RELATIVE_PATH _gentest_public_def_include "${_gentest_public_header_dir}" "${_gentest_def}")
-            string(APPEND _gentest_public_header_content "#include \"${_gentest_public_def_include}\"\n")
-        endforeach()
-        if(NOT _gentest_mock_backend STREQUAL "gentest")
-            string(APPEND _gentest_public_header_content "#undef GENTEST_NO_EXPECT_CALL_MACROS\n")
-        endif()
-        string(APPEND _gentest_public_header_content "#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n")
         string(APPEND _gentest_public_header_content "\n")
         file(RELATIVE_PATH _gentest_public_registry_include "${_gentest_public_header_dir}" "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
         file(RELATIVE_PATH _gentest_public_impl_include "${_gentest_public_header_dir}" "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
@@ -527,7 +530,7 @@ int ${_gentest_target_id}_explicit_mock_anchor = 0;\n\
     else()
         get_target_property(_gentest_public_include_dirs gentest::gentest INTERFACE_INCLUDE_DIRECTORIES)
         if(_gentest_public_include_dirs AND NOT _gentest_public_include_dirs MATCHES "-NOTFOUND$")
-            target_include_directories(${target} PUBLIC ${_gentest_public_include_dirs})
+            target_include_directories(${target} PRIVATE ${_gentest_public_include_dirs})
         endif()
     endif()
     if(GENTEST_LINK_LIBRARIES)
@@ -585,11 +588,25 @@ int ${_gentest_target_id}_explicit_mock_anchor = 0;\n\
                     BASE_DIRS "${_gentest_output_dir}"
                     FILES
                         "${_gentest_public_header}"
-                        ${_gentest_textual_public_files}
                         "${_gentest_mock_registry}"
                         "${_gentest_mock_impl}"
                         "${_gentest_mock_registry_header_domain}"
                         "${_gentest_mock_impl_header_domain}")
+        if(_gentest_mock_backend STREQUAL "gentest")
+            target_sources(${target}
+                PUBLIC
+                    FILE_SET gentest_explicit_mock_headers
+                        TYPE HEADERS
+                        BASE_DIRS "${_gentest_output_dir}"
+                        FILES ${_gentest_textual_public_files})
+        elseif(_gentest_textual_dependency_public_files)
+            target_sources(${target}
+                PUBLIC
+                    FILE_SET gentest_explicit_mock_headers
+                        TYPE HEADERS
+                        BASE_DIRS "${_gentest_output_dir}"
+                        FILES ${_gentest_textual_dependency_public_files})
+        endif()
     endif()
 
     set(_gentest_module_support_headers "")

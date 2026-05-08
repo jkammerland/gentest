@@ -538,8 +538,8 @@ gentest::mock<Clock> raw_clock;
 gentest::expect(raw_clock, &Clock::now).times(1).returns(456);
 ```
 
-Third-party mock frameworks can use the same mock definition file. Select the backend on the explicit mock target and link the
-framework target yourself:
+Third-party mock backends use the mock definition file only as codegen input. The generated public header exposes native framework
+classes in a mirrored `mocks` namespace; for a global `Clock`, use `mocks::ClockMock`. Link the framework target yourself:
 
 ```cmake
 find_package(GTest CONFIG REQUIRED)
@@ -561,7 +561,7 @@ using namespace gentest::asserts;
 
 [[using gentest: test("mock/gmock_clock")]]
 void gmock_clock() {
-    mytests::mocks::ClockMock clock;
+    mocks::ClockMock clock;
     EXPECT_CALL(clock, now()).WillOnce(::testing::Return(123));
     EXPECT_EQ(read_now(&clock), 123);
 }
@@ -587,15 +587,16 @@ using namespace gentest::asserts;
 
 [[using gentest: test("mock/trompeloeil_clock")]]
 void trompeloeil_clock() {
-    mytests::mocks::ClockMock clock;
+    mocks::ClockMock clock;
     REQUIRE_CALL(clock, now()).RETURN(123);
     EXPECT_EQ(read_now(&clock), 123);
 }
 ```
 
-`BACKEND gmock` and `BACKEND trompeloeil` currently support textual/header mock targets only. Named-module mocks, static methods,
-method templates, operators, and volatile-qualified methods require the default `BACKEND gentest`. The Trompeloeil backend emits the
-current arity-deducing `MAKE_MOCK`/`MAKE_CONST_MOCK` form, so use Trompeloeil v49 or newer.
+If the target type is namespaced, the mock class follows that namespace: `myapp::Clock` becomes `myapp::mocks::ClockMock`. `BACKEND
+gmock` and `BACKEND trompeloeil` currently support textual/header mock targets only. Named-module mocks, static methods, method
+templates, operators, and volatile-qualified methods require the default `BACKEND gentest`. The Trompeloeil backend emits the current
+arity-deducing `MAKE_MOCK`/`MAKE_CONST_MOCK` form, so use Trompeloeil v49 or newer.
 
 Named-module mock usage is the same idea, but the public surface is a generated module:
 
