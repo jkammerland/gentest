@@ -178,6 +178,24 @@ int main() {
     }
 
     {
+        MockClassInfo cls                     = service_mock();
+        cls.methods[0].method_name            = "operator bool";
+        cls.methods[0].qualified_name         = "fixture::Service::operator bool";
+        cls.methods[0].is_overloaded_operator = false;
+        const MockRenderResult result         = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {std::move(cls)});
+        t.expect(!result.error.empty(), "gmock backend rejects conversion operators");
+        t.contains(result.error, "does not support operator mocks", "gmock backend diagnoses conversion operators");
+    }
+
+    {
+        MockClassInfo cls             = service_mock();
+        cls.methods[0].qualifiers.cv  = MockMethodCvQualifier::Volatile;
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {std::move(cls)});
+        t.expect(!result.error.empty(), "gmock backend rejects volatile-qualified methods");
+        t.contains(result.error, "does not support volatile-qualified methods", "gmock backend diagnoses volatile-qualified methods");
+    }
+
+    {
         CollectorOptions options             = mock_options(MockBackend::GMock);
         options.mock_output_domain_modules   = {"fixture.validation"};
         options.mock_domain_registry_outputs = {"generated/public_mocks_registry.hpp", "generated/public_mocks_registry_module.hpp"};

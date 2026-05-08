@@ -51,11 +51,11 @@ jobs:
         run: |
           brew update
           if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
-            brew install llvm@20 ninja ccache
+            brew install llvm@20 ninja ccache gtest doctest
           elif [ "${{ matrix.compiler }}" = "llvm@21" ]; then
-            brew install llvm@21 ninja ccache
+            brew install llvm@21 ninja ccache gtest doctest
           else
-            brew install llvm ninja ccache
+            brew install llvm ninja ccache gtest doctest
           fi
           if [ "${{ matrix.compiler }}" = "llvm@21" ] && [ "${{ matrix.build-type }}" = "debug" ] && [ "${{ matrix.variant }}" = "default" ]; then
             brew install bazelisk
@@ -659,7 +659,9 @@ jobs:
             libzstd-dev \
             libcurl4-openssl-dev \
             libunwind-dev \
-            libfmt-dev
+            libfmt-dev \
+            libgtest-dev \
+            doctest-dev
           if [ "${{ matrix.setup_mode }}" = "apt-llvm-org" ]; then
             curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
             printf '%s\n' \
@@ -710,6 +712,8 @@ jobs:
               libcurl-devel \
               libffi-devel \
               libxml2-devel \
+              gtest-devel \
+              doctest-devel \
               gcc \
               gcc-c++ \
               make \
@@ -745,6 +749,8 @@ jobs:
               libcurl-devel \
               libffi-devel \
               libxml2-devel \
+              gtest-devel \
+              doctest-devel \
               gcc \
               gcc-c++ \
               make \

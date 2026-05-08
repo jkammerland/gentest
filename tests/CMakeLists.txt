@@ -3418,6 +3418,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_explicit_mock_target_install_export APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_third_party_mock_consumers
+    ${PROJECT_SOURCE_DIR}/tests/cmake/third_party_mock_consumers
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckThirdPartyMockConsumers.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_third_party_mock_consumers APPEND PROPERTY LABELS "cmake")
+
+_gentest_add_cmake_helper_test(
     gentest_module_pcm_cache_isolation
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_pcm_cache_isolation
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModulePcmCacheIsolation.cmake

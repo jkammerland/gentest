@@ -58,6 +58,8 @@ jobs:
             libcurl-devel \
             libffi-devel \
             libxml2-devel \
+            gtest-devel \
+            doctest-devel \
             gcc \
             gcc-c++ \
             make \

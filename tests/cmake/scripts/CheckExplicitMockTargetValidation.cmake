@@ -301,6 +301,12 @@ _gentest_expect_build_failure("third_party_same_file_defs_rejected"
   "third-party mock targets must be declared in a header separate from the mocked target definition")
 _gentest_expect_build_failure("third_party_nested_target_rejected"
   "gmock mock backend does not support nested target types")
+_gentest_expect_build_failure("third_party_template_target_rejected"
+  "gmock mock backend does not support template-specialized target types")
+_gentest_expect_build_failure("third_party_variadic_method_rejected"
+  "gmock mock backend does not support C-style variadic methods")
+_gentest_expect_build_failure("third_party_conversion_operator_rejected"
+  "gmock mock backend does not support operator mocks")
 _gentest_expect_build_failure("missing_named_module" "is not a named module source")
 _gentest_expect_build_failure("provider_only_module" "has no named-module mocks to re-export")
 _gentest_expect_build_failure("implementation_unit_module" "module implementation unit")
