@@ -538,8 +538,9 @@ gentest::mock<Clock> raw_clock;
 gentest::expect(raw_clock, &Clock::now).times(1).returns(456);
 ```
 
-Third-party mock backends use the mock definition file only as codegen input. The generated public header exposes native framework
-classes in a mirrored `mocks` namespace; for a global `Clock`, use `mocks::ClockMock`. Link the framework target yourself:
+Third-party mock backends are currently exposed through CMake. They use the mock definition file only as codegen input. The generated
+public header exposes native framework classes in a mirrored `mocks` namespace; for a global `Clock`, use `mocks::ClockMock`. Link the
+framework target yourself:
 
 ```cmake
 find_package(GTest CONFIG REQUIRED)
@@ -593,10 +594,12 @@ void trompeloeil_clock() {
 }
 ```
 
-If the target type is namespaced, the mock class follows that namespace: `myapp::Clock` becomes `myapp::mocks::ClockMock`. `BACKEND
-gmock` and `BACKEND trompeloeil` currently support textual/header mock targets only. Named-module mocks, static methods, method
-templates, operators, and volatile-qualified methods require the default `BACKEND gentest`. The Trompeloeil backend emits the current
-arity-deducing `MAKE_MOCK`/`MAKE_CONST_MOCK` form, so use Trompeloeil v49 or newer.
+Keep the interface declaration in a separate header from the `gentest::mock<T>` marker alias; the generated third-party public header
+includes the interface header, not the marker header. If the target type is namespaced, the mock class follows that namespace:
+`myapp::Clock` becomes `myapp::mocks::ClockMock`. `BACKEND gmock` and `BACKEND trompeloeil` currently support textual/header mock
+targets only. Named-module mocks, nested target types, template-specialized target types, static methods, method templates, operators,
+and volatile-qualified methods require the default `BACKEND gentest`. The Trompeloeil backend emits the current arity-deducing
+`MAKE_MOCK`/`MAKE_CONST_MOCK` form, so use Trompeloeil v49 or newer.
 
 Named-module mock usage is the same idea, but the public surface is a generated module:
 

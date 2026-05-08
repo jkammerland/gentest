@@ -157,6 +157,24 @@ function(_gentest_materialize_explicit_mock_defs output_dir out_defs out_public_
     set(${out_public_files} "${_gentest_public_files}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_rewrite_third_party_mock_api_includes)
+    foreach(_gentest_file IN LISTS ARGN)
+        if(NOT EXISTS "${_gentest_file}" OR IS_DIRECTORY "${_gentest_file}")
+            continue()
+        endif()
+        file(READ "${_gentest_file}" _gentest_content)
+        set(_gentest_rewritten "${_gentest_content}")
+        string(REGEX REPLACE
+            "(#[ \t]*include[ \t]*)[<\"]gentest/mock\\.h[>\"]"
+            "\\1\"gentest/mock_fwd.h\""
+            _gentest_rewritten
+            "${_gentest_rewritten}")
+        if(NOT _gentest_rewritten STREQUAL _gentest_content)
+            file(WRITE "${_gentest_file}" "${_gentest_rewritten}")
+        endif()
+    endforeach()
+endfunction()
+
 function(_gentest_materialize_explicit_module_mock_defs output_dir out_defs out_public_files)
     set(_gentest_defs_dir "${output_dir}/defs")
     set(_gentest_root_support_dir "${output_dir}/deps")
@@ -443,6 +461,9 @@ function(gentest_add_mocks target)
     set_property(GLOBAL PROPERTY "GENTEST_EXPLICIT_MOCK_SEARCH_ROOTS_${_gentest_search_roots_key}" "${_gentest_explicit_mock_search_roots}")
 
     _gentest_materialize_explicit_mock_defs("${_gentest_output_dir}" _gentest_materialized_textual_defs _gentest_textual_public_files ${_gentest_textual_defs})
+    if(NOT _gentest_mock_backend STREQUAL "gentest")
+        _gentest_rewrite_third_party_mock_api_includes(${_gentest_textual_public_files})
+    endif()
     set(_gentest_textual_dependency_public_files "")
     foreach(_gentest_textual_public_file IN LISTS _gentest_textual_public_files)
         list(FIND _gentest_materialized_textual_defs "${_gentest_textual_public_file}" _gentest_textual_def_index)

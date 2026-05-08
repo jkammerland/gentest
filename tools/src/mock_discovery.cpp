@@ -699,9 +699,13 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     }
 
     MockClassInfo info;
-    info.qualified_name     = trim_leading_global_qualifier(print_type(target_type, ctx));
-    info.display_name       = info.qualified_name;
-    info.derive_for_virtual = definition_record->isPolymorphic();
+    info.qualified_name             = trim_leading_global_qualifier(print_type(target_type, ctx));
+    info.display_name               = info.qualified_name;
+    info.derive_for_virtual         = definition_record->isPolymorphic();
+    info.is_template_specialization = llvm::isa<ClassTemplateSpecializationDecl>(definition_record->getCanonicalDecl());
+    if (const auto enclosing_scope = find_non_namespace_attachment_scope(*definition_record)) {
+        info.enclosing_record_scope = *enclosing_scope;
+    }
     if (const auto *record_dtor = definition_record->getDestructor()) {
         info.has_virtual_destructor = record_dtor->isVirtual();
     } else {
@@ -727,12 +731,12 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     }
     info.definition_kind = from_named_module ? MockClassInfo::DefinitionKind::NamedModule : MockClassInfo::DefinitionKind::HeaderLike;
     if (from_named_module) {
-        if (const auto enclosing_scope = find_non_namespace_attachment_scope(*definition_record)) {
+        if (!info.enclosing_record_scope.empty()) {
             had_error_ = true;
             report(sm, use_loc,
                    fmt::format("gentest::mock<{}>: named-module mock targets must be declared at namespace scope; nested type "
                                "scope '{}' is not supported",
-                               record->getQualifiedNameAsString(), *enclosing_scope));
+                               record->getQualifiedNameAsString(), info.enclosing_record_scope));
             return;
         }
     }
@@ -811,14 +815,15 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         const bool is_template     = method->getDescribedFunctionTemplate() != nullptr;
         method_info.return_type =
             is_template ? print_type_as_written(method->getReturnType(), ctx) : print_type(method->getReturnType(), ctx);
-        method_info.is_static       = method->isStatic();
-        method_info.is_virtual      = method->isVirtual();
-        method_info.is_pure_virtual = method->isPureVirtual();
-        method_info.qualifiers      = capture_method_qualifiers(*method);
-        auto template_info          = capture_callable_template_info(*method, ctx);
-        method_info.template_prefix = std::move(template_info.prefix);
-        method_info.template_params = std::move(template_info.params);
-        method_info.parameters      = capture_callable_parameters(*method, ctx);
+        method_info.is_static              = method->isStatic();
+        method_info.is_virtual             = method->isVirtual();
+        method_info.is_pure_virtual        = method->isPureVirtual();
+        method_info.is_overloaded_operator = method->isOverloadedOperator();
+        method_info.qualifiers             = capture_method_qualifiers(*method);
+        auto template_info                 = capture_callable_template_info(*method, ctx);
+        method_info.template_prefix        = std::move(template_info.prefix);
+        method_info.template_params        = std::move(template_info.params);
+        method_info.parameters             = capture_callable_parameters(*method, ctx);
 
         info.methods.push_back(std::move(method_info));
     };

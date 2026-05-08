@@ -992,7 +992,7 @@ std::string third_party_unsupported_reason(MockBackend backend, const MockClassI
         return fmt::format("{} mock backend does not support volatile-qualified methods: {}::{}", third_party_backend_name(backend),
                            cls.qualified_name, method.method_name);
     }
-    if (method.method_name.starts_with("operator")) {
+    if (method.is_overloaded_operator) {
         return fmt::format("{} mock backend does not support operator mocks: {}::{}", third_party_backend_name(backend), cls.qualified_name,
                            method.method_name);
     }
@@ -1018,6 +1018,35 @@ std::string third_party_mock_namespace(const MockClassInfo &cls) {
         return "mocks";
     }
     return ns + "::mocks";
+}
+
+bool third_party_is_template_specialized_target(const MockClassInfo &cls) {
+    return cls.is_template_specialization || cls.qualified_name.find('<') != std::string::npos;
+}
+
+bool same_lexical_path(std::string_view lhs, std::string_view rhs) {
+    if (lhs.empty() || rhs.empty()) {
+        return false;
+    }
+    return normalize_absolute_lexical(std::filesystem::path{lhs}) == normalize_absolute_lexical(std::filesystem::path{rhs});
+}
+
+std::string third_party_unsupported_class_reason(MockBackend backend, const MockClassInfo &cls) {
+    if (third_party_is_template_specialized_target(cls)) {
+        return fmt::format("{} mock backend does not support template-specialized target types: {}", third_party_backend_name(backend),
+                           cls.qualified_name);
+    }
+    if (!cls.enclosing_record_scope.empty()) {
+        return fmt::format("{} mock backend does not support nested target types: {} is nested in {}", third_party_backend_name(backend),
+                           cls.qualified_name, cls.enclosing_record_scope);
+    }
+    for (const auto &use_file : cls.use_files) {
+        if (same_lexical_path(cls.definition_file, use_file)) {
+            return fmt::format("{} third-party mock targets must be declared in a header separate from the mocked target definition: {}",
+                               third_party_backend_name(backend), cls.qualified_name);
+        }
+    }
+    return {};
 }
 
 std::string third_party_type_aliases(std::size_t method_index, const MockMethodInfo &method) {
@@ -1240,12 +1269,6 @@ std::string generate_third_party_implementation_header(std::string_view backend_
 MockRenderResult render_third_party_mocks(const CollectorOptions &options, const std::vector<MockClassInfo> &mocks) {
     MockRenderResult result;
     const auto       domains = gentest::codegen::build_mock_output_domains(options);
-    if (std::ranges::any_of(domains,
-                            [](const MockOutputDomainPlan &domain) { return domain.kind == MockOutputDomainPlan::Kind::NamedModule; })) {
-        result.error = fmt::format("{} mock backend supports only the header/textual mock output domain",
-                                   third_party_backend_name(options.mock_backend));
-        return result;
-    }
 
     std::vector<const MockClassInfo *> classes;
     classes.reserve(mocks.size());
@@ -1253,6 +1276,10 @@ MockRenderResult render_third_party_mocks(const CollectorOptions &options, const
         if (cls.definition_kind != MockClassInfo::DefinitionKind::HeaderLike) {
             result.error = fmt::format("{} mock backend only supports header/textual mock targets; '{}' is owned by named module '{}'",
                                        third_party_backend_name(options.mock_backend), cls.qualified_name, cls.definition_module_name);
+            return result;
+        }
+        if (const std::string unsupported = third_party_unsupported_class_reason(options.mock_backend, cls); !unsupported.empty()) {
+            result.error = unsupported;
             return result;
         }
         for (const auto &method : cls.methods) {
@@ -1288,6 +1315,19 @@ MockRenderResult render_third_party_mocks(const CollectorOptions &options, const
         .path    = header_domain->impl_path,
         .content = generate_third_party_implementation_header(third_party_backend_name(options.mock_backend)),
     });
+    for (const auto &domain : domains) {
+        if (domain.kind != MockOutputDomainPlan::Kind::NamedModule) {
+            continue;
+        }
+        out.additional_files.push_back(MockGeneratedFile{
+            .path    = domain.registry_path,
+            .content = generate_empty_third_party_registry_header(domain.module_name),
+        });
+        out.additional_files.push_back(MockGeneratedFile{
+            .path    = domain.impl_path,
+            .content = generate_third_party_implementation_header(third_party_backend_name(options.mock_backend)),
+        });
+    }
     out.registry_header     = generate_dispatcher_header(header_domain->registry_path);
     out.implementation_unit = generate_dispatcher_header(header_domain->impl_path);
     result.outputs          = std::move(out);

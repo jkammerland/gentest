@@ -273,9 +273,10 @@ struct MockMethodInfo {
     std::vector<MockParamInfo>     parameters;
     std::string                    template_prefix; // e.g. "template <typename T, int N>"
     std::vector<TemplateParamInfo> template_params;
-    bool                           is_static       = false;
-    bool                           is_virtual      = false;
-    bool                           is_pure_virtual = false;
+    bool                           is_static              = false;
+    bool                           is_virtual             = false;
+    bool                           is_pure_virtual        = false;
+    bool                           is_overloaded_operator = false;
     MockMethodQualifiers           qualifiers;
 };
 
@@ -304,6 +305,9 @@ struct MockClassInfo {
     std::vector<std::string> use_files;
     // Owning named module for module-defined mocks. Empty for header-like definitions.
     std::string definition_module_name;
+    // Non-empty when the target type is nested in another record type.
+    std::string enclosing_record_scope;
+    bool        is_template_specialization = false;
     // Global-scope insertion point within `definition_file` where module-owned
     // mock attachments can be injected safely.
     std::optional<std::size_t> attachment_insertion_offset;
