@@ -323,7 +323,7 @@ void adopt_and_log() {
 Completion semantics are strict by design: runner phase completion waits until all context adoptions are released.
 
 >[!WARNING]
-> If adopted work is detached or stuck and never releases the `gentest::Adoption`, the test/run blocks forever.
+> If adopted work is detached or stuck and never releases the `gentest::CurrentContextLease`, the test/run blocks forever.
 
 ### Parameters (value matrices)
 

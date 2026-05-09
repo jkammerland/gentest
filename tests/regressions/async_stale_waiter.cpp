@@ -274,7 +274,7 @@ struct SchedulerLifetimeProbeAwaitable {
 
     constexpr void await_resume() const noexcept {}
 
-    void cancel_wait(gentest::detail::AsyncScheduler &) noexcept {
+    void cancel_wait(const gentest::detail::AsyncScheduler::Control &) noexcept {
         if (scheduler_shutdown && scheduler_shutdown->load(std::memory_order_acquire)) {
             raw_cancel_after_shutdown.fetch_add(1, std::memory_order_acq_rel);
         }
