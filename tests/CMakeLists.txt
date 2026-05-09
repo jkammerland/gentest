@@ -2,6 +2,7 @@ include(GentestTests)
 include("${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFixtureCommon.cmake")
 
 option(GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS "Require real GMock/doctest generated-mock consumers in CMake regressions" OFF)
+option(GENTEST_REQUIRE_TROMPELOEIL_MOCK_CONSUMER "Require real Trompeloeil generated-mock consumer in CMake regressions" OFF)
 
 if(NOT TARGET gentest_test_suites)
     add_custom_target(gentest_test_suites)
@@ -3425,7 +3426,8 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckThirdPartyMockConsumers.cmake
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-    -DREQUIRE_REAL_CONSUMERS=${GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS})
+    -DREQUIRE_REAL_CONSUMERS=${GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS}
+    -DREQUIRE_TROMPELOEIL_CONSUMER=${GENTEST_REQUIRE_TROMPELOEIL_MOCK_CONSUMER})
 set_property(TEST gentest_third_party_mock_consumers APPEND PROPERTY LABELS "cmake")
 
 _gentest_add_cmake_helper_test(
@@ -4042,6 +4044,16 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         -DCONSUMER_LINK_MODE=main_only
         -DPACKAGE_TEST_USE_MODULES=OFF
         -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_third_party_mock_package_consumers
+        ${PROJECT_SOURCE_DIR}/tests/cmake/third_party_mock_consumers
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckThirdPartyMockConsumers.cmake
+        package
+        -DUSE_INSTALLED_GENTEST=ON
+        -DREQUIRE_REAL_CONSUMERS=${GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS}
+        -DREQUIRE_TROMPELOEIL_CONSUMER=${GENTEST_REQUIRE_TROMPELOEIL_MOCK_CONSUMER}
         ${_gentest_package_test_compiler_args})
 
     _gentest_add_cmake_helper_test(

@@ -1,22 +1,29 @@
 cmake_minimum_required(VERSION 3.31)
 project(gentest_third_party_mock_consumers LANGUAGES CXX)
 
-if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
-    message(FATAL_ERROR "GENTEST_SOURCE_DIR must point at the gentest source tree")
-endif()
-
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-if(DEFINED GENTEST_CODEGEN_EXECUTABLE AND NOT "${GENTEST_CODEGEN_EXECUTABLE}" STREQUAL "")
-    set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
+
+option(GENTEST_THIRD_PARTY_MOCK_CONSUMERS_USE_PACKAGE "Consume gentest through find_package instead of add_subdirectory" OFF)
+if(GENTEST_THIRD_PARTY_MOCK_CONSUMERS_USE_PACKAGE)
+    find_package(gentest CONFIG REQUIRED)
 else()
-    set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
+    if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
+        message(FATAL_ERROR "GENTEST_SOURCE_DIR must point at the gentest source tree")
+    endif()
+
+    set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    if(DEFINED GENTEST_CODEGEN_EXECUTABLE AND NOT "${GENTEST_CODEGEN_EXECUTABLE}" STREQUAL "")
+        set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
+    else()
+        set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
+    endif()
+
+    add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
-
 option(GENTEST_REQUIRE_REAL_THIRD_PARTY_MOCK_CONSUMERS "Require real GMock and doctest generated-mock consumers" OFF)
+option(GENTEST_REQUIRE_REAL_TROMPELOEIL_MOCK_CONSUMER "Require real Trompeloeil generated-mock consumer" OFF)
 
 find_package(GTest CONFIG QUIET)
 if(NOT GTest_FOUND)
@@ -88,6 +95,9 @@ if(GENTEST_REQUIRE_REAL_THIRD_PARTY_MOCK_CONSUMERS)
     if(NOT EXISTS "${_gentest_real_consumer_stamp_dir}/doctest.txt")
         message(FATAL_ERROR "GENTEST_REQUIRE_REAL_THIRD_PARTY_MOCK_CONSUMERS=ON requires doctest::doctest")
     endif()
+endif()
+if(GENTEST_REQUIRE_REAL_TROMPELOEIL_MOCK_CONSUMER AND NOT EXISTS "${_gentest_real_consumer_stamp_dir}/trompeloeil.txt")
+    message(FATAL_ERROR "GENTEST_REQUIRE_REAL_TROMPELOEIL_MOCK_CONSUMER=ON requires trompeloeil::trompeloeil")
 endif()
 
 if(_gentest_real_consumer_targets)

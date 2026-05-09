@@ -664,6 +664,7 @@ jobs:
             libfmt-dev \
             libgtest-dev \
             libgmock-dev \
+            libtrompeloeil-cpp-dev \
             doctest-dev
           if [ "${{ matrix.setup_mode }}" = "apt-llvm-org" ]; then
             curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
@@ -891,6 +892,9 @@ jobs:
           fi
           if [ "${{ matrix.pkg_manager }}" != "apk" ]; then
             CMAKE_ARGS+=("-DGENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS=ON")
+          fi
+          if [ "${{ matrix.pkg_manager }}" = "apt" ]; then
+            CMAKE_ARGS+=("-DGENTEST_REQUIRE_TROMPELOEIL_MOCK_CONSUMER=ON")
           fi
           cmake "${CMAKE_ARGS[@]}"
       - name: Build
