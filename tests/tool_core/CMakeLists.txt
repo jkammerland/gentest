@@ -95,6 +95,7 @@ endif()
 if(TARGET gentest_codegen_support)
     add_executable(gentest_core_render_mocks_tests
         render_mocks_tests.cpp
+        ${_gentest_tool_core_src_dir}/mock_manifest.cpp
         ${_gentest_tool_core_src_dir}/render.cpp
         ${_gentest_tool_core_src_dir}/render_mocks.cpp)
 

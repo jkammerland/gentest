@@ -224,6 +224,10 @@ json::Object method_object(const MockMethodInfo &method) {
         {.K = "is_static", .V = method.is_static},
         {.K = "is_virtual", .V = method.is_virtual},
         {.K = "is_pure_virtual", .V = method.is_pure_virtual},
+        {.K = "is_final", .V = method.is_final},
+        {.K = "is_variadic", .V = method.is_variadic},
+        {.K = "is_overloaded_operator", .V = method.is_overloaded_operator},
+        {.K = "is_conversion_operator", .V = method.is_conversion_operator},
         {.K = "qualifiers", .V = qualifiers_object(method.qualifiers)},
     };
 }
@@ -262,6 +266,8 @@ json::Object mock_object(const MockClassInfo &mock) {
         {.K = "definition_kind", .V = to_string(mock.definition_kind)},
         {.K = "use_files", .V = string_array(mock.use_files)},
         {.K = "definition_module_name", .V = mock.definition_module_name},
+        {.K = "enclosing_record_scope", .V = mock.enclosing_record_scope},
+        {.K = "is_template_specialization", .V = mock.is_template_specialization},
         {.K = "attachment_namespace_chain", .V = namespace_scope_array(mock.attachment_namespace_chain)},
         {.K = "derive_for_virtual", .V = mock.derive_for_virtual},
         {.K = "has_accessible_default_ctor", .V = mock.has_accessible_default_ctor},
@@ -448,7 +454,10 @@ bool parse_method(const json::Object &obj, MockMethodInfo &out, std::string &err
         !optional_string(obj, "template_prefix", out.template_prefix, error) ||
         !parse_template_params(obj, "template_params", out.template_params, error) ||
         !optional_bool(obj, "is_static", out.is_static, error) || !optional_bool(obj, "is_virtual", out.is_virtual, error) ||
-        !optional_bool(obj, "is_pure_virtual", out.is_pure_virtual, error)) {
+        !optional_bool(obj, "is_pure_virtual", out.is_pure_virtual, error) || !optional_bool(obj, "is_final", out.is_final, error) ||
+        !optional_bool(obj, "is_variadic", out.is_variadic, error) ||
+        !optional_bool(obj, "is_overloaded_operator", out.is_overloaded_operator, error) ||
+        !optional_bool(obj, "is_conversion_operator", out.is_conversion_operator, error)) {
         return false;
     }
     const auto *qualifiers = obj.getObject("qualifiers");
@@ -524,6 +533,8 @@ bool parse_mock(const json::Object &obj, MockClassInfo &out, std::string &error)
         !parse_enum(definition_kind, out.definition_kind, parse_definition_kind) ||
         !string_vector(obj, "use_files", out.use_files, error) ||
         !optional_string(obj, "definition_module_name", out.definition_module_name, error) ||
+        !optional_string(obj, "enclosing_record_scope", out.enclosing_record_scope, error) ||
+        !optional_bool(obj, "is_template_specialization", out.is_template_specialization, error) ||
         !parse_namespace_scopes(obj, out.attachment_namespace_chain, error) ||
         !optional_bool(obj, "derive_for_virtual", out.derive_for_virtual, error) ||
         !optional_bool(obj, "has_accessible_default_ctor", out.has_accessible_default_ctor, error) ||

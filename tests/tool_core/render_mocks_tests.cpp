@@ -1,5 +1,7 @@
+#include "mock_manifest.hpp"
 #include "render_mocks.hpp"
 
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -221,6 +223,44 @@ int main() {
         const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::Trompeloeil), {std::move(cls)});
         t.expect(!result.error.empty(), "trompeloeil backend rejects named-module mocks");
         t.contains(result.error, "only supports header/textual mock targets", "trompeloeil backend diagnoses named modules");
+    }
+
+    {
+        MockClassInfo cls                     = service_mock();
+        cls.enclosing_record_scope            = "fixture::Outer";
+        cls.is_template_specialization        = true;
+        cls.methods[0].is_final               = true;
+        cls.methods[0].is_variadic            = true;
+        cls.methods[0].is_overloaded_operator = true;
+        cls.methods[0].is_conversion_operator = true;
+
+        const auto  manifest_path = std::filesystem::temp_directory_path() / "gentest_mock_manifest_roundtrip.json";
+        std::string write_error;
+        t.expect(gentest::codegen::mock_manifest::write(manifest_path, {cls}, {}, write_error), "mock manifest round trip writes");
+        if (!write_error.empty()) {
+            std::cerr << "manifest write error: " << write_error << "\n";
+        }
+
+        auto read = gentest::codegen::mock_manifest::read(manifest_path);
+        std::filesystem::remove(manifest_path);
+        t.expect(read.error.empty(), "mock manifest round trip reads");
+        if (!read.error.empty()) {
+            std::cerr << "manifest read error: " << read.error << "\n";
+        }
+        t.expect(read.mocks.size() == 1, "mock manifest round trip preserves mock count");
+        if (read.mocks.size() == 1) {
+            const auto &round_tripped = read.mocks.front();
+            t.expect(round_tripped.enclosing_record_scope == "fixture::Outer", "mock manifest preserves nested scope");
+            t.expect(round_tripped.is_template_specialization, "mock manifest preserves template-specialization flag");
+            t.expect(round_tripped.methods.size() == 1, "mock manifest preserves method count");
+            if (round_tripped.methods.size() == 1) {
+                const auto &method = round_tripped.methods.front();
+                t.expect(method.is_final, "mock manifest preserves final methods");
+                t.expect(method.is_variadic, "mock manifest preserves variadic methods");
+                t.expect(method.is_overloaded_operator, "mock manifest preserves overloaded operators");
+                t.expect(method.is_conversion_operator, "mock manifest preserves conversion operators");
+            }
+        }
     }
 
     return t.failures == 0 ? 0 : 1;
