@@ -447,8 +447,10 @@ body does not need to suspend, end it with `co_return;`.
 ## Worker Threads
 
 The runner resumes async tests on one thread, but tests may start their own
-threads. Worker threads must lease the current context before calling
-`gentest::log()`, `EXPECT_*`, or other gentest APIs.
+threads. Worker threads may lease the current context for `gentest::log()` and
+`context.stop_token()` only. They must report results back to the owning test,
+and the owning test performs `EXPECT_*`, `ASSERT_*`, `gentest::fail()`,
+`gentest::skip()`, `gentest::xfail()`, and mock configuration.
 
 ```cpp
 [[using gentest: test("async/threaded")]]
@@ -459,7 +461,6 @@ gentest::async_test<void> worker_thread_reports_back() {
     std::thread worker([context, &done] {
         auto lease = gentest::set_current_context(context);
         gentest::log("worker reached checkpoint");
-        EXPECT_TRUE(true);
         done.set("worker.done", "ok");
     });
 
@@ -478,11 +479,12 @@ gentest::async_test<void> worker_thread_stops() {
     std::mutex                  m;
     std::condition_variable_any cv;
     bool                        ready = false;
+    bool                        worker_saw_ready = false;
     std::latch                  started(1);
 
     auto context = gentest::get_current_context();
 
-    std::thread worker([context, &m, &cv, &ready, &started] {
+    std::thread worker([context, &m, &cv, &ready, &worker_saw_ready, &started] {
         auto lease = gentest::set_current_context(context);
         auto stop  = context.stop_token();
         started.count_down();
@@ -494,16 +496,24 @@ gentest::async_test<void> worker_thread_stops() {
             return;
         }
 
-        EXPECT_TRUE(ready);
+        worker_saw_ready = ready;
     });
-    worker.detach();
 
     started.wait();
+    {
+        std::lock_guard lk(m);
+        ready = true;
+    }
+    cv.notify_all();
+    worker.join();
+    EXPECT_TRUE(worker_saw_ready);
     co_return;
 }
 ```
 
 For plain `std::condition_variable`, bridge the stop token with a callback.
+The callback should notify the primitive only; if it needs to log, explicitly
+lease the context inside the callback. Do not assert from stop callbacks.
 
 ```cpp
 std::stop_callback wake_on_stop(context.stop_token(), [&] {
@@ -515,13 +525,10 @@ cv.wait(lock, [&] {
 });
 ```
 
-Without a leased context, test operations from a worker are a hard test program
-error. Keep the `CurrentContextLease` object alive for the whole worker region
-that uses gentest APIs. Prefer non-fatal `EXPECT_*` and `gentest::log()` in
-worker threads. Fatal operations such as `ASSERT_*`, `gentest::fail()`, and
-`gentest::skip()` throw when exceptions are enabled; do not let those exceptions
-escape a `std::thread` entry point. Signal the async test and perform the fatal
-operation on the runner coroutine, or catch and translate the worker exception.
+Without a leased context, `gentest::log()` from a worker is a hard test program
+error. With a leased context, outcome-changing APIs from a worker are still a
+hard test program error. Signal the owning async test and perform assertions or
+outcome changes there.
 
 ## Outcomes
 
@@ -625,6 +632,9 @@ Non-terminal output is final-result only; it does not print the live block.
   external completion.
 - Use `gentest::log()` instead of direct `std::cout` / `std::cerr` writes while
   live progress is active.
-- Lease the current context in worker threads before using gentest APIs.
+- Lease the current context in worker threads only for `gentest::log()` and
+  cooperative stop observation.
+- Do not assert, skip, xfail, fail, or configure mocks from worker threads or
+  stop callbacks. Signal the owning test and assert there.
 - Top-level `async_test<T>` values are discarded; only awaited helper tasks use
   their returned value.

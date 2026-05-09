@@ -19,10 +19,11 @@ struct ContextSnapshot {
 class ActiveProofContext {
   public:
     explicit ActiveProofContext(std::string_view display_name)
-        : previous_(gentest::detail::current_test()), ctx_(std::make_shared<gentest::detail::TestContextInfo>()) {
+        : previous_(gentest::detail::current_test()), previous_role_(gentest::detail::current_context_role()),
+          ctx_(std::make_shared<gentest::detail::TestContextInfo>()) {
         ctx_->display_name = std::string(display_name);
         gentest::detail::start_context(*ctx_);
-        gentest::detail::set_current_test(ctx_);
+        gentest::detail::set_current_test(ctx_, gentest::detail::CurrentContextRole::Owner);
     }
 
     ActiveProofContext(const ActiveProofContext &)            = delete;
@@ -34,7 +35,7 @@ class ActiveProofContext {
             gentest::detail::wait_for_adopted_contexts(ctx_);
             gentest::detail::close_context_to_late_operations(*ctx_);
         }
-        gentest::detail::set_current_test(std::move(previous_));
+        gentest::detail::set_current_test(std::move(previous_), previous_role_);
     }
 
     auto snapshot() const -> ContextSnapshot {
@@ -48,6 +49,7 @@ class ActiveProofContext {
 
   private:
     std::shared_ptr<gentest::detail::TestContextInfo> previous_{};
+    gentest::detail::CurrentContextRole               previous_role_{gentest::detail::CurrentContextRole::None};
     std::shared_ptr<gentest::detail::TestContextInfo> ctx_{};
 };
 

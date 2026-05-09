@@ -259,6 +259,7 @@ endif()
 _gentest_tidy_assert_contains("${_bad_tidy_text}" "gentest-context-lease" "negative tidy fixture")
 _gentest_tidy_assert_contains("${_bad_tidy_text}" "thread-like callback" "negative tidy fixture")
 _gentest_tidy_assert_contains("${_bad_tidy_text}" "coroutine body" "negative tidy fixture")
+_gentest_tidy_assert_contains("${_bad_tidy_text}" "cannot run from a worker/adopted context" "negative tidy fixture")
 _gentest_tidy_assert_contains("${_bad_tidy_text}" "gentest::set_current_context()" "negative tidy fixture")
 
 message(STATUS "Run tidy context lease positive fixture...")

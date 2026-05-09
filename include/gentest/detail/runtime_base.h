@@ -26,3 +26,13 @@ class assertion {
 };
 
 } // namespace gentest
+
+namespace gentest::detail {
+
+enum class CurrentContextRole : unsigned char {
+    None,
+    Owner,
+    Adopted,
+};
+
+} // namespace gentest::detail

@@ -460,12 +460,14 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     ~ExpectationHandle() = default;
 
     ExpectationHandle &times(std::size_t expected) {
+        require_configurable();
         if (expectation_)
             expectation_->set_expected_calls(method_name_, expected);
         return *this;
     }
 
     template <typename Callable> ExpectationHandle &invokes(Callable &&callable) {
+        require_configurable();
         if (expectation_) {
             using DArgs = std::tuple<std::decay_t<Args>...>;
             (void)sizeof(DArgs);
@@ -476,6 +478,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     }
 
     template <typename... X> ExpectationHandle &with(X &&...expected) {
+        require_configurable();
         if (expectation_) {
             expectation_->set_expected(method_name_, std::forward<X>(expected)...);
         }
@@ -484,6 +487,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
 
     template <typename... P> ExpectationHandle &where_args(P &&...predicates) {
         static_assert(sizeof...(P) == sizeof...(Args), "where_args arity must match mocked method");
+        require_configurable();
         if (expectation_) {
             expectation_->set_predicates(method_name_, std::forward<P>(predicates)...);
         }
@@ -494,6 +498,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     template <typename... P> ExpectationHandle &where(P &&...predicates) { return where_args(std::forward<P>(predicates)...); }
 
     template <typename Callable> ExpectationHandle &where_call(Callable &&call_pred) {
+        require_configurable();
         if (expectation_) {
             expectation_->set_call_predicate(method_name_,
                                              std::function<bool(const std::decay_t<Args> &...)>(std::forward<Callable>(call_pred)));
@@ -502,6 +507,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     }
 
     template <typename Value> ExpectationHandle &returns(Value &&value) {
+        require_configurable();
         if constexpr (std::is_void_v<R>) {
             static_assert(!std::is_void_v<R>, "returns() is not available for void-returning methods");
         } else if constexpr (std::is_reference_v<R>) {
@@ -518,6 +524,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     }
 
     template <typename RR = R> ExpectationHandle &returns_ref(std::remove_reference_t<RR> &value) {
+        require_configurable();
         if constexpr (!std::is_lvalue_reference_v<RR>) {
             static_assert(std::is_lvalue_reference_v<RR>, "returns_ref() is only available for lvalue-reference returning methods");
         } else {
@@ -533,12 +540,15 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     }
 
     ExpectationHandle &allow_more(bool enabled = true) {
+        require_configurable();
         if (expectation_)
             expectation_->set_allow_excess(method_name_, enabled);
         return *this;
     }
 
   private:
+    static void require_configurable() { ::gentest::detail::require_not_adopted_context("mock expectation configured"); }
+
     std::shared_ptr<Expectation<R(Args...)>> expectation_;
     std::string                              method_name_;
 };
@@ -633,17 +643,23 @@ template <class Mock> struct MockAccess {
 } // namespace detail
 
 template <class Mock, class MethodPtr> auto expect(Mock &instance, MethodPtr method) {
+    ::gentest::detail::require_not_adopted_context("mock expectation configured");
     return detail::MockAccess<std::remove_cvref_t<Mock>>::expect(instance, method);
 }
 
 template <auto Method, class Mock> auto expect(Mock &instance, std::string_view method_name) {
+    ::gentest::detail::require_not_adopted_context("mock expectation configured");
     return detail::MockAccess<std::remove_cvref_t<Mock>>::template expect_constant<Method>(instance, method_name);
 }
 
 template <class Mock> void make_nice(Mock &instance, bool v = true) {
+    ::gentest::detail::require_not_adopted_context("mock mode configured");
     detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, v);
 }
-template <class Mock> void make_strict(Mock &instance) { detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, false); }
+template <class Mock> void make_strict(Mock &instance) {
+    ::gentest::detail::require_not_adopted_context("mock mode configured");
+    detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, false);
+}
 
 // Convenience macros to configure expectations with a terse syntax.
 // Usage: EXPECT_CALL(mock, method).times(2)...

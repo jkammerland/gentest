@@ -17,17 +17,19 @@ inline auto make_active_test_context(std::string_view display_name) -> std::shar
 
 class CurrentTestContextScope {
   public:
-    explicit CurrentTestContextScope(std::shared_ptr<gentest::detail::TestContextInfo> ctx) : previous_(gentest::detail::current_test()) {
-        gentest::detail::set_current_test(std::move(ctx));
+    explicit CurrentTestContextScope(std::shared_ptr<gentest::detail::TestContextInfo> ctx)
+        : previous_(gentest::detail::current_test()), previous_role_(gentest::detail::current_context_role()) {
+        gentest::detail::set_current_test(std::move(ctx), gentest::detail::CurrentContextRole::Owner);
     }
 
     CurrentTestContextScope(const CurrentTestContextScope &)            = delete;
     CurrentTestContextScope &operator=(const CurrentTestContextScope &) = delete;
 
-    ~CurrentTestContextScope() { gentest::detail::set_current_test(std::move(previous_)); }
+    ~CurrentTestContextScope() { gentest::detail::set_current_test(std::move(previous_), previous_role_); }
 
   private:
     std::shared_ptr<gentest::detail::TestContextInfo> previous_;
+    gentest::detail::CurrentContextRole               previous_role_;
 };
 
 inline void request_active_test_context_stop(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
@@ -73,8 +75,8 @@ inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentes
 class CurrentTestScope {
   public:
     explicit CurrentTestScope(std::shared_ptr<gentest::detail::TestContextInfo> ctx)
-        : ctx_(std::move(ctx)), previous_(gentest::detail::current_test()) {
-        gentest::detail::set_current_test(ctx_);
+        : ctx_(std::move(ctx)), previous_(gentest::detail::current_test()), previous_role_(gentest::detail::current_context_role()) {
+        gentest::detail::set_current_test(ctx_, gentest::detail::CurrentContextRole::Owner);
     }
 
     CurrentTestScope(const CurrentTestScope &)            = delete;
@@ -85,12 +87,13 @@ class CurrentTestScope {
             return;
         }
         finish_active_test_context(ctx_);
-        gentest::detail::set_current_test(std::move(previous_));
+        gentest::detail::set_current_test(std::move(previous_), previous_role_);
     }
 
   private:
     std::shared_ptr<gentest::detail::TestContextInfo> ctx_;
     std::shared_ptr<gentest::detail::TestContextInfo> previous_;
+    gentest::detail::CurrentContextRole               previous_role_;
 };
 
 } // namespace gentest::runner::detail

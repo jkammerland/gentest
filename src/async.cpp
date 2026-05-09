@@ -66,21 +66,17 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
                 if (frame->is_canceled() || frame->done()) {
                     continue;
                 }
-                auto previous = current_test();
-                set_current_test(ctx_);
                 try {
+                    gentest::runner::detail::CurrentTestContextScope current_scope(ctx_);
                     core_.clear_suspend_state(frame);
                     frame->handle.resume();
                 } catch (const std::exception &e) {
                     blocked_reason = fmt::format("async coroutine resume threw std::exception: {}", e.what());
-                    set_current_test(std::move(previous));
                     return BlockingAsyncStatus::Blocked;
                 } catch (...) {
                     blocked_reason = "async coroutine resume threw unknown exception";
-                    set_current_test(std::move(previous));
                     return BlockingAsyncStatus::Blocked;
                 }
-                set_current_test(std::move(previous));
             }
 
             core_.post_due_timers();
@@ -187,10 +183,11 @@ auto run_async_task_blocking(async_test<void> task, std::string_view label, std:
     error_out.clear();
     auto ctx = make_context(label);
 
-    auto previous = current_test();
-    set_current_test(ctx);
-    auto task_ptr = make_async_task(std::move(task));
-    set_current_test(std::move(previous));
+    AsyncTaskPtr task_ptr;
+    {
+        gentest::runner::detail::CurrentTestContextScope current_scope(ctx);
+        task_ptr = make_async_task(std::move(task));
+    }
 
     std::string            blocked_reason;
     BlockingAsyncScheduler scheduler(ctx);

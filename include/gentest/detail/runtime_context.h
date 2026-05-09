@@ -115,6 +115,7 @@ struct TestContextLocalBuffer {
 
 GENTEST_RUNTIME_API auto current_test_storage() -> std::shared_ptr<TestContextInfo> &;
 GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer &;
+GENTEST_RUNTIME_API auto current_context_role_storage() -> CurrentContextRole &;
 GENTEST_RUNTIME_API auto default_log_policy_storage() -> std::atomic<std::underlying_type_t<gentest::LogPolicy>> &;
 
 [[noreturn]] inline void fail_without_active_context(std::string_view operation) {
@@ -152,17 +153,24 @@ inline void flush_current_buffer_for(TestContextInfo *ctx) {
     buffer.clear();
 }
 
-inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
+inline void set_current_test(std::shared_ptr<TestContextInfo> ctx, CurrentContextRole role) {
     auto &current_test = current_test_storage();
     auto &buffer       = current_buffer_storage();
     if (current_test) {
         flush_current_buffer_for(current_test.get());
     }
-    current_test = std::move(ctx);
-    buffer.owner = current_test ? current_test.get() : nullptr;
+    current_test                   = std::move(ctx);
+    current_context_role_storage() = current_test ? role : CurrentContextRole::None;
+    buffer.owner                   = current_test ? current_test.get() : nullptr;
+}
+
+inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
+    const auto role = ctx ? CurrentContextRole::Owner : CurrentContextRole::None;
+    set_current_test(std::move(ctx), role);
 }
 
 inline std::shared_ptr<TestContextInfo> current_test() { return current_test_storage(); }
+inline CurrentContextRole               current_context_role() { return current_context_role_storage(); }
 
 inline void notify_context_progress(TestContextInfo &ctx) noexcept;
 
@@ -177,7 +185,17 @@ inline void request_context_stop(TestContextInfo &ctx) noexcept {
         return;
     }
     ctx.state.store(ContextState::Stopping, std::memory_order_release);
+    auto      &role_storage  = current_context_role_storage();
+    const auto previous_role = role_storage;
+    const bool current_owner = current_test_storage().get() == &ctx;
+    const bool override_role = current_owner && previous_role == CurrentContextRole::Owner;
+    if (override_role) {
+        role_storage = CurrentContextRole::Adopted;
+    }
     (void)ctx.stop_source.request_stop();
+    if (override_role) {
+        role_storage = previous_role;
+    }
     notify_context_progress(ctx);
 }
 
@@ -285,10 +303,8 @@ inline std::string first_recorded_failure(const std::shared_ptr<TestContextInfo>
 }
 
 inline void request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
-    auto ctx = current_test_storage();
-    if (!accepts_late_test_operation(ctx)) {
-        fail_without_active_context("skip called");
-    }
+    require_owner_context("skip called");
+    auto                        ctx = current_test_storage();
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->runtime_skip_requested.store(true, std::memory_order_relaxed);
     ctx->runtime_skip_reason = std::string(reason);

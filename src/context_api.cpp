@@ -58,10 +58,11 @@ auto get_current_token() -> CurrentToken { return get_current_context(); }
 
 auto set_current_token(CurrentToken context) -> CurrentContextLease { return set_current_context(std::move(context)); }
 
-CurrentContextLease::CurrentContextLease(CurrentContext context) : previous_(get_current_context()), leased_(std::move(context)) {
+CurrentContextLease::CurrentContextLease(CurrentContext context)
+    : previous_(get_current_context()), leased_(std::move(context)), previous_role_(detail::current_context_role()) {
     acquire_adopted_context(leased_);
     try {
-        detail::set_current_test(context_info(leased_));
+        detail::set_current_test(context_info(leased_), detail::CurrentContextRole::Adopted);
     } catch (...) {
         if (release_adopted_context(leased_)) {
             detail::notify_adopted_contexts_released(*context_info(leased_));
@@ -71,7 +72,7 @@ CurrentContextLease::CurrentContextLease(CurrentContext context) : previous_(get
 }
 
 CurrentContextLease::~CurrentContextLease() {
-    detail::set_current_test(context_info(previous_));
+    detail::set_current_test(context_info(previous_), previous_role_);
     if (release_adopted_context(leased_)) {
         detail::close_context_if_released(*context_info(leased_));
         detail::notify_adopted_contexts_released(*context_info(leased_));
@@ -114,16 +115,15 @@ void log(std::string_view message) {
 }
 
 void set_log_policy(LogPolicy policy) {
-    auto ctx = detail::current_test_storage();
-    if (!detail::accepts_late_test_operation(ctx)) {
-        return;
-    }
+    detail::require_owner_context("set_log_policy called");
+    auto                        ctx = detail::current_test_storage();
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->log_policy            = policy;
     ctx->log_policy_overridden = true;
 }
 
 void set_default_log_policy(LogPolicy policy) {
+    detail::require_not_adopted_context("set_default_log_policy called");
     detail::default_log_policy_storage().store(gentest::to_underlying(policy), std::memory_order_release);
 }
 
@@ -139,10 +139,8 @@ void set_default_log_policy(LogPolicy policy) {
 
 void xfail(std::string_view reason, const std::source_location &loc) {
     (void)loc;
-    auto ctx = detail::current_test_storage();
-    if (!detail::accepts_late_test_operation(ctx)) {
-        detail::fail_without_active_context("xfail called");
-    }
+    detail::require_owner_context("xfail called");
+    auto                        ctx = detail::current_test_storage();
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->xfail_requested = true;
     if (!reason.empty()) {

@@ -9,7 +9,6 @@
 #include "runner_fixture_runtime.h"
 #include "runner_reporting.h"
 
-#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <fmt/color.h>
@@ -180,22 +179,9 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
     const auto has_adopted_work = [](const AsyncCaseRun &run) {
         return run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
     };
-    const auto context_has_failure = [](const AsyncCaseRun &run) {
-        return run.ctxinfo && run.ctxinfo->has_failures.load(std::memory_order_acquire);
-    };
-    const auto context_counts_as_failure = [&](const AsyncCaseRun &run) {
-        return context_has_failure(run) && !async_run_requests_xfail(run);
-    };
-    const auto any_unfinalized_adopted_context_failed = [&] {
-        return std::ranges::any_of(
-            async_runs, [&](const AsyncCaseRun &run) { return !run.finalized && has_adopted_work(run) && context_counts_as_failure(run); });
-    };
 
-    bool       fail_fast_stop_requested = false;
-    const auto should_stop              = [&] {
-        return fail_fast &&
-               (fail_fast_stop_requested || counters.failures > 0 || counters.blocked > 0 || any_unfinalized_adopted_context_failed());
-    };
+    bool        fail_fast_stop_requested = false;
+    const auto  should_stop = [&] { return fail_fast && (fail_fast_stop_requested || counters.failures > 0 || counters.blocked > 0); };
     std::size_t first_unfinalized_scan = 0;
 
     const auto advance_first_unfinalized = [&] {
@@ -352,39 +338,13 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             if (finalize_completed_runs()) {
                 return true;
             }
-            const auto failed_adopted_context = [&] {
-                return std::ranges::any_of(async_runs, [&](const AsyncCaseRun &run) {
-                    return !run.finalized && has_adopted_work(run) && context_has_failure(run);
-                });
-            };
             const BatchAsyncScheduler::StopCallback drain_should_stop =
                 fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{};
-            const BatchAsyncScheduler::StopCallback stop_waiting_for_adopted = BatchAsyncScheduler::StopCallback(failed_adopted_context);
-            const bool                              stopped_while_draining =
-                scheduler.finish_unresumable(drain_should_stop, [&] { return finalize_completed_runs(); }, stop_waiting_for_adopted);
+            const bool stopped_while_draining = scheduler.finish_unresumable(drain_should_stop, [&] { return finalize_completed_runs(); });
             if (finalize_completed_runs()) {
                 return true;
             }
 
-            bool finalized_failed_adopted_context = false;
-            bool fail_fast_failure_finalized      = false;
-            for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
-                auto &run = async_runs[run_index];
-                if (run.finalized || !has_adopted_work(run) || !context_has_failure(run)) {
-                    continue;
-                }
-                const bool request_fail_fast_stop = fail_fast && context_counts_as_failure(run);
-                fail_fast_failure_finalized       = fail_fast_failure_finalized || request_fail_fast_stop;
-                finalized_failed_adopted_context  = true;
-                finalize_canceled_adopted_run(run_index, request_fail_fast_stop);
-            }
-            if (finalized_failed_adopted_context) {
-                advance_first_unfinalized();
-                if (fail_fast_failure_finalized || should_stop()) {
-                    return true;
-                }
-                continue;
-            }
             if (stopped_while_draining && fail_fast) {
                 advance_first_unfinalized();
                 return true;
@@ -397,10 +357,9 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                 continue;
             }
             if (has_adopted_work(run)) {
-                const bool failed_context = context_has_failure(run);
                 if (run.ready_to_finalize) {
                     classify_async_exception(run);
-                } else if (!failed_context && run.exception == InvokeException::None) {
+                } else if (run.exception == InvokeException::None) {
                     run.exception = InvokeException::Failure;
                     run.message   = "async test canceled before completion";
                     record_context_failure(run.ctxinfo, run.message);
@@ -442,8 +401,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             if (run.finalized) {
                 continue;
             }
-            const bool adopted_work   = has_adopted_work(run);
-            const bool failed_context = context_has_failure(run);
+            const bool adopted_work = has_adopted_work(run);
             if (adopted_work && run.ready_to_finalize) {
                 classify_async_exception(run);
             }
@@ -451,11 +409,10 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             gentest::runner::detail::cancel_active_test_context_without_wait(run.ctxinfo);
             gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
             if (adopted_work) {
-                deferred_canceled_tasks.push_back(
-                    DeferredCanceledTask{.task                     = std::move(run.task),
-                                         .ctx                      = run.ctxinfo,
-                                         .run_index                = run_index,
-                                         .record_result_on_cleanup = run.ready_to_finalize || failed_context});
+                deferred_canceled_tasks.push_back(DeferredCanceledTask{.task                     = std::move(run.task),
+                                                                       .ctx                      = run.ctxinfo,
+                                                                       .run_index                = run_index,
+                                                                       .record_result_on_cleanup = run.ready_to_finalize});
             }
             run.finalized = true;
         }

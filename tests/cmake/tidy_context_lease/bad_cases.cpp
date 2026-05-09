@@ -36,6 +36,15 @@ void missing_async_context() {
     worker.wait();
 }
 
+void leased_thread_outcome_context() {
+    auto        context = gentest::get_current_context();
+    std::thread worker([context] {
+        auto lease = gentest::set_current_context(context);
+        EXPECT_TRUE(true);
+    });
+    worker.join();
+}
+
 void stored_lambda_thread_context() {
     auto        worker_body = [] { gentest::expect(true); };
     std::thread worker(worker_body);
@@ -89,6 +98,13 @@ void control_init_scope_thread_context() {
 
 auto missing_coroutine_context() -> DetachedTask {
     co_await std::suspend_always{};
+    gentest::require(true);
+    co_return;
+}
+
+auto leased_coroutine_outcome_context(gentest::CurrentContext context) -> DetachedTask {
+    co_await std::suspend_always{};
+    auto lease = gentest::set_current_context(std::move(context));
     gentest::require(true);
     co_return;
 }

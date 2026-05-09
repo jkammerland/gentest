@@ -10,10 +10,8 @@ template <typename T> inline constexpr bool                  kCompleteType<T, st
 
 static_assert(!kCompleteType<gentest::detail::TestContextInfo>,
               "gentest/assertions.h + gentest/context.h must not expose the concrete TestContextInfo layout");
+static_assert(std::is_same_v<decltype(gentest::expect(true)), void>, "gentest/assertions.h should expose expectation helpers");
 
 } // namespace
 
-int main() {
-    gentest::expect(true);
-    return 0;
-}
+int main() { return 0; }

@@ -294,16 +294,18 @@ void xfail_example() {
 
 ### Threads/coroutines + logging
 
-Assertions must run under an active test context. When you spawn threads/coroutines, capture the current context and set it in the worker so
-`EXPECT_*` failures are attributed to the right test. Use `gentest::set_log_policy(gentest::LogPolicy::Always)` when logs should be
-emitted even for passing tests, or `gentest::set_log_policy(gentest::LogPolicy::OnFailure)` for failure-only log output. Use
-`gentest::set_default_log_policy(...)` to change the default for tests that do not override it explicitly.
+Assertions and outcomes must run in the owning test. When you spawn worker threads/coroutines, capture the current context and set it in
+the worker only for `gentest::log()` and cooperative stop checks. Report data back to the owning test, then assert there. Use
+`gentest::set_log_policy(gentest::LogPolicy::Always)` when logs should be emitted even for passing tests, or
+`gentest::set_log_policy(gentest::LogPolicy::OnFailure)` for failure-only log output. Use `gentest::set_default_log_policy(...)` to
+change the default for tests that do not override it explicitly.
 
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 using namespace gentest::asserts;
 
+#include <atomic>
 #include <thread>
 
 [[gentest::test("concurrency/adopt_and_log")]]
@@ -311,12 +313,15 @@ void adopt_and_log() {
     gentest::set_log_policy(gentest::LogPolicy::Always);
     auto context = gentest::get_current_context();
 
-    std::thread t([context] {
+    std::atomic<bool> reached{false};
+    std::thread t([context, &reached] {
         auto adoption = gentest::set_current_context(context);
         gentest::log("from child thread");
-        EXPECT_EQ(1, 2, "failure recorded on parent test");
+        reached.store(true, std::memory_order_release);
     });
     t.join();
+
+    EXPECT_TRUE(reached.load(std::memory_order_acquire));
 }
 ```
 

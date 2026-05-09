@@ -58,8 +58,9 @@ struct [[nodiscard]] CurrentContextLease {
 
     GENTEST_RUNTIME_API explicit CurrentContextLease(CurrentContext context);
 
-    CurrentContext previous_{};
-    CurrentContext leased_{};
+    CurrentContext             previous_{};
+    CurrentContext             leased_{};
+    detail::CurrentContextRole previous_role_;
 };
 
 // Lightweight per-test logging.

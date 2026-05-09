@@ -95,6 +95,8 @@ GENTEST_RUNTIME_API auto take_context_noexceptions_fatal_hook() noexcept -> NoEx
 GENTEST_RUNTIME_API auto register_context_cancel_hook(ContextCancelHookState state) noexcept -> ContextCancelHookToken;
 GENTEST_RUNTIME_API void unregister_context_cancel_hook(const ContextCancelHookToken &token) noexcept;
 GENTEST_RUNTIME_API void run_context_cancel_hooks(const std::shared_ptr<TestContextInfo> &ctx) noexcept;
+GENTEST_RUNTIME_API void require_owner_context(std::string_view operation);
+GENTEST_RUNTIME_API void require_not_adopted_context(std::string_view operation);
 
 struct NoExceptionsFatalHookScope {
     NoExceptionsFatalHookState        previous{};
@@ -231,6 +233,7 @@ GENTEST_RUNTIME_API void record_failure_at(std::string msg, std::string file, un
                                                                       const std::source_location &loc = std::source_location::current());
 
 template <class Expected, class Fn> inline void expect_throw(Fn &&fn, std::string_view expected_name, const std::source_location &loc) {
+    require_owner_context("assertion/expectation called");
 #if !GENTEST_EXCEPTIONS_ENABLED
     (void)fn;
     ::gentest::detail::record_failure(
@@ -299,6 +302,7 @@ template <class Expected, class Fn> inline void expect_throw(Fn &&fn, std::strin
 }
 
 template <class Fn> inline void expect_no_throw(Fn &&fn, const std::source_location &loc) {
+    require_owner_context("assertion/expectation called");
 #if !GENTEST_EXCEPTIONS_ENABLED
     fn();
     (void)loc;
@@ -317,6 +321,7 @@ template <class Fn> inline void expect_no_throw(Fn &&fn, const std::source_locat
 }
 
 template <class Expected, class Fn> inline void require_throw(Fn &&fn, std::string_view expected_name, const std::source_location &loc) {
+    require_owner_context("assertion/expectation called");
 #if !GENTEST_EXCEPTIONS_ENABLED
     (void)fn;
     ::gentest::detail::record_failure(
@@ -387,6 +392,7 @@ template <class Expected, class Fn> inline void require_throw(Fn &&fn, std::stri
 }
 
 template <class Fn> inline void require_no_throw(Fn &&fn, const std::source_location &loc) {
+    require_owner_context("assertion/expectation called");
 #if !GENTEST_EXCEPTIONS_ENABLED
     fn();
     (void)loc;
