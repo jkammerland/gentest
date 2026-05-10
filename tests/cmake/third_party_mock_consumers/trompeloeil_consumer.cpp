@@ -42,7 +42,7 @@ int main() {
         }
 
         int stored = 17;
-        REQUIRE_CALL(mock, value()).RETURN(stored);
+        REQUIRE_CALL(mock, value()).LR_RETURN((stored));
         if (&factory->value() != &stored) {
             return 1;
         }
