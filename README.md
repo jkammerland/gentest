@@ -50,8 +50,11 @@ Features currently include:
 ## Requirements
 
 - CMake ≥ 3.31
-- C++20 compiler
+- C++20 compiler and standard library with `<stop_token>`
 - LLVM/Clang (for `gentest_codegen`)
+
+On macOS, AppleClang support starts at Xcode 26 / AppleClang 17 because
+gentest's public context API uses `std::stop_token`.
 
 >[!IMPORTANT]
 > `gentest_codegen` consumes your build’s `compile_commands.json` (`CMAKE_EXPORT_COMPILE_COMMANDS=ON`).

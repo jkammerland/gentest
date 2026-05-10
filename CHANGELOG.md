@@ -26,6 +26,7 @@ Unstable inside. No backward compatibility.
 - Non-CMake artifacts match codegen contracts.
 - CMake classifies modules from metadata.
 - Installed packages include gentest_codegen.
+- AppleClang requires Xcode 26.
 
 ### Fixed
 

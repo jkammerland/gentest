@@ -18,8 +18,8 @@ env:
 
 jobs:
   macos:
-    name: macOS • ${{ matrix.compiler == 'appleclang' && 'AppleClang (Xcode 16.2)' || matrix.compiler == 'llvm' && 'Homebrew llvm (latest)' || format('Homebrew {0}', matrix.compiler) }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
-    runs-on: macos-15
+    name: macOS • ${{ matrix.compiler == 'appleclang' && 'AppleClang (Xcode 26)' || matrix.compiler == 'llvm' && 'Homebrew llvm (latest)' || format('Homebrew {0}', matrix.compiler) }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
+    runs-on: ${{ matrix.compiler == 'appleclang' && 'macos-26' || 'macos-15' }}
     strategy:
         fail-fast: false
         matrix:
@@ -36,12 +36,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Select Xcode 16.2 toolchain
+      - name: Select Xcode 26 toolchain
         if: matrix.compiler == 'appleclang'
         run: |
-          # Use Xcode 16.2 (has Apple Clang 16/AppleClang 26)
-          if [ -d "/Applications/Xcode_16.2.app" ]; then
-            sudo xcode-select --switch /Applications/Xcode_16.2.app/Contents/Developer
+          xcode_path="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort | tail -n 1 || true)"
+          if [ -n "${xcode_path}" ]; then
+            sudo xcode-select --switch "${xcode_path}/Contents/Developer"
           else
             sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
           fi
