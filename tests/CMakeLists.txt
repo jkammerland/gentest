@@ -3461,13 +3461,16 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_explicit_mock_target_surface APPEND PROPERTY LABELS "modules")
 
-_gentest_add_cmake_helper_test(
-    gentest_explicit_mock_target_validation
-    ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_validation
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExplicitMockTargetValidation.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_explicit_mock_target_validation APPEND PROPERTY LABELS "modules")
+foreach(_gentest_explicit_mock_validation_group IN ITEMS configure third_party_negative third_party_positive native)
+    _gentest_add_cmake_helper_test(
+        gentest_explicit_mock_target_validation_${_gentest_explicit_mock_validation_group}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_validation
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExplicitMockTargetValidation.cmake
+        cmake
+        -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DTEST_GROUP=${_gentest_explicit_mock_validation_group})
+    set_property(TEST gentest_explicit_mock_target_validation_${_gentest_explicit_mock_validation_group} APPEND PROPERTY LABELS "modules")
+endforeach()
 
 _gentest_add_cmake_helper_test(
     gentest_explicit_mock_target_staging

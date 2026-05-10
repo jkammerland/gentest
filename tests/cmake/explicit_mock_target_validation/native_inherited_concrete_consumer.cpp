@@ -9,11 +9,7 @@ void native_inherited_concrete() {
     fixture::validation::mocks::InheritedConcreteServiceMock mock;
     fixture::validation::InheritedConcreteBase              *base = &mock;
 
-    gentest::expect<&fixture::validation::InheritedConcreteService::inherited>(mock,
-                                                                               "::fixture::validation::InheritedConcreteService::inherited")
-        .times(1)
-        .with(5)
-        .returns(50);
+    gentest::expect(mock, &fixture::validation::InheritedConcreteBase::inherited).times(1).with(5).returns(50);
     gentest::expect<&fixture::validation::InheritedConcreteService::visible>(mock,
                                                                              "::fixture::validation::InheritedConcreteService::visible")
         .times(1)

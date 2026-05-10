@@ -26,6 +26,25 @@ if(GENERATOR MATCHES "Ninja Multi-Config|Visual Studio|Xcode")
   return()
 endif()
 
+if(NOT DEFINED TEST_GROUP OR "${TEST_GROUP}" STREQUAL "")
+  set(TEST_GROUP "all")
+endif()
+set(_gentest_known_test_groups configure third_party_negative third_party_positive native)
+if(NOT TEST_GROUP STREQUAL "all")
+  list(FIND _gentest_known_test_groups "${TEST_GROUP}" _gentest_group_index)
+  if(_gentest_group_index EQUAL -1)
+    message(FATAL_ERROR "Unknown explicit mock validation TEST_GROUP='${TEST_GROUP}'")
+  endif()
+endif()
+
+function(_gentest_test_group_enabled out_var group)
+  if(TEST_GROUP STREQUAL "all" OR TEST_GROUP STREQUAL "${group}")
+    set(${out_var} TRUE PARENT_SCOPE)
+  else()
+    set(${out_var} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
+
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
   gentest_skip_test("explicit mock target validation regression: no usable clang/clang++ pair was provided")
@@ -299,6 +318,8 @@ function(_gentest_expect_single_glob out_file pattern)
   set(${out_file} "${_match}" PARENT_SCOPE)
 endfunction()
 
+_gentest_test_group_enabled(_run_configure configure)
+if(_run_configure)
 _gentest_expect_configure_failure("duplicate_output_dir" "Each explicit mock target must")
 _gentest_expect_configure_failure("textual_module_name" "MODULE_NAME is not")
 _gentest_expect_configure_failure("module_header_name" "HEADER_NAME is only")
@@ -344,6 +365,10 @@ _gentest_expect_single_glob(_third_party_rewritten_defs
   "${_third_party_defs_include_mock_h_build_dir}/generated/defs/*_third_party_defs_include_mock_h.hpp")
 _gentest_expect_file_excludes("${_third_party_rewritten_defs}" "#include \"gentest/mock.h\"")
 _gentest_expect_file_contains("${_third_party_rewritten_defs}" "#include \"gentest/mock_fwd.h\"")
+endif()
+
+_gentest_test_group_enabled(_run_third_party_negative third_party_negative)
+if(_run_third_party_negative)
 _gentest_expect_build_failure("third_party_same_file_defs_rejected"
   "third-party mock targets must be declared in a header separate from the mocked target definition")
 _gentest_expect_build_failure("third_party_nested_target_rejected"
@@ -364,21 +389,25 @@ _gentest_expect_build_failure("third_party_volatile_method_rejected"
   "gentest::mock does not support volatile-qualified methods")
 _gentest_expect_build_failure("third_party_final_target_rejected"
   "gentest::mock cannot mock a final class")
+_gentest_expect_build_failure("third_party_private_pure_rejected"
+  "gentest::mock cannot mock private pure virtual methods")
+_gentest_expect_build_failure("third_party_inherited_private_pure_rejected"
+  "gentest::mock cannot mock private pure virtual methods")
+_gentest_expect_build_failure("third_party_default_overload_conflict_rejected"
+  "default-argument overload for fixture::validation::DefaultOverloadConflictService::compute would collide")
+endif()
+
+_gentest_test_group_enabled(_run_third_party_positive third_party_positive)
+if(_run_third_party_positive)
 _gentest_expect_configure_success("third_party_final_method_surface" _third_party_final_method_build_dir)
 _gentest_expect_build_success("${_third_party_final_method_build_dir}" "explicit_validation_third_party_final_method_consumer")
 _gentest_expect_run_success("${_third_party_final_method_build_dir}" "explicit_validation_third_party_final_method_consumer")
-_gentest_expect_build_failure("third_party_private_pure_rejected"
-  "gentest::mock cannot mock private pure virtual methods")
 _gentest_expect_configure_success("third_party_inherited_public_pure_surface" _third_party_inherited_public_pure_build_dir)
 _gentest_expect_build_success("${_third_party_inherited_public_pure_build_dir}"
   "explicit_validation_third_party_inherited_public_pure_consumer")
-_gentest_expect_build_failure("third_party_inherited_private_pure_rejected"
-  "gentest::mock cannot mock private pure virtual methods")
 _gentest_expect_configure_success("third_party_method_default_args_surface" _third_party_method_default_args_build_dir)
 _gentest_expect_build_success("${_third_party_method_default_args_build_dir}" "explicit_validation_third_party_method_default_args_consumer")
 _gentest_expect_run_success("${_third_party_method_default_args_build_dir}" "explicit_validation_third_party_method_default_args_consumer")
-_gentest_expect_build_failure("third_party_default_overload_conflict_rejected"
-  "default-argument overload for fixture::validation::DefaultOverloadConflictService::compute would collide")
 _gentest_expect_configure_success("third_party_noexcept_default_args_surface" _third_party_noexcept_default_args_build_dir)
 _gentest_expect_build_success("${_third_party_noexcept_default_args_build_dir}"
   "explicit_validation_third_party_noexcept_default_args_consumer")
@@ -398,6 +427,10 @@ _gentest_expect_file_excludes("${_third_party_overload_hiding_anchor}" "namespac
 _gentest_expect_configure_success("third_party_ctor_default_args_surface" _third_party_ctor_default_args_build_dir)
 _gentest_expect_build_success("${_third_party_ctor_default_args_build_dir}" "explicit_validation_third_party_ctor_default_args_consumer")
 _gentest_expect_run_success("${_third_party_ctor_default_args_build_dir}" "explicit_validation_third_party_ctor_default_args_consumer")
+endif()
+
+_gentest_test_group_enabled(_run_native native)
+if(_run_native)
 _gentest_expect_configure_success("native_default_args_surface" _native_default_args_build_dir)
 _gentest_expect_build_success("${_native_default_args_build_dir}" "explicit_validation_native_default_args_consumer")
 _gentest_expect_run_success("${_native_default_args_build_dir}" "explicit_validation_native_default_args_consumer")
@@ -442,3 +475,4 @@ _gentest_expect_build_failure("implementation_unit_module" "module implementatio
 _gentest_expect_build_failure("partition_module" "declares module partition")
 _gentest_expect_configure_failure("missing_module_name" "MODULE_NAME is")
 _gentest_expect_build_failure("nested_module_class_scope" "named-module mock targets must be declared at namespace scope")
+endif()
