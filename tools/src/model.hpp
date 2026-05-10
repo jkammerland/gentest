@@ -322,6 +322,7 @@ struct MockClassInfo {
     bool                                derive_for_virtual          = false;
     bool                                has_accessible_default_ctor = false;
     bool                                has_virtual_destructor      = false;
+    std::vector<std::string>            unhidden_method_names;
     std::vector<MockCtorInfo>           constructors;
     std::vector<MockMethodInfo>         methods;
 };

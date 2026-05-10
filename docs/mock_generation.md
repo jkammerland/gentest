@@ -122,14 +122,29 @@ Install the generated mock target like any CMake target:
 install(TARGETS clock_gmock_mocks
   EXPORT clock_gmock_mocksTargets
   FILE_SET gentest_explicit_mock_headers DESTINATION include)
+
+install(EXPORT clock_gmock_mocksTargets
+  NAMESPACE app::
+  DESTINATION lib/cmake/clock_gmock_mocks)
 ```
 
 For third-party backends, the exported target does not require consumers to link `gentest::gentest`. Consumers still need the generated header and the selected mock framework.
+
+```cmake
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(GTest CONFIG REQUIRED)
+
+include("${CMAKE_CURRENT_LIST_DIR}/clock_gmock_mocksTargets.cmake")
+```
+
+Use `find_dependency(trompeloeil CONFIG REQUIRED)` for Trompeloeil packages.
 
 ## Limitations
 
 Third-party backends currently support CMake textual/header mock definitions only. `gentest_add_mocks()` requires a single-config generator such as Ninja.
 
-Use the default gentest backend for named-module mocks. Split or redesign targets that require nested target types, template-specialized target types, final classes, static methods, member function templates, final methods, private pure virtual methods, overloaded operators, or direct calls that rely on third-party mocks preserving default arguments.
+Use the default gentest backend for named-module mocks. Split or redesign targets that require nested target types, template-specialized target types, final classes, static methods, member function templates, final methods, private pure virtual methods, overloaded operators, or overloaded default-argument calls that would need the same generated forwarding signature.
 
 No backend supports conversion operators, C-style variadic methods, volatile-qualified methods, or pure virtual assignment operators.

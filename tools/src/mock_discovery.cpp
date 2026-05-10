@@ -309,6 +309,11 @@ struct DefaultArgumentReplacement {
     std::string text;
 };
 
+struct DefaultArgumentTextRange {
+    std::size_t begin_offset = 0;
+    std::size_t text_size    = 0;
+};
+
 [[nodiscard]] bool should_qualify_default_arg_decl(const NamedDecl &decl) {
     const DeclContext *context = decl.getDeclContext();
     return llvm::isa_and_nonnull<TranslationUnitDecl>(context) || llvm::isa_and_nonnull<NamespaceDecl>(context) ||
@@ -332,8 +337,8 @@ struct DefaultArgumentReplacement {
 class DefaultArgumentDeclRefQualifier : public RecursiveASTVisitor<DefaultArgumentDeclRefQualifier> {
   public:
     DefaultArgumentDeclRefQualifier(const ASTContext &ctx, const SourceManager &sm, const LangOptions &lang_opts, FileID file_id,
-                                    std::size_t begin_offset, std::size_t text_size)
-        : ctx_(ctx), sm_(sm), lang_opts_(lang_opts), file_id_(file_id), begin_offset_(begin_offset), text_size_(text_size) {}
+                                    DefaultArgumentTextRange range)
+        : ctx_(ctx), sm_(sm), lang_opts_(lang_opts), file_id_(file_id), begin_offset_(range.begin_offset), text_size_(range.text_size) {}
 
     bool VisitDeclRefExpr(DeclRefExpr *expr) {
         if (expr == nullptr || expr->hasQualifier()) {
@@ -365,6 +370,22 @@ class DefaultArgumentDeclRefQualifier : public RecursiveASTVisitor<DefaultArgume
             return true;
         }
         add_type_replacement(expr->getTypeSourceInfo());
+        return true;
+    }
+
+    bool VisitCXXNamedCastExpr(CXXNamedCastExpr *expr) {
+        if (expr == nullptr) {
+            return true;
+        }
+        add_type_replacement(expr->getTypeInfoAsWritten());
+        return true;
+    }
+
+    bool VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *expr) {
+        if (expr == nullptr || !expr->isArgumentType()) {
+            return true;
+        }
+        add_type_replacement(expr->getArgumentTypeInfo());
         return true;
     }
 
@@ -470,7 +491,8 @@ void apply_default_argument_replacements(std::string &text, std::vector<DefaultA
 
     if (const Expr *expr = param.getDefaultArg()) {
         const FileID                    file_id = sm.getFileID(begin);
-        DefaultArgumentDeclRefQualifier qualifier(ctx, sm, lang_opts, file_id, sm.getFileOffset(begin), text.size());
+        DefaultArgumentDeclRefQualifier qualifier(
+            ctx, sm, lang_opts, file_id, DefaultArgumentTextRange{.begin_offset = sm.getFileOffset(begin), .text_size = text.size()});
         qualifier.TraverseStmt(const_cast<Expr *>(expr));
         apply_default_argument_replacements(text, qualifier.replacements());
     }
@@ -1193,6 +1215,8 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
 
     llvm::SmallPtrSet<const CXXMethodDecl *, 32> captured_method_decls;
     std::vector<std::string>                     captured_method_signatures;
+    std::vector<std::string>                     unhidden_method_names;
+    std::vector<std::string>                     inaccessible_method_names;
     auto                                         capture_method = [&](const CXXMethodDecl *method) {
         if (llvm::isa<CXXConstructorDecl>(method) || llvm::isa<CXXDestructorDecl>(method)) {
             return;
@@ -1200,9 +1224,12 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         if (!captured_method_decls.insert(method->getCanonicalDecl()).second) {
             return;
         }
-        if (method->isDeleted())
-            return;
         if (!is_supported_access(method->getAccess())) {
+            inaccessible_method_names.push_back(method->getNameAsString());
+            return;
+        }
+        if (method->isDeleted()) {
+            unhidden_method_names.push_back(method->getNameAsString());
             return;
         }
         if (method->isVirtual() && method->hasAttr<FinalAttr>()) {
@@ -1212,6 +1239,7 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
                     fmt::format("gentest::mock cannot mock final pure virtual methods: {}", method->getQualifiedNameAsString());
                 report(*result.SourceManager, use_loc, message);
             }
+            unhidden_method_names.push_back(method->getNameAsString());
             return;
         }
         if (const std::string reason = unsupported_native_mock_method_reason(*method); !reason.empty()) {
@@ -1285,6 +1313,28 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     }
     if (had_error_) {
         return;
+    }
+
+    std::vector<std::string> captured_method_names;
+    captured_method_names.reserve(info.methods.size());
+    for (const auto &method : info.methods) {
+        captured_method_names.push_back(method.method_name);
+    }
+    std::ranges::sort(captured_method_names);
+    const auto captured_tail = std::ranges::unique(captured_method_names);
+    captured_method_names.erase(captured_tail.begin(), captured_tail.end());
+
+    std::ranges::sort(inaccessible_method_names);
+    const auto inaccessible_tail = std::ranges::unique(inaccessible_method_names);
+    inaccessible_method_names.erase(inaccessible_tail.begin(), inaccessible_tail.end());
+
+    std::ranges::sort(unhidden_method_names);
+    const auto unhidden_tail = std::ranges::unique(unhidden_method_names);
+    unhidden_method_names.erase(unhidden_tail.begin(), unhidden_tail.end());
+    for (const auto &name : unhidden_method_names) {
+        if (std::ranges::binary_search(captured_method_names, name) && !std::ranges::binary_search(inaccessible_method_names, name)) {
+            info.unhidden_method_names.push_back(name);
+        }
     }
 
     // Stable order for deterministic output.

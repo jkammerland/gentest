@@ -16,6 +16,11 @@ int main() {
             return 1;
         }
 
+        REQUIRE_CALL(mock, increment(41)).RETURN(42);
+        if (mock.increment() != 42) {
+            return 1;
+        }
+
         REQUIRE_CALL(mock, name()).RETURN(std::string{"trompeloeil"});
         if (calculator->name() != "trompeloeil") {
             return 1;

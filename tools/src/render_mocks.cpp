@@ -66,6 +66,22 @@ std::string qualifiers_for(const MockMethodQualifiers &qualifiers) {
     return q;
 }
 
+std::string cv_ref_qualifiers_for(const MockMethodQualifiers &qualifiers) {
+    std::string q;
+    switch (qualifiers.cv) {
+    case MockMethodCvQualifier::Const: q += " const"; break;
+    case MockMethodCvQualifier::Volatile: q += " volatile"; break;
+    case MockMethodCvQualifier::ConstVolatile: q += " const volatile"; break;
+    case MockMethodCvQualifier::None: break;
+    }
+    switch (qualifiers.ref) {
+    case MockMethodRefQualifier::LValue: q += " &"; break;
+    case MockMethodRefQualifier::RValue: q += " &&"; break;
+    case MockMethodRefQualifier::None: break;
+    }
+    return q;
+}
+
 std::string tidy_exception_escape_suppression(const MockMethodQualifiers &qualifiers) {
     if (qualifiers.is_noexcept) {
         return " // NOLINT(bugprone-exception-escape)";
@@ -119,6 +135,7 @@ struct MethodTypeRenderParts {
 std::string           argument_list(const MockMethodInfo &method);
 std::string           generate_dispatcher_header(const std::filesystem::path &included_file);
 MethodTypeRenderParts render_method_type_parts(const MockClassInfo &cls, const MockMethodInfo &method);
+std::size_t           first_trailing_default_arg(const MockMethodInfo &method);
 
 std::string_view trim_ascii(std::string_view text) {
     while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) {
@@ -595,6 +612,14 @@ std::string constructors_block(const MockClassInfo &cls) {
     return block.str();
 }
 
+std::string base_method_using_declarations(const std::string &fq_type, const std::vector<std::string> &method_names) {
+    RenderBuffer block;
+    for (const auto &name : method_names) {
+        block.append("    using {}::{};\n", fq_type, name);
+    }
+    return block.str();
+}
+
 std::string method_declarations_block(const MockClassInfo &cls) {
     RenderBuffer block;
     for (const auto &method : cls.methods) {
@@ -614,6 +639,9 @@ std::string build_class_declaration(const MockClassInfo &cls) {
     }
     header.append_raw(" {\n");
     header.append("    using GentestTarget = {};\n", fq_type);
+    if (cls.derive_for_virtual) {
+        header.append_raw(base_method_using_declarations(fq_type, cls.unhidden_method_names));
+    }
     header.append_raw(constructors_block(cls));
     if (!cls.methods.empty()) {
         header.append_raw(method_declarations_block(cls));
@@ -1019,10 +1047,10 @@ std::string third_party_unsupported_reason(MockBackend backend, const MockClassI
     return {};
 }
 
-std::string third_party_return_alias(std::size_t method_index) { return fmt::format("__gentest_mock_{}_return", method_index); }
+std::string third_party_return_alias(std::size_t method_index) { return fmt::format("MockReturn{}_", method_index); }
 
 std::string third_party_arg_alias(std::size_t method_index, std::size_t param_index) {
-    return fmt::format("__gentest_mock_{}_arg_{}", method_index, param_index);
+    return fmt::format("MockArg{}_{}_", method_index, param_index);
 }
 
 std::string third_party_mock_class_name(const MockClassInfo &cls) {
@@ -1064,6 +1092,45 @@ std::string third_party_unsupported_class_reason(MockBackend backend, const Mock
         if (same_lexical_path(cls.definition_file, use_file)) {
             return fmt::format("{} third-party mock targets must be declared in a header separate from the mocked target definition: {}",
                                third_party_backend_name(backend), cls.qualified_name);
+        }
+    }
+    return {};
+}
+
+std::string third_party_overload_signature_key(const MockMethodInfo &method, std::size_t arity) {
+    std::string key;
+    key.reserve(method.method_name.size() + arity * 32 + 8);
+    key += method.method_name;
+    key += '\0';
+    key += static_cast<char>('0' + static_cast<int>(method.qualifiers.cv));
+    key += static_cast<char>('0' + static_cast<int>(method.qualifiers.ref));
+    key += '\0';
+    for (std::size_t i = 0; i < arity; ++i) {
+        key += method.parameters[i].type;
+        key += '\0';
+    }
+    return key;
+}
+
+std::string third_party_default_overload_collision_reason(MockBackend backend, const MockClassInfo &cls) {
+    std::set<std::string> declared_signatures;
+    for (const auto &method : cls.methods) {
+        declared_signatures.insert(third_party_overload_signature_key(method, method.parameters.size()));
+    }
+
+    std::set<std::string> generated_signatures;
+    for (const auto &method : cls.methods) {
+        const std::size_t first_default = first_trailing_default_arg(method);
+        if (first_default == method.parameters.size()) {
+            continue;
+        }
+        for (std::size_t arity = first_default; arity < method.parameters.size(); ++arity) {
+            const std::string signature = third_party_overload_signature_key(method, arity);
+            if (declared_signatures.contains(signature) || !generated_signatures.insert(signature).second) {
+                return fmt::format("{} mock backend cannot preserve default arguments: default-argument overload for {} would collide with "
+                                   "another generated overload",
+                                   third_party_backend_name(backend), method.qualified_name);
+            }
         }
     }
     return {};
@@ -1233,6 +1300,19 @@ std::string third_party_default_overload_call_args(const MockMethodInfo &method,
     return out;
 }
 
+std::string third_party_default_overload_qualifiers(std::string_view mock_class_name, const MockMethodInfo &method, std::size_t arity) {
+    std::string out = cv_ref_qualifiers_for(method.qualifiers);
+    if (method.qualifiers.is_noexcept) {
+        out += " noexcept(noexcept(";
+        out += third_party_default_overload_receiver(mock_class_name, method);
+        out += method.method_name;
+        out += '(';
+        out += third_party_default_overload_call_args(method, arity);
+        out += ")))";
+    }
+    return out;
+}
+
 std::string third_party_default_overloads(std::size_t method_index, std::string_view mock_class_name, const MockMethodInfo &method) {
     const std::size_t first_default = first_trailing_default_arg(method);
     if (first_default == method.parameters.size()) {
@@ -1242,7 +1322,8 @@ std::string third_party_default_overloads(std::size_t method_index, std::string_
     RenderBuffer out;
     for (std::size_t arity = first_default; arity < method.parameters.size(); ++arity) {
         out.append("    {} {}({}){}", third_party_return_alias(method_index), method.method_name,
-                   third_party_default_overload_param_list(method_index, method, arity), qualifiers_for(method.qualifiers));
+                   third_party_default_overload_param_list(method_index, method, arity),
+                   third_party_default_overload_qualifiers(mock_class_name, method, arity));
         out.append_raw(" {");
         out.append_raw(tidy_exception_escape_suppression(method.qualifiers));
         out.append_raw("\n        ");
@@ -1309,6 +1390,9 @@ std::string build_third_party_class_declaration(MockBackend backend, const MockC
     }
     header.append_raw(" {\n");
     header.append("    using Target = {};\n", fq_type);
+    if (cls.derive_for_virtual) {
+        header.append_raw(base_method_using_declarations(fq_type, cls.unhidden_method_names));
+    }
     header.append_raw(third_party_constructors_block(cls, fq_type, mock_name));
     if (!cls.methods.empty()) {
         header.append_raw("\n");
@@ -1377,6 +1461,10 @@ MockRenderResult render_third_party_mocks(const CollectorOptions &options, const
         }
         if (const std::string unsupported = third_party_unsupported_class_reason(options.mock_backend, cls); !unsupported.empty()) {
             result.error = unsupported;
+            return result;
+        }
+        if (const std::string collision = third_party_default_overload_collision_reason(options.mock_backend, cls); !collision.empty()) {
+            result.error = collision;
             return result;
         }
         for (const auto &method : cls.methods) {

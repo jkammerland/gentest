@@ -29,9 +29,10 @@ template <typename T> struct NestedAlias {
 template <typename T> using DeepAlias = typename NestedAlias<T>::type;
 
 struct Calculator {
-    virtual ~Calculator()                     = default;
-    virtual int         add(int lhs, int rhs) = 0;
-    virtual std::string name() const noexcept = 0;
+    virtual ~Calculator()                         = default;
+    virtual int         add(int lhs, int rhs)     = 0;
+    virtual int         increment(int value = 41) = 0;
+    virtual std::string name() const noexcept     = 0;
 };
 
 struct ResourceFactory {

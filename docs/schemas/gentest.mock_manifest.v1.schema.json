@@ -149,6 +149,10 @@
         "derive_for_virtual": { "type": "boolean" },
         "has_accessible_default_ctor": { "type": "boolean" },
         "has_virtual_destructor": { "type": "boolean" },
+        "unhidden_method_names": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "constructors": {
           "type": "array",
           "items": { "$ref": "#/$defs/constructor" }

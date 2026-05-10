@@ -6,6 +6,8 @@ Unstable inside. No backward compatibility.
 
 ### Added
 
+- Third-party mock backends.
+- CMake-only mock generation.
 - CMake module registration support.
 - Same-module registration units.
 - Generated artifact manifests.

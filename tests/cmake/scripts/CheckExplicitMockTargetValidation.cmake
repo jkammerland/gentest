@@ -334,10 +334,10 @@ _gentest_expect_build_success("${_third_party_overload_order_build_dir}" "explic
 set(_third_party_overload_order_header
   "${_third_party_overload_order_build_dir}/generated/explicit_validation_third_party_overload_order_mock_registry__domain_0000_header.hpp")
 _gentest_expect_file_ordered("${_third_party_overload_order_header}"
-  "using __gentest_mock_0_arg_0 = double"
-  "using __gentest_mock_1_arg_0 = float"
-  "using __gentest_mock_2_arg_0 = int"
-  "using __gentest_mock_3_arg_0 = long")
+  "using MockArg0_0_ = double"
+  "using MockArg1_0_ = float"
+  "using MockArg2_0_ = int"
+  "using MockArg3_0_ = long")
 _gentest_expect_configure_success("third_party_defs_include_mock_h" _third_party_defs_include_mock_h_build_dir)
 _gentest_expect_build_success("${_third_party_defs_include_mock_h_build_dir}" "explicit_validation_third_party_consumer")
 _gentest_expect_single_glob(_third_party_rewritten_defs
@@ -377,6 +377,24 @@ _gentest_expect_build_failure("third_party_inherited_private_pure_rejected"
 _gentest_expect_configure_success("third_party_method_default_args_surface" _third_party_method_default_args_build_dir)
 _gentest_expect_build_success("${_third_party_method_default_args_build_dir}" "explicit_validation_third_party_method_default_args_consumer")
 _gentest_expect_run_success("${_third_party_method_default_args_build_dir}" "explicit_validation_third_party_method_default_args_consumer")
+_gentest_expect_build_failure("third_party_default_overload_conflict_rejected"
+  "default-argument overload for fixture::validation::DefaultOverloadConflictService::compute would collide")
+_gentest_expect_configure_success("third_party_noexcept_default_args_surface" _third_party_noexcept_default_args_build_dir)
+_gentest_expect_build_success("${_third_party_noexcept_default_args_build_dir}"
+  "explicit_validation_third_party_noexcept_default_args_consumer")
+_gentest_expect_run_success("${_third_party_noexcept_default_args_build_dir}"
+  "explicit_validation_third_party_noexcept_default_args_consumer")
+_gentest_expect_configure_success("third_party_default_arg_type_context_surface" _third_party_default_arg_type_context_build_dir)
+_gentest_expect_build_success("${_third_party_default_arg_type_context_build_dir}"
+  "explicit_validation_third_party_default_arg_type_context_consumer")
+_gentest_expect_run_success("${_third_party_default_arg_type_context_build_dir}"
+  "explicit_validation_third_party_default_arg_type_context_consumer")
+_gentest_expect_configure_success("third_party_overload_hiding_surface" _third_party_overload_hiding_build_dir)
+_gentest_expect_build_success("${_third_party_overload_hiding_build_dir}" "explicit_validation_third_party_overload_hiding_consumer")
+_gentest_expect_run_success("${_third_party_overload_hiding_build_dir}" "explicit_validation_third_party_overload_hiding_consumer")
+set(_third_party_overload_hiding_anchor
+  "${_third_party_overload_hiding_build_dir}/generated/explicit_validation_third_party_overload_hiding_anchor.cpp")
+_gentest_expect_file_excludes("${_third_party_overload_hiding_anchor}" "namespace gentest::detail")
 _gentest_expect_configure_success("third_party_ctor_default_args_surface" _third_party_ctor_default_args_build_dir)
 _gentest_expect_build_success("${_third_party_ctor_default_args_build_dir}" "explicit_validation_third_party_ctor_default_args_consumer")
 _gentest_expect_run_success("${_third_party_ctor_default_args_build_dir}" "explicit_validation_third_party_ctor_default_args_consumer")

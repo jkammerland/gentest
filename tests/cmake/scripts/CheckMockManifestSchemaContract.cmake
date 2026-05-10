@@ -42,3 +42,11 @@ _gentest_expect_schema_value(
   "mock.is_template_specialization.type"
   "boolean"
   "$defs" mock properties is_template_specialization type)
+_gentest_expect_schema_value(
+  "mock.unhidden_method_names.type"
+  "array"
+  "$defs" mock properties unhidden_method_names type)
+_gentest_expect_schema_value(
+  "mock.unhidden_method_names.items.type"
+  "string"
+  "$defs" mock properties unhidden_method_names items type)

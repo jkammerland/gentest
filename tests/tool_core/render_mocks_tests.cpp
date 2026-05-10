@@ -117,13 +117,12 @@ int main() {
             t.contains(registry->content, "namespace fixture {\nnamespace mocks {\n", "gmock backend mirrors the target namespace");
             t.contains(registry->content, "struct ServiceMock final : public ::fixture::Service",
                        "gmock backend emits a native mock class");
-            t.contains(registry->content, "using __gentest_mock_0_return = ::std::pair<int, int>;",
+            t.contains(registry->content, "using MockReturn0_ = ::std::pair<int, int>;",
                        "gmock backend aliases comma-bearing return types");
-            t.contains(registry->content, "using __gentest_mock_0_arg_0 = ::std::vector<int>;",
-                       "gmock backend aliases comma-bearing argument types");
-            t.contains(registry->content,
-                       "MOCK_METHOD(__gentest_mock_0_return, compute, (__gentest_mock_0_arg_0), (const, noexcept, ref(&), override));",
+            t.contains(registry->content, "using MockArg0_0_ = ::std::vector<int>;", "gmock backend aliases comma-bearing argument types");
+            t.contains(registry->content, "MOCK_METHOD(MockReturn0_, compute, (MockArg0_0_), (const, noexcept, ref(&), override));",
                        "gmock backend preserves cv/ref/noexcept/override qualifiers");
+            t.excludes(registry->content, "__gentest_mock_", "gmock backend avoids reserved generated aliases");
             t.excludes(registry->content, "#include \"gentest/mock_fwd.h\"", "gmock backend does not include gentest mock forwarding");
             t.excludes(registry->content, "namespace gentest", "gmock backend does not emit into gentest namespace");
             t.excludes(registry->content, "struct mock<", "gmock backend does not specialize gentest::mock");
@@ -141,9 +140,9 @@ int main() {
             t.contains(registry->content, "namespace fixture {\nnamespace mocks {\n", "trompeloeil backend mirrors the target namespace");
             t.contains(registry->content, "struct ServiceMock final : public ::fixture::Service",
                        "trompeloeil backend emits a native mock class");
-            t.contains(registry->content,
-                       "MAKE_CONST_MOCK(compute, auto (__gentest_mock_0_arg_0) & -> __gentest_mock_0_return, override, noexcept);",
+            t.contains(registry->content, "MAKE_CONST_MOCK(compute, auto (MockArg0_0_) & -> MockReturn0_, override, noexcept);",
                        "trompeloeil backend preserves const/ref/noexcept/override qualifiers");
+            t.excludes(registry->content, "__gentest_mock_", "trompeloeil backend avoids reserved generated aliases");
             t.excludes(registry->content, "#include \"gentest/mock_fwd.h\"",
                        "trompeloeil backend does not include gentest mock forwarding");
             t.excludes(registry->content, "namespace gentest", "trompeloeil backend does not emit into gentest namespace");
@@ -226,9 +225,68 @@ int main() {
     }
 
     {
+        MockClassInfo cls = service_mock();
+        cls.methods.clear();
+
+        MockMethodInfo one_arg;
+        one_arg.qualified_name  = "fixture::Service::lookup";
+        one_arg.method_name     = "lookup";
+        one_arg.return_type     = "int";
+        one_arg.is_virtual      = true;
+        one_arg.is_pure_virtual = true;
+        one_arg.parameters      = {MockParamInfo{.type = "int", .name = "value"}};
+
+        MockMethodInfo defaulted = one_arg;
+        defaulted.parameters     = {
+            MockParamInfo{.type = "int", .name = "value"},
+            MockParamInfo{.type = "int", .name = "scale", .default_arg = "2"},
+        };
+        cls.methods = {one_arg, defaulted};
+
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {std::move(cls)});
+        t.expect(!result.error.empty(), "gmock backend rejects colliding default-argument overload shims");
+        t.contains(result.error, "default-argument overload", "gmock backend diagnoses default-argument overload collisions");
+    }
+
+    {
+        MockClassInfo  cls    = service_mock();
+        MockMethodInfo method = compute_method();
+        method.qualified_name = "fixture::Service::maybe";
+        method.method_name    = "maybe";
+        method.return_type    = "int";
+        method.parameters     = {MockParamInfo{.type = "int", .name = "value", .default_arg = "fixture::default_value()"}};
+        cls.methods           = {method};
+
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {std::move(cls)});
+        t.expect(result.error.empty(), "gmock backend renders noexcept default-argument wrappers");
+        const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
+        t.expect(registry != nullptr, "gmock backend emits a registry for noexcept default-argument wrappers");
+        if (registry != nullptr) {
+            t.contains(registry->content, "MockReturn0_ maybe() const & noexcept(noexcept(this->maybe(fixture::default_value())))",
+                       "gmock default-argument wrapper computes noexcept from the forwarded call");
+            t.excludes(registry->content, "MockReturn0_ maybe() const & noexcept {",
+                       "gmock default-argument wrapper does not blindly copy noexcept");
+        }
+    }
+
+    {
+        MockClassInfo cls = service_mock();
+        cls.unhidden_method_names.emplace_back("stable");
+
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {std::move(cls)});
+        t.expect(result.error.empty(), "gmock backend renders base overload using declarations");
+        const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
+        t.expect(registry != nullptr, "gmock backend emits a registry for base overload using declarations");
+        if (registry != nullptr) {
+            t.contains(registry->content, "using ::fixture::Service::stable;", "gmock backend reintroduces selected base overload sets");
+        }
+    }
+
+    {
         MockClassInfo cls                        = service_mock();
         cls.enclosing_record_scope               = "fixture::Outer";
         cls.is_template_specialization           = true;
+        cls.unhidden_method_names                = {"stable"};
         cls.methods[0].is_final                  = true;
         cls.methods[0].is_variadic               = true;
         cls.methods[0].is_overloaded_operator    = true;
@@ -253,6 +311,8 @@ int main() {
             const auto &round_tripped = read.mocks.front();
             t.expect(round_tripped.enclosing_record_scope == "fixture::Outer", "mock manifest preserves nested scope");
             t.expect(round_tripped.is_template_specialization, "mock manifest preserves template-specialization flag");
+            t.expect(round_tripped.unhidden_method_names == std::vector<std::string>{"stable"},
+                     "mock manifest preserves unhidden base method names");
             t.expect(round_tripped.methods.size() == 1, "mock manifest preserves method count");
             if (round_tripped.methods.size() == 1) {
                 const auto &method = round_tripped.methods.front();

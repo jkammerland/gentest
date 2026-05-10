@@ -273,6 +273,7 @@ json::Object mock_object(const MockClassInfo &mock) {
         {.K = "derive_for_virtual", .V = mock.derive_for_virtual},
         {.K = "has_accessible_default_ctor", .V = mock.has_accessible_default_ctor},
         {.K = "has_virtual_destructor", .V = mock.has_virtual_destructor},
+        {.K = "unhidden_method_names", .V = string_array(mock.unhidden_method_names)},
         {.K = "constructors", .V = ctor_array(mock.constructors)},
         {.K = "methods", .V = method_array(mock.methods)},
     };
@@ -540,7 +541,8 @@ bool parse_mock(const json::Object &obj, MockClassInfo &out, std::string &error)
         !parse_namespace_scopes(obj, out.attachment_namespace_chain, error) ||
         !optional_bool(obj, "derive_for_virtual", out.derive_for_virtual, error) ||
         !optional_bool(obj, "has_accessible_default_ctor", out.has_accessible_default_ctor, error) ||
-        !optional_bool(obj, "has_virtual_destructor", out.has_virtual_destructor, error) || !parse_ctors(obj, out.constructors, error) ||
+        !optional_bool(obj, "has_virtual_destructor", out.has_virtual_destructor, error) ||
+        !string_vector(obj, "unhidden_method_names", out.unhidden_method_names, error) || !parse_ctors(obj, out.constructors, error) ||
         !parse_methods(obj, out.methods, error)) {
         if (error.empty()) {
             error = "invalid mock definition_kind '" + definition_kind + "'";
