@@ -1022,6 +1022,7 @@ struct ThirdPartyBackendSpec {
 
 std::string gmock_method(std::size_t method_index, const MockClassInfo &cls, const MockMethodInfo &method);
 std::string trompeloeil_method(std::size_t method_index, const MockClassInfo &cls, const MockMethodInfo &method);
+std::string trompeloeil_unsupported_reason(const MockClassInfo &cls, const MockMethodInfo &method);
 
 const ThirdPartyBackendSpec *third_party_backend(MockBackend backend) {
     static constexpr ThirdPartyBackendSpec kGMock{
@@ -1030,9 +1031,10 @@ const ThirdPartyBackendSpec *third_party_backend(MockBackend backend) {
         .render_method = gmock_method,
     };
     static constexpr ThirdPartyBackendSpec kTrompeloeil{
-        .name          = "trompeloeil",
-        .include       = "trompeloeil/mock.hpp",
-        .render_method = trompeloeil_method,
+        .name                     = "trompeloeil",
+        .include                  = "trompeloeil/mock.hpp",
+        .render_method            = trompeloeil_method,
+        .extra_unsupported_reason = trompeloeil_unsupported_reason,
     };
 
     switch (backend) {
@@ -1277,6 +1279,14 @@ std::string gmock_method(std::size_t method_index, const MockClassInfo &cls, con
                        gmock_arg_alias_tuple(method_index, method), gmock_specs(cls, method));
 }
 
+std::string trompeloeil_unsupported_reason(const MockClassInfo &cls, const MockMethodInfo &method) {
+    if (method.qualifiers.ref != MockMethodRefQualifier::None) {
+        return fmt::format("trompeloeil mock backend does not support ref-qualified methods: {}::{}", cls.qualified_name,
+                           method.method_name);
+    }
+    return {};
+}
+
 std::size_t first_trailing_default_arg(const MockMethodInfo &method) {
     std::size_t first_default = method.parameters.size();
     for (std::size_t i = 0; i < method.parameters.size(); ++i) {
@@ -1368,7 +1378,8 @@ std::string third_party_default_overloads(std::size_t method_index, std::string_
 }
 
 std::string trompeloeil_signature(std::size_t method_index, const MockMethodInfo &method) {
-    std::string out = "auto (";
+    std::string out = third_party_return_alias(method_index);
+    out += "(";
     for (std::size_t i = 0; i < method.parameters.size(); ++i) {
         if (i != 0) {
             out += ", ";
@@ -1381,30 +1392,32 @@ std::string trompeloeil_signature(std::size_t method_index, const MockMethodInfo
     case MockMethodRefQualifier::RValue: out += " &&"; break;
     case MockMethodRefQualifier::None: break;
     }
-    out += " -> ";
-    out += third_party_return_alias(method_index);
     return out;
 }
 
 std::string trompeloeil_specs(const MockClassInfo &cls, const MockMethodInfo &method) {
     std::vector<std::string> specs;
-    if (cls.derive_for_virtual && method.is_virtual) {
-        specs.emplace_back("override");
-    }
     if (method.qualifiers.is_noexcept) {
         specs.emplace_back("noexcept");
     }
+    if (cls.derive_for_virtual && method.is_virtual) {
+        specs.emplace_back("override");
+    }
     std::string out;
-    for (const auto &spec : specs) {
-        out += ", ";
-        out += spec;
+    for (std::size_t i = 0; i < specs.size(); ++i) {
+        if (i == 0) {
+            out += ", ";
+        } else {
+            out += " ";
+        }
+        out += specs[i];
     }
     return out;
 }
 
 std::string trompeloeil_method(std::size_t method_index, const MockClassInfo &cls, const MockMethodInfo &method) {
     const bool is_const = method.qualifiers.cv == MockMethodCvQualifier::Const;
-    return fmt::format("    {}({}, {}{});\n", is_const ? "MAKE_CONST_MOCK" : "MAKE_MOCK", method.method_name,
+    return fmt::format("    {}{}({}, {}{});\n", is_const ? "MAKE_CONST_MOCK" : "MAKE_MOCK", method.parameters.size(), method.method_name,
                        trompeloeil_signature(method_index, method), trompeloeil_specs(cls, method));
 }
 

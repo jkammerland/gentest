@@ -76,6 +76,12 @@ MockClassInfo service_mock() {
     return cls;
 }
 
+MockClassInfo service_mock_without_ref_qualifier() {
+    MockClassInfo cls             = service_mock();
+    cls.methods[0].qualifiers.ref = MockMethodRefQualifier::None;
+    return cls;
+}
+
 const MockGeneratedFile *find_file(const MockRenderResult &result, std::string_view filename) {
     if (!result.outputs.has_value()) {
         return nullptr;
@@ -136,7 +142,8 @@ int main() {
     }
 
     {
-        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::Trompeloeil), {service_mock()});
+        const MockRenderResult result =
+            gentest::codegen::render::render_mocks(mock_options(MockBackend::Trompeloeil), {service_mock_without_ref_qualifier()});
         t.expect(result.error.empty(), "trompeloeil backend renders without an error");
         const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
         t.expect(registry != nullptr, "trompeloeil backend emits a registry file");
@@ -145,8 +152,8 @@ int main() {
             t.contains(registry->content, "namespace fixture {\nnamespace mocks {\n", "trompeloeil backend mirrors the target namespace");
             t.contains(registry->content, "struct ServiceMock final : public ::fixture::Service",
                        "trompeloeil backend emits a native mock class");
-            t.contains(registry->content, "MAKE_CONST_MOCK(compute, auto (MockArg0_0_) & -> MockReturn0_, override, noexcept);",
-                       "trompeloeil backend preserves const/ref/noexcept/override qualifiers");
+            t.contains(registry->content, "MAKE_CONST_MOCK1(compute, MockReturn0_(MockArg0_0_), noexcept override);",
+                       "trompeloeil backend uses explicit arity and preserves const/noexcept/override qualifiers");
             t.excludes(registry->content, "__gentest_mock_", "trompeloeil backend avoids reserved generated aliases");
             t.excludes(registry->content, "#include \"gentest/mock_fwd.h\"",
                        "trompeloeil backend does not include gentest mock forwarding");
@@ -159,6 +166,12 @@ int main() {
         if (impl != nullptr) {
             t.contains(impl->content, "trompeloeil mock implementations", "trompeloeil backend names its implementation header");
         }
+    }
+
+    {
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::Trompeloeil), {service_mock()});
+        t.expect(!result.error.empty(), "trompeloeil backend rejects ref-qualified methods");
+        t.contains(result.error, "does not support ref-qualified methods", "trompeloeil backend diagnoses ref-qualified methods");
     }
 
     {
