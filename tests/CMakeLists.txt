@@ -2638,7 +2638,13 @@ gentest_add_cmake_script_test(
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCdashExperimentalLive.cmake"
     DEFINES
         "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/cmake_cdash_live")
+        "BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/cmake_cdash_live"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "CXX_COMPILER_CLANG_SCAN_DEPS=${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}"
+        "TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
 
 # Capture JUnit artifact example: unit suite emits JUnit; this smoke ensures the file is generated in build tree
 gentest_add_check_file_contains(

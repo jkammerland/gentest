@@ -149,6 +149,7 @@ alias(
 cc_library(
     name = 'gentest_runtime',
     srcs = [
+        'src/async_scheduler_core.h',
         'src/async_timer_queue.h',
         'src/async.cpp',
         'src/bench_stats.cpp',

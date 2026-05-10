@@ -11,6 +11,7 @@ template <class... A> inline void logf(fmt::format_string<A...> fmt_str, A &&...
 
 // fmt-enabled assertion overloads (messages only formatted and recorded on failure)
 template <class... A>
+    requires(sizeof...(A) > 0)
 inline void expect(bool condition, fmt::format_string<A...> fmt_str, A &&...a,
                    const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
@@ -19,6 +20,7 @@ inline void expect(bool condition, fmt::format_string<A...> fmt_str, A &&...a,
 }
 
 template <class... A>
+    requires(sizeof...(A) > 0)
 inline void expect_true(bool condition, fmt::format_string<A...> fmt_str, A &&...a,
                         const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
@@ -27,6 +29,7 @@ inline void expect_true(bool condition, fmt::format_string<A...> fmt_str, A &&..
 }
 
 template <class L, class R, class... A>
+    requires(sizeof...(A) > 0)
 inline void expect_eq(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a,
                       const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
@@ -35,6 +38,7 @@ inline void expect_eq(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&..
 }
 
 template <class L, class R, class... A>
+    requires(sizeof...(A) > 0)
 inline void expect_ne(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a,
                       const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
@@ -43,6 +47,7 @@ inline void expect_ne(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&..
 }
 
 template <class... A>
+    requires(sizeof...(A) > 0)
 inline void require(bool condition, fmt::format_string<A...> fmt_str, A &&...a,
                     const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
@@ -51,6 +56,7 @@ inline void require(bool condition, fmt::format_string<A...> fmt_str, A &&...a,
 }
 
 template <class L, class R, class... A>
+    requires(sizeof...(A) > 0)
 inline void require_eq(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a,
                        const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
@@ -59,6 +65,7 @@ inline void require_eq(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&.
 }
 
 template <class L, class R, class... A>
+    requires(sizeof...(A) > 0)
 inline void require_ne(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a,
                        const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
@@ -67,23 +74,35 @@ inline void require_ne(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&.
 }
 
 namespace asserts {
-template <class... A> inline void EXPECT_TRUE(bool condition, fmt::format_string<A...> fmt_str, A &&...a) {
+template <class... A>
+    requires(sizeof...(A) > 0)
+inline void EXPECT_TRUE(bool condition, fmt::format_string<A...> fmt_str, A &&...a) {
     ::gentest::expect_true<A...>(condition, fmt_str, std::forward<A>(a)...);
 }
-template <class L, class R, class... A> inline void EXPECT_EQ(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a) {
+template <class L, class R, class... A>
+    requires(sizeof...(A) > 0)
+inline void EXPECT_EQ(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a) {
     ::gentest::expect_eq<L, R, A...>(std::forward<L>(lhs), std::forward<R>(rhs), fmt_str, std::forward<A>(a)...);
 }
-template <class L, class R, class... A> inline void EXPECT_NE(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a) {
+template <class L, class R, class... A>
+    requires(sizeof...(A) > 0)
+inline void EXPECT_NE(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a) {
     ::gentest::expect_ne<L, R, A...>(std::forward<L>(lhs), std::forward<R>(rhs), fmt_str, std::forward<A>(a)...);
 }
 
-template <class... A> inline void ASSERT_TRUE(bool condition, fmt::format_string<A...> fmt_str, A &&...a) {
+template <class... A>
+    requires(sizeof...(A) > 0)
+inline void ASSERT_TRUE(bool condition, fmt::format_string<A...> fmt_str, A &&...a) {
     ::gentest::require<A...>(condition, fmt_str, std::forward<A>(a)...);
 }
-template <class L, class R, class... A> inline void ASSERT_EQ(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a) {
+template <class L, class R, class... A>
+    requires(sizeof...(A) > 0)
+inline void ASSERT_EQ(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a) {
     ::gentest::require_eq<L, R, A...>(std::forward<L>(lhs), std::forward<R>(rhs), fmt_str, std::forward<A>(a)...);
 }
-template <class L, class R, class... A> inline void ASSERT_NE(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a) {
+template <class L, class R, class... A>
+    requires(sizeof...(A) > 0)
+inline void ASSERT_NE(L &&lhs, R &&rhs, fmt::format_string<A...> fmt_str, A &&...a) {
     ::gentest::require_ne<L, R, A...>(std::forward<L>(lhs), std::forward<R>(rhs), fmt_str, std::forward<A>(a)...);
 }
 } // namespace asserts

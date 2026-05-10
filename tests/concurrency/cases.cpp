@@ -14,7 +14,7 @@ using namespace gentest::asserts;
 #include <thread>
 #include <vector>
 
-namespace concurrency {
+namespace [[using gentest: suite("concurrency")]] gentest_concurrency_tests {
 
 [[using gentest: test("child_log_pass")]]
 void child_log_pass() {
@@ -73,10 +73,6 @@ void child_reports_exception_pass() {
     ASSERT_EQ(done.wait_for(std::chrono::seconds(0)), std::future_status::ready);
     EXPECT_TRUE(done.get());
 }
-
-} // namespace concurrency
-
-namespace concurrency {
 
 [[using gentest: test("multi_adopt_log_pass")]]
 void multi_adopt_log_pass() {
@@ -314,4 +310,4 @@ void no_adopt_expect_death_multi() {
     t2.join();
 }
 
-} // namespace concurrency
+} // namespace gentest_concurrency_tests

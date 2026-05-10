@@ -23,6 +23,29 @@ endif()
 set(_binary_dir "${BINARY_ROOT}/build")
 file(REMOVE_RECURSE "${BINARY_ROOT}")
 
+set(_configure_options "")
+if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
+  list(APPEND _configure_options "-DCMAKE_C_COMPILER=${C_COMPILER}")
+endif()
+if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "")
+  list(APPEND _configure_options "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
+endif()
+if(DEFINED CXX_COMPILER_CLANG_SCAN_DEPS
+   AND NOT "${CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL ""
+   AND NOT "${CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$")
+  list(APPEND _configure_options "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${CXX_COMPILER_CLANG_SCAN_DEPS}")
+endif()
+if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
+  list(APPEND _configure_options "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
+endif()
+if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
+  list(APPEND _configure_options "-DLLVM_DIR=${LLVM_DIR}")
+endif()
+if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
+  list(APPEND _configure_options "-DClang_DIR=${Clang_DIR}")
+endif()
+string(JOIN " " _configure_options_env ${_configure_options})
+
 execute_process(
   COMMAND
     "${CMAKE_COMMAND}" -E env
@@ -32,6 +55,7 @@ execute_process(
     "GENTEST_CDASH_BUILD_TARGETS=gentest_core_tests,gentest_unit_tests"
     "GENTEST_CDASH_TEST_REGEX=^(gentest_core_parse_validate|unit)$"
     "GENTEST_CDASH_PARALLEL_LEVEL=2"
+    "GENTEST_CDASH_CONFIGURE_OPTIONS=${_configure_options_env}"
     "${PROG}" -S "${SOURCE_DIR}/cmake/cdash/Experimental.cmake" -VV
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
