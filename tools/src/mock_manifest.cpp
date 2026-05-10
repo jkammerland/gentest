@@ -175,6 +175,7 @@ json::Object param_object(const MockParamInfo &param) {
     return json::Object{
         {.K = "type", .V = param.type},
         {.K = "name", .V = param.name},
+        {.K = "default_arg", .V = param.default_arg},
         {.K = "pass_style", .V = to_string(param.pass_style)},
     };
 }
@@ -376,7 +377,8 @@ bool parse_template_params(const json::Object &obj, llvm::StringRef key, std::ve
 bool parse_param(const json::Object &obj, MockParamInfo &out, std::string &error) {
     std::string pass_style;
     if (!require_string(obj, "type", out.type, error) || !optional_string(obj, "name", out.name, error) ||
-        !require_string(obj, "pass_style", pass_style, error) || !parse_enum(pass_style, out.pass_style, parse_pass_style)) {
+        !optional_string(obj, "default_arg", out.default_arg, error) || !require_string(obj, "pass_style", pass_style, error) ||
+        !parse_enum(pass_style, out.pass_style, parse_pass_style)) {
         if (error.empty()) {
             error = "invalid mock parameter pass_style '" + pass_style + "'";
         }

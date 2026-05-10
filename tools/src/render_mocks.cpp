@@ -105,9 +105,11 @@ std::string ensure_global_qualifiers(std::string value) {
 struct MethodTypeRenderParts {
     std::string return_type;
     std::string parameter_list;
+    std::string parameter_list_with_defaults;
     std::string parameter_types;
     std::string qualifiers;
     std::string declarator;
+    std::string declarator_with_defaults;
     std::string signature;
     std::string expectation_push_types;
     std::string pointer_type;
@@ -332,7 +334,7 @@ std::string dispatch_block(const std::string &indent, const MockClassInfo &cls, 
     return block.str();
 }
 
-std::string join_rendered_parameter_list(const std::vector<MockParamInfo> &params, bool include_names) {
+std::string join_rendered_parameter_list(const std::vector<MockParamInfo> &params, bool include_names, bool include_defaults = false) {
     std::string out;
     out.reserve(params.size() * 16);
     for (std::size_t i = 0; i < params.size(); ++i) {
@@ -343,19 +345,25 @@ std::string join_rendered_parameter_list(const std::vector<MockParamInfo> &param
             out += ' ';
             out += params[i].name;
         }
+        if (include_names && include_defaults && !params[i].default_arg.empty()) {
+            out += " = ";
+            out += params[i].default_arg;
+        }
     }
     return out;
 }
 
 MethodTypeRenderParts render_method_type_parts(const MockMethodInfo &method) {
     MethodTypeRenderParts parts;
-    parts.return_type            = ensure_global_qualifiers(method.return_type);
-    parts.parameter_list         = join_rendered_parameter_list(method.parameters, true);
-    parts.parameter_types        = join_rendered_parameter_list(method.parameters, false);
-    parts.qualifiers             = qualifiers_for(method.qualifiers);
-    parts.declarator             = fmt::format("{}({}){}", method.method_name, parts.parameter_list, parts.qualifiers);
-    parts.signature              = fmt::format("{}({})", parts.return_type, parts.parameter_types);
-    parts.expectation_push_types = parts.return_type;
+    parts.return_type                  = ensure_global_qualifiers(method.return_type);
+    parts.parameter_list               = join_rendered_parameter_list(method.parameters, true);
+    parts.parameter_list_with_defaults = join_rendered_parameter_list(method.parameters, true, true);
+    parts.parameter_types              = join_rendered_parameter_list(method.parameters, false);
+    parts.qualifiers                   = qualifiers_for(method.qualifiers);
+    parts.declarator                   = fmt::format("{}({}){}", method.method_name, parts.parameter_list, parts.qualifiers);
+    parts.declarator_with_defaults     = fmt::format("{}({}){}", method.method_name, parts.parameter_list_with_defaults, parts.qualifiers);
+    parts.signature                    = fmt::format("{}({})", parts.return_type, parts.parameter_types);
+    parts.expectation_push_types       = parts.return_type;
     if (!parts.parameter_types.empty()) {
         parts.expectation_push_types += ", ";
         parts.expectation_push_types += parts.parameter_types;
@@ -364,6 +372,10 @@ MethodTypeRenderParts render_method_type_parts(const MockMethodInfo &method) {
 }
 
 std::string join_parameter_list(const std::vector<MockParamInfo> &params) { return join_rendered_parameter_list(params, true); }
+
+std::string join_parameter_list_with_defaults(const std::vector<MockParamInfo> &params) {
+    return join_rendered_parameter_list(params, true, true);
+}
 
 MethodTypeRenderParts render_method_type_parts(const MockClassInfo &cls, const MockMethodInfo &method) {
     MethodTypeRenderParts parts = render_method_type_parts(method);
@@ -386,8 +398,8 @@ MethodTypeRenderParts render_method_type_parts(const MockClassInfo &cls, const M
     return parts;
 }
 
-std::string render_method_declaration(std::string_view scope_prefix, const MethodTypeRenderParts &parts) {
-    return fmt::format("{} {}{}", parts.return_type, scope_prefix, parts.declarator);
+std::string render_method_declaration(std::string_view scope_prefix, const MethodTypeRenderParts &parts, bool include_defaults = false) {
+    return fmt::format("{} {}{}", parts.return_type, scope_prefix, include_defaults ? parts.declarator_with_defaults : parts.declarator);
 }
 
 std::string split_namespace_and_type(const std::string &qualified, std::string &type_out) {
@@ -523,7 +535,7 @@ std::string build_method_declaration(const MockClassInfo &cls, const MockMethodI
     if (!method.template_prefix.empty()) {
         decl.append("{}\n", method.template_prefix);
     }
-    decl.append("{}", render_method_declaration({}, type_parts));
+    decl.append("{}", render_method_declaration({}, type_parts, true));
     if (cls.derive_for_virtual && method.is_virtual) {
         decl.append_raw(" override");
     }
@@ -567,7 +579,7 @@ std::string constructors_block(const MockClassInfo &cls) {
         } else {
             block.append_raw("    mock(");
         }
-        block.append("{}", join_parameter_list(ctor.parameters));
+        block.append("{}", join_parameter_list_with_defaults(ctor.parameters));
         block.append_raw(")");
         if (ctor.is_noexcept) {
             block.append_raw(" noexcept");
@@ -1089,7 +1101,7 @@ std::string third_party_constructor_body(const MockClassInfo &cls, const MockCto
     } else {
         body.append_raw("    ");
     }
-    body.append("{}({})", mock_class_name, join_parameter_list(ctor.parameters));
+    body.append("{}({})", mock_class_name, join_parameter_list_with_defaults(ctor.parameters));
     if (ctor.is_noexcept) {
         body.append_raw(" noexcept");
     }
@@ -1168,6 +1180,82 @@ std::string gmock_method(std::size_t method_index, const MockClassInfo &cls, con
                        gmock_arg_alias_tuple(method_index, method), gmock_specs(cls, method));
 }
 
+std::size_t first_trailing_default_arg(const MockMethodInfo &method) {
+    std::size_t first_default = method.parameters.size();
+    for (std::size_t i = 0; i < method.parameters.size(); ++i) {
+        if (!method.parameters[i].default_arg.empty()) {
+            first_default = i;
+            break;
+        }
+    }
+    if (first_default == method.parameters.size()) {
+        return method.parameters.size();
+    }
+    for (std::size_t i = first_default; i < method.parameters.size(); ++i) {
+        if (method.parameters[i].default_arg.empty()) {
+            return method.parameters.size();
+        }
+    }
+    return first_default;
+}
+
+std::string third_party_default_overload_receiver(std::string_view mock_class_name, const MockMethodInfo &method) {
+    if (method.qualifiers.ref != MockMethodRefQualifier::RValue) {
+        return "this->";
+    }
+    if (method.qualifiers.cv == MockMethodCvQualifier::Const) {
+        return fmt::format("static_cast<const {} &&>(*this).", mock_class_name);
+    }
+    return fmt::format("static_cast<{} &&>(*this).", mock_class_name);
+}
+
+std::string third_party_default_overload_param_list(std::size_t method_index, const MockMethodInfo &method, std::size_t arity) {
+    std::string out;
+    for (std::size_t i = 0; i < arity; ++i) {
+        if (i != 0) {
+            out += ", ";
+        }
+        out += third_party_arg_alias(method_index, i);
+        out += ' ';
+        out += method.parameters[i].name;
+    }
+    return out;
+}
+
+std::string third_party_default_overload_call_args(const MockMethodInfo &method, std::size_t arity) {
+    std::string out;
+    for (std::size_t i = 0; i < method.parameters.size(); ++i) {
+        if (i != 0) {
+            out += ", ";
+        }
+        out += i < arity ? method.parameters[i].name : method.parameters[i].default_arg;
+    }
+    return out;
+}
+
+std::string third_party_default_overloads(std::size_t method_index, std::string_view mock_class_name, const MockMethodInfo &method) {
+    const std::size_t first_default = first_trailing_default_arg(method);
+    if (first_default == method.parameters.size()) {
+        return {};
+    }
+
+    RenderBuffer out;
+    for (std::size_t arity = first_default; arity < method.parameters.size(); ++arity) {
+        out.append("    {} {}({}){}", third_party_return_alias(method_index), method.method_name,
+                   third_party_default_overload_param_list(method_index, method, arity), qualifiers_for(method.qualifiers));
+        out.append_raw(" {");
+        out.append_raw(tidy_exception_escape_suppression(method.qualifiers));
+        out.append_raw("\n        ");
+        if (method.return_type != "void") {
+            out.append_raw("return ");
+        }
+        out.append("{}{}({});\n", third_party_default_overload_receiver(mock_class_name, method), method.method_name,
+                   third_party_default_overload_call_args(method, arity));
+        out.append_raw("    }\n");
+    }
+    return out.str();
+}
+
 std::string trompeloeil_signature(std::size_t method_index, const MockMethodInfo &method) {
     std::string out = "auto (";
     for (std::size_t i = 0; i < method.parameters.size(); ++i) {
@@ -1233,6 +1321,7 @@ std::string build_third_party_class_declaration(MockBackend backend, const MockC
         } else {
             header.append_raw(trompeloeil_method(i, cls, method));
         }
+        header.append_raw(third_party_default_overloads(i, mock_name, method));
         header.append_raw("\n");
     }
     header.append_raw("};\n\n");

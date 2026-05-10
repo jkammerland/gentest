@@ -42,6 +42,7 @@ set(_producer_src_dir "${_src_dir}/producer")
 set(_consumer_src_dir "${_src_dir}/consumer")
 set(_producer_build_dir "${_work_dir}/producer-build")
 set(_consumer_build_dir "${_work_dir}/consumer-build")
+set(_third_party_only_consumer_build_dir "${_work_dir}/third-party-only-consumer-build")
 set(_install_prefix "${_work_dir}/install")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
@@ -148,16 +149,23 @@ set(_installed_public_header "${_install_prefix}/include/public/fixture_header_m
 if(NOT EXISTS "${_installed_public_header}")
   message(FATAL_ERROR "Expected installed explicit mock public header was not found: ${_installed_public_header}")
 endif()
+set(_installed_third_party_public_header "${_install_prefix}/include/public/fixture_gmock_mocks.hpp")
+if(NOT EXISTS "${_installed_third_party_public_header}")
+  message(FATAL_ERROR "Expected installed third-party explicit mock public header was not found: ${_installed_third_party_public_header}")
+endif()
 set(_installed_module_public_header "${_install_prefix}/include/public/fixture_module_mocks.hpp")
 if(EXISTS "${_installed_module_public_header}")
   message(FATAL_ERROR "Did not expect an installed explicit mock public header for module defs, but found: ${_installed_module_public_header}")
 endif()
 file(GLOB _installed_public_headers "${_install_prefix}/include/public/*")
-set(_expected_public_headers "${_install_prefix}/include/public/fixture_header_mocks.hpp")
+set(_expected_public_headers
+  "${_install_prefix}/include/public/fixture_gmock_mocks.hpp"
+  "${_install_prefix}/include/public/fixture_header_mocks.hpp")
 list(SORT _installed_public_headers)
+list(SORT _expected_public_headers)
 if(NOT _installed_public_headers STREQUAL _expected_public_headers)
   message(FATAL_ERROR
-    "Expected only the textual explicit mock public header to be installed under '${_install_prefix}/include/public'.\n"
+    "Expected only explicit mock public headers under '${_install_prefix}/include/public'.\n"
     "Expected: ${_expected_public_headers}\n"
     "Actual:   ${_installed_public_headers}")
 endif()
@@ -169,12 +177,27 @@ endif()
 file(GLOB _installed_root_headers "${_install_prefix}/include/*.hpp")
 foreach(_installed_root_header IN LISTS _installed_root_headers)
   get_filename_component(_installed_root_name "${_installed_root_header}" NAME)
-  if(NOT _installed_root_name MATCHES "^explicit_(exported|module_exported)_mocks_mock_(impl|registry)(|__domain_.*)\\.hpp$")
+  if(NOT _installed_root_name MATCHES "^explicit_(exported|module_exported|third_party_exported)_mocks_mock_(impl|registry)(|__domain_.*)\\.hpp$")
     message(FATAL_ERROR
       "Expected only internal support headers at the install include root, but found unexpected header "
       "'${_installed_root_header}'.")
   endif()
 endforeach()
+
+file(GLOB _third_party_configs
+  "${_install_prefix}/*/cmake/explicit_third_party_exported_mocks/explicit_third_party_exported_mocksConfig.cmake")
+list(LENGTH _third_party_configs _third_party_config_count)
+if(NOT _third_party_config_count EQUAL 1)
+  message(FATAL_ERROR
+    "Expected one third-party explicit mock package config under '${_install_prefix}', got ${_third_party_config_count}: "
+    "${_third_party_configs}")
+endif()
+list(GET _third_party_configs 0 _third_party_config)
+file(READ "${_third_party_config}" _third_party_config_content)
+string(FIND "${_third_party_config_content}" "find_dependency(gentest" _third_party_gentest_dependency_pos)
+if(NOT _third_party_gentest_dependency_pos EQUAL -1)
+  message(FATAL_ERROR "Third-party explicit mock package config should not require gentest")
+endif()
 
 file(GLOB _installed_staged_defs "${_install_prefix}/include/defs/*")
 if(NOT _installed_staged_defs)
@@ -265,21 +288,50 @@ gentest_check_run_or_fail(
 gentest_assert_windows_native_llvm_cache_args(
   "${_consumer_build_dir}" "${_clangxx}" "explicit mock install/export consumer")
 
+message(STATUS "Configure third-party-only explicit mock downstream consumer...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_COMMAND}"
+    ${_cmake_gen_args}
+    -S "${_consumer_src_dir}"
+    -B "${_third_party_only_consumer_build_dir}"
+    ${_consumer_cache_args}
+    "-DGENTEST_EXPLICIT_MOCK_THIRD_PARTY_ONLY=ON"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+gentest_assert_windows_native_llvm_cache_args(
+  "${_third_party_only_consumer_build_dir}" "${_clangxx}" "third-party-only explicit mock install/export consumer")
+
 message(STATUS "Build explicit mock target downstream consumer...")
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_dir}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+message(STATUS "Build third-party-only explicit mock downstream consumer...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_COMMAND}" --build "${_third_party_only_consumer_build_dir}"
+    --target explicit_installed_third_party_consumer
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
 foreach(_consumer_exe IN ITEMS
     explicit_installed_consumer
-    explicit_installed_module_consumer)
+    explicit_installed_module_consumer
+    explicit_installed_third_party_consumer)
   message(STATUS "Run ${_consumer_exe}...")
   gentest_check_run_or_fail(
     COMMAND "${_consumer_build_dir}/${_consumer_exe}${CMAKE_EXECUTABLE_SUFFIX}"
     WORKING_DIRECTORY "${_work_dir}"
     STRIP_TRAILING_WHITESPACE)
 endforeach()
+
+message(STATUS "Run third-party-only explicit_installed_third_party_consumer...")
+gentest_check_run_or_fail(
+  COMMAND "${_third_party_only_consumer_build_dir}/explicit_installed_third_party_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
 
 message(STATUS "Run explicit_installed_module_codegen_consumer...")
 gentest_check_run_or_fail(

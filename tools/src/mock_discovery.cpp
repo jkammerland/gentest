@@ -12,7 +12,10 @@
 #include <clang/AST/Decl.h>
 #include <clang/AST/DeclCXX.h>
 #include <clang/AST/DeclTemplate.h>
+#include <clang/AST/Expr.h>
+#include <clang/AST/ExprCXX.h>
 #include <clang/AST/PrettyPrinter.h>
+#include <clang/AST/RecursiveASTVisitor.h>
 #include <clang/AST/Type.h>
 #include <clang/Basic/FileEntry.h>
 #include <clang/Basic/SourceManager.h>
@@ -24,6 +27,7 @@
 #include <llvm/ADT/StringRef.h>
 #include <string>
 #include <string_view>
+#include <vector>
 
 using namespace clang;
 using namespace clang::ast_matchers;
@@ -299,10 +303,186 @@ using MethodRefQual  = MockMethodRefQualifier;
     return ParamPassStyle::Value;
 }
 
+struct DefaultArgumentReplacement {
+    std::size_t offset = 0;
+    std::size_t length = 0;
+    std::string text;
+};
+
+[[nodiscard]] bool should_qualify_default_arg_decl(const NamedDecl &decl) {
+    const DeclContext *context = decl.getDeclContext();
+    return llvm::isa_and_nonnull<TranslationUnitDecl>(context) || llvm::isa_and_nonnull<NamespaceDecl>(context) ||
+           llvm::isa_and_nonnull<CXXRecordDecl>(context) || llvm::isa_and_nonnull<EnumDecl>(context);
+}
+
+[[nodiscard]] std::string qualified_default_arg_decl_name(const NamedDecl &decl) {
+    if (!should_qualify_default_arg_decl(decl)) {
+        return {};
+    }
+    std::string qualified = decl.getQualifiedNameAsString();
+    if (qualified.empty()) {
+        return {};
+    }
+    if (!qualified.starts_with("::")) {
+        qualified.insert(0, "::");
+    }
+    return qualified;
+}
+
+class DefaultArgumentDeclRefQualifier : public RecursiveASTVisitor<DefaultArgumentDeclRefQualifier> {
+  public:
+    DefaultArgumentDeclRefQualifier(const ASTContext &ctx, const SourceManager &sm, const LangOptions &lang_opts, FileID file_id,
+                                    std::size_t begin_offset, std::size_t text_size)
+        : ctx_(ctx), sm_(sm), lang_opts_(lang_opts), file_id_(file_id), begin_offset_(begin_offset), text_size_(text_size) {}
+
+    bool VisitDeclRefExpr(DeclRefExpr *expr) {
+        if (expr == nullptr || expr->hasQualifier()) {
+            return true;
+        }
+        const auto *decl = expr->getDecl();
+        if (decl == nullptr) {
+            return true;
+        }
+        const std::string replacement = qualified_default_arg_decl_name(*decl);
+        if (replacement.empty()) {
+            return true;
+        }
+
+        add_token_replacement(expr->getLocation(), replacement);
+        return true;
+    }
+
+    bool VisitCXXFunctionalCastExpr(CXXFunctionalCastExpr *expr) {
+        if (expr == nullptr) {
+            return true;
+        }
+        add_type_replacement(expr->getTypeInfoAsWritten());
+        return true;
+    }
+
+    bool VisitCXXTemporaryObjectExpr(CXXTemporaryObjectExpr *expr) {
+        if (expr == nullptr) {
+            return true;
+        }
+        add_type_replacement(expr->getTypeSourceInfo());
+        return true;
+    }
+
+    [[nodiscard]] const std::vector<DefaultArgumentReplacement> &replacements() const { return replacements_; }
+
+  private:
+    void add_token_replacement(SourceLocation loc, std::string replacement) {
+        loc = sm_.getFileLoc(loc);
+        if (loc.isInvalid() || sm_.getFileID(loc) != file_id_) {
+            return;
+        }
+        const std::size_t absolute_offset = sm_.getFileOffset(loc);
+        if (absolute_offset < begin_offset_) {
+            return;
+        }
+        const std::size_t offset = absolute_offset - begin_offset_;
+        const unsigned    length = Lexer::MeasureTokenLength(loc, sm_, lang_opts_);
+        if (length == 0 || offset + length > text_size_) {
+            return;
+        }
+
+        replacements_.push_back(DefaultArgumentReplacement{.offset = offset, .length = length, .text = std::move(replacement)});
+    }
+
+    void add_range_replacement(SourceRange range, std::string replacement) {
+        SourceLocation begin = sm_.getFileLoc(range.getBegin());
+        SourceLocation end   = sm_.getFileLoc(range.getEnd());
+        if (begin.isInvalid() || end.isInvalid() || sm_.getFileID(begin) != file_id_ || sm_.getFileID(end) != file_id_) {
+            return;
+        }
+        const SourceLocation after_end = Lexer::getLocForEndOfToken(end, 0, sm_, lang_opts_);
+        if (after_end.isInvalid() || sm_.getFileID(after_end) != file_id_) {
+            return;
+        }
+        const std::size_t absolute_begin = sm_.getFileOffset(begin);
+        const std::size_t absolute_end   = sm_.getFileOffset(after_end);
+        if (absolute_begin < begin_offset_ || absolute_end < absolute_begin) {
+            return;
+        }
+        const std::size_t offset = absolute_begin - begin_offset_;
+        const std::size_t length = absolute_end - absolute_begin;
+        if (length == 0 || offset + length > text_size_) {
+            return;
+        }
+        replacements_.push_back(DefaultArgumentReplacement{.offset = offset, .length = length, .text = std::move(replacement)});
+    }
+
+    void add_type_replacement(const TypeSourceInfo *type_info) {
+        if (type_info == nullptr) {
+            return;
+        }
+        const QualType type = type_info->getType();
+        if (type.isNull() || type->isDependentType() || !type->isRecordType()) {
+            return;
+        }
+
+        std::string replacement = print_type(type, ctx_);
+        if (replacement.empty()) {
+            return;
+        }
+        if (!replacement.starts_with("::")) {
+            replacement.insert(0, "::");
+        }
+        add_range_replacement(type_info->getTypeLoc().getSourceRange(), std::move(replacement));
+    }
+
+    const ASTContext                       &ctx_;
+    const SourceManager                    &sm_;
+    const LangOptions                      &lang_opts_;
+    FileID                                  file_id_;
+    std::size_t                             begin_offset_;
+    std::size_t                             text_size_;
+    std::vector<DefaultArgumentReplacement> replacements_;
+};
+
+void apply_default_argument_replacements(std::string &text, std::vector<DefaultArgumentReplacement> replacements) {
+    std::ranges::sort(replacements,
+                      [](const DefaultArgumentReplacement &lhs, const DefaultArgumentReplacement &rhs) { return lhs.offset > rhs.offset; });
+    for (const auto &replacement : replacements) {
+        text.replace(replacement.offset, replacement.length, replacement.text);
+    }
+}
+
+[[nodiscard]] std::string print_default_argument(const ParmVarDecl &param, const ASTContext &ctx) {
+    if (!param.hasDefaultArg()) {
+        return {};
+    }
+
+    const SourceRange range = param.getDefaultArgRange();
+    if (range.isInvalid()) {
+        return {};
+    }
+
+    const SourceManager &sm        = ctx.getSourceManager();
+    const LangOptions   &lang_opts = ctx.getLangOpts();
+    const SourceLocation begin     = sm.getFileLoc(range.getBegin());
+    const SourceLocation end       = sm.getFileLoc(range.getEnd());
+    const auto           raw_text  = Lexer::getSourceText(CharSourceRange::getTokenRange(begin, end), sm, lang_opts);
+    std::string          text      = raw_text.str();
+    if (text.empty()) {
+        return {};
+    }
+
+    if (const Expr *expr = param.getDefaultArg()) {
+        const FileID                    file_id = sm.getFileID(begin);
+        DefaultArgumentDeclRefQualifier qualifier(ctx, sm, lang_opts, file_id, sm.getFileOffset(begin), text.size());
+        qualifier.TraverseStmt(const_cast<Expr *>(expr));
+        apply_default_argument_replacements(text, qualifier.replacements());
+    }
+
+    return llvm::StringRef(text).trim().str();
+}
+
 [[nodiscard]] MockParamInfo build_param_info(const ParmVarDecl &param, const ASTContext &ctx, bool is_template, unsigned index) {
     MockParamInfo info;
-    info.type       = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
-    info.pass_style = classify_param_pass_style(param);
+    info.type        = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
+    info.pass_style  = classify_param_pass_style(param);
+    info.default_arg = print_default_argument(param, ctx);
     if (!param.getNameAsString().empty()) {
         info.name = param.getNameAsString();
     } else {
@@ -386,25 +566,141 @@ struct CallableTemplateInfo {
     return key;
 }
 
-[[nodiscard]] bool has_accessible_default_ctor(const CXXRecordDecl &record) {
-    if (!record.hasDefinition())
-        return false;
-    for (const auto *ctor : record.ctors()) {
-        if (!ctor)
-            continue;
-        if (!ctor->isDefaultConstructor())
-            continue;
-        if (ctor->isDeleted())
-            continue;
-        if (is_supported_access(ctor->getAccess()))
-            return true;
+[[nodiscard]] QualType strip_array_type(QualType type, const ASTContext &ctx) {
+    while (const auto *array_type = ctx.getAsArrayType(type)) {
+        type = array_type->getElementType();
     }
-    if (!record.hasUserDeclaredConstructor()) {
-        // Implicit default constructor is generated and has same access as the
-        // record (public unless specified otherwise).
-        return true;
+    return type;
+}
+
+[[nodiscard]] bool is_accessible_ctor_callable_without_args(const CXXConstructorDecl &ctor) {
+    if (ctor.isCopyConstructor() || ctor.isMoveConstructor() || ctor.isDeleted() || !is_supported_access(ctor.getAccess())) {
+        return false;
+    }
+    for (const auto *param : ctor.parameters()) {
+        if (param == nullptr || !param->hasDefaultArg()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool is_zero_param_default_ctor(const CXXConstructorDecl &ctor) {
+    return ctor.isDefaultConstructor() && ctor.getNumParams() == 0;
+}
+
+[[nodiscard]] bool has_accessible_non_zero_param_ctor_callable_without_args(const CXXRecordDecl &record) {
+    for (const auto *ctor : record.ctors()) {
+        if (ctor != nullptr && ctor->getNumParams() != 0 && is_accessible_ctor_callable_without_args(*ctor)) {
+            return true;
+        }
     }
     return false;
+}
+
+[[nodiscard]] const CXXConstructorDecl *single_accessible_ctor_callable_without_args(const CXXRecordDecl &record) {
+    const CXXConstructorDecl *match = nullptr;
+    for (const auto *ctor : record.ctors()) {
+        if (ctor == nullptr || !is_accessible_ctor_callable_without_args(*ctor)) {
+            continue;
+        }
+        if (match != nullptr) {
+            return nullptr;
+        }
+        match = ctor;
+    }
+    return match;
+}
+
+enum class DefaultCtorMode {
+    DefaultInitializable,
+    ConstDefaultInitializable,
+};
+
+struct DefaultCtorVisitState {
+    llvm::SmallPtrSet<const CXXRecordDecl *, 16> default_initializable;
+    llvm::SmallPtrSet<const CXXRecordDecl *, 16> const_default_initializable;
+
+    [[nodiscard]] bool enter(const CXXRecordDecl *record, DefaultCtorMode mode) {
+        auto &set = mode == DefaultCtorMode::ConstDefaultInitializable ? const_default_initializable : default_initializable;
+        return set.insert(record).second;
+    }
+};
+
+[[nodiscard]] bool has_accessible_default_ctor_impl(const CXXRecordDecl &record, const ASTContext &ctx, DefaultCtorVisitState &visited,
+                                                    DefaultCtorMode mode);
+
+[[nodiscard]] bool has_default_initializable_subobjects(const CXXRecordDecl &record, const ASTContext &ctx, DefaultCtorVisitState &visited,
+                                                        DefaultCtorMode mode) {
+    for (const auto &base : record.bases()) {
+        const auto *base_record = base.getType()->getAsCXXRecordDecl();
+        if (base_record == nullptr) {
+            continue;
+        }
+        if (!has_accessible_default_ctor_impl(*base_record, ctx, visited, mode)) {
+            return false;
+        }
+    }
+
+    for (const auto *field : record.fields()) {
+        if (field == nullptr || field->hasInClassInitializer()) {
+            continue;
+        }
+
+        QualType   field_type     = strip_array_type(field->getType(), ctx);
+        const bool field_is_const = field_type.isConstQualified();
+        if (field_type->isReferenceType()) {
+            return false;
+        }
+        const bool const_default_context = mode == DefaultCtorMode::ConstDefaultInitializable || field_is_const;
+        if (const_default_context && !field_type->isRecordType()) {
+            return false;
+        }
+
+        const auto           *field_record = field_type->getAsCXXRecordDecl();
+        const DefaultCtorMode field_mode =
+            const_default_context ? DefaultCtorMode::ConstDefaultInitializable : DefaultCtorMode::DefaultInitializable;
+        if (field_record != nullptr && !has_accessible_default_ctor_impl(*field_record, ctx, visited, field_mode)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool has_accessible_default_ctor_impl(const CXXRecordDecl &record, const ASTContext &ctx, DefaultCtorVisitState &visited,
+                                                    DefaultCtorMode mode) {
+    if (!record.hasDefinition())
+        return false;
+    const auto *definition = record.getDefinition();
+    if (definition == nullptr) {
+        return false;
+    }
+    const auto *canonical = definition->getCanonicalDecl();
+    if (!visited.enter(canonical, mode)) {
+        return true;
+    }
+    if (const auto *ctor = single_accessible_ctor_callable_without_args(*definition)) {
+        if (mode == DefaultCtorMode::DefaultInitializable || ctor->isUserProvided()) {
+            return true;
+        }
+        return has_default_initializable_subobjects(*definition, ctx, visited, mode);
+    }
+    if (!definition->hasUserDeclaredConstructor()) {
+        return has_default_initializable_subobjects(*definition, ctx, visited, mode);
+    }
+    return false;
+}
+
+[[nodiscard]] bool has_accessible_default_ctor(const CXXRecordDecl &record, const ASTContext &ctx) {
+    DefaultCtorVisitState visited;
+    if (!has_accessible_default_ctor_impl(record, ctx, visited, DefaultCtorMode::DefaultInitializable)) {
+        return false;
+    }
+    const auto *definition = record.getDefinition();
+    return definition != nullptr && !has_accessible_non_zero_param_ctor_callable_without_args(*definition) &&
+           (!definition->hasUserDeclaredConstructor() || std::ranges::any_of(definition->ctors(), [](const CXXConstructorDecl *ctor) {
+               return ctor != nullptr && is_zero_param_default_ctor(*ctor) && is_accessible_ctor_callable_without_args(*ctor);
+           }));
 }
 
 [[nodiscard]] bool is_noexcept(const CXXMethodDecl &method) {
@@ -441,6 +737,23 @@ struct CallableTemplateInfo {
         .ref         = ref_qualifier_kind(method.getRefQualifier()),
         .is_noexcept = is_noexcept(method),
     };
+}
+
+[[nodiscard]] std::string unsupported_native_mock_method_reason(const CXXMethodDecl &method) {
+    if (method.isPureVirtual() && (method.isCopyAssignmentOperator() || method.isMoveAssignmentOperator())) {
+        return fmt::format("gentest::mock does not support pure virtual assignment operators: {}", method.getQualifiedNameAsString());
+    }
+    if (llvm::isa<CXXConversionDecl>(method)) {
+        return fmt::format("gentest::mock does not support conversion operators: {}", method.getQualifiedNameAsString());
+    }
+    if (method.isVariadic()) {
+        return fmt::format("gentest::mock does not support C-style variadic methods: {}", method.getQualifiedNameAsString());
+    }
+    const MethodCvQual cv = cv_qualifier_kind(method);
+    if (cv == MethodCvQual::Volatile || cv == MethodCvQual::ConstVolatile) {
+        return fmt::format("gentest::mock does not support volatile-qualified methods: {}", method.getQualifiedNameAsString());
+    }
+    return {};
 }
 
 [[nodiscard]] bool has_case_insensitive_suffix(std::string_view path, std::string_view suffix) {
@@ -666,6 +979,9 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         report(*result.SourceManager, use_loc, "gentest::mock argument resolves to an invalid type");
         return;
     }
+    if (target_type->isDependentType()) {
+        return;
+    }
 
     const auto *record = target_type->getAsCXXRecordDecl();
     if (record == nullptr) {
@@ -787,7 +1103,7 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     } else {
         info.has_virtual_destructor = false;
     }
-    info.has_accessible_default_ctor = has_accessible_default_ctor(*definition_record);
+    info.has_accessible_default_ctor = has_accessible_default_ctor(*definition_record, ctx);
 
     const std::string definition_file   = resolve_definition_file(sm, def_loc);
     const auto        definition_module = named_module_name_from_file(definition_file);
@@ -832,7 +1148,9 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
             return;
         if (!captured_ctors.insert(ctor->getCanonicalDecl()).second)
             return;
-        if (ctor->isDefaultConstructor())
+        if (ctor->getNumParams() == 0)
+            return;
+        if (ctor->isCopyConstructor() || ctor->isMoveConstructor())
             return;
         if (ctor->isDeleted())
             return;
@@ -882,12 +1200,26 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         if (!captured_method_decls.insert(method->getCanonicalDecl()).second) {
             return;
         }
-        if (method->isCopyAssignmentOperator() || method->isMoveAssignmentOperator()) {
-            return;
-        }
         if (method->isDeleted())
             return;
         if (!is_supported_access(method->getAccess())) {
+            return;
+        }
+        if (method->isVirtual() && method->hasAttr<FinalAttr>()) {
+            if (method->isPureVirtual()) {
+                had_error_ = true;
+                const std::string message =
+                    fmt::format("gentest::mock cannot mock final pure virtual methods: {}", method->getQualifiedNameAsString());
+                report(*result.SourceManager, use_loc, message);
+            }
+            return;
+        }
+        if (const std::string reason = unsupported_native_mock_method_reason(*method); !reason.empty()) {
+            had_error_ = true;
+            report(*result.SourceManager, use_loc, reason);
+            return;
+        }
+        if (method->isCopyAssignmentOperator() || method->isMoveAssignmentOperator()) {
             return;
         }
         MockMethodInfo method_info;
@@ -920,6 +1252,9 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
     for (const auto *method : definition_record->methods()) {
         capture_method(method);
     }
+    if (had_error_) {
+        return;
+    }
 
     // Also capture function template declarations (non-virtual in practice).
     for (const auto *decl : definition_record->decls()) {
@@ -929,6 +1264,9 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
             }
         }
     }
+    if (had_error_) {
+        return;
+    }
     if (definition_record->isPolymorphic()) {
         CXXFinalOverriderMap final_overriders;
         definition_record->getFinalOverriders(final_overriders);
@@ -937,13 +1275,16 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
             for (const auto &subobject_entry : overriding_methods) {
                 for (const auto &overrider : subobject_entry.second) {
                     const auto *method = overrider.Method;
-                    if (method == nullptr || !method->isPureVirtual()) {
+                    if (method == nullptr || !method->isVirtual()) {
                         continue;
                     }
                     capture_method(method);
                 }
             }
         }
+    }
+    if (had_error_) {
+        return;
     }
 
     // Stable order for deterministic output.

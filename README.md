@@ -35,7 +35,7 @@ During the build, a codegen tool can scan your sources and generates registratio
 This avoids macro-heavy registration and instead keeps test declarations closer to ordinary C++ by using standard attribute syntax. Unlike the code generation used in many test frameworks, gentest’s generator is not just a hidden registration step. It acts as a more general layer over attribute-annotated code, which makes it easier to add features without inventing a separate macro-style API for each one.
 
 Features currently include:
-- Arbitrary mocking with no extra declarations
+- Generated mocks through explicit mock targets
 - Easy syntax for multi-dimensional parameterized and templated cases (including test matrices)
 - Support for multiple fixtures per test case
 - Sharing fixtures between test cases
@@ -543,9 +543,9 @@ gentest::mock<Clock> raw_clock;
 gentest::expect(raw_clock, &Clock::now).times(1).returns(456);
 ```
 
-Third-party mock backends are currently exposed through CMake. They use the mock definition file only as codegen input. The generated
-public header exposes native framework classes in a mirrored `mocks` namespace; for a global `Clock`, use `mocks::ClockMock`. Link the
-framework target yourself:
+Third-party mock backends are currently exposed through CMake. Gentest is only the generator for these backends: the generated public
+header exposes native framework classes in a mirrored `mocks` namespace, and your test binary links the generated mock target plus the
+third-party framework. For a global `Clock`, use `mocks::ClockMock`.
 
 ```cmake
 find_package(GTest CONFIG REQUIRED)
@@ -556,17 +556,18 @@ gentest_add_mocks(clock_gmock_mocks
   HEADER_NAME public/clock_gmock_mocks.hpp
   BACKEND gmock
   LINK_LIBRARIES GTest::gmock)
+
+add_executable(clock_gtest_tests clock_gtest_tests.cpp)
+target_link_libraries(clock_gtest_tests PRIVATE clock_gmock_mocks GTest::gtest_main)
 ```
 
 ```cpp
-#include "gentest/assertions.h"
-#include "gentest/attributes.h"
 #include "public/clock_gmock_mocks.hpp"
-#include <gmock/gmock.h>
-using namespace gentest::asserts;
 
-[[using gentest: test("mock/gmock_clock")]]
-void gmock_clock() {
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+TEST(ClockMocks, ReadsNow) {
     mocks::ClockMock clock;
     EXPECT_CALL(clock, now()).WillOnce(::testing::Return(123));
     EXPECT_EQ(read_now(&clock), 123);
@@ -582,30 +583,31 @@ gentest_add_mocks(clock_trompeloeil_mocks
   HEADER_NAME public/clock_trompeloeil_mocks.hpp
   BACKEND trompeloeil
   LINK_LIBRARIES trompeloeil::trompeloeil)
+
+add_executable(clock_trompeloeil_tests clock_trompeloeil_tests.cpp)
+target_link_libraries(clock_trompeloeil_tests PRIVATE clock_trompeloeil_mocks trompeloeil::trompeloeil)
 ```
 
 ```cpp
-#include "gentest/assertions.h"
-#include "gentest/attributes.h"
 #include "public/clock_trompeloeil_mocks.hpp"
-#include <trompeloeil/mock.hpp>
-using namespace gentest::asserts;
 
-[[using gentest: test("mock/trompeloeil_clock")]]
-void trompeloeil_clock() {
+#include <trompeloeil/mock.hpp>
+
+int main() {
     mocks::ClockMock clock;
     REQUIRE_CALL(clock, now()).RETURN(123);
-    EXPECT_EQ(read_now(&clock), 123);
+    return read_now(&clock) == 123 ? 0 : 1;
 }
 ```
 
 Keep the interface declaration in a separate header from the `gentest::mock<T>` marker alias; the generated third-party public header
 includes the interface header, not the marker header. If the target type is namespaced, the mock class follows that namespace:
-`myapp::Clock` becomes `myapp::mocks::ClockMock`. `BACKEND gmock` and `BACKEND trompeloeil` currently support textual/header mock
-targets only. Use the default `BACKEND gentest` for named-module mocks, nested target types, template-specialized target types, final
-classes, static methods, member function templates, final methods, private pure virtual methods, C-style variadic methods, operators,
-and volatile-qualified methods. The Trompeloeil backend emits the current arity-deducing `MAKE_MOCK`/`MAKE_CONST_MOCK` form, so use
-Trompeloeil v49 or newer.
+`myapp::Clock` becomes `myapp::mocks::ClockMock`. The generated name comes from the target type, not from the marker alias name.
+`BACKEND gmock` and `BACKEND trompeloeil` currently support textual/header mock targets only and require a single-config generator.
+Use the default `BACKEND gentest` for named-module mocks. No backend supports conversion operators, C-style variadic methods,
+volatile-qualified methods, or pure virtual assignment operators. See [docs/mock_generation.md](docs/mock_generation.md) for mock-only
+consumer examples, install/export notes, naming, and limitations. The Trompeloeil backend emits the current arity-deducing
+`MAKE_MOCK`/`MAKE_CONST_MOCK` form, so use Trompeloeil v49 or newer.
 
 Named-module mock usage is the same idea, but the public surface is a generated module:
 

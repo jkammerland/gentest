@@ -230,6 +230,14 @@ gentest_add_cmake_script_test(
         "STORY=${PROJECT_SOURCE_DIR}/docs/stories/034_codegen_owned_artifact_manifest_and_module_registration.md")
 
 gentest_add_cmake_script_test(
+    NAME regression_mock_manifest_schema_matches_serializer_contract
+    NO_EMULATOR
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckMockManifestSchemaContract.cmake"
+    DEFINES
+        "SCHEMA=${PROJECT_SOURCE_DIR}/docs/schemas/gentest.mock_manifest.v1.schema.json")
+
+gentest_add_cmake_script_test(
     NAME regression_check_death_required_substrings_literal_semicolon
     NO_EMULATOR
     PROG ${CMAKE_COMMAND}

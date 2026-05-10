@@ -37,6 +37,7 @@
       "properties": {
         "type": { "type": "string" },
         "name": { "type": "string" },
+        "default_arg": { "type": "string" },
         "pass_style": {
           "enum": ["value", "lvalue_ref", "rvalue_ref", "forwarding_ref"]
         }
@@ -98,6 +99,10 @@
         "is_static": { "type": "boolean" },
         "is_virtual": { "type": "boolean" },
         "is_pure_virtual": { "type": "boolean" },
+        "is_final": { "type": "boolean" },
+        "is_variadic": { "type": "boolean" },
+        "is_overloaded_operator": { "type": "boolean" },
+        "is_conversion_operator": { "type": "boolean" },
         "qualifiers": { "$ref": "#/$defs/qualifiers" }
       }
     },
@@ -135,6 +140,8 @@
           "items": { "type": "string" }
         },
         "definition_module_name": { "type": "string" },
+        "enclosing_record_scope": { "type": "string" },
+        "is_template_specialization": { "type": "boolean" },
         "attachment_namespace_chain": {
           "type": "array",
           "items": { "$ref": "#/$defs/namespace_scope" }

@@ -228,6 +228,7 @@ struct TestCaseInfo {
 struct MockParamInfo {
     std::string type; // canonical spelling used in generated signature
     std::string name; // argument name (auto-assigned when empty)
+    std::string default_arg;
     enum class PassStyle {
         Value,
         LValueRef,

@@ -297,7 +297,7 @@ elseif(TEST_CASE STREQUAL "third_party_final_target_rejected")
 
     add_executable(explicit_validation_third_party_final_target_consumer third_party_final_target_consumer.cpp)
     target_link_libraries(explicit_validation_third_party_final_target_consumer PRIVATE explicit_validation_third_party_final_target)
-elseif(TEST_CASE STREQUAL "third_party_final_method_rejected")
+elseif(TEST_CASE STREQUAL "third_party_final_method_surface")
     add_library(explicit_validation_fake_gmock INTERFACE)
     target_include_directories(explicit_validation_fake_gmock INTERFACE
         "${CMAKE_CURRENT_SOURCE_DIR}/fake_gmock")
@@ -359,6 +359,205 @@ elseif(TEST_CASE STREQUAL "third_party_inherited_private_pure_rejected")
     add_executable(explicit_validation_third_party_inherited_private_pure_consumer third_party_inherited_private_pure_consumer.cpp)
     target_link_libraries(explicit_validation_third_party_inherited_private_pure_consumer PRIVATE
         explicit_validation_third_party_inherited_private_pure)
+elseif(TEST_CASE STREQUAL "third_party_method_default_args_surface")
+    add_library(explicit_validation_fake_gmock INTERFACE)
+    target_include_directories(explicit_validation_fake_gmock INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/fake_gmock")
+
+    gentest_add_mocks(explicit_validation_third_party_method_default_args
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party_method_default_args_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/fixture_validation.hpp
+        BACKEND gmock
+        LINK_LIBRARIES explicit_validation_fake_gmock)
+
+    add_executable(explicit_validation_third_party_method_default_args_consumer third_party_method_default_args_consumer.cpp)
+    target_link_libraries(explicit_validation_third_party_method_default_args_consumer PRIVATE
+        explicit_validation_third_party_method_default_args)
+elseif(TEST_CASE STREQUAL "third_party_ctor_default_args_surface")
+    add_library(explicit_validation_fake_gmock INTERFACE)
+    target_include_directories(explicit_validation_fake_gmock INTERFACE
+        "${CMAKE_CURRENT_SOURCE_DIR}/fake_gmock")
+
+    gentest_add_mocks(explicit_validation_third_party_ctor_default_args
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party_ctor_default_args_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/fixture_validation.hpp
+        BACKEND gmock
+        LINK_LIBRARIES explicit_validation_fake_gmock)
+
+    add_executable(explicit_validation_third_party_ctor_default_args_consumer third_party_ctor_default_args_consumer.cpp)
+    target_link_libraries(explicit_validation_third_party_ctor_default_args_consumer PRIVATE
+        explicit_validation_third_party_ctor_default_args)
+elseif(TEST_CASE STREQUAL "native_default_args_surface")
+    gentest_add_mocks(explicit_validation_native_default_args
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_default_args_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_default_args.hpp)
+
+    add_executable(explicit_validation_native_default_args_consumer native_default_args_consumer.cpp)
+    target_link_libraries(explicit_validation_native_default_args_consumer PRIVATE
+        gentest::gentest_main
+        explicit_validation_native_default_args)
+    gentest_attach_codegen(explicit_validation_native_default_args_consumer
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_default_args")
+elseif(TEST_CASE STREQUAL "native_inherited_concrete_surface")
+    gentest_add_mocks(explicit_validation_native_inherited_concrete
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_inherited_concrete_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_inherited_concrete.hpp)
+
+    add_executable(explicit_validation_native_inherited_concrete_consumer native_inherited_concrete_consumer.cpp)
+    target_link_libraries(explicit_validation_native_inherited_concrete_consumer PRIVATE
+        gentest::gentest_main
+        explicit_validation_native_inherited_concrete)
+    gentest_attach_codegen(explicit_validation_native_inherited_concrete_consumer
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_inherited_concrete")
+elseif(TEST_CASE STREQUAL "native_generic_alias_template_surface")
+    gentest_add_mocks(explicit_validation_native_generic_alias
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_generic_alias_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_generic_alias.hpp)
+
+    add_executable(explicit_validation_native_generic_alias_consumer native_generic_alias_consumer.cpp)
+    target_link_libraries(explicit_validation_native_generic_alias_consumer PRIVATE
+        gentest::gentest_main
+        explicit_validation_native_generic_alias)
+    gentest_attach_codegen(explicit_validation_native_generic_alias_consumer
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_generic_alias")
+elseif(TEST_CASE STREQUAL "native_conversion_operator_rejected")
+    gentest_add_mocks(explicit_validation_native_conversion
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_conversion_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_unsupported.hpp)
+
+    add_executable(explicit_validation_native_unsupported_consumer native_unsupported_consumer.cpp)
+    target_link_libraries(explicit_validation_native_unsupported_consumer PRIVATE explicit_validation_native_conversion)
+elseif(TEST_CASE STREQUAL "native_variadic_method_rejected")
+    gentest_add_mocks(explicit_validation_native_variadic
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_variadic_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_unsupported.hpp)
+
+    add_executable(explicit_validation_native_unsupported_consumer native_unsupported_consumer.cpp)
+    target_link_libraries(explicit_validation_native_unsupported_consumer PRIVATE explicit_validation_native_variadic)
+elseif(TEST_CASE STREQUAL "native_volatile_method_rejected")
+    gentest_add_mocks(explicit_validation_native_volatile
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_volatile_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_unsupported.hpp)
+
+    add_executable(explicit_validation_native_unsupported_consumer native_unsupported_consumer.cpp)
+    target_link_libraries(explicit_validation_native_unsupported_consumer PRIVATE explicit_validation_native_volatile)
+elseif(TEST_CASE STREQUAL "native_pure_assignment_rejected")
+    gentest_add_mocks(explicit_validation_native_assignment
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_pure_assignment_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_unsupported.hpp)
+
+    add_executable(explicit_validation_native_unsupported_consumer native_unsupported_consumer.cpp)
+    target_link_libraries(explicit_validation_native_unsupported_consumer PRIVATE explicit_validation_native_assignment)
+elseif(TEST_CASE STREQUAL "native_deleted_default_ctor_rejected")
+    gentest_add_mocks(explicit_validation_native_deleted_default
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_deleted_default_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_unsupported.hpp)
+
+    add_executable(explicit_validation_native_unsupported_consumer native_unsupported_consumer.cpp)
+    target_link_libraries(explicit_validation_native_unsupported_consumer PRIVATE explicit_validation_native_deleted_default)
+elseif(TEST_CASE STREQUAL "native_ignored_unsupported_surface")
+    gentest_add_mocks(explicit_validation_native_ignored_unsupported
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_ignored_unsupported_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_ignored_unsupported.hpp)
+
+    add_executable(explicit_validation_native_ignored_unsupported_consumer native_ignored_unsupported_consumer.cpp)
+    target_link_libraries(explicit_validation_native_ignored_unsupported_consumer PRIVATE
+        gentest::gentest_main
+        explicit_validation_native_ignored_unsupported)
+    gentest_attach_codegen(explicit_validation_native_ignored_unsupported_consumer
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_ignored_unsupported")
+elseif(TEST_CASE STREQUAL "native_inherited_final_surface")
+    gentest_add_mocks(explicit_validation_native_inherited_final
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_inherited_final_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_inherited_final.hpp)
+
+    add_executable(explicit_validation_native_inherited_final_consumer native_inherited_final_consumer.cpp)
+    target_link_libraries(explicit_validation_native_inherited_final_consumer PRIVATE
+        gentest::gentest_main
+        explicit_validation_native_inherited_final)
+    gentest_attach_codegen(explicit_validation_native_inherited_final_consumer
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_inherited_final")
+elseif(TEST_CASE STREQUAL "native_final_pure_method_rejected")
+    gentest_add_mocks(explicit_validation_native_final_pure
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_final_pure_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_unsupported.hpp)
+
+    add_executable(explicit_validation_native_unsupported_consumer native_unsupported_consumer.cpp)
+    target_link_libraries(explicit_validation_native_unsupported_consumer PRIVATE explicit_validation_native_final_pure)
+elseif(TEST_CASE STREQUAL "native_const_record_ctor_rejected")
+    gentest_add_mocks(explicit_validation_native_const_record_ctor
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_const_record_ctor_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_const_record_ctor.hpp)
+
+    add_executable(explicit_validation_native_const_record_ctor_consumer native_const_record_ctor_consumer.cpp)
+    target_link_libraries(explicit_validation_native_const_record_ctor_consumer PRIVATE explicit_validation_native_const_record_ctor)
+elseif(TEST_CASE STREQUAL "native_default_arg_namespace_surface")
+    gentest_add_mocks(explicit_validation_native_default_arg_namespace
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_default_arg_namespace_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_default_arg_namespace.hpp)
+
+    add_executable(explicit_validation_native_default_arg_namespace_consumer native_default_arg_namespace_consumer.cpp)
+    target_link_libraries(explicit_validation_native_default_arg_namespace_consumer PRIVATE
+        gentest::gentest_main
+        explicit_validation_native_default_arg_namespace)
+    gentest_attach_codegen(explicit_validation_native_default_arg_namespace_consumer
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_default_arg_namespace")
+elseif(TEST_CASE STREQUAL "native_default_arg_type_surface")
+    gentest_add_mocks(explicit_validation_native_default_arg_type
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_default_arg_type_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_default_arg_type.hpp)
+
+    add_executable(explicit_validation_native_default_arg_type_consumer native_default_arg_type_consumer.cpp)
+    target_link_libraries(explicit_validation_native_default_arg_type_consumer PRIVATE
+        gentest::gentest_main
+        explicit_validation_native_default_arg_type)
+    gentest_attach_codegen(explicit_validation_native_default_arg_type_consumer
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_default_arg_type")
+elseif(TEST_CASE STREQUAL "native_ambiguous_zero_arg_ctor_surface")
+    gentest_add_mocks(explicit_validation_native_ambiguous_zero_arg_ctor
+        DEFS
+            ${CMAKE_CURRENT_SOURCE_DIR}/native_ambiguous_zero_arg_ctor_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
+        HEADER_NAME public/native_ambiguous_zero_arg_ctor.hpp)
+
+    add_executable(explicit_validation_native_ambiguous_zero_arg_ctor_consumer native_ambiguous_zero_arg_ctor_consumer.cpp)
+    target_link_libraries(explicit_validation_native_ambiguous_zero_arg_ctor_consumer PRIVATE
+        gentest::gentest_main
+        explicit_validation_native_ambiguous_zero_arg_ctor)
+    gentest_attach_codegen(explicit_validation_native_ambiguous_zero_arg_ctor_consumer
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_ambiguous_zero_arg_ctor")
 elseif(TEST_CASE STREQUAL "missing_named_module")
     gentest_add_mocks(explicit_validation_missing_named_module
         DEFS

@@ -30,10 +30,28 @@ namespace fixture {\n\
 inline constexpr int kRegexMetacharSupportSentinel = 23;\n\
 } // namespace fixture\n")
 
+set(_fake_gmock_include_dir "${CMAKE_CURRENT_BINARY_DIR}/fake_gmock/include")
+file(MAKE_DIRECTORY "${_fake_gmock_include_dir}/gmock")
+file(WRITE "${_fake_gmock_include_dir}/gmock/gmock.h"
+"#pragma once\n\
+\n\
+#define GENTEST_FAKE_GMOCK_UNPAREN(...) (__VA_ARGS__)\n\
+#define MOCK_METHOD(Return, Name, Args, Specs) Return Name GENTEST_FAKE_GMOCK_UNPAREN Args { return Return{}; }\n")
+
 add_library(fixture_support INTERFACE)
 target_include_directories(fixture_support INTERFACE
     "$<BUILD_INTERFACE:${_fixture_support_include_dir}>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/fixture_support>")
+
+add_library(third_party_fixture_support INTERFACE)
+target_include_directories(third_party_fixture_support INTERFACE
+    "$<BUILD_INTERFACE:${_fixture_support_include_dir}>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/fixture_support>")
+
+add_library(fixture_fake_gmock INTERFACE)
+target_include_directories(fixture_fake_gmock INTERFACE
+    "$<BUILD_INTERFACE:${_fake_gmock_include_dir}>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/fake_gmock>")
 
 gentest_add_mocks(explicit_exported_mocks
     DEFS
@@ -49,6 +67,14 @@ gentest_add_mocks(explicit_module_exported_mocks
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_module"
     LINK_LIBRARIES fixture_support
     MODULE_NAME fixture.explicit_module_mocks)
+
+gentest_add_mocks(explicit_third_party_exported_mocks
+    DEFS
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party_header_mocks.hpp
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_gmock"
+    LINK_LIBRARIES third_party_fixture_support fixture_fake_gmock
+    HEADER_NAME public/fixture_gmock_mocks.hpp
+    BACKEND gmock)
 
 install(TARGETS explicit_exported_mocks
     EXPORT explicit_exported_mocksTargets
@@ -70,6 +96,17 @@ install(TARGETS explicit_module_exported_mocks
     FILE_SET gentest_explicit_mock_aggregate_module DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
+install(TARGETS explicit_third_party_exported_mocks
+    EXPORT explicit_third_party_exported_mocksTargets
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    FILE_SET gentest_explicit_mock_headers DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+install(TARGETS third_party_fixture_support fixture_fake_gmock
+    EXPORT explicit_third_party_exported_mocksTargets
+    INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+install(DIRECTORY "${_fake_gmock_include_dir}/"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fake_gmock")
+
 configure_package_config_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/explicit_exported_mocksConfig.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/explicit_exported_mocksConfig.cmake"
@@ -84,3 +121,18 @@ install(FILES
 install(EXPORT explicit_exported_mocksTargets
     NAMESPACE fixture::
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/explicit_exported_mocks")
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/explicit_third_party_exported_mocksConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/explicit_third_party_exported_mocksConfig.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/explicit_third_party_exported_mocks"
+    NO_SET_AND_CHECK_MACRO
+    NO_CHECK_REQUIRED_COMPONENTS_MACRO)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/explicit_third_party_exported_mocksConfig.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/explicit_third_party_exported_mocks")
+
+install(EXPORT explicit_third_party_exported_mocksTargets
+    NAMESPACE fixture::
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/explicit_third_party_exported_mocks")

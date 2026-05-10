@@ -223,6 +223,22 @@ function(_gentest_expect_build_success build_dir target_name)
   endif()
 endfunction()
 
+function(_gentest_expect_run_success build_dir executable_name)
+  execute_process(
+    COMMAND "${build_dir}/${executable_name}${CMAKE_EXECUTABLE_SUFFIX}"
+    RESULT_VARIABLE _run_rc
+    OUTPUT_VARIABLE _run_out
+    ERROR_VARIABLE _run_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+
+  if(NOT _run_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Expected run success for '${executable_name}', but it failed.\n"
+      "--- stdout ---\n${_run_out}\n--- stderr ---\n${_run_err}")
+  endif()
+endfunction()
+
 function(_gentest_expect_file_contains file expected_substring)
   if(NOT EXISTS "${file}")
     message(FATAL_ERROR "Expected file does not exist: ${file}")
@@ -335,9 +351,9 @@ _gentest_expect_build_failure("third_party_nested_target_rejected"
 _gentest_expect_build_failure("third_party_template_target_rejected"
   "gmock mock backend does not support template-specialized target types")
 _gentest_expect_build_failure("third_party_variadic_method_rejected"
-  "gmock mock backend does not support C-style variadic methods")
+  "gentest::mock does not support C-style variadic methods")
 _gentest_expect_build_failure("third_party_conversion_operator_rejected"
-  "gmock mock backend does not support operator mocks")
+  "gentest::mock does not support conversion operators")
 _gentest_expect_build_failure("third_party_overloaded_operator_rejected"
   "gmock mock backend does not support operator mocks")
 _gentest_expect_build_failure("third_party_static_method_rejected"
@@ -345,11 +361,12 @@ _gentest_expect_build_failure("third_party_static_method_rejected"
 _gentest_expect_build_failure("third_party_member_template_rejected"
   "gmock mock backend does not support member function templates")
 _gentest_expect_build_failure("third_party_volatile_method_rejected"
-  "gmock mock backend does not support volatile-qualified methods")
+  "gentest::mock does not support volatile-qualified methods")
 _gentest_expect_build_failure("third_party_final_target_rejected"
   "gentest::mock cannot mock a final class")
-_gentest_expect_build_failure("third_party_final_method_rejected"
-  "gmock mock backend does not support final methods")
+_gentest_expect_configure_success("third_party_final_method_surface" _third_party_final_method_build_dir)
+_gentest_expect_build_success("${_third_party_final_method_build_dir}" "explicit_validation_third_party_final_method_consumer")
+_gentest_expect_run_success("${_third_party_final_method_build_dir}" "explicit_validation_third_party_final_method_consumer")
 _gentest_expect_build_failure("third_party_private_pure_rejected"
   "gentest::mock cannot mock private pure virtual methods")
 _gentest_expect_configure_success("third_party_inherited_public_pure_surface" _third_party_inherited_public_pure_build_dir)
@@ -357,6 +374,50 @@ _gentest_expect_build_success("${_third_party_inherited_public_pure_build_dir}"
   "explicit_validation_third_party_inherited_public_pure_consumer")
 _gentest_expect_build_failure("third_party_inherited_private_pure_rejected"
   "gentest::mock cannot mock private pure virtual methods")
+_gentest_expect_configure_success("third_party_method_default_args_surface" _third_party_method_default_args_build_dir)
+_gentest_expect_build_success("${_third_party_method_default_args_build_dir}" "explicit_validation_third_party_method_default_args_consumer")
+_gentest_expect_run_success("${_third_party_method_default_args_build_dir}" "explicit_validation_third_party_method_default_args_consumer")
+_gentest_expect_configure_success("third_party_ctor_default_args_surface" _third_party_ctor_default_args_build_dir)
+_gentest_expect_build_success("${_third_party_ctor_default_args_build_dir}" "explicit_validation_third_party_ctor_default_args_consumer")
+_gentest_expect_run_success("${_third_party_ctor_default_args_build_dir}" "explicit_validation_third_party_ctor_default_args_consumer")
+_gentest_expect_configure_success("native_default_args_surface" _native_default_args_build_dir)
+_gentest_expect_build_success("${_native_default_args_build_dir}" "explicit_validation_native_default_args_consumer")
+_gentest_expect_run_success("${_native_default_args_build_dir}" "explicit_validation_native_default_args_consumer")
+_gentest_expect_configure_success("native_inherited_concrete_surface" _native_inherited_concrete_build_dir)
+_gentest_expect_build_success("${_native_inherited_concrete_build_dir}" "explicit_validation_native_inherited_concrete_consumer")
+_gentest_expect_run_success("${_native_inherited_concrete_build_dir}" "explicit_validation_native_inherited_concrete_consumer")
+_gentest_expect_configure_success("native_generic_alias_template_surface" _native_generic_alias_template_build_dir)
+_gentest_expect_build_success("${_native_generic_alias_template_build_dir}" "explicit_validation_native_generic_alias_consumer")
+_gentest_expect_run_success("${_native_generic_alias_template_build_dir}" "explicit_validation_native_generic_alias_consumer")
+_gentest_expect_build_failure("native_conversion_operator_rejected"
+  "gentest::mock does not support conversion operators")
+_gentest_expect_build_failure("native_variadic_method_rejected"
+  "gentest::mock does not support C-style variadic methods")
+_gentest_expect_build_failure("native_volatile_method_rejected"
+  "gentest::mock does not support volatile-qualified methods")
+_gentest_expect_build_failure("native_pure_assignment_rejected"
+  "gentest::mock does not support pure virtual assignment operators")
+_gentest_expect_build_failure("native_deleted_default_ctor_rejected"
+  "target has no accessible constructors")
+_gentest_expect_configure_success("native_ignored_unsupported_surface" _native_ignored_unsupported_build_dir)
+_gentest_expect_build_success("${_native_ignored_unsupported_build_dir}" "explicit_validation_native_ignored_unsupported_consumer")
+_gentest_expect_run_success("${_native_ignored_unsupported_build_dir}" "explicit_validation_native_ignored_unsupported_consumer")
+_gentest_expect_configure_success("native_inherited_final_surface" _native_inherited_final_build_dir)
+_gentest_expect_build_success("${_native_inherited_final_build_dir}" "explicit_validation_native_inherited_final_consumer")
+_gentest_expect_run_success("${_native_inherited_final_build_dir}" "explicit_validation_native_inherited_final_consumer")
+_gentest_expect_build_failure("native_final_pure_method_rejected"
+  "gentest::mock cannot mock final pure virtual methods")
+_gentest_expect_build_failure("native_const_record_ctor_rejected"
+  "target has no accessible constructors")
+_gentest_expect_configure_success("native_default_arg_namespace_surface" _native_default_arg_namespace_build_dir)
+_gentest_expect_build_success("${_native_default_arg_namespace_build_dir}" "explicit_validation_native_default_arg_namespace_consumer")
+_gentest_expect_run_success("${_native_default_arg_namespace_build_dir}" "explicit_validation_native_default_arg_namespace_consumer")
+_gentest_expect_configure_success("native_default_arg_type_surface" _native_default_arg_type_build_dir)
+_gentest_expect_build_success("${_native_default_arg_type_build_dir}" "explicit_validation_native_default_arg_type_consumer")
+_gentest_expect_run_success("${_native_default_arg_type_build_dir}" "explicit_validation_native_default_arg_type_consumer")
+_gentest_expect_configure_success("native_ambiguous_zero_arg_ctor_surface" _native_ambiguous_zero_arg_ctor_build_dir)
+_gentest_expect_build_success("${_native_ambiguous_zero_arg_ctor_build_dir}" "explicit_validation_native_ambiguous_zero_arg_ctor_consumer")
+_gentest_expect_run_success("${_native_ambiguous_zero_arg_ctor_build_dir}" "explicit_validation_native_ambiguous_zero_arg_ctor_consumer")
 _gentest_expect_build_failure("missing_named_module" "is not a named module source")
 _gentest_expect_build_failure("provider_only_module" "has no named-module mocks to re-export")
 _gentest_expect_build_failure("implementation_unit_module" "module implementation unit")

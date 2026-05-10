@@ -226,13 +226,14 @@ int main() {
     }
 
     {
-        MockClassInfo cls                     = service_mock();
-        cls.enclosing_record_scope            = "fixture::Outer";
-        cls.is_template_specialization        = true;
-        cls.methods[0].is_final               = true;
-        cls.methods[0].is_variadic            = true;
-        cls.methods[0].is_overloaded_operator = true;
-        cls.methods[0].is_conversion_operator = true;
+        MockClassInfo cls                        = service_mock();
+        cls.enclosing_record_scope               = "fixture::Outer";
+        cls.is_template_specialization           = true;
+        cls.methods[0].is_final                  = true;
+        cls.methods[0].is_variadic               = true;
+        cls.methods[0].is_overloaded_operator    = true;
+        cls.methods[0].is_conversion_operator    = true;
+        cls.methods[0].parameters[0].default_arg = "fixture::kDefault";
 
         const auto  manifest_path = std::filesystem::temp_directory_path() / "gentest_mock_manifest_roundtrip.json";
         std::string write_error;
@@ -259,6 +260,7 @@ int main() {
                 t.expect(method.is_variadic, "mock manifest preserves variadic methods");
                 t.expect(method.is_overloaded_operator, "mock manifest preserves overloaded operators");
                 t.expect(method.is_conversion_operator, "mock manifest preserves conversion operators");
+                t.expect(method.parameters[0].default_arg == "fixture::kDefault", "mock manifest preserves parameter default args");
             }
         }
     }

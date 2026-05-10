@@ -194,11 +194,40 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-if(NOT EXISTS "${_build_dir}/consumer-stamps/gtest.txt")
+set(_has_gtest_consumer OFF)
+set(_has_doctest_consumer OFF)
+set(_has_trompeloeil_consumer OFF)
+if(EXISTS "${_build_dir}/consumer-stamps/gtest.txt")
+  set(_has_gtest_consumer ON)
+endif()
+if(EXISTS "${_build_dir}/consumer-stamps/doctest.txt")
+  set(_has_doctest_consumer ON)
+endif()
+if(EXISTS "${_build_dir}/consumer-stamps/trompeloeil.txt")
+  set(_has_trompeloeil_consumer ON)
+endif()
+
+if(NOT _has_gtest_consumer)
   if(REQUIRE_REAL_CONSUMERS)
     message(FATAL_ERROR "third-party mock consumer regression: required GTest/GMock consumer was not configured")
   endif()
-  gentest_skip_test("third-party mock consumer regression: GTest/GMock package not found")
+  message(STATUS "GTest/GMock generated-mock consumer skipped: GTest/GMock package not found")
+endif()
+if(NOT _has_doctest_consumer)
+  if(REQUIRE_REAL_CONSUMERS)
+    message(FATAL_ERROR "third-party mock consumer regression: required doctest consumer was not configured")
+  endif()
+  message(STATUS "doctest generated-mock consumer skipped: doctest package not found")
+endif()
+if(NOT _has_trompeloeil_consumer)
+  if(REQUIRE_TROMPELOEIL_CONSUMER)
+    message(FATAL_ERROR "third-party mock consumer regression: required Trompeloeil consumer was not configured")
+  endif()
+  message(STATUS "Trompeloeil generated-mock consumer skipped: trompeloeil package not found")
+endif()
+
+if(NOT _has_gtest_consumer AND NOT _has_doctest_consumer AND NOT _has_trompeloeil_consumer)
+  gentest_skip_test("third-party mock consumer regression: no supported third-party mock packages were found")
   return()
 endif()
 
@@ -208,16 +237,18 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-file(READ "${_build_dir}/consumer-stamps/gtest.txt" _gtest_exe)
-string(STRIP "${_gtest_exe}" _gtest_exe)
-set(_gtest_exe "${_build_dir}/${_gtest_exe}${CMAKE_EXECUTABLE_SUFFIX}")
-message(STATUS "Run ${_gtest_exe}...")
-gentest_check_run_or_fail(
-  COMMAND "${_gtest_exe}"
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
+if(_has_gtest_consumer)
+  file(READ "${_build_dir}/consumer-stamps/gtest.txt" _gtest_exe)
+  string(STRIP "${_gtest_exe}" _gtest_exe)
+  set(_gtest_exe "${_build_dir}/${_gtest_exe}${CMAKE_EXECUTABLE_SUFFIX}")
+  message(STATUS "Run ${_gtest_exe}...")
+  gentest_check_run_or_fail(
+    COMMAND "${_gtest_exe}"
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE)
+endif()
 
-if(EXISTS "${_build_dir}/consumer-stamps/doctest.txt")
+if(_has_doctest_consumer)
   file(READ "${_build_dir}/consumer-stamps/doctest.txt" _doctest_exe)
   string(STRIP "${_doctest_exe}" _doctest_exe)
   set(_doctest_exe "${_build_dir}/${_doctest_exe}${CMAKE_EXECUTABLE_SUFFIX}")
@@ -240,14 +271,9 @@ if(EXISTS "${_build_dir}/consumer-stamps/doctest.txt")
       "Expected doctest generated-mock consumer to propagate GMock failures.\n"
       "--- stdout ---\n${_doctest_probe_out}\n--- stderr ---\n${_doctest_probe_err}")
   endif()
-else()
-  if(REQUIRE_REAL_CONSUMERS)
-    message(FATAL_ERROR "third-party mock consumer regression: required doctest consumer was not configured")
-  endif()
-  message(STATUS "doctest generated-mock consumer skipped: doctest package not found")
 endif()
 
-if(EXISTS "${_build_dir}/consumer-stamps/trompeloeil.txt")
+if(_has_trompeloeil_consumer)
   file(READ "${_build_dir}/consumer-stamps/trompeloeil.txt" _trompeloeil_exe)
   string(STRIP "${_trompeloeil_exe}" _trompeloeil_exe)
   set(_trompeloeil_exe "${_build_dir}/${_trompeloeil_exe}${CMAKE_EXECUTABLE_SUFFIX}")
@@ -256,9 +282,4 @@ if(EXISTS "${_build_dir}/consumer-stamps/trompeloeil.txt")
     COMMAND "${_trompeloeil_exe}"
     WORKING_DIRECTORY "${_work_dir}"
     STRIP_TRAILING_WHITESPACE)
-else()
-  if(REQUIRE_TROMPELOEIL_CONSUMER)
-    message(FATAL_ERROR "third-party mock consumer regression: required Trompeloeil consumer was not configured")
-  endif()
-  message(STATUS "Trompeloeil generated-mock consumer skipped: trompeloeil package not found")
 endif()
