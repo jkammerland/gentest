@@ -42,19 +42,6 @@ function(_gentest_expand_explicit_mock_search_root raw_root out_roots)
     set(${out_roots} "${_gentest_roots}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_normalize_mock_backend raw_backend out_backend)
-    if("${raw_backend}" STREQUAL "")
-        set(_gentest_backend "gentest")
-    else()
-        string(TOLOWER "${raw_backend}" _gentest_backend)
-    endif()
-
-    if(NOT _gentest_backend MATCHES "^(gentest|gmock|trompeloeil)$")
-        message(FATAL_ERROR "gentest_add_mocks(): BACKEND must be gentest, gmock, or trompeloeil; got '${raw_backend}'")
-    endif()
-    set(${out_backend} "${_gentest_backend}" PARENT_SCOPE)
-endfunction()
-
 function(_gentest_stage_explicit_mock_file stage_dir source_file staged_rel out_staged_files)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source_file}")
     string(MD5 _gentest_stage_key "${stage_dir}|${source_file}|${staged_rel}")
@@ -330,7 +317,8 @@ function(gentest_add_mocks target)
     endif()
 
     string(MAKE_C_IDENTIFIER "${target}" _gentest_target_id)
-    _gentest_normalize_mock_backend("${GENTEST_BACKEND}" _gentest_mock_backend)
+    _gentest_normalize_mock_backend("${GENTEST_BACKEND}" "gentest_add_mocks(): BACKEND" _gentest_mock_backend)
+    _gentest_is_third_party_mock_backend("${_gentest_mock_backend}" _gentest_uses_third_party_mock_backend)
 
     if(GENTEST_OUTPUT_DIR)
         set(_gentest_output_dir "${GENTEST_OUTPUT_DIR}")
@@ -374,7 +362,7 @@ function(gentest_add_mocks target)
             "gentest_add_mocks(${target}): mixed textual and module DEFS are not supported. "
             "Split them into separate explicit mock targets.")
     endif()
-    if(_gentest_module_defs AND NOT _gentest_mock_backend STREQUAL "gentest")
+    if(_gentest_module_defs AND _gentest_uses_third_party_mock_backend)
         message(FATAL_ERROR
             "gentest_add_mocks(${target}): BACKEND ${_gentest_mock_backend} supports textual DEFS only. "
             "Named-module mock DEFS currently require BACKEND gentest.")
@@ -461,7 +449,7 @@ function(gentest_add_mocks target)
     set_property(GLOBAL PROPERTY "GENTEST_EXPLICIT_MOCK_SEARCH_ROOTS_${_gentest_search_roots_key}" "${_gentest_explicit_mock_search_roots}")
 
     _gentest_materialize_explicit_mock_defs("${_gentest_output_dir}" _gentest_materialized_textual_defs _gentest_textual_public_files ${_gentest_textual_defs})
-    if(NOT _gentest_mock_backend STREQUAL "gentest")
+    if(_gentest_uses_third_party_mock_backend)
         _gentest_rewrite_third_party_mock_api_includes(${_gentest_textual_public_files})
     endif()
     set(_gentest_textual_dependency_public_files "")
@@ -479,10 +467,10 @@ function(gentest_add_mocks target)
 
     set(_gentest_codegen_sources "${_gentest_materialized_module_defs}")
 
-    if(_gentest_mock_backend STREQUAL "gentest")
-        set(_gentest_mock_api_header "gentest/mock.h")
-    else()
+    if(_gentest_uses_third_party_mock_backend)
         set(_gentest_mock_api_header "gentest/mock_fwd.h")
+    else()
+        set(_gentest_mock_api_header "gentest/mock.h")
     endif()
 
     if(_gentest_textual_defs)
@@ -492,7 +480,7 @@ function(gentest_add_mocks target)
 \n\
 #pragma once\n\
 \n")
-        if(_gentest_mock_backend STREQUAL "gentest")
+        if(NOT _gentest_uses_third_party_mock_backend)
             string(APPEND _gentest_public_header_content "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n")
             string(APPEND _gentest_public_header_content "#include \"${_gentest_mock_api_header}\"\n")
             foreach(_gentest_def IN LISTS _gentest_materialized_textual_defs)
@@ -516,7 +504,7 @@ function(gentest_add_mocks target)
 // Do not edit manually.\n\
 \n\
 #include \"${_gentest_mock_api_header}\"\n")
-        if(NOT _gentest_mock_backend STREQUAL "gentest")
+        if(_gentest_uses_third_party_mock_backend)
             string(APPEND _gentest_textual_wrapper_content "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n")
             string(APPEND _gentest_textual_wrapper_content "#define GENTEST_NO_EXPECT_CALL_MACROS 1\n")
         endif()
@@ -524,7 +512,7 @@ function(gentest_add_mocks target)
             file(RELATIVE_PATH _gentest_textual_def_include "${_gentest_output_dir}" "${_gentest_def}")
             string(APPEND _gentest_textual_wrapper_content "#include \"${_gentest_textual_def_include}\"\n")
         endforeach()
-        if(NOT _gentest_mock_backend STREQUAL "gentest")
+        if(_gentest_uses_third_party_mock_backend)
             string(APPEND _gentest_textual_wrapper_content "#undef GENTEST_NO_EXPECT_CALL_MACROS\n")
             string(APPEND _gentest_textual_wrapper_content "#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n")
         endif()
@@ -533,7 +521,7 @@ function(gentest_add_mocks target)
     endif()
 
     set(_gentest_anchor_cpp "${_gentest_output_dir}/${_gentest_target_id}_anchor.cpp")
-    if(_gentest_mock_backend STREQUAL "gentest")
+    if(NOT _gentest_uses_third_party_mock_backend)
         set(_gentest_anchor_content
 "// This file is auto-generated by gentest (explicit mocks anchor).\n\
 // Do not edit manually.\n\
@@ -556,7 +544,7 @@ namespace {\n\
     set_target_properties(${target} PROPERTIES GENTEST_EXPLICIT_MOCK_TARGET TRUE)
     _gentest_append_target_export_property(${target} GENTEST_EXPLICIT_MOCK_TARGET)
     target_compile_features(${target} PUBLIC cxx_std_20)
-    if(_gentest_mock_backend STREQUAL "gentest")
+    if(NOT _gentest_uses_third_party_mock_backend)
         target_link_libraries(${target} PUBLIC gentest::gentest)
     else()
         get_target_property(_gentest_public_include_dirs gentest::gentest INTERFACE_INCLUDE_DIRECTORIES)
@@ -623,7 +611,7 @@ namespace {\n\
                         "${_gentest_mock_impl}"
                         "${_gentest_mock_registry_header_domain}"
                         "${_gentest_mock_impl_header_domain}")
-        if(_gentest_mock_backend STREQUAL "gentest")
+        if(NOT _gentest_uses_third_party_mock_backend)
             target_sources(${target}
                 PUBLIC
                     FILE_SET gentest_explicit_mock_headers

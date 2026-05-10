@@ -752,15 +752,10 @@ function(gentest_attach_codegen target)
                 "Pass a concrete path.")
         endif()
     endif()
-    if("${GENTEST_MOCK_BACKEND}" STREQUAL "")
-        set(_gentest_mock_backend "gentest")
-    else()
-        string(TOLOWER "${GENTEST_MOCK_BACKEND}" _gentest_mock_backend)
-    endif()
-    if(NOT _gentest_mock_backend MATCHES "^(gentest|gmock|trompeloeil)$")
-        message(FATAL_ERROR
-            "gentest_attach_codegen(${target}): MOCK_BACKEND must be gentest, gmock, or trompeloeil; got '${GENTEST_MOCK_BACKEND}'")
-    endif()
+    _gentest_normalize_mock_backend(
+        "${GENTEST_MOCK_BACKEND}"
+        "gentest_attach_codegen(${target}): MOCK_BACKEND"
+        _gentest_mock_backend)
 
     # Scan sources: explicit SOURCES preferred, otherwise pull from target and
     # any named module file sets attached to it. CMake only uses buildsystem

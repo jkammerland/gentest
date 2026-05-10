@@ -309,7 +309,7 @@ _gentest_expect_configure_failure("reserved_header_name" "reserved generated out
 _gentest_expect_configure_failure("generator_expression_defs" "generator-expression")
 _gentest_expect_configure_failure("generator_expression_output_dir" "OUTPUT_DIR")
 _gentest_expect_configure_failure("unsupported_include_root_genex" "BUILD_INTERFACE/INSTALL_INTERFACE")
-_gentest_expect_configure_failure("invalid_mock_backend" "BACKEND must be")
+_gentest_expect_configure_failure("invalid_mock_backend" "BACKEND must be one of")
 _gentest_expect_configure_failure("third_party_module_backend" "supports textual DEFS only")
 _gentest_expect_configure_success("third_party_textual_backend_surface" _third_party_textual_backend_build_dir)
 set(_third_party_public_header "${_third_party_textual_backend_build_dir}/generated/public/fixture_validation.hpp")

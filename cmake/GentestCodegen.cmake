@@ -36,6 +36,7 @@ endif()
 
 include("${_GENTEST_CODEGEN_CMAKE_DIR}/gentest/CodegenToolchain.cmake")
 include("${_GENTEST_CODEGEN_CMAKE_DIR}/gentest/ScanDeps.cmake")
+include("${_GENTEST_CODEGEN_CMAKE_DIR}/gentest/MockBackends.cmake")
 include("${_GENTEST_CODEGEN_CMAKE_DIR}/gentest/TuMode.cmake")
 include("${_GENTEST_CODEGEN_CMAKE_DIR}/gentest/ExplicitMocks.cmake")
 include("${_GENTEST_CODEGEN_CMAKE_DIR}/gentest/DiscoverTests.cmake")

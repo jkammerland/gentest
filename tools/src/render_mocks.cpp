@@ -1006,43 +1006,74 @@ std::string generate_implementation_header(const std::vector<const MockClassInfo
     return impl.str();
 }
 
-std::string third_party_backend_name(MockBackend backend) {
-    switch (backend) {
-    case MockBackend::Gentest: return "gentest";
-    case MockBackend::GMock: return "gmock";
-    case MockBackend::Trompeloeil: return "trompeloeil";
-    }
-    return "gentest";
-}
-
 bool has_volatile_qualifier(const MockMethodInfo &method) {
     return method.qualifiers.cv == MockMethodCvQualifier::Volatile || method.qualifiers.cv == MockMethodCvQualifier::ConstVolatile;
 }
 
-std::string third_party_unsupported_reason(MockBackend backend, const MockClassInfo &cls, const MockMethodInfo &method) {
+using ThirdPartyMethodRenderer    = std::string (*)(std::size_t method_index, const MockClassInfo &cls, const MockMethodInfo &method);
+using ThirdPartyUnsupportedReason = std::string (*)(const MockClassInfo &cls, const MockMethodInfo &method);
+
+struct ThirdPartyBackendSpec {
+    std::string_view            name;
+    std::string_view            include;
+    ThirdPartyMethodRenderer    render_method            = nullptr;
+    ThirdPartyUnsupportedReason extra_unsupported_reason = nullptr;
+};
+
+std::string gmock_method(std::size_t method_index, const MockClassInfo &cls, const MockMethodInfo &method);
+std::string trompeloeil_method(std::size_t method_index, const MockClassInfo &cls, const MockMethodInfo &method);
+
+const ThirdPartyBackendSpec *third_party_backend(MockBackend backend) {
+    static constexpr ThirdPartyBackendSpec kGMock{
+        .name          = "gmock",
+        .include       = "gmock/gmock.h",
+        .render_method = gmock_method,
+    };
+    static constexpr ThirdPartyBackendSpec kTrompeloeil{
+        .name          = "trompeloeil",
+        .include       = "trompeloeil/mock.hpp",
+        .render_method = trompeloeil_method,
+    };
+
+    switch (backend) {
+    case MockBackend::GMock: return &kGMock;
+    case MockBackend::Trompeloeil: return &kTrompeloeil;
+    case MockBackend::Gentest: break;
+    }
+    return nullptr;
+}
+
+std::string third_party_backend_name(MockBackend backend) {
+    if (const auto *spec = third_party_backend(backend)) {
+        return std::string(spec->name);
+    }
+    return "gentest";
+}
+
+std::string third_party_unsupported_reason(const ThirdPartyBackendSpec &backend, const MockClassInfo &cls, const MockMethodInfo &method) {
     if (!method.template_prefix.empty()) {
-        return fmt::format("{} mock backend does not support member function templates: {}::{}", third_party_backend_name(backend),
-                           cls.qualified_name, method.method_name);
+        return fmt::format("{} mock backend does not support member function templates: {}::{}", backend.name, cls.qualified_name,
+                           method.method_name);
     }
     if (method.is_static) {
-        return fmt::format("{} mock backend does not support static methods: {}::{}", third_party_backend_name(backend), cls.qualified_name,
-                           method.method_name);
+        return fmt::format("{} mock backend does not support static methods: {}::{}", backend.name, cls.qualified_name, method.method_name);
     }
     if (method.is_final) {
-        return fmt::format("{} mock backend does not support final methods: {}::{}", third_party_backend_name(backend), cls.qualified_name,
-                           method.method_name);
+        return fmt::format("{} mock backend does not support final methods: {}::{}", backend.name, cls.qualified_name, method.method_name);
     }
     if (has_volatile_qualifier(method)) {
-        return fmt::format("{} mock backend does not support volatile-qualified methods: {}::{}", third_party_backend_name(backend),
-                           cls.qualified_name, method.method_name);
+        return fmt::format("{} mock backend does not support volatile-qualified methods: {}::{}", backend.name, cls.qualified_name,
+                           method.method_name);
     }
     if (method.is_variadic) {
-        return fmt::format("{} mock backend does not support C-style variadic methods: {}::{}", third_party_backend_name(backend),
-                           cls.qualified_name, method.method_name);
+        return fmt::format("{} mock backend does not support C-style variadic methods: {}::{}", backend.name, cls.qualified_name,
+                           method.method_name);
     }
     if (method.is_overloaded_operator || method.is_conversion_operator || method.method_name.starts_with("operator ")) {
-        return fmt::format("{} mock backend does not support operator mocks: {}::{}", third_party_backend_name(backend), cls.qualified_name,
-                           method.method_name);
+        return fmt::format("{} mock backend does not support operator mocks: {}::{}", backend.name, cls.qualified_name, method.method_name);
+    }
+    if (backend.extra_unsupported_reason != nullptr) {
+        return backend.extra_unsupported_reason(cls, method);
     }
     return {};
 }
@@ -1079,19 +1110,18 @@ bool same_lexical_path(std::string_view lhs, std::string_view rhs) {
     return normalize_absolute_lexical(std::filesystem::path{lhs}) == normalize_absolute_lexical(std::filesystem::path{rhs});
 }
 
-std::string third_party_unsupported_class_reason(MockBackend backend, const MockClassInfo &cls) {
+std::string third_party_unsupported_class_reason(const ThirdPartyBackendSpec &backend, const MockClassInfo &cls) {
     if (third_party_is_template_specialized_target(cls)) {
-        return fmt::format("{} mock backend does not support template-specialized target types: {}", third_party_backend_name(backend),
-                           cls.qualified_name);
+        return fmt::format("{} mock backend does not support template-specialized target types: {}", backend.name, cls.qualified_name);
     }
     if (!cls.enclosing_record_scope.empty()) {
-        return fmt::format("{} mock backend does not support nested target types: {} is nested in {}", third_party_backend_name(backend),
-                           cls.qualified_name, cls.enclosing_record_scope);
+        return fmt::format("{} mock backend does not support nested target types: {} is nested in {}", backend.name, cls.qualified_name,
+                           cls.enclosing_record_scope);
     }
     for (const auto &use_file : cls.use_files) {
         if (same_lexical_path(cls.definition_file, use_file)) {
             return fmt::format("{} third-party mock targets must be declared in a header separate from the mocked target definition: {}",
-                               third_party_backend_name(backend), cls.qualified_name);
+                               backend.name, cls.qualified_name);
         }
     }
     return {};
@@ -1112,7 +1142,7 @@ std::string third_party_overload_signature_key(const MockMethodInfo &method, std
     return key;
 }
 
-std::string third_party_default_overload_collision_reason(MockBackend backend, const MockClassInfo &cls) {
+std::string third_party_default_overload_collision_reason(const ThirdPartyBackendSpec &backend, const MockClassInfo &cls) {
     std::set<std::string> declared_signatures;
     for (const auto &method : cls.methods) {
         declared_signatures.insert(third_party_overload_signature_key(method, method.parameters.size()));
@@ -1129,7 +1159,7 @@ std::string third_party_default_overload_collision_reason(MockBackend backend, c
             if (declared_signatures.contains(signature) || !generated_signatures.insert(signature).second) {
                 return fmt::format("{} mock backend cannot preserve default arguments: default-argument overload for {} would collide with "
                                    "another generated overload",
-                                   third_party_backend_name(backend), method.qualified_name);
+                                   backend.name, method.qualified_name);
             }
         }
     }
@@ -1378,7 +1408,7 @@ std::string trompeloeil_method(std::size_t method_index, const MockClassInfo &cl
                        trompeloeil_signature(method_index, method), trompeloeil_specs(cls, method));
 }
 
-std::string build_third_party_class_declaration(MockBackend backend, const MockClassInfo &cls) {
+std::string build_third_party_class_declaration(const ThirdPartyBackendSpec &backend, const MockClassInfo &cls) {
     RenderBuffer      header;
     const std::string fq_type   = fmt::format("::{}", cls.qualified_name);
     const std::string mock_ns   = third_party_mock_namespace(cls);
@@ -1400,11 +1430,7 @@ std::string build_third_party_class_declaration(MockBackend backend, const MockC
     for (std::size_t i = 0; i < cls.methods.size(); ++i) {
         const auto &method = cls.methods[i];
         header.append_raw(third_party_type_aliases(i, method));
-        if (backend == MockBackend::GMock) {
-            header.append_raw(gmock_method(i, cls, method));
-        } else {
-            header.append_raw(trompeloeil_method(i, cls, method));
-        }
+        header.append_raw(backend.render_method(i, cls, method));
         header.append_raw(third_party_default_overloads(i, mock_name, method));
         header.append_raw("\n");
     }
@@ -1418,7 +1444,7 @@ std::string generate_empty_third_party_registry_header(std::string_view label) {
     return fmt::format("#pragma once\n\n// gentest_codegen: no {} mocks discovered.\n", label);
 }
 
-std::string generate_third_party_registry_header(MockBackend backend, const CollectorOptions &options,
+std::string generate_third_party_registry_header(const ThirdPartyBackendSpec &backend, const CollectorOptions &options,
                                                  const std::vector<const MockClassInfo *> &classes,
                                                  const std::vector<SourcePathAlias>       &source_aliases) {
     RenderBuffer header;
@@ -1426,11 +1452,7 @@ std::string generate_third_party_registry_header(MockBackend backend, const Coll
     header.append_raw("// This file is auto-generated by gentest_codegen.\n");
     header.append_raw("// Do not edit manually.\n\n");
     header.append_raw("#pragma once\n\n");
-    if (backend == MockBackend::GMock) {
-        header.append_raw("#include <gmock/gmock.h>\n\n");
-    } else {
-        header.append_raw("#include <trompeloeil/mock.hpp>\n\n");
-    }
+    header.append("#include <{}>\n\n", backend.include);
     const DefinitionIncludeBlock include_block = build_definition_include_block(options, classes, source_aliases);
     if (!include_block.error.empty()) {
         return {};
@@ -1450,25 +1472,31 @@ std::string generate_third_party_implementation_header(std::string_view backend_
 MockRenderResult render_third_party_mocks(const CollectorOptions &options, const std::vector<MockClassInfo> &mocks) {
     MockRenderResult result;
     const auto       domains = gentest::codegen::build_mock_output_domains(options);
+    const auto      *backend = third_party_backend(options.mock_backend);
+    if (backend == nullptr) {
+        result.error =
+            fmt::format("mock renderer: backend '{}' is not a third-party mock backend", third_party_backend_name(options.mock_backend));
+        return result;
+    }
 
     std::vector<const MockClassInfo *> classes;
     classes.reserve(mocks.size());
     for (const auto &cls : mocks) {
         if (cls.definition_kind != MockClassInfo::DefinitionKind::HeaderLike) {
             result.error = fmt::format("{} mock backend only supports header/textual mock targets; '{}' is owned by named module '{}'",
-                                       third_party_backend_name(options.mock_backend), cls.qualified_name, cls.definition_module_name);
+                                       backend->name, cls.qualified_name, cls.definition_module_name);
             return result;
         }
-        if (const std::string unsupported = third_party_unsupported_class_reason(options.mock_backend, cls); !unsupported.empty()) {
+        if (const std::string unsupported = third_party_unsupported_class_reason(*backend, cls); !unsupported.empty()) {
             result.error = unsupported;
             return result;
         }
-        if (const std::string collision = third_party_default_overload_collision_reason(options.mock_backend, cls); !collision.empty()) {
+        if (const std::string collision = third_party_default_overload_collision_reason(*backend, cls); !collision.empty()) {
             result.error = collision;
             return result;
         }
         for (const auto &method : cls.methods) {
-            if (const std::string unsupported = third_party_unsupported_reason(options.mock_backend, cls, method); !unsupported.empty()) {
+            if (const std::string unsupported = third_party_unsupported_reason(*backend, cls, method); !unsupported.empty()) {
                 result.error = unsupported;
                 return result;
             }
@@ -1489,7 +1517,7 @@ MockRenderResult render_third_party_mocks(const CollectorOptions &options, const
     out.additional_files.push_back(MockGeneratedFile{
         .path    = header_domain->registry_path,
         .content = classes.empty() ? generate_empty_third_party_registry_header("header")
-                                   : generate_third_party_registry_header(options.mock_backend, options, classes, source_aliases),
+                                   : generate_third_party_registry_header(*backend, options, classes, source_aliases),
     });
     if (out.additional_files.back().content.empty() && !classes.empty()) {
         const DefinitionIncludeBlock include_block = build_definition_include_block(options, classes, source_aliases);
@@ -1498,7 +1526,7 @@ MockRenderResult render_third_party_mocks(const CollectorOptions &options, const
     }
     out.additional_files.push_back(MockGeneratedFile{
         .path    = header_domain->impl_path,
-        .content = generate_third_party_implementation_header(third_party_backend_name(options.mock_backend)),
+        .content = generate_third_party_implementation_header(backend->name),
     });
     for (const auto &domain : domains) {
         if (domain.kind != MockOutputDomainPlan::Kind::NamedModule) {
@@ -1510,7 +1538,7 @@ MockRenderResult render_third_party_mocks(const CollectorOptions &options, const
         });
         out.additional_files.push_back(MockGeneratedFile{
             .path    = domain.impl_path,
-            .content = generate_third_party_implementation_header(third_party_backend_name(options.mock_backend)),
+            .content = generate_third_party_implementation_header(backend->name),
         });
     }
     out.registry_header     = generate_dispatcher_header(header_domain->registry_path);
@@ -1619,7 +1647,7 @@ MockRenderResult render_gentest_mocks(const CollectorOptions &options, const std
 }
 
 MockRenderResult render_mocks(const CollectorOptions &options, const std::vector<MockClassInfo> &mocks) {
-    if (options.mock_backend == MockBackend::GMock || options.mock_backend == MockBackend::Trompeloeil) {
+    if (third_party_backend(options.mock_backend) != nullptr) {
         return render_third_party_mocks(options, mocks);
     }
     return render_gentest_mocks(options, mocks);

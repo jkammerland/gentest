@@ -128,6 +128,11 @@ int main() {
             t.excludes(registry->content, "struct mock<", "gmock backend does not specialize gentest::mock");
             t.excludes(registry->content, "detail::MockAccess", "gmock backend does not emit native gentest access plumbing");
         }
+        const MockGeneratedFile *impl = find_file(result, "public_mocks_inline.hpp");
+        t.expect(impl != nullptr, "gmock backend emits an implementation header");
+        if (impl != nullptr) {
+            t.contains(impl->content, "gmock mock implementations", "gmock backend names its implementation header");
+        }
     }
 
     {
@@ -148,6 +153,11 @@ int main() {
             t.excludes(registry->content, "namespace gentest", "trompeloeil backend does not emit into gentest namespace");
             t.excludes(registry->content, "struct mock<", "trompeloeil backend does not specialize gentest::mock");
             t.excludes(registry->content, "__gentest_state_", "trompeloeil backend does not emit native gentest state");
+        }
+        const MockGeneratedFile *impl = find_file(result, "public_mocks_inline.hpp");
+        t.expect(impl != nullptr, "trompeloeil backend emits an implementation header");
+        if (impl != nullptr) {
+            t.contains(impl->content, "trompeloeil mock implementations", "trompeloeil backend names its implementation header");
         }
     }
 
