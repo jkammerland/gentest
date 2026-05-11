@@ -2,6 +2,8 @@
 #include "gentest/runner.h"
 
 #include <span>
+#include <sstream>
+#include <string>
 #include <thread>
 
 namespace {
@@ -10,65 +12,77 @@ using namespace gentest::asserts;
 
 void unused_sync(void *) {}
 
-void on_failure_policy_pass_silent(void *) {
-    gentest::set_log_policy(gentest::LogPolicy::OnFailure);
-    gentest::log("failure-only hidden on pass");
+struct RestoreDefaultLogSink {
+    ~RestoreDefaultLogSink() { gentest::restore_default_log_sink(); }
+};
+
+bool contains(std::string_view haystack, std::string_view needle) { return haystack.find(needle) != std::string_view::npos; }
+
+void default_sink_visible_on_pass(void *) { gentest::log("default sink visible on pass"); }
+
+void default_sink_visible_on_sync_fail(void *) {
+    gentest::log("default sink visible on sync fail");
+    EXPECT_TRUE(false, "sync failure does not replay streamed logs");
 }
 
-void on_failure_policy_fail_visible(void *) {
-    gentest::set_log_policy(gentest::LogPolicy::OnFailure);
-    gentest::log("failure-only visible on sync fail");
-    EXPECT_TRUE(false, "sync failure shows failure-only logs");
+void custom_sink_receives_logs(void *) {
+    RestoreDefaultLogSink restore;
+    gentest::remove_all_log_sinks();
+    std::ostringstream out;
+    auto               handle = gentest::add_log_sink(gentest::make_ostream_log_sink(out));
+    gentest::log("custom sink first");
+    EXPECT_TRUE(contains(out.str(), "custom sink first"));
+    EXPECT_TRUE(handle.remove());
+    gentest::log("custom sink after removal");
+    EXPECT_FALSE(contains(out.str(), "custom sink after removal"));
 }
 
-void always_policy_visible_on_pass(void *) {
-    gentest::set_log_policy(gentest::LogPolicy::Always);
-    gentest::log("always-policy visible on pass");
+void move_assigned_handle_removes_previous_sink(void *) {
+    RestoreDefaultLogSink restore;
+    gentest::remove_all_log_sinks();
+    std::ostringstream first;
+    std::ostringstream second;
+    auto               handle = gentest::add_log_sink(gentest::make_ostream_log_sink(first));
+    handle                    = gentest::add_log_sink(gentest::make_ostream_log_sink(second));
+
+    gentest::log("move-assigned sink receives log");
+
+    EXPECT_FALSE(contains(first.str(), "move-assigned sink receives log"));
+    EXPECT_TRUE(contains(second.str(), "move-assigned sink receives log"));
 }
 
-void default_always_policy_visible_on_pass(void *) {
-    gentest::set_default_log_policy(gentest::LogPolicy::Always);
-    gentest::log("default-always visible on pass");
-    gentest::set_default_log_policy(gentest::LogPolicy::Never);
+void remove_all_sinks_silences_default(void *) {
+    RestoreDefaultLogSink restore;
+    gentest::remove_all_log_sinks();
+    gentest::log("removed sinks hidden on pass");
 }
 
-void explicit_never_overrides_default_always(void *) {
-    gentest::set_default_log_policy(gentest::LogPolicy::Always);
-    gentest::set_log_policy(gentest::LogPolicy::Never);
-    gentest::log("default-always overridden by explicit never");
-    gentest::set_default_log_policy(gentest::LogPolicy::Never);
-}
-
-gentest::async_test<void> async_on_failure_policy_fail_visible_impl() {
-    gentest::set_log_policy(gentest::LogPolicy::OnFailure);
-    gentest::log("failure-only visible on async fail");
+gentest::async_test<void> async_default_sink_visible_on_fail_impl() {
+    gentest::log("default sink visible on async fail");
     co_await gentest::async::yield();
-    EXPECT_TRUE(false, "async failure shows failure-only logs");
+    EXPECT_TRUE(false, "async failure does not replay streamed logs");
 }
 
-auto async_on_failure_policy_fail_visible(void *) -> gentest::detail::AsyncTaskPtr {
-    return gentest::detail::make_async_task(async_on_failure_policy_fail_visible_impl());
+auto async_default_sink_visible_on_fail(void *) -> gentest::detail::AsyncTaskPtr {
+    return gentest::detail::make_async_task(async_default_sink_visible_on_fail_impl());
 }
 
-gentest::async_test<void> async_always_policy_visible_on_pass_impl() {
-    gentest::set_log_policy(gentest::LogPolicy::Always);
-    gentest::log("always-policy visible on async pass");
+gentest::async_test<void> async_default_sink_visible_on_pass_impl() {
+    gentest::log("default sink visible on async pass");
     co_await gentest::async::yield();
 }
 
-auto async_always_policy_visible_on_pass(void *) -> gentest::detail::AsyncTaskPtr {
-    return gentest::detail::make_async_task(async_always_policy_visible_on_pass_impl());
+auto async_default_sink_visible_on_pass(void *) -> gentest::detail::AsyncTaskPtr {
+    return gentest::detail::make_async_task(async_default_sink_visible_on_pass_impl());
 }
 
-void adopted_thread_on_failure_log_visible(void *) {
-    gentest::set_log_policy(gentest::LogPolicy::OnFailure);
+void adopted_thread_log_visible(void *) {
     auto        context = gentest::get_current_context();
     std::thread worker([context] {
         auto guard = gentest::set_current_context(context);
-        gentest::log("failure-only visible from adopted thread");
+        gentest::log("default sink visible from adopted thread");
     });
     worker.join();
-    EXPECT_TRUE(false, "parent failure shows adopted child log");
 }
 
 void unadopted_thread_log_crashes(void *) {
@@ -78,8 +92,8 @@ void unadopted_thread_log_crashes(void *) {
 
 gentest::Case kCases[] = {
     {
-        .name             = "regressions/logging_output/on_failure_policy_pass_silent",
-        .fn               = &on_failure_policy_pass_silent,
+        .name             = "regressions/logging_output/default_sink_visible_on_pass",
+        .fn               = &default_sink_visible_on_pass,
         .file             = __FILE__,
         .line             = __LINE__,
         .is_benchmark     = false,
@@ -94,8 +108,8 @@ gentest::Case kCases[] = {
         .suite            = "regressions",
     },
     {
-        .name             = "regressions/logging_output/on_failure_policy_fail_visible",
-        .fn               = &on_failure_policy_fail_visible,
+        .name             = "regressions/logging_output/default_sink_visible_on_sync_fail",
+        .fn               = &default_sink_visible_on_sync_fail,
         .file             = __FILE__,
         .line             = __LINE__,
         .is_benchmark     = false,
@@ -110,8 +124,8 @@ gentest::Case kCases[] = {
         .suite            = "regressions",
     },
     {
-        .name             = "regressions/logging_output/always_policy_visible_on_pass",
-        .fn               = &always_policy_visible_on_pass,
+        .name             = "regressions/logging_output/custom_sink_receives_logs",
+        .fn               = &custom_sink_receives_logs,
         .file             = __FILE__,
         .line             = __LINE__,
         .is_benchmark     = false,
@@ -126,8 +140,8 @@ gentest::Case kCases[] = {
         .suite            = "regressions",
     },
     {
-        .name             = "regressions/logging_output/default_always_policy_visible_on_pass",
-        .fn               = &default_always_policy_visible_on_pass,
+        .name             = "regressions/logging_output/remove_all_sinks_silences_default",
+        .fn               = &remove_all_sinks_silences_default,
         .file             = __FILE__,
         .line             = __LINE__,
         .is_benchmark     = false,
@@ -142,8 +156,8 @@ gentest::Case kCases[] = {
         .suite            = "regressions",
     },
     {
-        .name             = "regressions/logging_output/explicit_never_overrides_default_always",
-        .fn               = &explicit_never_overrides_default_always,
+        .name             = "regressions/logging_output/move_assigned_handle_removes_previous_sink",
+        .fn               = &move_assigned_handle_removes_previous_sink,
         .file             = __FILE__,
         .line             = __LINE__,
         .is_benchmark     = false,
@@ -158,7 +172,7 @@ gentest::Case kCases[] = {
         .suite            = "regressions",
     },
     {
-        .name             = "regressions/logging_output/async_on_failure_policy_fail_visible",
+        .name             = "regressions/logging_output/async_default_sink_visible_on_fail",
         .fn               = &unused_sync,
         .file             = __FILE__,
         .line             = __LINE__,
@@ -172,11 +186,11 @@ gentest::Case kCases[] = {
         .fixture          = {},
         .fixture_lifetime = gentest::FixtureLifetime::None,
         .suite            = "regressions",
-        .async_fn         = &async_on_failure_policy_fail_visible,
+        .async_fn         = &async_default_sink_visible_on_fail,
         .is_async         = true,
     },
     {
-        .name             = "regressions/logging_output/async_always_policy_visible_on_pass",
+        .name             = "regressions/logging_output/async_default_sink_visible_on_pass",
         .fn               = &unused_sync,
         .file             = __FILE__,
         .line             = __LINE__,
@@ -190,12 +204,12 @@ gentest::Case kCases[] = {
         .fixture          = {},
         .fixture_lifetime = gentest::FixtureLifetime::None,
         .suite            = "regressions",
-        .async_fn         = &async_always_policy_visible_on_pass,
+        .async_fn         = &async_default_sink_visible_on_pass,
         .is_async         = true,
     },
     {
-        .name             = "regressions/logging_output/adopted_thread_on_failure_log_visible",
-        .fn               = &adopted_thread_on_failure_log_visible,
+        .name             = "regressions/logging_output/adopted_thread_log_visible",
+        .fn               = &adopted_thread_log_visible,
         .file             = __FILE__,
         .line             = __LINE__,
         .is_benchmark     = false,

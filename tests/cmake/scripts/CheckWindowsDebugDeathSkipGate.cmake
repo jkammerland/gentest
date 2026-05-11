@@ -84,8 +84,6 @@ foreach(_test IN ITEMS
     concurrency_adopted_fail_death
     concurrency_adopted_skip_death
     concurrency_adopted_xfail_death
-    concurrency_adopted_log_policy_death
-    concurrency_adopted_default_log_policy_death
     concurrency_adopted_mock_expectation_death
     concurrency_adopted_mock_mode_death
     concurrency_adopted_mock_handle_mutation_death

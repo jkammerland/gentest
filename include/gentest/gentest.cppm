@@ -19,6 +19,7 @@ export module gentest;
 
 export namespace gentest {
 
+using ::gentest::add_log_sink;
 using ::gentest::assert_eq;
 using ::gentest::assert_false;
 using ::gentest::assert_true;
@@ -47,10 +48,12 @@ using ::gentest::FixtureTearDown;
 using ::gentest::get_current_context;
 using ::gentest::get_current_token;
 using ::gentest::log;
-using ::gentest::LogPolicy;
-using ::gentest::operator|;
-using ::gentest::operator|=;
+using ::gentest::LogSink;
+using ::gentest::LogSinkHandle;
+using ::gentest::make_ostream_log_sink;
 using ::gentest::registered_cases;
+using ::gentest::remove_all_log_sinks;
+using ::gentest::remove_log_sink;
 using ::gentest::require;
 using ::gentest::require_eq;
 using ::gentest::require_false;
@@ -59,14 +62,12 @@ using ::gentest::require_gt;
 using ::gentest::require_le;
 using ::gentest::require_lt;
 using ::gentest::require_ne;
+using ::gentest::restore_default_log_sink;
 using ::gentest::run_all_tests;
 using ::gentest::set_current_context;
 using ::gentest::set_current_token;
-using ::gentest::set_default_log_policy;
-using ::gentest::set_log_policy;
 using ::gentest::skip;
 using ::gentest::skip_if;
-using ::gentest::to_underlying;
 using ::gentest::xfail;
 using ::gentest::xfail_if;
 

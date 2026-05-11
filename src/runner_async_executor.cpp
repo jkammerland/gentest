@@ -117,6 +117,21 @@ void log_async_details(AsyncStatusRenderer &renderer, const RunResult &result) {
     }
 }
 
+void write_async_log_through_renderer(void *state, std::string_view message) noexcept {
+    auto *renderer = static_cast<AsyncStatusRenderer *>(state);
+    if (renderer) {
+        renderer->log(message);
+    }
+}
+
+void observe_async_case_logs(void *state, std::size_t case_id, const std::vector<std::string> &recent_logs,
+                             std::size_t log_count) noexcept {
+    auto *renderer = static_cast<AsyncStatusRenderer *>(state);
+    if (renderer) {
+        renderer->update_logs(case_id, recent_logs, log_count);
+    }
+}
+
 } // namespace
 
 bool plans_include_async_cases(std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans) {
@@ -147,9 +162,12 @@ bool plans_include_async_cases(std::span<const gentest::Case> cases, std::span<c
 bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans,
                            bool fail_fast, TestCounters &counters) {
     std::vector<AsyncCaseRun> async_runs;
-    AsyncStatusRenderer       renderer(std::cout, AsyncStatusRenderer::terminal_mode(state.color_output), state.color_output);
-    TestRunContext            final_state = state;
-    final_state.suppress_case_output      = renderer.enabled();
+    AsyncStatusRenderer       renderer(std::cout, AsyncStatusRenderer::terminal_mode(state.color_output), state.color_output, {},
+                                       state.async_log_tail);
+    gentest::detail::DefaultStdoutLogWriterScope log_writer_scope(renderer.enabled() ? &renderer : nullptr,
+                                                                  &write_async_log_through_renderer);
+    TestRunContext final_state       = state;
+    final_state.suppress_case_output = renderer.enabled();
 
     const auto record_invoke_result = [&](std::size_t run_index, const InvokeResult &inv) {
         auto     &run = async_runs[run_index];
@@ -443,6 +461,13 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             schedule_async_case(async_runs, test, i, ctx);
             renderer.add_case(run_index, test.name);
             auto &run = async_runs[run_index];
+            if (renderer.enabled() && run.ctxinfo) {
+                std::lock_guard<std::mutex> lk(run.ctxinfo->mtx);
+                run.ctxinfo->recent_log_limit   = state.async_log_tail;
+                run.ctxinfo->log_observer_state = &renderer;
+                run.ctxinfo->log_observer       = &observe_async_case_logs;
+                run.ctxinfo->log_observer_id    = run_index;
+            }
             if (run.task && run.exception == InvokeException::None) {
                 scheduler.add_top_level(run_index, *run.task);
             } else {

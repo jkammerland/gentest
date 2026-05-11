@@ -186,8 +186,6 @@ set(_gentest_adopted_context_death_checks
     "concurrency_adopted_fail_death|concurrency/adopted_fail_death|fail called"
     "concurrency_adopted_skip_death|concurrency/adopted_skip_death|skip called"
     "concurrency_adopted_xfail_death|concurrency/adopted_xfail_death|xfail called"
-    "concurrency_adopted_log_policy_death|concurrency/adopted_log_policy_death|set_log_policy called"
-    "concurrency_adopted_default_log_policy_death|concurrency/adopted_default_log_policy_death|set_default_log_policy called"
     "concurrency_adopted_mock_expectation_death|concurrency/adopted_mock_expectation_death|mock expectation configured"
     "concurrency_adopted_mock_mode_death|concurrency/adopted_mock_mode_death|mock mode configured"
     "concurrency_adopted_mock_handle_mutation_death|concurrency/adopted_mock_handle_mutation_death|mock expectation configured"
@@ -868,8 +866,6 @@ if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
         concurrency_adopted_fail_death
         concurrency_adopted_skip_death
         concurrency_adopted_xfail_death
-        concurrency_adopted_log_policy_death
-        concurrency_adopted_default_log_policy_death
         concurrency_adopted_mock_expectation_death
         concurrency_adopted_mock_mode_death
         concurrency_adopted_mock_handle_mutation_death
@@ -886,8 +882,8 @@ if(GENTEST_SKIP_TSAN_DEATH_TESTS)
         concurrency_fail_single_death concurrency_skip_no_context_death concurrency_xfail_no_context_death concurrency_multi_noadopt_death
         concurrency_adopted_expect_pass_death concurrency_adopted_fmt_expect_pass_death concurrency_adopted_expect_fail_death
         concurrency_adopted_assert_death concurrency_adopted_expect_throw_death concurrency_adopted_fail_death concurrency_adopted_skip_death
-        concurrency_adopted_xfail_death concurrency_adopted_log_policy_death concurrency_adopted_default_log_policy_death
-        concurrency_adopted_mock_expectation_death concurrency_adopted_mock_mode_death concurrency_adopted_mock_handle_mutation_death
+        concurrency_adopted_xfail_death concurrency_adopted_mock_expectation_death concurrency_adopted_mock_mode_death
+        concurrency_adopted_mock_handle_mutation_death
         concurrency_adopted_mock_closed_context_death concurrency_adopted_mock_unexpected_call_death concurrency_stop_callback_expect_death
         async_fail_fast_cancel_released_context_aborts
         PROPERTIES DISABLED TRUE)
@@ -945,11 +941,11 @@ _gentest_add_proof_test(
     gentest_proof_api_context_event_chronology
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/event_chronology_red.cpp)
 _gentest_add_proof_test(
-    gentest_proof_api_context_always_log
-    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/always_log_red.cpp)
+    gentest_proof_api_context_log_capture
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/log_capture_red.cpp)
 _gentest_add_proof_test(
-    gentest_proof_api_context_log_policy
-    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/log_policy_red.cpp)
+    gentest_proof_api_context_log_sinks
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/log_sinks_red.cpp)
 _gentest_add_proof_test(
     gentest_proof_api_context_expect_throw_std_exception
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/expect_throw_std_exception_red.cpp)
@@ -2296,7 +2292,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             "EXPECTED_REASON=shared fixture unavailable for 'regressions::shared_setup_skip::NullSuiteFx': fixture allocation returned null")
     set_tests_properties(allure_blocked_shared_fixture_label PROPERTIES LABELS "allure")
 
-    # Allure logs attachment: failing test with LogPolicy::OnFailure should create a logs attachment
+    # Allure logs attachment: failing tests should create a logs attachment.
     gentest_add_run_and_check_file(
         NAME allure_logs_attachment
         PROG $<TARGET_FILE:gentest_failing_tests>

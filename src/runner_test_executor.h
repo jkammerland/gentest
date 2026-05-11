@@ -24,6 +24,7 @@ struct TestRunContext {
     bool            color_output         = true;
     bool            record_results       = false;
     bool            suppress_case_output = false;
+    std::size_t     async_log_tail       = 5;
     RunAccumulator *acc                  = nullptr;
 };
 

@@ -675,8 +675,6 @@ void fail_fast_self_adopted_sync_should_not_run() {
 
 [[using gentest: test("fail_fast_done_adopted_late/00_done_with_late_worker_log")]]
 gentest::async_test<void> fail_fast_done_adopted_late_done_with_late_worker_log() {
-    gentest::set_log_policy(gentest::LogPolicy::Always);
-
     auto context = gentest::get_current_context();
     auto started = std::make_shared<std::promise<void>>();
     auto ready   = started->get_future();

@@ -6,13 +6,12 @@ namespace gentest::detail {
 
 namespace {
 
-thread_local std::shared_ptr<TestContextInfo>           g_current_test{};
-thread_local TestContextLocalBuffer                     g_current_buffer{};
-thread_local CurrentContextRole                         g_current_context_role = CurrentContextRole::None;
-thread_local BenchPhase                                 g_bench_phase          = BenchPhase::None;
-thread_local std::string                                g_bench_error{};
-thread_local NoExceptionsFatalHookState                 g_noexceptions_fatal_hook{};
-std::atomic<std::underlying_type_t<gentest::LogPolicy>> g_default_log_policy{gentest::to_underlying(gentest::LogPolicy::Never)};
+thread_local std::shared_ptr<TestContextInfo> g_current_test{};
+thread_local TestContextLocalBuffer           g_current_buffer{};
+thread_local CurrentContextRole               g_current_context_role = CurrentContextRole::None;
+thread_local BenchPhase                       g_bench_phase          = BenchPhase::None;
+thread_local std::string                      g_bench_error{};
+thread_local NoExceptionsFatalHookState       g_noexceptions_fatal_hook{};
 
 auto prepare_current_failure_buffer(std::string_view operation) -> TestContextLocalBuffer & {
     require_owner_context(operation);
@@ -62,10 +61,6 @@ GENTEST_RUNTIME_API auto current_test_storage() -> std::shared_ptr<TestContextIn
 GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer & { return g_current_buffer; }
 
 GENTEST_RUNTIME_API auto current_context_role_storage() -> CurrentContextRole & { return g_current_context_role; }
-
-GENTEST_RUNTIME_API auto default_log_policy_storage() -> std::atomic<std::underlying_type_t<gentest::LogPolicy>> & {
-    return g_default_log_policy;
-}
 
 GENTEST_RUNTIME_API auto bench_phase_storage() -> BenchPhase & { return g_bench_phase; }
 

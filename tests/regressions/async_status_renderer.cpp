@@ -207,6 +207,29 @@ int main() {
         return fail("running, yielded, and suspended rows should map to green/green/yellow colors", snapshot);
     }
 
+    std::ostringstream                   tail_out;
+    gentest::runner::AsyncStatusRenderer tail(tail_out, gentest::runner::AsyncStatusRenderer::Mode::Virtual, false, {}, 2);
+    tail.add_case(0, "async/live/log_tail");
+    tail.mark_suspended(0, "waiting", "tail.cpp", 7);
+    std::vector<std::string> tail_logs{"first", "second", "third"};
+    tail.update_logs(0, tail_logs, 3);
+    snapshot = tail.render_snapshot_for_test();
+    if (!contains(snapshot, "3 log(s)") || contains(snapshot, "log: first") || !contains(snapshot, "log: second") ||
+        !contains(snapshot, "log: third")) {
+        return fail("live async rows should show the log count and the configured recent log tail", snapshot);
+    }
+
+    std::ostringstream                   no_tail_out;
+    gentest::runner::AsyncStatusRenderer no_tail(no_tail_out, gentest::runner::AsyncStatusRenderer::Mode::Virtual, false, {}, 0);
+    no_tail.add_case(0, "async/live/no_log_tail");
+    no_tail.mark_running(0);
+    std::vector<std::string> hidden_logs{"hidden", "also hidden"};
+    no_tail.update_logs(0, hidden_logs, 2);
+    snapshot = no_tail.render_snapshot_for_test();
+    if (!contains(snapshot, "2 log(s)") || contains(snapshot, "log:")) {
+        return fail("zero live async log tail should keep the count but hide recent log lines", snapshot);
+    }
+
     renderer.add_case(3, "async/live/" + std::string(120, 'n'));
     renderer.mark_suspended(3, "waiting " + std::string(120, 'd'), "/tmp/" + std::string(120, 'p') + "/case.cpp", 77);
     snapshot = renderer.render_snapshot_for_test();

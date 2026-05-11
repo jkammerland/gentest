@@ -3,6 +3,7 @@
 
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace gentest {
 namespace detail {
@@ -90,41 +91,33 @@ void log(std::string_view message) {
         buffer.owner = ctx.get();
     }
 
-    LogPolicy  policy            = LogPolicy::Never;
-    bool       policy_overridden = false;
-    const auto always_bits       = gentest::to_underlying(LogPolicy::Always);
-    const auto on_failure_bits   = gentest::to_underlying(LogPolicy::OnFailure);
+    std::vector<std::string>  recent_logs;
+    std::size_t               log_count      = 0;
+    void                     *observer_state = nullptr;
+    detail::TestLogObserverFn observer       = nullptr;
+    std::size_t               observer_id    = 0;
+    buffer.logs.emplace_back(message);
     {
         std::lock_guard<std::mutex> lk(ctx->mtx);
-        policy            = ctx->log_policy;
-        policy_overridden = ctx->log_policy_overridden;
+        ++ctx->log_count;
+        log_count = ctx->log_count;
+        if (ctx->recent_log_limit != 0) {
+            ctx->recent_logs.emplace_back(message);
+            while (ctx->recent_logs.size() > ctx->recent_log_limit) {
+                ctx->recent_logs.erase(ctx->recent_logs.begin());
+            }
+        } else {
+            ctx->recent_logs.clear();
+        }
+        recent_logs    = ctx->recent_logs;
+        observer_state = ctx->log_observer_state;
+        observer       = ctx->log_observer;
+        observer_id    = ctx->log_observer_id;
     }
-    if (!policy_overridden) {
-        policy = static_cast<LogPolicy>(detail::default_log_policy_storage().load(std::memory_order_acquire));
+    if (observer) {
+        observer(observer_state, observer_id, recent_logs, log_count);
     }
-
-    buffer.logs.emplace_back(message);
-    const auto policy_bits = gentest::to_underlying(policy);
-    if ((policy_bits & always_bits) == always_bits) {
-        buffer.event_lines.emplace_back(message);
-        buffer.event_kinds.push_back('A');
-    } else if ((policy_bits & on_failure_bits) != 0) {
-        buffer.event_lines.emplace_back(message);
-        buffer.event_kinds.push_back('L');
-    }
-}
-
-void set_log_policy(LogPolicy policy) {
-    detail::require_owner_context("set_log_policy called");
-    auto                        ctx = detail::current_test_storage();
-    std::lock_guard<std::mutex> lk(ctx->mtx);
-    ctx->log_policy            = policy;
-    ctx->log_policy_overridden = true;
-}
-
-void set_default_log_policy(LogPolicy policy) {
-    detail::require_not_adopted_context("set_default_log_policy called");
-    detail::default_log_policy_storage().store(gentest::to_underlying(policy), std::memory_order_release);
+    detail::dispatch_log_to_sinks(message);
 }
 
 [[noreturn]] void skip(std::string_view reason, const std::source_location &loc) {

@@ -43,10 +43,11 @@ struct CliOptions {
     bool color_output       = true;
     bool github_annotations = false;
 
-    bool        fail_fast     = false;
-    bool        shuffle       = false;
-    std::size_t repeat_n      = 1;
-    bool        include_death = false;
+    bool        fail_fast      = false;
+    bool        shuffle        = false;
+    std::size_t repeat_n       = 1;
+    std::size_t async_log_tail = 5;
+    bool        include_death  = false;
 
     bool          seed_provided = false;
     std::uint64_t seed_value    = 0; // exact value from --seed

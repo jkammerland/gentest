@@ -50,11 +50,8 @@ Features currently include:
 ## Requirements
 
 - CMake ≥ 3.31
-- C++20 compiler and standard library with `<stop_token>`
+- C++20 compiler and standard library
 - LLVM/Clang (for `gentest_codegen`)
-
-On macOS, AppleClang support starts at Xcode 26 / AppleClang 17 because
-gentest's public context API uses `std::stop_token`.
 
 >[!IMPORTANT]
 > `gentest_codegen` consumes your build’s `compile_commands.json` (`CMAKE_EXPORT_COMPILE_COMMANDS=ON`).
@@ -298,10 +295,9 @@ void xfail_example() {
 ### Threads/coroutines + logging
 
 Assertions and outcomes must run in the owning test. When you spawn worker threads/coroutines, capture the current context and set it in
-the worker only for `gentest::log()` and cooperative stop checks. Report data back to the owning test, then assert there. Use
-`gentest::set_log_policy(gentest::LogPolicy::Always)` when logs should be emitted even for passing tests, or
-`gentest::set_log_policy(gentest::LogPolicy::OnFailure)` for failure-only log output. Use `gentest::set_default_log_policy(...)` to
-change the default for tests that do not override it explicitly.
+the worker only for `gentest::log()` and cooperative stop checks. Report data back to the owning test, then assert there. Logs are
+captured on the active test and streamed to registered log sinks immediately. The default sink writes to stdout; add or remove sinks with
+`gentest::add_log_sink(...)`, `gentest::remove_log_sink(...)`, `gentest::remove_all_log_sinks()`, and `gentest::restore_default_log_sink()`.
 
 ```cpp
 #include "gentest/attributes.h"
@@ -313,7 +309,6 @@ using namespace gentest::asserts;
 
 [[gentest::test("concurrency/adopt_and_log")]]
 void adopt_and_log() {
-    gentest::set_log_policy(gentest::LogPolicy::Always);
     auto context = gentest::get_current_context();
 
     std::atomic<bool> reached{false};
@@ -376,7 +371,6 @@ template <template <class...> class... Cs>
 void tt_pack() {
     using tuple_t = std::tuple<Cs<int>...>;
     const auto arity = std::tuple_size_v<tuple_t>;
-    gentest::set_log_policy(gentest::LogPolicy::Always);
     gentest::log(std::string("template-template pack arity = ") + std::to_string(arity));
     gentest::expect_eq(arity, sizeof...(Cs), "template-template pack arity");
 }
