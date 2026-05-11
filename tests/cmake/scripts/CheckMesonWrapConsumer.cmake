@@ -294,6 +294,7 @@ endif()
 foreach(_expected IN ITEMS
     "downstream/textual_test"
     "downstream/textual_mock"
+    "downstream/textual_log_sink"
     "downstream/textual_bench"
     "downstream/textual_jitter")
   string(FIND "${_list_out}" "${_expected}" _expected_pos)
@@ -326,6 +327,18 @@ if(NOT _mock_rc EQUAL 0)
     "Running the Meson wrap consumer mock test failed.\n"
     "stdout:\n${_mock_out}\n"
     "stderr:\n${_mock_err}")
+endif()
+
+execute_process(
+  COMMAND "${_consumer_bin}" --run=downstream/textual_log_sink --kind=test
+  RESULT_VARIABLE _log_sink_rc
+  OUTPUT_VARIABLE _log_sink_out
+  ERROR_VARIABLE _log_sink_err)
+if(NOT _log_sink_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Meson wrap consumer log sink test failed.\n"
+    "stdout:\n${_log_sink_out}\n"
+    "stderr:\n${_log_sink_err}")
 endif()
 
 execute_process(

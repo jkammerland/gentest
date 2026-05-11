@@ -311,6 +311,7 @@ endif()
 foreach(_expected IN ITEMS
     "consumer/consumer/module_test"
     "consumer/consumer/module_mock"
+    "consumer/consumer/log_sink"
     "consumer/consumer/module_bench"
     "consumer/consumer/module_jitter")
   string(FIND "${_list_out}" "${_expected}" _expected_pos)
@@ -343,6 +344,18 @@ if(NOT _test_rc EQUAL 0)
     "Running the Xmake textual consumer mock case failed.\n"
     "stdout:\n${_test_out}\n"
     "stderr:\n${_test_err}")
+endif()
+
+execute_process(
+  COMMAND "${_consumer_bin}" --run=consumer/consumer/log_sink --kind=test
+  RESULT_VARIABLE _log_sink_rc
+  OUTPUT_VARIABLE _log_sink_out
+  ERROR_VARIABLE _log_sink_err)
+if(NOT _log_sink_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Xmake textual consumer log sink case failed.\n"
+    "stdout:\n${_log_sink_out}\n"
+    "stderr:\n${_log_sink_err}")
 endif()
 
 execute_process(

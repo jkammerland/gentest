@@ -230,6 +230,19 @@ int main() {
         return fail("zero live async log tail should keep the count but hide recent log lines", snapshot);
     }
 
+    std::ostringstream                   clipped_tail_out;
+    gentest::runner::AsyncStatusRenderer clipped_tail(clipped_tail_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                      {.width = 80, .height = 3}, 5);
+    clipped_tail.add_case(0, "async/live/clipped_log_tail");
+    clipped_tail.mark_suspended(0, "waiting", "tail.cpp", 8);
+    std::vector<std::string> clipped_logs{"first", "second", "third"};
+    clipped_tail.update_logs(0, clipped_logs, 3);
+    snapshot = clipped_tail.render_snapshot_for_test();
+    if (!contains(snapshot, "[ SUSPENDED ]") || !contains(snapshot, "async/live/clipped_log_tail") || !contains(snapshot, "log: third") ||
+        contains(snapshot, "log: first")) {
+        return fail("terminal clipping should keep the owning row visible with the newest tail lines", snapshot);
+    }
+
     renderer.add_case(3, "async/live/" + std::string(120, 'n'));
     renderer.mark_suspended(3, "waiting " + std::string(120, 'd'), "/tmp/" + std::string(120, 'p') + "/case.cpp", 77);
     snapshot = renderer.render_snapshot_for_test();
@@ -384,6 +397,21 @@ int main() {
     }
     if (!contains(terminal_output, "\033[?25hafter\n")) {
         return fail("terminal finish should leave normal output at the local cursor position", terminal_output);
+    }
+
+    std::ostringstream                   control_log_out;
+    gentest::runner::AsyncStatusRenderer control_log(control_log_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                     {.width = 120, .height = 12});
+    control_log.add_case(0, "async/live/control_log");
+    control_log.mark_running(0);
+    control_log.log(std::string("bad\r") + '\x1B' + "[2J\nnext");
+    control_log.finish();
+    const auto control_log_output = control_log_out.str();
+    if (contains(control_log_output, std::string("\x1B") + "[2J\nnext")) {
+        return fail("terminal live logs should not emit user-provided clear-screen control sequences", control_log_output);
+    }
+    if (!contains(control_log_output, R"(bad\r\x1B[2J\nnext)")) {
+        return fail("terminal live logs should escape control characters on the scrolling log line", control_log_output);
     }
 
     std::ostringstream                   disabled_out;

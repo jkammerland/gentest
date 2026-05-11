@@ -41,14 +41,17 @@ void sync_releases_async_case() {
 
 [[using gentest: test("panel/02_short_pass")]]
 gentest::async_test<void> short_pass() {
+    gentest::log("short async case started");
     std::this_thread::sleep_for(kVisiblePause);
     co_await gentest::async::yield();
+    gentest::log("short async case resumed");
     EXPECT_TRUE(true);
 }
 
 [[using gentest: test("panel/03_medium_pass")]]
 gentest::async_test<void> medium_pass() {
     for (int i = 0; i < 4; ++i) {
+        gentest::log("medium async tick " + std::to_string(i));
         std::this_thread::sleep_for(kVisiblePause);
         co_await gentest::async::yield();
     }
@@ -58,6 +61,7 @@ gentest::async_test<void> medium_pass() {
 [[using gentest: test("panel/04_long_driver")]]
 gentest::async_test<void> long_driver() {
     for (int i = 0; i < 14; ++i) {
+        gentest::log("long async driver tick " + std::to_string(i));
         std::this_thread::sleep_for(kVisiblePause);
         co_await gentest::async::yield();
     }

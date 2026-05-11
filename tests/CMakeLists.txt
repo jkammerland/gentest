@@ -435,13 +435,25 @@ gentest_add_cmake_script_test(
     NAME async_live_slow_terminal_rendering
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncLiveTerminal.cmake"
-    ARGS --filter=async_live_slow/panel/* --kind=test)
+    ARGS --filter=async_live_slow/panel/* --kind=test
+    DEFINES
+        "EXPECT_LOG_TAIL=1")
 
 gentest_add_cmake_script_test(
     NAME async_live_slow_terminal_rendering_no_color
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncLiveTerminal.cmake"
-    ARGS --filter=async_live_slow/panel/* --kind=test --no-color)
+    ARGS --filter=async_live_slow/panel/* --kind=test --no-color
+    DEFINES
+        "EXPECT_LOG_TAIL=1")
+
+gentest_add_cmake_script_test(
+    NAME async_live_slow_terminal_rendering_log_tail_zero
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncLiveTerminal.cmake"
+    ARGS --filter=async_live_slow/panel/* --kind=test --async-log-tail=0
+    DEFINES
+        "FORBID_LOG_TAIL=1")
 
 gentest_add_check_counts(
     NAME async_value_discard
@@ -2162,6 +2174,7 @@ gentest_add_check_exit_code(
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING gentest ARGS --help)
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--time-unit=<mode>" ARGS --help)
+gentest_add_check_contains(NAME unit_help_async_log_tail PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--async-log-tail=N" ARGS --help)
 gentest_add_check_contains(NAME unit_list_contains_attr_close_marker_name_prefix PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "unit/attributes/close_marker_in_string_" ARGS --list-tests)
 gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "tags=fast" ARGS --list)
 gentest_add_check_contains(
@@ -2899,6 +2912,24 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_unit_tests>
     REQUIRED_SUBSTRING "error: --bench-table requires --kind=bench or --kind=all"
     ARGS --bench-table --kind=jitter)
+
+gentest_add_check_death(
+    NAME cli_async_log_tail_duplicate
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    REQUIRED_SUBSTRING "error: duplicate --async-log-tail"
+    ARGS --async-log-tail=1 --async-log-tail=2)
+
+gentest_add_check_death(
+    NAME cli_async_log_tail_missing_value
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    REQUIRED_SUBSTRING "error: --async-log-tail requires a value"
+    ARGS --async-log-tail)
+
+gentest_add_check_death(
+    NAME cli_async_log_tail_non_numeric
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    REQUIRED_SUBSTRING "error: --async-log-tail must be a non-negative decimal integer"
+    ARGS --async-log-tail=abc)
 
 function(_gentest_add_cmake_helper_test name source_dir script_path label)
     # Keep helper fixture roots compact so nested CMake/Ninja scratch paths stay under

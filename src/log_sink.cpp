@@ -3,21 +3,12 @@
 #include "gentest/detail/runtime_context.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
-#include <mutex>
+#include <syncstream>
 #include <utility>
 #include <vector>
-
-#if defined(__has_include)
-#if __has_include(<syncstream>)
-#include <syncstream>
-#define GENTEST_HAS_SYNCSTREAM 1
-#endif
-#endif
-
-#ifndef GENTEST_HAS_SYNCSTREAM
-#define GENTEST_HAS_SYNCSTREAM 0
-#endif
 
 namespace gentest {
 namespace {
@@ -28,14 +19,13 @@ class OstreamLogSink final : public LogSink {
 
     void write(std::string_view message) noexcept override {
         try {
-            std::lock_guard<std::mutex> lk(mtx_);
-            *out_ << message << '\n' << std::flush;
+            std::osyncstream synced(*out_);
+            synced << message << '\n';
         } catch (...) {}
     }
 
   private:
     std::ostream *out_ = nullptr;
-    std::mutex    mtx_;
 };
 
 class StdoutLogSink final : public LogSink {
@@ -51,7 +41,6 @@ struct SinkEntry {
 struct SinkRegistry {
     SinkRegistry() : sinks{SinkEntry{.id = next_id++, .sink = std::make_shared<StdoutLogSink>()}} {}
 
-    std::mutex             mtx;
     std::size_t            next_id = 1;
     std::vector<SinkEntry> sinks;
 };
@@ -62,7 +51,6 @@ auto registry() -> SinkRegistry & {
 }
 
 struct DefaultStdoutWriterState {
-    std::mutex                       mtx;
     void                            *state  = nullptr;
     detail::DefaultStdoutLogWriterFn writer = nullptr;
 };
@@ -74,14 +62,8 @@ auto default_stdout_writer_state() -> DefaultStdoutWriterState & {
 
 void write_stdout_fallback(std::string_view message) noexcept {
     try {
-#if GENTEST_HAS_SYNCSTREAM
         std::osyncstream synced(std::cout);
         synced << message << '\n';
-#else
-        static std::mutex           stdout_mtx;
-        std::lock_guard<std::mutex> lk(stdout_mtx);
-        std::cout << message << '\n' << std::flush;
-#endif
     } catch (...) {}
 }
 
@@ -89,8 +71,7 @@ auto sink_active(std::size_t id) noexcept -> bool {
     if (id == 0) {
         return false;
     }
-    auto                       &reg = registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
+    auto &reg = registry();
     return std::ranges::any_of(reg.sinks, [&](const SinkEntry &entry) { return entry.id == id; });
 }
 
@@ -98,12 +79,16 @@ auto remove_sink(std::size_t id) noexcept -> bool {
     if (id == 0) {
         return false;
     }
-    auto                       &reg = registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
-    auto                       &sinks  = reg.sinks;
-    const auto                  before = sinks.size();
+    auto      &reg    = registry();
+    auto      &sinks  = reg.sinks;
+    const auto before = sinks.size();
     std::erase_if(sinks, [&](const SinkEntry &entry) { return entry.id == id; });
     return sinks.size() != before;
+}
+
+[[noreturn]] void abort_active_handle_overwrite() noexcept {
+    (void)std::fputs("gentest: fatal: move-assigned over an active LogSinkHandle; call remove() first.\n", stderr);
+    std::abort();
 }
 
 } // namespace
@@ -112,19 +97,15 @@ namespace detail {
 
 void write_default_stdout_log(std::string_view message) noexcept {
     auto &state = default_stdout_writer_state();
-    {
-        std::lock_guard<std::mutex> lk(state.mtx);
-        if (state.writer) {
-            state.writer(state.state, message);
-            return;
-        }
+    if (state.writer) {
+        state.writer(state.state, message);
+        return;
     }
     write_stdout_fallback(message);
 }
 
 void dispatch_log_to_sinks(std::string_view message) noexcept {
-    auto                       &reg = registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
+    auto &reg = registry();
     for (const auto &entry : reg.sinks) {
         if (entry.sink) {
             entry.sink->write(message);
@@ -133,15 +114,13 @@ void dispatch_log_to_sinks(std::string_view message) noexcept {
 }
 
 void install_default_stdout_log_writer(void *state, DefaultStdoutLogWriterFn writer) noexcept {
-    auto                       &writer_state = default_stdout_writer_state();
-    std::lock_guard<std::mutex> lk(writer_state.mtx);
+    auto &writer_state  = default_stdout_writer_state();
     writer_state.state  = state;
     writer_state.writer = writer;
 }
 
 void remove_default_stdout_log_writer(void *state, DefaultStdoutLogWriterFn writer) noexcept {
-    auto                       &writer_state = default_stdout_writer_state();
-    std::lock_guard<std::mutex> lk(writer_state.mtx);
+    auto &writer_state = default_stdout_writer_state();
     if (writer_state.state == state && writer_state.writer == writer) {
         writer_state.state  = nullptr;
         writer_state.writer = nullptr;
@@ -167,7 +146,9 @@ LogSinkHandle::LogSinkHandle(LogSinkHandle &&other) noexcept : id_(std::exchange
 
 auto LogSinkHandle::operator=(LogSinkHandle &&other) noexcept -> LogSinkHandle & {
     if (this != &other) {
-        (void)remove_sink(id_);
+        if (id_ != 0) {
+            abort_active_handle_overwrite();
+        }
         id_ = std::exchange(other.id_, 0);
     }
     return *this;
@@ -181,9 +162,8 @@ auto add_log_sink(std::shared_ptr<LogSink> sink) -> LogSinkHandle {
     if (!sink) {
         return {};
     }
-    auto                       &reg = registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
-    const auto                  id = reg.next_id++;
+    auto      &reg = registry();
+    const auto id  = reg.next_id++;
     reg.sinks.push_back(SinkEntry{.id = id, .sink = std::move(sink)});
     return LogSinkHandle(id);
 }
@@ -194,16 +174,15 @@ auto remove_log_sink(LogSinkHandle &handle) noexcept -> bool {
 }
 
 void remove_all_log_sinks() noexcept {
-    auto                       &reg = registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
+    auto &reg = registry();
     reg.sinks.clear();
 }
 
 void restore_default_log_sink() {
-    auto                       &reg = registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
+    auto  default_sink = std::make_shared<StdoutLogSink>();
+    auto &reg          = registry();
     reg.sinks.clear();
-    reg.sinks.push_back(SinkEntry{.id = reg.next_id++, .sink = std::make_shared<StdoutLogSink>()});
+    reg.sinks.push_back(SinkEntry{.id = reg.next_id++, .sink = std::move(default_sink)});
 }
 
 auto make_ostream_log_sink(std::ostream &out) -> std::shared_ptr<LogSink> { return std::make_shared<OstreamLogSink>(out); }

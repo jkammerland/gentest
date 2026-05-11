@@ -370,9 +370,14 @@ gentest_check_run_or_fail(
 set(_consumer_exe "${_consumer_build_on_dir}/gentest_consumer${CMAKE_EXECUTABLE_SUFFIX}")
 message(STATUS "Run consumer smoke with scan-deps enabled...")
 gentest_check_run_or_fail(
-  COMMAND "${_consumer_exe}" --run=consumer/module_mock
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
+    COMMAND "${_consumer_exe}" --run=consumer/module_mock
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE)
+
+gentest_check_run_or_fail(
+    COMMAND "${_consumer_exe}" --run=consumer/log_sink
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE)
 
 message(STATUS "Build consumer with scan-deps enabled via bare scanner name...")
 set(_old_path "$ENV{PATH}")

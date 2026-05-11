@@ -50,8 +50,10 @@ Features currently include:
 ## Requirements
 
 - CMake ≥ 3.31
-- C++20 compiler and standard library
+- C++20 compiler and standard library with `<stop_token>` and `<syncstream>`
 - LLVM/Clang (for `gentest_codegen`)
+
+On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
 
 >[!IMPORTANT]
 > `gentest_codegen` consumes your build’s `compile_commands.json` (`CMAKE_EXPORT_COMPILE_COMMANDS=ON`).
@@ -298,6 +300,7 @@ Assertions and outcomes must run in the owning test. When you spawn worker threa
 the worker only for `gentest::log()` and cooperative stop checks. Report data back to the owning test, then assert there. Logs are
 captured on the active test and streamed to registered log sinks immediately. The default sink writes to stdout; add or remove sinks with
 `gentest::add_log_sink(...)`, `gentest::remove_log_sink(...)`, `gentest::remove_all_log_sinks()`, and `gentest::restore_default_log_sink()`.
+Sink handles are explicit removal tokens, not RAII guards; do not change the sink registry concurrently with `gentest::log()`.
 
 ```cpp
 #include "gentest/attributes.h"

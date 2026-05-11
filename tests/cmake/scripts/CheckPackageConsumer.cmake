@@ -484,6 +484,9 @@ run_or_fail(COMMAND "${_consumer_exe}" --list)
 message(STATUS "Run consumer module mock case...")
 run_or_fail(COMMAND "${_consumer_exe}" --run=consumer/module_mock)
 
+message(STATUS "Run consumer log sink case...")
+run_or_fail(COMMAND "${_consumer_exe}" --run=consumer/log_sink)
+
 message(STATUS "Run consumer bench...")
 run_or_fail(COMMAND "${_consumer_exe}" --kind=bench --run=consumer/module_bench)
 

@@ -1,8 +1,23 @@
 #include "gentest/attributes.h"
 #include "gentest/bench_util.h"
+#include "gentest/context.h"
 #include "gentest_xrepo_mocks.hpp"
 
+#include <sstream>
+#include <string>
+#include <string_view>
+
 using namespace gentest::asserts;
+
+namespace {
+
+struct RestoreDefaultLogSink {
+    ~RestoreDefaultLogSink() { gentest::restore_default_log_sink(); }
+};
+
+bool contains(std::string_view haystack, std::string_view needle) { return haystack.find(needle) != std::string_view::npos; }
+
+} // namespace
 
 namespace downstream {
 
@@ -29,6 +44,21 @@ void downstream_mock() {
 
     Service *service = &mock_service;
     EXPECT_EQ(service->compute(3), 9);
+}
+
+[[using gentest: test("downstream/xrepo/log_sink")]]
+void downstream_log_sink() {
+    RestoreDefaultLogSink restore;
+    gentest::remove_all_log_sinks();
+    std::ostringstream out;
+    auto               handle = gentest::add_log_sink(gentest::make_ostream_log_sink(out));
+
+    gentest::log("downstream xrepo log sink first");
+    EXPECT_TRUE(contains(out.str(), "downstream xrepo log sink first"));
+    EXPECT_TRUE(handle.remove());
+
+    gentest::log("downstream xrepo log sink after remove");
+    EXPECT_FALSE(contains(out.str(), "downstream xrepo log sink after remove"));
 }
 
 [[using gentest: bench("downstream/xrepo/bench"), baseline]]

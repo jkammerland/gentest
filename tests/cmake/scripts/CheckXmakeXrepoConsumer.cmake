@@ -343,6 +343,7 @@ _gentest_find_single_binary(_module_bin
 foreach(_case IN ITEMS
     "downstream/xrepo/test"
     "downstream/xrepo/mock"
+    "downstream/xrepo/log_sink"
     "downstream/xrepo/bench"
     "downstream/xrepo/jitter")
   if(_case MATCHES "/bench$")
@@ -368,6 +369,7 @@ foreach(_binary IN ITEMS "${_textual_bin}" "${_module_bin}")
   foreach(_expected IN ITEMS
       "downstream/xrepo/test"
       "downstream/xrepo/mock"
+      "downstream/xrepo/log_sink"
       "downstream/xrepo/bench"
       "downstream/xrepo/jitter")
     string(FIND "${_gentest_last_stdout}" "${_expected}" _expected_pos)

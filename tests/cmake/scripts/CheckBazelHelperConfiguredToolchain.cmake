@@ -269,10 +269,12 @@ goto done
 :list
 echo consumer/consumer/module_test
 echo consumer/consumer/module_mock
+echo consumer/consumer/log_sink
 echo consumer/consumer/module_bench
 echo consumer/consumer/module_jitter
 echo downstream/bazel/test
 echo downstream/bazel/mock
+echo downstream/bazel/log_sink
 echo downstream/bazel/bench
 echo downstream/bazel/jitter
 :done
@@ -518,10 +520,12 @@ case "${1:-}" in
     printf '%s\n' \
       "consumer/consumer/module_test" \
       "consumer/consumer/module_mock" \
+      "consumer/consumer/log_sink" \
       "consumer/consumer/module_bench" \
       "consumer/consumer/module_jitter" \
       "downstream/bazel/test" \
       "downstream/bazel/mock" \
+      "downstream/bazel/log_sink" \
       "downstream/bazel/bench" \
       "downstream/bazel/jitter"
     ;;

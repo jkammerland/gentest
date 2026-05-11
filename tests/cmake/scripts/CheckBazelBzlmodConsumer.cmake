@@ -445,6 +445,7 @@ foreach(_binary IN ITEMS
   foreach(_expected IN ITEMS
       "downstream/bazel/test"
       "downstream/bazel/mock"
+      "downstream/bazel/log_sink"
       "downstream/bazel/bench"
       "downstream/bazel/jitter")
     string(FIND "${_list_out}" "${_expected}" _expected_pos)
@@ -457,7 +458,7 @@ foreach(_binary IN ITEMS
 
   foreach(_kind IN ITEMS "test" "bench" "jitter")
     if(_kind STREQUAL "test")
-      set(_case_names "downstream/bazel/test;downstream/bazel/mock")
+      set(_case_names "downstream/bazel/test;downstream/bazel/mock;downstream/bazel/log_sink")
     elseif(_kind STREQUAL "bench")
       set(_case_names "downstream/bazel/bench")
     else()

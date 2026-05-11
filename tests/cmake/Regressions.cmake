@@ -542,10 +542,19 @@ gentest_add_cmake_script_test(
         "FORBID_SUBSTRING=removed sinks hidden on pass")
 
 gentest_add_cmake_script_test(
-    NAME regression_logging_output_move_assigned_handle_removes_previous_sink
+    NAME regression_logging_output_handle_destruction_does_not_remove_sink
     PROG $<TARGET_FILE:gentest_regression_logging_output>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --run=regressions/logging_output/move_assigned_handle_removes_previous_sink --kind=test
+    ARGS --run=regressions/logging_output/handle_destruction_does_not_remove_sink --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "REQUIRED_SUBSTRING=Summary: passed 1/1; failed 0; skipped 0; blocked 0; xfail 0; xpass 0.")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_explicit_remove_before_reassigning_handle
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/explicit_remove_before_reassigning_handle --kind=test
     DEFINES
         "EXPECT_RC=0"
         "REQUIRED_SUBSTRING=Summary: passed 1/1; failed 0; skipped 0; blocked 0; xfail 0; xpass 0.")

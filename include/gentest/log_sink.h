@@ -10,10 +10,15 @@
 namespace gentest {
 
 struct LogSink {
-    virtual ~LogSink()                                    = default;
+    virtual ~LogSink() = default;
+    // May be called concurrently when adopted worker threads log at the same
+    // time. Custom sinks own any synchronization they need inside write().
     virtual void write(std::string_view message) noexcept = 0;
 };
 
+// Removal token only. Destroying a LogSinkHandle does not unregister the sink;
+// call remove() or remove_log_sink() explicitly. Sink registration/removal must
+// not run concurrently with gentest::log() or other sink registry changes.
 class LogSinkHandle {
   public:
     LogSinkHandle() noexcept                                  = default;

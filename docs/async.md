@@ -535,6 +535,9 @@ outcome changes there.
 `gentest::log()` is captured on the current test and streamed to the registered
 log sinks immediately. The default sink writes to stdout. Add more sinks when a
 consumer needs a copy, and remove them explicitly with the returned handle.
+Sink handles are explicit removal tokens, not RAII guards; destroying a handle
+does not unregister the sink. Configure sinks outside active logging, and do not
+change the sink registry concurrently with `gentest::log()`.
 
 ```cpp
 std::ostringstream log_copy;

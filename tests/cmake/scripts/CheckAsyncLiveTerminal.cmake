@@ -73,9 +73,9 @@ foreach(_required IN ITEMS "SUSPENDED" "YIELDED" "RUNNING" "async_live_slow/pane
 endforeach()
 
 foreach(_final_case IN ITEMS
-    "async_live_slow/panel/00_async_waits_for_sync"
-    "async_live_slow/panel/01_sync_releases_async"
-    "async_live_slow/panel/05_waiting_on_driver")
+    "async_live_slow/panel/00_async_"
+    "async_live_slow/panel/01_sync_rel"
+    "async_live_slow/panel/05_waiting_")
   string(LENGTH "${_final_case}" _needle_len)
   string(REPLACE "${_final_case}" "" _without_case "${_all}")
   string(LENGTH "${_all}" _all_len)
@@ -85,6 +85,20 @@ foreach(_final_case IN ITEMS
     message(FATAL_ERROR "Expected terminal output to include '${_final_case}'. Output:\n${_all}")
   endif()
 endforeach()
+
+if(DEFINED EXPECT_LOG_TAIL AND EXPECT_LOG_TAIL)
+  string(FIND "${_all}" "log:" _log_tail_pos)
+  if(_log_tail_pos EQUAL -1)
+    message(FATAL_ERROR "Expected async live terminal output to include log tail lines. Output:\n${_all}")
+  endif()
+endif()
+
+if(DEFINED FORBID_LOG_TAIL AND FORBID_LOG_TAIL)
+  string(FIND "${_all}" "log:" _log_tail_pos)
+  if(NOT _log_tail_pos EQUAL -1)
+    message(FATAL_ERROR "Expected async live terminal output to hide log tail lines. Output:\n${_all}")
+  endif()
+endif()
 
 string(ASCII 27 _esc)
 foreach(_forbidden IN ITEMS "${_esc}[2J" "${_esc}[H" "${_esc}[r" "${_esc}[?1049")

@@ -37,18 +37,35 @@ void custom_sink_receives_logs(void *) {
     EXPECT_FALSE(contains(out.str(), "custom sink after removal"));
 }
 
-void move_assigned_handle_removes_previous_sink(void *) {
+void handle_destruction_does_not_remove_sink(void *) {
+    RestoreDefaultLogSink restore;
+    gentest::remove_all_log_sinks();
+    std::ostringstream out;
+    {
+        auto handle = gentest::add_log_sink(gentest::make_ostream_log_sink(out));
+        EXPECT_TRUE(handle.active());
+    }
+
+    gentest::log("sink survives handle destruction");
+
+    EXPECT_TRUE(contains(out.str(), "sink survives handle destruction"));
+}
+
+void explicit_remove_before_reassigning_handle(void *) {
     RestoreDefaultLogSink restore;
     gentest::remove_all_log_sinks();
     std::ostringstream first;
     std::ostringstream second;
     auto               handle = gentest::add_log_sink(gentest::make_ostream_log_sink(first));
-    handle                    = gentest::add_log_sink(gentest::make_ostream_log_sink(second));
+    gentest::log("first sink before explicit remove");
+    EXPECT_TRUE(contains(first.str(), "first sink before explicit remove"));
+    EXPECT_TRUE(handle.remove());
 
-    gentest::log("move-assigned sink receives log");
+    handle = gentest::add_log_sink(gentest::make_ostream_log_sink(second));
+    gentest::log("second sink after explicit remove");
 
-    EXPECT_FALSE(contains(first.str(), "move-assigned sink receives log"));
-    EXPECT_TRUE(contains(second.str(), "move-assigned sink receives log"));
+    EXPECT_FALSE(contains(first.str(), "second sink after explicit remove"));
+    EXPECT_TRUE(contains(second.str(), "second sink after explicit remove"));
 }
 
 void remove_all_sinks_silences_default(void *) {
@@ -156,8 +173,24 @@ gentest::Case kCases[] = {
         .suite            = "regressions",
     },
     {
-        .name             = "regressions/logging_output/move_assigned_handle_removes_previous_sink",
-        .fn               = &move_assigned_handle_removes_previous_sink,
+        .name             = "regressions/logging_output/handle_destruction_does_not_remove_sink",
+        .fn               = &handle_destruction_does_not_remove_sink,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+    },
+    {
+        .name             = "regressions/logging_output/explicit_remove_before_reassigning_handle",
+        .fn               = &explicit_remove_before_reassigning_handle,
         .file             = __FILE__,
         .line             = __LINE__,
         .is_benchmark     = false,
