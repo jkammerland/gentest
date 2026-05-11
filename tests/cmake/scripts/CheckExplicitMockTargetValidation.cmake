@@ -29,7 +29,15 @@ endif()
 if(NOT DEFINED TEST_GROUP OR "${TEST_GROUP}" STREQUAL "")
   set(TEST_GROUP "all")
 endif()
-set(_gentest_known_test_groups configure third_party_negative third_party_positive native)
+set(_gentest_known_test_groups
+  configure
+  third_party_negative
+  third_party_positive
+  native
+  native_smoke
+  native_additional
+  native_rejections
+  native_module_rejections)
 if(NOT TEST_GROUP STREQUAL "all")
   list(FIND _gentest_known_test_groups "${TEST_GROUP}" _gentest_group_index)
   if(_gentest_group_index EQUAL -1)
@@ -38,7 +46,9 @@ if(NOT TEST_GROUP STREQUAL "all")
 endif()
 
 function(_gentest_test_group_enabled out_var group)
-  if(TEST_GROUP STREQUAL "all" OR TEST_GROUP STREQUAL "${group}")
+  if(TEST_GROUP STREQUAL "all"
+     OR TEST_GROUP STREQUAL "${group}"
+     OR (TEST_GROUP STREQUAL "native" AND "${group}" MATCHES "^native_"))
     set(${out_var} TRUE PARENT_SCOPE)
   else()
     set(${out_var} FALSE PARENT_SCOPE)
@@ -426,8 +436,8 @@ _gentest_expect_build_success("${_third_party_ctor_default_args_build_dir}" "exp
 _gentest_expect_run_success("${_third_party_ctor_default_args_build_dir}" "explicit_validation_third_party_ctor_default_args_consumer")
 endif()
 
-_gentest_test_group_enabled(_run_native native)
-if(_run_native)
+_gentest_test_group_enabled(_run_native_smoke native_smoke)
+if(_run_native_smoke)
 _gentest_expect_configure_success("native_default_args_surface" _native_default_args_build_dir)
 _gentest_expect_build_success("${_native_default_args_build_dir}" "explicit_validation_native_default_args_consumer")
 _gentest_expect_run_success("${_native_default_args_build_dir}" "explicit_validation_native_default_args_consumer")
@@ -437,6 +447,10 @@ _gentest_expect_run_success("${_native_inherited_concrete_build_dir}" "explicit_
 _gentest_expect_configure_success("native_generic_alias_template_surface" _native_generic_alias_template_build_dir)
 _gentest_expect_build_success("${_native_generic_alias_template_build_dir}" "explicit_validation_native_generic_alias_consumer")
 _gentest_expect_run_success("${_native_generic_alias_template_build_dir}" "explicit_validation_native_generic_alias_consumer")
+endif()
+
+_gentest_test_group_enabled(_run_native_rejections native_rejections)
+if(_run_native_rejections)
 _gentest_expect_build_failure("native_conversion_operator_rejected"
   "gentest::mock does not support conversion operators")
 _gentest_expect_build_failure("native_variadic_method_rejected"
@@ -447,16 +461,20 @@ _gentest_expect_build_failure("native_pure_assignment_rejected"
   "gentest::mock does not support pure virtual assignment operators")
 _gentest_expect_build_failure("native_deleted_default_ctor_rejected"
   "target has no accessible constructors")
+_gentest_expect_build_failure("native_final_pure_method_rejected"
+  "gentest::mock cannot mock final pure virtual methods")
+_gentest_expect_build_failure("native_const_record_ctor_rejected"
+  "target has no accessible constructors")
+endif()
+
+_gentest_test_group_enabled(_run_native_additional native_additional)
+if(_run_native_additional)
 _gentest_expect_configure_success("native_ignored_unsupported_surface" _native_ignored_unsupported_build_dir)
 _gentest_expect_build_success("${_native_ignored_unsupported_build_dir}" "explicit_validation_native_ignored_unsupported_consumer")
 _gentest_expect_run_success("${_native_ignored_unsupported_build_dir}" "explicit_validation_native_ignored_unsupported_consumer")
 _gentest_expect_configure_success("native_inherited_final_surface" _native_inherited_final_build_dir)
 _gentest_expect_build_success("${_native_inherited_final_build_dir}" "explicit_validation_native_inherited_final_consumer")
 _gentest_expect_run_success("${_native_inherited_final_build_dir}" "explicit_validation_native_inherited_final_consumer")
-_gentest_expect_build_failure("native_final_pure_method_rejected"
-  "gentest::mock cannot mock final pure virtual methods")
-_gentest_expect_build_failure("native_const_record_ctor_rejected"
-  "target has no accessible constructors")
 _gentest_expect_configure_success("native_default_arg_namespace_surface" _native_default_arg_namespace_build_dir)
 _gentest_expect_build_success("${_native_default_arg_namespace_build_dir}" "explicit_validation_native_default_arg_namespace_consumer")
 _gentest_expect_run_success("${_native_default_arg_namespace_build_dir}" "explicit_validation_native_default_arg_namespace_consumer")
@@ -466,6 +484,10 @@ _gentest_expect_run_success("${_native_default_arg_type_build_dir}" "explicit_va
 _gentest_expect_configure_success("native_ambiguous_zero_arg_ctor_surface" _native_ambiguous_zero_arg_ctor_build_dir)
 _gentest_expect_build_success("${_native_ambiguous_zero_arg_ctor_build_dir}" "explicit_validation_native_ambiguous_zero_arg_ctor_consumer")
 _gentest_expect_run_success("${_native_ambiguous_zero_arg_ctor_build_dir}" "explicit_validation_native_ambiguous_zero_arg_ctor_consumer")
+endif()
+
+_gentest_test_group_enabled(_run_native_module_rejections native_module_rejections)
+if(_run_native_module_rejections)
 _gentest_expect_build_failure("missing_named_module" "is not a named module source")
 _gentest_expect_build_failure("provider_only_module" "has no named-module mocks to re-export")
 _gentest_expect_build_failure("implementation_unit_module" "module implementation unit")
