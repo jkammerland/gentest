@@ -69,6 +69,7 @@ class AsyncStatusRenderer {
     void               mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms);
     void               update_logs(std::size_t id, std::span<const std::string> recent_logs, std::size_t log_count);
     void               log(std::string_view message);
+    void               result_line(std::string_view message);
     void               finish();
 
     [[nodiscard]] auto ordered_rows_for_test() const -> std::vector<AsyncLiveRowSnapshot>;
@@ -101,7 +102,7 @@ class AsyncStatusRenderer {
     void               render();
     void               erase_terminal_block();
     void               draw_terminal_block(const std::vector<std::string> &lines);
-    void               redraw_terminal(std::string_view message, bool has_message);
+    void               redraw_terminal(std::string_view message, bool has_message, bool sanitize_message);
     void               restore_terminal();
 };
 

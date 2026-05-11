@@ -214,8 +214,8 @@ int main() {
     std::vector<std::string> tail_logs{"first", "second", "third"};
     tail.update_logs(0, tail_logs, 3);
     snapshot = tail.render_snapshot_for_test();
-    if (!contains(snapshot, "3 log(s)") || contains(snapshot, "log: first") || !contains(snapshot, "log: second") ||
-        !contains(snapshot, "log: third")) {
+    if (!contains(snapshot, "3 log(s)") || contains(snapshot, "  first") || !contains(snapshot, "  second") ||
+        !contains(snapshot, "  third")) {
         return fail("live async rows should show the log count and the configured recent log tail", snapshot);
     }
 
@@ -226,7 +226,7 @@ int main() {
     std::vector<std::string> hidden_logs{"hidden", "also hidden"};
     no_tail.update_logs(0, hidden_logs, 2);
     snapshot = no_tail.render_snapshot_for_test();
-    if (!contains(snapshot, "2 log(s)") || contains(snapshot, "log:")) {
+    if (!contains(snapshot, "2 log(s)") || contains(snapshot, "  hidden") || contains(snapshot, "  also hidden")) {
         return fail("zero live async log tail should keep the count but hide recent log lines", snapshot);
     }
 
@@ -238,8 +238,8 @@ int main() {
     std::vector<std::string> clipped_logs{"first", "second", "third"};
     clipped_tail.update_logs(0, clipped_logs, 3);
     snapshot = clipped_tail.render_snapshot_for_test();
-    if (!contains(snapshot, "[ SUSPENDED ]") || !contains(snapshot, "async/live/clipped_log_tail") || !contains(snapshot, "log: third") ||
-        contains(snapshot, "log: first")) {
+    if (!contains(snapshot, "[ SUSPENDED ]") || !contains(snapshot, "async/live/clipped_log_tail") || !contains(snapshot, "  third") ||
+        contains(snapshot, "  first")) {
         return fail("terminal clipping should keep the owning row visible with the newest tail lines", snapshot);
     }
 
@@ -412,6 +412,19 @@ int main() {
     }
     if (!contains(control_log_output, R"(bad\r\x1B[2J\nnext)")) {
         return fail("terminal live logs should escape control characters on the scrolling log line", control_log_output);
+    }
+
+    std::ostringstream                   raw_result_out;
+    gentest::runner::AsyncStatusRenderer raw_result(raw_result_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, true,
+                                                    {.width = 120, .height = 12});
+    raw_result.result_line("\033[32m[   PASS    ]\033[0m async/live/raw_result (0 ms)");
+    raw_result.finish();
+    const auto raw_result_output = raw_result_out.str();
+    if (!contains(raw_result_output, "\033[32m[   PASS    ]\033[0m async/live/raw_result (0 ms)")) {
+        return fail("terminal result lines should preserve framework ANSI color escapes", raw_result_output);
+    }
+    if (contains(raw_result_output, R"(\x1B[32m)")) {
+        return fail("terminal result lines should not be escaped like user log messages", raw_result_output);
     }
 
     std::ostringstream                   disabled_out;

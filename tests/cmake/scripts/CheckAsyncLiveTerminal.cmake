@@ -60,6 +60,8 @@ execute_process(
   ERROR_VARIABLE _err)
 
 set(_all "${_out}\n${_err}")
+string(ASCII 13 _cr)
+string(ASCII 27 _esc)
 
 if(NOT _rc EQUAL 0)
   message(FATAL_ERROR "async live terminal command failed with rc=${_rc}. Output:\n${_all}")
@@ -87,20 +89,38 @@ foreach(_final_case IN ITEMS
 endforeach()
 
 if(DEFINED EXPECT_LOG_TAIL AND EXPECT_LOG_TAIL)
-  string(FIND "${_all}" "log:" _log_tail_pos)
-  if(_log_tail_pos EQUAL -1)
+  set(_tail_prefix "${_cr}${_esc}[2K  ")
+  set(_found_tail FALSE)
+  foreach(_tail_line IN ITEMS
+      "short async case started"
+      "short async case resumed"
+      "medium async tick"
+      "long async driver tick")
+    string(FIND "${_all}" "${_tail_prefix}${_tail_line}" _log_tail_pos)
+    if(NOT _log_tail_pos EQUAL -1)
+      set(_found_tail TRUE)
+      break()
+    endif()
+  endforeach()
+  if(NOT _found_tail)
     message(FATAL_ERROR "Expected async live terminal output to include log tail lines. Output:\n${_all}")
   endif()
 endif()
 
 if(DEFINED FORBID_LOG_TAIL AND FORBID_LOG_TAIL)
-  string(FIND "${_all}" "log:" _log_tail_pos)
-  if(NOT _log_tail_pos EQUAL -1)
-    message(FATAL_ERROR "Expected async live terminal output to hide log tail lines. Output:\n${_all}")
-  endif()
+  set(_tail_prefix "${_cr}${_esc}[2K  ")
+  foreach(_tail_line IN ITEMS
+      "short async case started"
+      "short async case resumed"
+      "medium async tick"
+      "long async driver tick")
+    string(FIND "${_all}" "${_tail_prefix}${_tail_line}" _log_tail_pos)
+    if(NOT _log_tail_pos EQUAL -1)
+      message(FATAL_ERROR "Expected async live terminal output to hide log tail lines. Output:\n${_all}")
+    endif()
+  endforeach()
 endif()
 
-string(ASCII 27 _esc)
 foreach(_forbidden IN ITEMS "${_esc}[2J" "${_esc}[H" "${_esc}[r" "${_esc}[?1049")
   string(FIND "${_all}" "${_forbidden}" _forbidden_pos)
   if(NOT _forbidden_pos EQUAL -1)

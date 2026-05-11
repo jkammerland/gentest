@@ -448,7 +448,7 @@ auto format_row(const AsyncLiveRowSnapshot &row, bool color_output, bool hyperli
 }
 
 auto format_log_tail_line(std::string_view message, std::size_t max_width) -> std::string {
-    auto line = fmt::format("  log: {}", sanitized_terminal_field(message));
+    auto line = fmt::format("  {}", sanitized_terminal_field(message));
     return shorten_right(line, max_width);
 }
 
@@ -615,7 +615,15 @@ void AsyncStatusRenderer::log(std::string_view message) {
     if (!enabled() || finished_ || mode_ != Mode::Terminal) {
         return;
     }
-    redraw_terminal(message, true);
+    redraw_terminal(message, true, true);
+}
+
+void AsyncStatusRenderer::result_line(std::string_view message) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_ || mode_ != Mode::Terminal) {
+        return;
+    }
+    redraw_terminal(message, true, false);
 }
 
 void AsyncStatusRenderer::finish() {
@@ -766,7 +774,7 @@ void AsyncStatusRenderer::render() {
     if (!enabled() || mode_ != Mode::Terminal) {
         return;
     }
-    redraw_terminal({}, false);
+    redraw_terminal({}, false, true);
 }
 
 void AsyncStatusRenderer::erase_terminal_block() {
@@ -799,7 +807,7 @@ void AsyncStatusRenderer::draw_terminal_block(const std::vector<std::string> &li
     visible_lines_ = lines.size();
 }
 
-void AsyncStatusRenderer::redraw_terminal(std::string_view message, bool has_message) {
+void AsyncStatusRenderer::redraw_terminal(std::string_view message, bool has_message, bool sanitize_message) {
     if (mode_ != Mode::Terminal || !out_) {
         return;
     }
@@ -812,7 +820,7 @@ void AsyncStatusRenderer::redraw_terminal(std::string_view message, bool has_mes
         }
         const std::size_t width      = output_width();
         const std::size_t line_width = width > 1 ? width - 1 : width;
-        auto              line       = format_scrolling_log_line(message, line_width);
+        auto              line       = sanitize_message ? format_scrolling_log_line(message, line_width) : std::string(message);
         trim_trailing_padding(line);
         *out_ << line << '\n';
     }
