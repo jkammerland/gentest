@@ -145,6 +145,8 @@ Use `find_dependency(trompeloeil CONFIG REQUIRED)` for Trompeloeil packages.
 
 Third-party backends currently support CMake textual/header mock definitions only. `gentest_add_mocks()` requires a single-config generator such as Ninja.
 
+The Trompeloeil backend emits explicit-arity `MAKE_MOCKn` / `MAKE_CONST_MOCKn` macros for compatibility with older Trompeloeil packages.
+
 Use the default gentest backend for named-module mocks. Split or redesign targets that require nested target types, template-specialized target types, final classes, static methods, member function templates, final methods, private pure virtual methods, overloaded operators, or overloaded default-argument calls that would need the same generated forwarding signature.
 
 No backend supports conversion operators, C-style variadic methods, volatile-qualified methods, or pure virtual assignment operators.

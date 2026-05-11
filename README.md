@@ -609,8 +609,8 @@ includes the interface header, not the marker header. If the target type is name
 `BACKEND gmock` and `BACKEND trompeloeil` currently support textual/header mock targets only and require a single-config generator.
 Use the default `BACKEND gentest` for named-module mocks. No backend supports conversion operators, C-style variadic methods,
 volatile-qualified methods, or pure virtual assignment operators. See [docs/mock_generation.md](docs/mock_generation.md) for mock-only
-consumer examples, install/export notes, naming, and limitations. The Trompeloeil backend emits the current arity-deducing
-`MAKE_MOCK`/`MAKE_CONST_MOCK` form, so use Trompeloeil v49 or newer.
+consumer examples, install/export notes, naming, and limitations. The Trompeloeil backend emits explicit-arity
+`MAKE_MOCKn` / `MAKE_CONST_MOCKn` macros for compatibility with older Trompeloeil packages.
 
 Named-module mock usage is the same idea, but the public surface is a generated module:
 
