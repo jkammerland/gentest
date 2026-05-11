@@ -1,10 +1,15 @@
 module;
 
 #include <coroutine>
+#include <stop_token>
+#include <type_traits>
 
 export module public_module_surface.cases;
 
 import gentest;
+
+static_assert(std::is_same_v<decltype(gentest::get_current_context().stop_token()), std::stop_token>);
+static_assert(std::is_same_v<decltype(gentest::get_current_context().stop_requested()), bool>);
 
 export namespace public_module_surface {
 

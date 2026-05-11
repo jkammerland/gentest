@@ -25,6 +25,7 @@ set(CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP 0)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 include(GentestDependencies)
+include(GentestCompilerChecks)
 include(GentestPublicModules)
 
 option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
@@ -35,6 +36,7 @@ set(GENTEST_ENABLE_PUBLIC_MODULES "OFF" CACHE STRING "Enable gentest's public C+
 set_property(CACHE GENTEST_ENABLE_PUBLIC_MODULES PROPERTY STRINGS AUTO ON OFF)
 
 gentest_ensure_fmt()
+gentest_require_std_stop_token()
 
 if(NOT GENTEST_ENABLE_PUBLIC_MODULES MATCHES "^(AUTO|ON|OFF)$")
     message(FATAL_ERROR "GENTEST_ENABLE_PUBLIC_MODULES must be AUTO, ON, or OFF")

@@ -99,6 +99,7 @@ if(WIN32 AND MSVC)
     # When building gentest_codegen (which links against those libs) with MSVC, keep
     # the tool compatible even in Debug builds.
     set_property(TARGET gentest_codegen PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
+    target_compile_options(gentest_codegen PRIVATE /bigobj)
 endif()
 
 set(_gentest_use_libcxx FALSE)

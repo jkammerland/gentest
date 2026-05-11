@@ -230,6 +230,14 @@ gentest_add_cmake_script_test(
         "STORY=${PROJECT_SOURCE_DIR}/docs/stories/034_codegen_owned_artifact_manifest_and_module_registration.md")
 
 gentest_add_cmake_script_test(
+    NAME regression_mock_manifest_schema_matches_serializer_contract
+    NO_EMULATOR
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckMockManifestSchemaContract.cmake"
+    DEFINES
+        "SCHEMA=${PROJECT_SOURCE_DIR}/docs/schemas/gentest.mock_manifest.v1.schema.json")
+
+gentest_add_cmake_script_test(
     NAME regression_check_death_required_substrings_literal_semicolon
     NO_EMULATOR
     PROG ${CMAKE_COMMAND}
@@ -1416,10 +1424,11 @@ gentest_add_cmake_script_test(
         "REQUIRED_SUBSTRING=terminating after fatal assertion"
         "FORBID_SUBSTRING=async-local-fixture-teardown-noexc-second-marker")
 
-gentest_add_check_exit_code(
+gentest_add_cmake_script_test(
     NAME regression_async_stale_waiter_tokens_ignore_canceled_posts
     PROG $<TARGET_FILE:gentest_regression_async_stale_waiter>
-    EXPECT_RC 0)
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    DEFINES TIMEOUT_SEC=10 EXPECT_RC=0)
 
 gentest_add_cmake_script_test(
     NAME regression_async_blocking_timer_starvation_times_out_yielding_child
@@ -1430,9 +1439,42 @@ gentest_add_cmake_script_test(
 gentest_add_cmake_script_test(
     NAME regression_async_adopted_ready_queue_completion_no_deadlock
     PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --filter=regressions/async_adopted_ready_queue/* --kind=test --no-color
-    DEFINES TIMEOUT_SEC=5 EXPECT_RC=0)
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=0
+        "REQUIRED_SUBSTRINGS=Summary: passed 2/2|adopted worker released after owner completion")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_adopted_stop_token_condition_variable_any
+    PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --run=regressions/async_adopted_stop_token/00_condition_variable_any --kind=test --no-color
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=0
+        "REQUIRED_SUBSTRING=condition_variable_any worker observed context stop")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_adopted_stop_token_condition_variable
+    PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --run=regressions/async_adopted_stop_token/01_condition_variable --kind=test --no-color
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=0
+        "REQUIRED_SUBSTRING=condition_variable worker observed context stop")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_adopted_stop_token_callback_can_log
+    PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --run=regressions/async_adopted_stop_token/02_stop_callback_can_log --kind=test --no-color
+    DEFINES
+        TIMEOUT_SEC=5
+        EXPECT_RC=0
+        "REQUIRED_SUBSTRING=stop callback observed leased gentest context")
 
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(

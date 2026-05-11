@@ -7,16 +7,24 @@
 #include <atomic>
 #include <cassert>
 #include <condition_variable>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <mutex>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 namespace gentest::detail {
+
+enum class ContextState : unsigned char {
+    Running,
+    Stopping,
+    Closed,
+};
 
 struct TestContextInfo {
     std::string              display_name;
@@ -35,10 +43,25 @@ struct TestContextInfo {
     std::mutex               adopted_mtx;
     std::condition_variable  adopted_cv;
     struct AdoptedReleaseWake {
-        void notify_one() noexcept { cv.notify_one(); }
-        void notify_all() noexcept { cv.notify_all(); }
+        void notify_one() noexcept {
+            {
+                std::lock_guard<std::mutex> lk(mtx);
+                ++generation;
+            }
+            cv.notify_one();
+        }
 
+        void notify_all() noexcept {
+            {
+                std::lock_guard<std::mutex> lk(mtx);
+                ++generation;
+            }
+            cv.notify_all();
+        }
+
+        std::mutex              mtx;
         std::condition_variable cv;
+        std::uint64_t           generation = 0;
     };
     std::vector<std::weak_ptr<AdoptedReleaseWake>> adopted_release_wakes;
     NoExceptionsFatalHookState                     noexceptions_fatal_hook;
@@ -49,8 +72,8 @@ struct TestContextInfo {
     };
     std::vector<ContextCancelHookEntry> context_cancel_hooks;
     std::size_t                         next_context_cancel_hook_id = 0;
-    std::atomic<bool>                   active{false};
-    std::atomic<bool>                   canceled{false};
+    std::stop_source                    stop_source{};
+    std::atomic<ContextState>           state{ContextState::Closed};
     std::atomic<bool>                   has_failures{false};
     std::atomic<std::size_t>            adopted_contexts{0};
     gentest::LogPolicy                  log_policy{gentest::LogPolicy::Never};
@@ -92,6 +115,7 @@ struct TestContextLocalBuffer {
 
 GENTEST_RUNTIME_API auto current_test_storage() -> std::shared_ptr<TestContextInfo> &;
 GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer &;
+GENTEST_RUNTIME_API auto current_context_role_storage() -> CurrentContextRole &;
 GENTEST_RUNTIME_API auto default_log_policy_storage() -> std::atomic<std::underlying_type_t<gentest::LogPolicy>> &;
 
 [[noreturn]] inline void fail_without_active_context(std::string_view operation) {
@@ -129,41 +153,72 @@ inline void flush_current_buffer_for(TestContextInfo *ctx) {
     buffer.clear();
 }
 
-inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
+inline void set_current_test(std::shared_ptr<TestContextInfo> ctx, CurrentContextRole role) {
     auto &current_test = current_test_storage();
     auto &buffer       = current_buffer_storage();
     if (current_test) {
         flush_current_buffer_for(current_test.get());
     }
-    current_test = std::move(ctx);
-    buffer.owner = current_test ? current_test.get() : nullptr;
+    current_test                   = std::move(ctx);
+    current_context_role_storage() = current_test ? role : CurrentContextRole::None;
+    buffer.owner                   = current_test ? current_test.get() : nullptr;
+}
+
+inline void set_current_test(std::shared_ptr<TestContextInfo> ctx) {
+    const auto role = ctx ? CurrentContextRole::Owner : CurrentContextRole::None;
+    set_current_test(std::move(ctx), role);
 }
 
 inline std::shared_ptr<TestContextInfo> current_test() { return current_test_storage(); }
+inline CurrentContextRole               current_context_role() { return current_context_role_storage(); }
+
+inline void notify_context_progress(TestContextInfo &ctx) noexcept;
+
+inline void start_context(TestContextInfo &ctx) noexcept {
+    ctx.stop_source = std::stop_source{};
+    ctx.state.store(ContextState::Running, std::memory_order_release);
+}
+
+inline void request_context_stop(TestContextInfo &ctx) noexcept {
+    const auto state = ctx.state.load(std::memory_order_acquire);
+    if (state == ContextState::Closed) {
+        return;
+    }
+    ctx.state.store(ContextState::Stopping, std::memory_order_release);
+    auto      &role_storage  = current_context_role_storage();
+    const auto previous_role = role_storage;
+    const bool current_owner = current_test_storage().get() == &ctx;
+    const bool override_role = current_owner && previous_role == CurrentContextRole::Owner;
+    if (override_role) {
+        role_storage = CurrentContextRole::Adopted;
+    }
+    (void)ctx.stop_source.request_stop();
+    if (override_role) {
+        role_storage = previous_role;
+    }
+    notify_context_progress(ctx);
+}
 
 inline bool accepts_late_test_operation(const std::shared_ptr<TestContextInfo> &ctx) {
     if (!ctx) {
         return false;
     }
-    if (ctx->active.load(std::memory_order_acquire)) {
-        return true;
-    }
-    return ctx->canceled.load(std::memory_order_acquire);
+    return ctx->state.load(std::memory_order_acquire) != ContextState::Closed;
 }
 
-inline void close_canceled_context_if_released(TestContextInfo &ctx) noexcept {
+inline void close_context_if_released(TestContextInfo &ctx) noexcept {
+    std::lock_guard<std::mutex> lk(ctx.adopted_mtx);
     if (ctx.adopted_contexts.load(std::memory_order_acquire) != 0) {
         return;
     }
-    if (ctx.active.load(std::memory_order_acquire)) {
+    if (ctx.state.load(std::memory_order_acquire) == ContextState::Running) {
         return;
     }
-    ctx.canceled.store(false, std::memory_order_release);
+    ctx.state.store(ContextState::Closed, std::memory_order_release);
 }
 
-inline void close_canceled_context_to_late_operations(TestContextInfo &ctx) noexcept {
-    ctx.active.store(false, std::memory_order_release);
-    ctx.canceled.store(false, std::memory_order_release);
+inline void close_context_to_late_operations(TestContextInfo &ctx) noexcept {
+    ctx.state.store(ContextState::Closed, std::memory_order_release);
 }
 
 inline void wait_for_adopted_contexts(const std::shared_ptr<TestContextInfo> &ctx) {
@@ -201,24 +256,39 @@ inline void register_adopted_release_wake(const std::shared_ptr<TestContextInfo>
     wakes.push_back(wake);
 }
 
-inline void notify_adopted_contexts_released(TestContextInfo &ctx) noexcept {
+inline auto collect_adopted_release_wakes(TestContextInfo &ctx) -> std::vector<std::shared_ptr<TestContextInfo::AdoptedReleaseWake>> {
     std::vector<std::shared_ptr<TestContextInfo::AdoptedReleaseWake>> wakes;
-    {
-        std::lock_guard<std::mutex> lk(ctx.adopted_mtx);
-        auto                       &registered_wakes = ctx.adopted_release_wakes;
-        for (auto it = registered_wakes.begin(); it != registered_wakes.end();) {
-            if (auto wake = it->lock()) {
-                wakes.push_back(std::move(wake));
-                ++it;
-            } else {
-                it = registered_wakes.erase(it);
-            }
+
+    std::lock_guard<std::mutex> lk(ctx.adopted_mtx);
+    auto                       &registered_wakes = ctx.adopted_release_wakes;
+    for (auto it = registered_wakes.begin(); it != registered_wakes.end();) {
+        if (auto wake = it->lock()) {
+            wakes.push_back(std::move(wake));
+            ++it;
+        } else {
+            it = registered_wakes.erase(it);
         }
     }
+
+    return wakes;
+}
+
+inline void notify_context_progress(TestContextInfo &ctx) noexcept {
+    auto wakes = collect_adopted_release_wakes(ctx);
     for (auto &wake : wakes) {
         wake->notify_all();
     }
+}
+
+inline void notify_adopted_contexts_released(TestContextInfo &ctx) noexcept {
+    notify_context_progress(ctx);
     ctx.adopted_cv.notify_all();
+}
+
+inline void mark_context_failed(TestContextInfo &ctx) noexcept {
+    if (!ctx.has_failures.exchange(true, std::memory_order_acq_rel)) {
+        notify_context_progress(ctx);
+    }
 }
 
 inline std::string first_recorded_failure(const std::shared_ptr<TestContextInfo> &ctx) {
@@ -233,10 +303,8 @@ inline std::string first_recorded_failure(const std::shared_ptr<TestContextInfo>
 }
 
 inline void request_runtime_skip(std::string_view reason, TestContextInfo::RuntimeSkipKind kind) {
-    auto ctx = current_test_storage();
-    if (!accepts_late_test_operation(ctx)) {
-        fail_without_active_context("skip called");
-    }
+    require_owner_context("skip called");
+    auto                        ctx = current_test_storage();
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->runtime_skip_requested.store(true, std::memory_order_relaxed);
     ctx->runtime_skip_reason = std::string(reason);

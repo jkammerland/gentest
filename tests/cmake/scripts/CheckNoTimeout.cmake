@@ -4,6 +4,7 @@
 #  -DARGS=<optional CLI args>
 #  -DTIMEOUT_SEC=<seconds, default 3>
 #  -DEXPECT_RC=<expected numeric exit code>
+#  -DREQUIRED_SUBSTRING=<substring expected in stdout/stderr>
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "CheckNoTimeout.cmake: PROG not set")
@@ -51,6 +52,13 @@ endif()
 if(DEFINED EXPECT_RC AND NOT "${EXPECT_RC}" STREQUAL "")
   if(NOT rc EQUAL EXPECT_RC)
     message(FATAL_ERROR "Expected exit code ${EXPECT_RC}, got ${rc}. Output:\n${_all}")
+  endif()
+endif()
+
+if(DEFINED REQUIRED_SUBSTRING AND NOT "${REQUIRED_SUBSTRING}" STREQUAL "")
+  string(FIND "${_all}" "${REQUIRED_SUBSTRING}" _pos)
+  if(_pos EQUAL -1)
+    message(FATAL_ERROR "Expected substring not found: '${REQUIRED_SUBSTRING}'. Output:\n${_all}")
   endif()
 endif()
 

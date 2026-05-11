@@ -176,6 +176,10 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
 
     BatchAsyncScheduler scheduler(async_runs, renderer.enabled() ? &renderer : nullptr);
 
+    const auto has_adopted_work = [](const AsyncCaseRun &run) {
+        return run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
+    };
+
     bool        fail_fast_stop_requested = false;
     const auto  should_stop = [&] { return fail_fast && (fail_fast_stop_requested || counters.failures > 0 || counters.blocked > 0); };
     std::size_t first_unfinalized_scan = 0;
@@ -184,10 +188,6 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         while (first_unfinalized_scan < async_runs.size() && async_runs[first_unfinalized_scan].finalized) {
             ++first_unfinalized_scan;
         }
-    };
-
-    const auto has_adopted_work = [](const AsyncCaseRun &run) {
-        return run.ctxinfo && run.ctxinfo->adopted_contexts.load(std::memory_order_acquire) != 0;
     };
 
     struct DeferredCanceledTask {
@@ -210,7 +210,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             ctx->event_lines.emplace_back(issue);
             ctx->event_kinds.push_back('F');
         }
-        ctx->has_failures.store(true, std::memory_order_release);
+        gentest::detail::mark_context_failed(*ctx);
     };
 
     const auto record_canceled_completed_result = [&](DeferredCanceledTask &deferred) {
@@ -241,7 +241,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             gentest::detail::wait_for_adopted_contexts(deferred.ctx);
             deferred.task.reset();
             if (deferred.ctx) {
-                gentest::detail::close_canceled_context_if_released(*deferred.ctx);
+                gentest::detail::close_context_if_released(*deferred.ctx);
             }
             if (deferred.record_result_on_cleanup) {
                 record_canceled_completed_result(deferred);
@@ -270,7 +270,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         gentest::detail::wait_for_adopted_contexts(run.ctxinfo);
         run.task.reset();
         if (run.ctxinfo) {
-            gentest::detail::close_canceled_context_if_released(*run.ctxinfo);
+            gentest::detail::close_context_if_released(*run.ctxinfo);
         }
 
         gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
@@ -334,18 +334,22 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
     };
 
     const auto finish_pending_async_group = [&] {
-        if (finalize_completed_runs()) {
-            return true;
-        }
-        const BatchAsyncScheduler::StopCallback drain_should_stop =
-            fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{};
-        const bool stopped_while_draining = scheduler.finish_unresumable(drain_should_stop, [&] { return finalize_completed_runs(); });
-        if (finalize_completed_runs()) {
-            return true;
-        }
-        if (stopped_while_draining && fail_fast) {
-            advance_first_unfinalized();
-            return true;
+        while (true) {
+            if (finalize_completed_runs()) {
+                return true;
+            }
+            const BatchAsyncScheduler::StopCallback drain_should_stop =
+                fail_fast ? BatchAsyncScheduler::StopCallback(should_stop) : BatchAsyncScheduler::StopCallback{};
+            const bool stopped_while_draining = scheduler.finish_unresumable(drain_should_stop, [&] { return finalize_completed_runs(); });
+            if (finalize_completed_runs()) {
+                return true;
+            }
+
+            if (stopped_while_draining && fail_fast) {
+                advance_first_unfinalized();
+                return true;
+            }
+            break;
         }
         for (std::size_t run_index = first_unfinalized_scan; run_index < async_runs.size(); ++run_index) {
             auto &run = async_runs[run_index];

@@ -68,11 +68,11 @@ As a downstream consumer, I do not want to reverse-engineer which mocked types
 or defs files I need. I want a library-owned mock target that already exposes
 the correct public mock surface.
 
-### 4. Future backend expansion
+### 4. Backend expansion
 
 As a library maintainer, I want the packaging shape to be backend-aware so that
-later we can add other generated mock backends, such as gmock or trompeloeil,
-without redesigning the installed layout again.
+generated mock backends such as gmock or trompeloeil can use the same installed
+layout.
 
 ## Proposed Package Shape
 

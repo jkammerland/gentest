@@ -106,6 +106,10 @@ if(DEFINED ENV{GENTEST_CDASH_CONFIGURE_OPTIONS} AND NOT "$ENV{GENTEST_CDASH_CONF
     separate_arguments(_gentest_cdash_extra_options NATIVE_COMMAND "${_gentest_cdash_extra_options}")
     list(APPEND _gentest_cdash_configure_options ${_gentest_cdash_extra_options})
 endif()
+if(DEFINED ENV{GENTEST_CDASH_CONFIGURE_OPTIONS_FILE} AND NOT "$ENV{GENTEST_CDASH_CONFIGURE_OPTIONS_FILE}" STREQUAL "")
+    file(STRINGS "$ENV{GENTEST_CDASH_CONFIGURE_OPTIONS_FILE}" _gentest_cdash_extra_options_from_file)
+    list(APPEND _gentest_cdash_configure_options ${_gentest_cdash_extra_options_from_file})
+endif()
 
 set(_gentest_cdash_build_targets_summary "${_gentest_cdash_build_targets}")
 string(REPLACE ";" "," _gentest_cdash_build_targets_summary "${_gentest_cdash_build_targets_summary}")

@@ -35,7 +35,7 @@ During the build, a codegen tool can scan your sources and generates registratio
 This avoids macro-heavy registration and instead keeps test declarations closer to ordinary C++ by using standard attribute syntax. Unlike the code generation used in many test frameworks, gentest’s generator is not just a hidden registration step. It acts as a more general layer over attribute-annotated code, which makes it easier to add features without inventing a separate macro-style API for each one.
 
 Features currently include:
-- Arbitrary mocking with no extra declarations
+- Generated mocks through explicit mock targets
 - Easy syntax for multi-dimensional parameterized and templated cases (including test matrices)
 - Support for multiple fixtures per test case
 - Sharing fixtures between test cases
@@ -50,8 +50,11 @@ Features currently include:
 ## Requirements
 
 - CMake ≥ 3.31
-- C++20 compiler
+- C++20 compiler and standard library with `<stop_token>`
 - LLVM/Clang (for `gentest_codegen`)
+
+On macOS, AppleClang support starts at Xcode 26 / AppleClang 17 because
+gentest's public context API uses `std::stop_token`.
 
 >[!IMPORTANT]
 > `gentest_codegen` consumes your build’s `compile_commands.json` (`CMAKE_EXPORT_COMPILE_COMMANDS=ON`).
@@ -294,16 +297,18 @@ void xfail_example() {
 
 ### Threads/coroutines + logging
 
-Assertions must run under an active test context. When you spawn threads/coroutines, capture the current context and set it in the worker so
-`EXPECT_*` failures are attributed to the right test. Use `gentest::set_log_policy(gentest::LogPolicy::Always)` when logs should be
-emitted even for passing tests, or `gentest::set_log_policy(gentest::LogPolicy::OnFailure)` for failure-only log output. Use
-`gentest::set_default_log_policy(...)` to change the default for tests that do not override it explicitly.
+Assertions and outcomes must run in the owning test. When you spawn worker threads/coroutines, capture the current context and set it in
+the worker only for `gentest::log()` and cooperative stop checks. Report data back to the owning test, then assert there. Use
+`gentest::set_log_policy(gentest::LogPolicy::Always)` when logs should be emitted even for passing tests, or
+`gentest::set_log_policy(gentest::LogPolicy::OnFailure)` for failure-only log output. Use `gentest::set_default_log_policy(...)` to
+change the default for tests that do not override it explicitly.
 
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
 using namespace gentest::asserts;
 
+#include <atomic>
 #include <thread>
 
 [[gentest::test("concurrency/adopt_and_log")]]
@@ -311,19 +316,22 @@ void adopt_and_log() {
     gentest::set_log_policy(gentest::LogPolicy::Always);
     auto context = gentest::get_current_context();
 
-    std::thread t([context] {
+    std::atomic<bool> reached{false};
+    std::thread t([context, &reached] {
         auto adoption = gentest::set_current_context(context);
         gentest::log("from child thread");
-        EXPECT_EQ(1, 2, "failure recorded on parent test");
+        reached.store(true, std::memory_order_release);
     });
     t.join();
+
+    EXPECT_TRUE(reached.load(std::memory_order_acquire));
 }
 ```
 
 Completion semantics are strict by design: runner phase completion waits until all context adoptions are released.
 
 >[!WARNING]
-> If adopted work is detached or stuck and never releases the `gentest::Adoption`, the test/run blocks forever.
+> If adopted work is detached or stuck and never releases the `gentest::CurrentContextLease`, the test/run blocks forever.
 
 ### Parameters (value matrices)
 
@@ -537,6 +545,72 @@ After the generated surface is visible, raw `gentest::mock<T>` is also valid:
 gentest::mock<Clock> raw_clock;
 gentest::expect(raw_clock, &Clock::now).times(1).returns(456);
 ```
+
+Third-party mock backends are currently exposed through CMake. Gentest is only the generator for these backends: the generated public
+header exposes native framework classes in a mirrored `mocks` namespace, and your test binary links the generated mock target plus the
+third-party framework. For a global `Clock`, use `mocks::ClockMock`.
+
+```cmake
+find_package(GTest CONFIG REQUIRED)
+
+gentest_add_mocks(clock_gmock_mocks
+  DEFS ${CMAKE_CURRENT_SOURCE_DIR}/clock_mocks.hpp
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/gmock_mocks"
+  HEADER_NAME public/clock_gmock_mocks.hpp
+  BACKEND gmock
+  LINK_LIBRARIES GTest::gmock)
+
+add_executable(clock_gtest_tests clock_gtest_tests.cpp)
+target_link_libraries(clock_gtest_tests PRIVATE clock_gmock_mocks GTest::gtest_main)
+```
+
+```cpp
+#include "public/clock_gmock_mocks.hpp"
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+
+TEST(ClockMocks, ReadsNow) {
+    mocks::ClockMock clock;
+    EXPECT_CALL(clock, now()).WillOnce(::testing::Return(123));
+    EXPECT_EQ(read_now(&clock), 123);
+}
+```
+
+Trompeloeil is selected the same way:
+
+```cmake
+gentest_add_mocks(clock_trompeloeil_mocks
+  DEFS ${CMAKE_CURRENT_SOURCE_DIR}/clock_mocks.hpp
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/trompeloeil_mocks"
+  HEADER_NAME public/clock_trompeloeil_mocks.hpp
+  BACKEND trompeloeil
+  LINK_LIBRARIES trompeloeil::trompeloeil)
+
+add_executable(clock_trompeloeil_tests clock_trompeloeil_tests.cpp)
+target_link_libraries(clock_trompeloeil_tests PRIVATE clock_trompeloeil_mocks trompeloeil::trompeloeil)
+```
+
+```cpp
+#include "public/clock_trompeloeil_mocks.hpp"
+
+#include <trompeloeil/mock.hpp>
+
+int main() {
+    mocks::ClockMock clock;
+    REQUIRE_CALL(clock, now()).RETURN(123);
+    return read_now(&clock) == 123 ? 0 : 1;
+}
+```
+
+Keep the interface declaration in a separate header from the `gentest::mock<T>` marker alias; the generated third-party public header
+includes the interface header, not the marker header. If the target type is namespaced, the mock class follows that namespace:
+`myapp::Clock` becomes `myapp::mocks::ClockMock`. The generated name comes from the target type, not from the marker alias name.
+`BACKEND gmock` and `BACKEND trompeloeil` currently support textual/header mock targets only and require a single-config generator.
+Use the default `BACKEND gentest` for named-module mocks. No backend supports conversion operators, C-style variadic methods,
+volatile-qualified methods, or pure virtual assignment operators. See [docs/mock_generation.md](docs/mock_generation.md) for mock-only
+consumer examples, install/export notes, naming, and limitations. The Trompeloeil backend emits explicit-arity
+`MAKE_MOCKn` / `MAKE_CONST_MOCKn` macros for compatibility with older Trompeloeil packages.
 
 Named-module mock usage is the same idea, but the public surface is a generated module:
 

@@ -5,8 +5,52 @@
 #include <string>
 
 namespace gentest {
+namespace detail {
 
-auto get_current_context() -> CurrentContext { return detail::current_test(); }
+struct CurrentContextAccess {
+    [[nodiscard]] static auto get(const CurrentContext &context) noexcept -> const std::shared_ptr<TestContextInfo> & {
+        return context.ctx_;
+    }
+};
+
+} // namespace detail
+
+namespace {
+
+[[nodiscard]] auto context_info(const CurrentContext &context) noexcept -> const std::shared_ptr<detail::TestContextInfo> & {
+    return detail::CurrentContextAccess::get(context);
+}
+
+void acquire_adopted_context(const CurrentContext &context) {
+    if (!context) {
+        return;
+    }
+    const auto                 &ctx = context_info(context);
+    std::lock_guard<std::mutex> lk(ctx->adopted_mtx);
+    ctx->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
+}
+
+[[nodiscard]] auto release_adopted_context(const CurrentContext &context) noexcept -> bool {
+    if (!context) {
+        return false;
+    }
+    const auto                 &ctx = context_info(context);
+    std::lock_guard<std::mutex> lk(ctx->adopted_mtx);
+    return ctx->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1;
+}
+
+} // namespace
+
+auto CurrentContext::stop_token() const noexcept -> std::stop_token {
+    if (!ctx_) {
+        return {};
+    }
+    return ctx_->stop_source.get_token();
+}
+
+auto CurrentContext::stop_requested() const noexcept -> bool { return stop_token().stop_requested(); }
+
+auto get_current_context() -> CurrentContext { return CurrentContext(detail::current_test()); }
 
 auto set_current_context(CurrentContext context) -> CurrentContextLease { return CurrentContextLease(std::move(context)); }
 
@@ -14,25 +58,24 @@ auto get_current_token() -> CurrentToken { return get_current_context(); }
 
 auto set_current_token(CurrentToken context) -> CurrentContextLease { return set_current_context(std::move(context)); }
 
-CurrentContextLease::CurrentContextLease(CurrentContext context) : previous_(get_current_context()), leased_(std::move(context)) {
-    if (leased_) {
-        leased_->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
-    }
+CurrentContextLease::CurrentContextLease(CurrentContext context)
+    : previous_(get_current_context()), leased_(std::move(context)), previous_role_(detail::current_context_role()) {
+    acquire_adopted_context(leased_);
     try {
-        detail::set_current_test(leased_);
+        detail::set_current_test(context_info(leased_), detail::CurrentContextRole::Adopted);
     } catch (...) {
-        if (leased_ && leased_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            detail::notify_adopted_contexts_released(*leased_);
+        if (release_adopted_context(leased_)) {
+            detail::notify_adopted_contexts_released(*context_info(leased_));
         }
         throw;
     }
 }
 
 CurrentContextLease::~CurrentContextLease() {
-    detail::set_current_test(std::move(previous_));
-    if (leased_ && leased_->adopted_contexts.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        detail::close_canceled_context_if_released(*leased_);
-        detail::notify_adopted_contexts_released(*leased_);
+    detail::set_current_test(context_info(previous_), previous_role_);
+    if (release_adopted_context(leased_)) {
+        detail::close_context_if_released(*context_info(leased_));
+        detail::notify_adopted_contexts_released(*context_info(leased_));
     }
 }
 
@@ -72,16 +115,15 @@ void log(std::string_view message) {
 }
 
 void set_log_policy(LogPolicy policy) {
-    auto ctx = detail::current_test_storage();
-    if (!ctx || !ctx->active.load(std::memory_order_relaxed)) {
-        return;
-    }
+    detail::require_owner_context("set_log_policy called");
+    auto                        ctx = detail::current_test_storage();
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->log_policy            = policy;
     ctx->log_policy_overridden = true;
 }
 
 void set_default_log_policy(LogPolicy policy) {
+    detail::require_not_adopted_context("set_default_log_policy called");
     detail::default_log_policy_storage().store(gentest::to_underlying(policy), std::memory_order_release);
 }
 
@@ -97,10 +139,8 @@ void set_default_log_policy(LogPolicy policy) {
 
 void xfail(std::string_view reason, const std::source_location &loc) {
     (void)loc;
-    auto ctx = detail::current_test_storage();
-    if (!detail::accepts_late_test_operation(ctx)) {
-        detail::fail_without_active_context("xfail called");
-    }
+    detail::require_owner_context("xfail called");
+    auto                        ctx = detail::current_test_storage();
     std::lock_guard<std::mutex> lk(ctx->mtx);
     ctx->xfail_requested = true;
     if (!reason.empty()) {

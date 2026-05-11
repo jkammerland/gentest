@@ -1,4 +1,5 @@
 #include "gentest/runner.h"
+#include "support/context_proof_support.h"
 
 #include <iostream>
 #include <source_location>
@@ -6,6 +7,8 @@
 
 int main() {
     try {
+        gentest::test_support::ActiveProofContext proof_context("expect throw std exception proof");
+
         bool expect_throw_failure_rethrew    = false;
         bool require_throw_failure_rethrew   = false;
         bool expect_throw_assertion_rethrew  = false;

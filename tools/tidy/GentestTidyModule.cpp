@@ -239,15 +239,26 @@ bool is_gentest_context_lease_type(QualType type) {
     return record && qualified_name_is(*record, "gentest::CurrentContextLease");
 }
 
-bool is_gentest_runtime_call(const CallExpr &call) {
+enum class GentestRuntimeCallAccess { AdoptedLogAllowed, OwnerOnly };
+
+std::optional<GentestRuntimeCallAccess> gentest_runtime_call_access(const CallExpr &call) {
     const FunctionDecl *callee = call.getDirectCallee();
     if (!callee) {
-        return false;
+        return std::nullopt;
     }
 
-    static constexpr std::string_view kRuntimeNames[] = {
+    static constexpr std::string_view kAdoptedLogNames[] = {
         "gentest::log",
         "gentest::logf",
+    };
+
+    for (std::string_view name : kAdoptedLogNames) {
+        if (qualified_name_is(*callee, name)) {
+            return GentestRuntimeCallAccess::AdoptedLogAllowed;
+        }
+    }
+
+    static constexpr std::string_view kOwnerOnlyNames[] = {
         "gentest::fail",
         "gentest::skip",
         "gentest::skip_if",
@@ -300,12 +311,12 @@ bool is_gentest_runtime_call(const CallExpr &call) {
         "gentest::detail::require_no_throw",
     };
 
-    for (std::string_view name : kRuntimeNames) {
+    for (std::string_view name : kOwnerOnlyNames) {
         if (qualified_name_is(*callee, name)) {
-            return true;
+            return GentestRuntimeCallAccess::OwnerOnly;
         }
     }
-    return false;
+    return std::nullopt;
 }
 
 std::string gentest_runtime_call_name(const CallExpr &call) {
@@ -603,7 +614,11 @@ class GentestContextLeaseCheck : public clang::tidy::ClangTidyCheck {
         const auto *runtime_call = Result.Nodes.getNodeAs<CallExpr>("gentest-runtime-call");
         ASTContext *context      = Result.Context;
         const auto *SM           = Result.SourceManager;
-        if (!runtime_call || !context || !SM || !is_gentest_runtime_call(*runtime_call)) {
+        if (!runtime_call || !context || !SM) {
+            return;
+        }
+        const auto runtime_access = gentest_runtime_call_access(*runtime_call);
+        if (!runtime_access) {
             return;
         }
 
@@ -616,13 +631,23 @@ class GentestContextLeaseCheck : public clang::tidy::ClangTidyCheck {
         if (!risky_context || !risky_context->body) {
             return;
         }
-        if (has_prior_context_lease(*risky_context->body, *runtime_call, call_loc, *context,
-                                    risky_context->require_lease_after_latest_suspend)) {
+        const bool has_lease = has_prior_context_lease(*risky_context->body, *runtime_call, call_loc, *context,
+                                                       risky_context->require_lease_after_latest_suspend);
+
+        if (*runtime_access == GentestRuntimeCallAccess::OwnerOnly) {
+            diag(call_loc,
+                 "gentest outcome call %0 in %1 cannot run from a worker/adopted context; report results back and assert on the owning "
+                 "test")
+                << gentest_runtime_call_name(*runtime_call) << risky_context->kind;
+            return;
+        }
+
+        if (has_lease) {
             return;
         }
 
         diag(call_loc,
-             "gentest runtime call %0 in %1 may run without an active current context; keep the gentest::CurrentContextLease returned by "
+             "gentest log call %0 in %1 may run without an active current context; keep the gentest::CurrentContextLease returned by "
              "gentest::set_current_context() alive in this scope")
             << gentest_runtime_call_name(*runtime_call) << risky_context->kind;
     }

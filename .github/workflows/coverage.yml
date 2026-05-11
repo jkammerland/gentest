@@ -58,6 +58,9 @@ jobs:
             libcurl-devel \
             libffi-devel \
             libxml2-devel \
+            gtest-devel \
+            gmock-devel \
+            doctest-devel \
             gcc \
             gcc-c++ \
             make \
@@ -113,6 +116,7 @@ jobs:
             "-DLLVM_DIR=${LLVM_DIR}"
             "-DClang_DIR=${Clang_DIR}"
             "-DGENTEST_CODEGEN_HOST_CLANG=${GENTEST_CODEGEN_HOST_CLANG}"
+            "-DGENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS=ON"
           )
           if [ -n "$scan_deps" ]; then
             CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${scan_deps}")

@@ -15,6 +15,11 @@ xcode-select --install
 Include-based gentest consumers can usually build with AppleClang. Public named modules need Homebrew LLVM because CMake's
 module flow needs `clang-scan-deps`, which AppleClang does not ship in the expected LLVM tool layout.
 
+AppleClang support starts at Xcode 26 / AppleClang 17. Older Xcode 16
+toolchains can compile with `-std=c++20`, but their Apple libc++ does not
+provide the `<stop_token>` API used by gentest's public context surface. Use
+Xcode 26+ or Homebrew LLVM.
+
 Use Ninja >= 1.11 for module builds:
 
 ```bash

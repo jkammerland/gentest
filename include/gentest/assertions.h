@@ -57,6 +57,7 @@ template <typename T> inline bool operator!=(const Approx &lhs, const T &rhs) { 
 
 // Record a non-fatal failure if `condition` is false; execution continues.
 inline void expect(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!condition) {
         ::gentest::detail::record_failure(::gentest::detail::failure_text("EXPECT_TRUE", loc, message), loc);
     }
@@ -70,6 +71,7 @@ inline void expect_true(bool condition, std::string_view message = {}, const std
 
 // Record a non-fatal failure if `condition` is true; execution continues.
 inline void expect_false(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (condition) {
         ::gentest::detail::record_failure(::gentest::detail::failure_text("EXPECT_FALSE", loc, message), loc);
     }
@@ -78,6 +80,7 @@ inline void expect_false(bool condition, std::string_view message = {}, const st
 // Record a non-fatal failure if `lhs == rhs` does not hold; execution continues.
 inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs == rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("EXPECT_EQ", loc, message, lhs, rhs), loc);
     }
@@ -86,6 +89,7 @@ inline void expect_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
 // Record a non-fatal failure if `lhs != rhs` does not hold; execution continues.
 inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs != rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("EXPECT_NE", loc, message, lhs, rhs), loc);
     }
@@ -94,6 +98,7 @@ inline void expect_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
 // Record a non-fatal failure if `lhs < rhs` does not hold; execution continues.
 inline void expect_lt(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs < rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("EXPECT_LT", loc, message, lhs, rhs), loc);
     }
@@ -102,6 +107,7 @@ inline void expect_lt(auto &&lhs, auto &&rhs, std::string_view message = {},
 // Record a non-fatal failure if `lhs <= rhs` does not hold; execution continues.
 inline void expect_le(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs <= rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("EXPECT_LE", loc, message, lhs, rhs), loc);
     }
@@ -110,6 +116,7 @@ inline void expect_le(auto &&lhs, auto &&rhs, std::string_view message = {},
 // Record a non-fatal failure if `lhs > rhs` does not hold; execution continues.
 inline void expect_gt(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs > rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("EXPECT_GT", loc, message, lhs, rhs), loc);
     }
@@ -118,6 +125,7 @@ inline void expect_gt(auto &&lhs, auto &&rhs, std::string_view message = {},
 // Record a non-fatal failure if `lhs >= rhs` does not hold; execution continues.
 inline void expect_ge(auto &&lhs, auto &&rhs, std::string_view message = {},
                       const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs >= rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("EXPECT_GE", loc, message, lhs, rhs), loc);
     }
@@ -127,6 +135,7 @@ inline void expect_ge(auto &&lhs, auto &&rhs, std::string_view message = {},
 // - Exceptions enabled: throws `gentest::assertion`
 // - Exceptions disabled: terminates via `std::terminate()`
 inline void require(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!condition) {
         ::gentest::detail::record_failure(::gentest::detail::failure_text("ASSERT_TRUE", loc, message), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -142,6 +151,7 @@ inline void require(bool condition, std::string_view message = {}, const std::so
 // - Exceptions disabled: terminates via `std::terminate()`
 inline void require_false(bool condition, std::string_view message = {},
                           const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (condition) {
         ::gentest::detail::record_failure(::gentest::detail::failure_text("ASSERT_FALSE", loc, message), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -157,6 +167,7 @@ inline void require_false(bool condition, std::string_view message = {},
 // - Exceptions disabled: terminates via `std::terminate()`
 inline void require_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs == rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_EQ", loc, message, lhs, rhs), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -172,6 +183,7 @@ inline void require_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
 // - Exceptions disabled: terminates via `std::terminate()`
 inline void require_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs != rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_NE", loc, message, lhs, rhs), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -187,6 +199,7 @@ inline void require_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
 // - Exceptions disabled: terminates via `std::terminate()`
 inline void require_lt(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs < rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_LT", loc, message, lhs, rhs), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -202,6 +215,7 @@ inline void require_lt(auto &&lhs, auto &&rhs, std::string_view message = {},
 // - Exceptions disabled: terminates via `std::terminate()`
 inline void require_le(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs <= rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_LE", loc, message, lhs, rhs), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -217,6 +231,7 @@ inline void require_le(auto &&lhs, auto &&rhs, std::string_view message = {},
 // - Exceptions disabled: terminates via `std::terminate()`
 inline void require_gt(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs > rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_GT", loc, message, lhs, rhs), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -232,6 +247,7 @@ inline void require_gt(auto &&lhs, auto &&rhs, std::string_view message = {},
 // - Exceptions disabled: terminates via `std::terminate()`
 inline void require_ge(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
+    ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs >= rhs)) {
         ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_GE", loc, message, lhs, rhs), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -378,6 +394,7 @@ template <class Fn> inline void ASSERT_NO_THROW(Fn &&fn, const std::source_locat
 
 // Unconditionally throw a gentest::failure with the provided message.
 inline void fail(std::string_view message) {
+    ::gentest::detail::require_owner_context("fail called");
 #if GENTEST_EXCEPTIONS_ENABLED
     throw failure(std::string(message));
 #else

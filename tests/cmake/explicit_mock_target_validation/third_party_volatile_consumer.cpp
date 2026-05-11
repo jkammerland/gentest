@@ -1,0 +1,7 @@
+#include "public/fixture_validation.hpp"
+
+int main() {
+    fixture::validation::mocks::VolatileServiceMock mock;
+    fixture::validation::VolatileService           *service = &mock;
+    return service->load();
+}

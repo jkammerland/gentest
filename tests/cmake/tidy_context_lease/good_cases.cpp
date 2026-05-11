@@ -5,8 +5,6 @@
 #include <thread>
 #include <utility>
 
-using namespace gentest::asserts;
-
 namespace {
 
 struct DetachedTask {
@@ -21,7 +19,7 @@ struct DetachedTask {
 
 void leased_function_thread_entry(gentest::CurrentContext context) {
     auto lease = gentest::set_current_context(std::move(context));
-    gentest::expect(true);
+    gentest::log("leased function thread");
 }
 
 void leased_thread_context() {
@@ -29,7 +27,6 @@ void leased_thread_context() {
     std::thread worker([context] {
         auto lease = gentest::set_current_context(context);
         gentest::log("leased thread");
-        EXPECT_TRUE(true);
     });
     worker.join();
 }
@@ -38,7 +35,7 @@ void leased_stored_lambda_thread_context() {
     auto context     = gentest::get_current_context();
     auto worker_body = [context] {
         auto lease = gentest::set_current_context(context);
-        gentest::expect(true);
+        gentest::log("leased stored lambda");
     };
     std::thread worker(worker_body);
     worker.join();
@@ -54,20 +51,20 @@ void leased_async_context() {
     auto context = gentest::get_current_context();
     auto worker  = std::async(std::launch::async, [context] {
         auto lease = gentest::set_current_context(context);
-        gentest::expect(true);
+        gentest::log("leased async");
     });
     worker.wait();
 }
 
 void deferred_async_uses_waiting_thread_context() {
-    auto worker = std::async(std::launch::deferred, [] { gentest::expect(true); });
+    auto worker = std::async(std::launch::deferred, [] {});
     worker.wait();
 }
 
 auto leased_coroutine_context(gentest::CurrentContext context) -> DetachedTask {
     co_await std::suspend_always{};
     auto lease = gentest::set_current_context(std::move(context));
-    gentest::require(true);
+    gentest::log("leased coroutine");
     co_return;
 }
 

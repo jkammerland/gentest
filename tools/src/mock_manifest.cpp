@@ -175,6 +175,7 @@ json::Object param_object(const MockParamInfo &param) {
     return json::Object{
         {.K = "type", .V = param.type},
         {.K = "name", .V = param.name},
+        {.K = "default_arg", .V = param.default_arg},
         {.K = "pass_style", .V = to_string(param.pass_style)},
     };
 }
@@ -224,6 +225,10 @@ json::Object method_object(const MockMethodInfo &method) {
         {.K = "is_static", .V = method.is_static},
         {.K = "is_virtual", .V = method.is_virtual},
         {.K = "is_pure_virtual", .V = method.is_pure_virtual},
+        {.K = "is_final", .V = method.is_final},
+        {.K = "is_variadic", .V = method.is_variadic},
+        {.K = "is_overloaded_operator", .V = method.is_overloaded_operator},
+        {.K = "is_conversion_operator", .V = method.is_conversion_operator},
         {.K = "qualifiers", .V = qualifiers_object(method.qualifiers)},
     };
 }
@@ -262,10 +267,13 @@ json::Object mock_object(const MockClassInfo &mock) {
         {.K = "definition_kind", .V = to_string(mock.definition_kind)},
         {.K = "use_files", .V = string_array(mock.use_files)},
         {.K = "definition_module_name", .V = mock.definition_module_name},
+        {.K = "enclosing_record_scope", .V = mock.enclosing_record_scope},
+        {.K = "is_template_specialization", .V = mock.is_template_specialization},
         {.K = "attachment_namespace_chain", .V = namespace_scope_array(mock.attachment_namespace_chain)},
         {.K = "derive_for_virtual", .V = mock.derive_for_virtual},
         {.K = "has_accessible_default_ctor", .V = mock.has_accessible_default_ctor},
         {.K = "has_virtual_destructor", .V = mock.has_virtual_destructor},
+        {.K = "unhidden_method_names", .V = string_array(mock.unhidden_method_names)},
         {.K = "constructors", .V = ctor_array(mock.constructors)},
         {.K = "methods", .V = method_array(mock.methods)},
     };
@@ -370,7 +378,8 @@ bool parse_template_params(const json::Object &obj, llvm::StringRef key, std::ve
 bool parse_param(const json::Object &obj, MockParamInfo &out, std::string &error) {
     std::string pass_style;
     if (!require_string(obj, "type", out.type, error) || !optional_string(obj, "name", out.name, error) ||
-        !require_string(obj, "pass_style", pass_style, error) || !parse_enum(pass_style, out.pass_style, parse_pass_style)) {
+        !optional_string(obj, "default_arg", out.default_arg, error) || !require_string(obj, "pass_style", pass_style, error) ||
+        !parse_enum(pass_style, out.pass_style, parse_pass_style)) {
         if (error.empty()) {
             error = "invalid mock parameter pass_style '" + pass_style + "'";
         }
@@ -448,7 +457,10 @@ bool parse_method(const json::Object &obj, MockMethodInfo &out, std::string &err
         !optional_string(obj, "template_prefix", out.template_prefix, error) ||
         !parse_template_params(obj, "template_params", out.template_params, error) ||
         !optional_bool(obj, "is_static", out.is_static, error) || !optional_bool(obj, "is_virtual", out.is_virtual, error) ||
-        !optional_bool(obj, "is_pure_virtual", out.is_pure_virtual, error)) {
+        !optional_bool(obj, "is_pure_virtual", out.is_pure_virtual, error) || !optional_bool(obj, "is_final", out.is_final, error) ||
+        !optional_bool(obj, "is_variadic", out.is_variadic, error) ||
+        !optional_bool(obj, "is_overloaded_operator", out.is_overloaded_operator, error) ||
+        !optional_bool(obj, "is_conversion_operator", out.is_conversion_operator, error)) {
         return false;
     }
     const auto *qualifiers = obj.getObject("qualifiers");
@@ -524,10 +536,13 @@ bool parse_mock(const json::Object &obj, MockClassInfo &out, std::string &error)
         !parse_enum(definition_kind, out.definition_kind, parse_definition_kind) ||
         !string_vector(obj, "use_files", out.use_files, error) ||
         !optional_string(obj, "definition_module_name", out.definition_module_name, error) ||
+        !optional_string(obj, "enclosing_record_scope", out.enclosing_record_scope, error) ||
+        !optional_bool(obj, "is_template_specialization", out.is_template_specialization, error) ||
         !parse_namespace_scopes(obj, out.attachment_namespace_chain, error) ||
         !optional_bool(obj, "derive_for_virtual", out.derive_for_virtual, error) ||
         !optional_bool(obj, "has_accessible_default_ctor", out.has_accessible_default_ctor, error) ||
-        !optional_bool(obj, "has_virtual_destructor", out.has_virtual_destructor, error) || !parse_ctors(obj, out.constructors, error) ||
+        !optional_bool(obj, "has_virtual_destructor", out.has_virtual_destructor, error) ||
+        !string_vector(obj, "unhidden_method_names", out.unhidden_method_names, error) || !parse_ctors(obj, out.constructors, error) ||
         !parse_methods(obj, out.methods, error)) {
         if (error.empty()) {
             error = "invalid mock definition_kind '" + definition_kind + "'";

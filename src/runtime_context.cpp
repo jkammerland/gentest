@@ -8,17 +8,16 @@ namespace {
 
 thread_local std::shared_ptr<TestContextInfo>           g_current_test{};
 thread_local TestContextLocalBuffer                     g_current_buffer{};
-thread_local BenchPhase                                 g_bench_phase = BenchPhase::None;
+thread_local CurrentContextRole                         g_current_context_role = CurrentContextRole::None;
+thread_local BenchPhase                                 g_bench_phase          = BenchPhase::None;
 thread_local std::string                                g_bench_error{};
 thread_local NoExceptionsFatalHookState                 g_noexceptions_fatal_hook{};
 std::atomic<std::underlying_type_t<gentest::LogPolicy>> g_default_log_policy{gentest::to_underlying(gentest::LogPolicy::Never)};
 
 auto prepare_current_failure_buffer(std::string_view operation) -> TestContextLocalBuffer & {
+    require_owner_context(operation);
     auto  ctx    = current_test_storage();
     auto &buffer = current_buffer_storage();
-    if (!accepts_late_test_operation(ctx)) {
-        fail_without_active_context(operation);
-    }
     if (buffer.owner != ctx.get()) {
         flush_current_buffer_for(buffer.owner);
         buffer.owner = ctx.get();
@@ -61,6 +60,8 @@ void throw_if_bench_call_failure(const std::string &msg) {
 GENTEST_RUNTIME_API auto current_test_storage() -> std::shared_ptr<TestContextInfo> & { return g_current_test; }
 
 GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer & { return g_current_buffer; }
+
+GENTEST_RUNTIME_API auto current_context_role_storage() -> CurrentContextRole & { return g_current_context_role; }
 
 GENTEST_RUNTIME_API auto default_log_policy_storage() -> std::atomic<std::underlying_type_t<gentest::LogPolicy>> & {
     return g_default_log_policy;
@@ -152,11 +153,51 @@ GENTEST_RUNTIME_API void run_context_cancel_hooks(const std::shared_ptr<TestCont
     }
 }
 
+GENTEST_RUNTIME_API void require_owner_context(std::string_view operation) {
+    auto ctx = current_test_storage();
+    if (!accepts_late_test_operation(ctx)) {
+        fail_without_active_context(operation);
+    }
+    if (current_context_role_storage() == CurrentContextRole::Owner) {
+        return;
+    }
+    (void)std::fprintf(
+        stderr,
+        "gentest: fatal: %.*s from an adopted test context.\n"
+        "        Worker/adopted contexts may log and observe stop only; report results back and assert on the owning test.\n",
+        static_cast<int>(operation.size()), operation.data());
+#ifndef NDEBUG
+    assert(false && "gentest outcome operation from adopted test context");
+#endif
+    std::abort();
+}
+
+GENTEST_RUNTIME_API void require_not_adopted_context(std::string_view operation) {
+    const auto ctx = current_test_storage();
+    if (!ctx) {
+        return;
+    }
+    if (current_context_role_storage() == CurrentContextRole::Adopted) {
+        (void)std::fprintf(
+            stderr,
+            "gentest: fatal: %.*s from an adopted test context.\n"
+            "        Worker/adopted contexts may log and observe stop only; report results back and assert on the owning test.\n",
+            static_cast<int>(operation.size()), operation.data());
+#ifndef NDEBUG
+        assert(false && "gentest operation from adopted test context");
+#endif
+        std::abort();
+    }
+    if (!accepts_late_test_operation(ctx)) {
+        fail_without_active_context(operation);
+    }
+}
+
 void record_failure(std::string msg) {
     auto  ctx    = current_test_storage();
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
     buffer.failures.push_back(std::move(msg));
-    ctx->has_failures.store(true, std::memory_order_relaxed);
+    mark_context_failed(*ctx);
     buffer.failure_locations.push_back({std::string{}, 0});
     buffer.event_lines.push_back(buffer.failures.back());
     buffer.event_kinds.push_back('F');
@@ -171,7 +212,7 @@ void record_failure_at(std::string msg, std::string file, unsigned line) {
     auto  ctx    = current_test_storage();
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
     buffer.failures.push_back(std::move(msg));
-    ctx->has_failures.store(true, std::memory_order_relaxed);
+    mark_context_failed(*ctx);
     buffer.failure_locations.push_back({normalize_failure_file(std::move(file)), line});
     buffer.event_lines.push_back(buffer.failures.back());
     buffer.event_kinds.push_back('F');

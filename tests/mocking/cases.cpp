@@ -4,6 +4,7 @@
 #include "public/gentest_textual_suite_mocks.hpp"
 
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <list>
 #include <mutex>
@@ -458,10 +459,10 @@ void concurrency_adopted_ordered_dispatch() {
     bool                      first_release        = false;
     bool                      second_done          = false;
     std::array<int, 2>        results{0, 0};
+    std::atomic<bool>         first_args_ok{false};
 
     EXPECT_CALL(mock_calc, compute).times(1).with(1, 1).invokes([&](int lhs, int rhs) {
-        EXPECT_EQ(lhs, 1);
-        EXPECT_EQ(rhs, 1);
+        first_args_ok.store(lhs == 1 && rhs == 1, std::memory_order_release);
         {
             std::lock_guard<std::mutex> lk(gate_mtx);
             ++first_action_entries;
@@ -506,6 +507,7 @@ void concurrency_adopted_ordered_dispatch() {
     t2.join();
 
     EXPECT_EQ(first_action_entries, 1);
+    EXPECT_TRUE(first_args_ok.load(std::memory_order_acquire));
     EXPECT_EQ(results[0], 11);
     EXPECT_EQ(results[1], 22);
 }
@@ -518,10 +520,10 @@ void concurrency_late_mutation_ignored_after_runtime_start() {
     bool                      first_entered = false;
     bool                      first_release = false;
     std::array<int, 2>        results{0, 0};
+    std::atomic<bool>         first_args_ok{false};
 
     EXPECT_CALL(mock_calc, compute).times(1).with(1, 1).invokes([&](int lhs, int rhs) {
-        EXPECT_EQ(lhs, 1);
-        EXPECT_EQ(rhs, 1);
+        first_args_ok.store(lhs == 1 && rhs == 1, std::memory_order_release);
         {
             std::lock_guard<std::mutex> lk(gate_mtx);
             first_entered = true;
@@ -564,6 +566,7 @@ void concurrency_late_mutation_ignored_after_runtime_start() {
 
     EXPECT_EQ(results[0], 11);
     EXPECT_EQ(results[1], 22);
+    EXPECT_TRUE(first_args_ok.load(std::memory_order_acquire));
 }
 
 [[using gentest: test("mocking/nice/unexpected_ok")]]

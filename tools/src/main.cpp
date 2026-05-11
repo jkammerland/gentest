@@ -71,6 +71,7 @@ using namespace clang::ast_matchers;
 using gentest::codegen::CollectorOptions;
 using gentest::codegen::FixtureDeclCollector;
 using gentest::codegen::FixtureDeclInfo;
+using gentest::codegen::MockBackend;
 using gentest::codegen::MockUsageCollector;
 using gentest::codegen::ModuleDependencyScanMode;
 using gentest::codegen::register_mock_matchers;
@@ -2186,6 +2187,20 @@ std::optional<ModuleDependencyScanMode> parse_module_dependency_scan_mode(std::s
     return std::nullopt;
 }
 
+std::optional<MockBackend> parse_mock_backend(std::string_view raw_value) {
+    const std::string value = gentest::codegen::scan::to_lower_ascii_copy(gentest::codegen::scan::trim_ascii_view(raw_value));
+    if (value == "gentest") {
+        return MockBackend::Gentest;
+    }
+    if (value == "gmock") {
+        return MockBackend::GMock;
+    }
+    if (value == "trompeloeil") {
+        return MockBackend::Trompeloeil;
+    }
+    return std::nullopt;
+}
+
 std::string_view module_dependency_scan_mode_name(ModuleDependencyScanMode mode) {
     switch (mode) {
     case ModuleDependencyScanMode::Auto: return "AUTO";
@@ -3540,6 +3555,7 @@ struct ParsedArguments {
     bool                               removed_output_requested             = false;
     bool                               removed_template_requested           = false;
     bool                               removed_no_include_sources_requested = false;
+    bool                               invalid_arguments                    = false;
     std::vector<std::filesystem::path> inspect_include_dirs;
 };
 
@@ -3609,6 +3625,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<bool>         discover_mocks_option{
         "discover-mocks", llvm::cl::desc("Enable explicit gentest::mock<T> discovery and generated mock outputs"), llvm::cl::init(false),
         llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string>  mock_backend_option{"mock-backend",
+                                                          llvm::cl::desc("Mock output backend: gentest, gmock, or trompeloeil"),
+                                                          llvm::cl::init("gentest"), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::ZeroOrMore,
                                                      llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  template_option{"template",
@@ -3730,8 +3749,16 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         const auto strict_env = get_env_value("GENTEST_STRICT_FIXTURE");
         return strict_env && *strict_env != "0";
     }();
-    opts.jobs           = static_cast<std::size_t>(jobs_option.getValue());
-    opts.discover_mocks = discover_mocks_option.getValue() || mock_phase == MockPhaseCommand::InspectMocks;
+    opts.jobs              = static_cast<std::size_t>(jobs_option.getValue());
+    opts.discover_mocks    = discover_mocks_option.getValue() || mock_phase == MockPhaseCommand::InspectMocks;
+    bool invalid_arguments = false;
+    if (const auto parsed_backend = parse_mock_backend(mock_backend_option.getValue()); parsed_backend.has_value()) {
+        opts.mock_backend = *parsed_backend;
+    } else {
+        gentest::codegen::log_err("gentest_codegen: invalid --mock-backend='{}'; expected gentest, gmock, or trompeloeil\n",
+                                  mock_backend_option.getValue());
+        invalid_arguments = true;
+    }
     if (jobs_option.getNumOccurrences() == 0) {
         const auto jobs_env = get_env_value("GENTEST_CODEGEN_JOBS");
         if (jobs_env) {
@@ -3825,6 +3852,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         .removed_template_requested = template_option.getNumOccurrences() != 0,
         .removed_no_include_sources_requested =
             no_include_sources_option.getValue() || (no_include_sources_env && *no_include_sources_env != "0"),
+        .invalid_arguments = invalid_arguments,
         .inspect_include_dirs =
             [&]() {
                 std::vector<std::filesystem::path> paths;
@@ -3901,6 +3929,9 @@ int main(int argc, const char **argv) {
 
     const auto  parsed_arguments = parse_arguments(argc, argv);
     const auto &options          = parsed_arguments.options;
+    if (parsed_arguments.invalid_arguments) {
+        return 1;
+    }
     if (parsed_arguments.removed_output_requested) {
         gentest::codegen::log_err_raw(
             "gentest_codegen: --output legacy manifest/single-TU mode was removed in gentest 2.0.0; use --tu-out-dir with explicit "

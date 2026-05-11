@@ -1,6 +1,9 @@
 include(GentestTests)
 include("${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFixtureCommon.cmake")
 
+option(GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS "Require real GMock/doctest generated-mock consumers in CMake regressions" OFF)
+option(GENTEST_REQUIRE_TROMPELOEIL_MOCK_CONSUMER "Require real Trompeloeil generated-mock consumer in CMake regressions" OFF)
+
 if(NOT TARGET gentest_test_suites)
     add_custom_target(gentest_test_suites)
 endif()
@@ -117,11 +120,10 @@ unset(_gentest_default_suites)
 
 # Focused checks: ensure pass-only selection passes, and failing selection returns non-zero
 set(_gentest_concurrency_count_checks
-    "concurrency_pass_single|1|0|0|concurrency/child_expect_pass"
-    "concurrency_pass_throw_single|1|0|0|concurrency/child_expect_throw_pass"
-    "concurrency_multi_pass_single|1|0|0|concurrency/multi_adopt_expect_pass"
-    "concurrency_mock_dispatch_single|1|0|0|concurrency/mock_adopt_dispatch"
-    "concurrency_multi_fail_single|0|1|0|concurrency/multi_adopt_expect_fail")
+    "concurrency_pass_single|1|0|0|concurrency/child_log_pass"
+    "concurrency_pass_throw_single|1|0|0|concurrency/child_reports_exception_pass"
+    "concurrency_multi_pass_single|1|0|0|concurrency/multi_adopt_log_pass"
+    "concurrency_mock_dispatch_single|1|0|0|concurrency/mock_adopt_dispatch")
 
 foreach(_gentest_check IN LISTS _gentest_concurrency_count_checks)
     string(REPLACE "|" ";" _gentest_fields "${_gentest_check}")
@@ -149,10 +151,10 @@ unset(_gentest_skip)
 unset(_gentest_run)
 
 set(_gentest_concurrency_death_checks
-    "concurrency_fail_single_death|concurrency/child_expect_fail|gentest: fatal: assertion/expectation recorded without an active test context."
+    "concurrency_fail_single_death|concurrency/child_expect_fail|gentest: fatal: assertion/expectation called without an active test context."
     "concurrency_skip_no_context_death|concurrency/child_skip_no_context|gentest: fatal: skip called without an active test context."
     "concurrency_xfail_no_context_death|concurrency/child_xfail_no_context|gentest: fatal: xfail called without an active test context."
-    "concurrency_multi_noadopt_death|concurrency/no_adopt_expect_death_multi|gentest: fatal: assertion/expectation recorded without an active test context.")
+    "concurrency_multi_noadopt_death|concurrency/no_adopt_expect_death_multi|gentest: fatal: assertion/expectation called without an active test context.")
 
 foreach(_gentest_check IN LISTS _gentest_concurrency_death_checks)
     string(REPLACE "|" ";" _gentest_fields "${_gentest_check}")
@@ -173,6 +175,45 @@ unset(_gentest_check)
 unset(_gentest_fields)
 unset(_gentest_name)
 unset(_gentest_required_substring)
+unset(_gentest_run)
+
+set(_gentest_adopted_context_death_checks
+    "concurrency_adopted_expect_pass_death|concurrency/adopted_expect_pass_death|assertion/expectation called"
+    "concurrency_adopted_fmt_expect_pass_death|concurrency/adopted_fmt_expect_pass_death|assertion/expectation called"
+    "concurrency_adopted_expect_fail_death|concurrency/adopted_expect_fail_death|assertion/expectation called"
+    "concurrency_adopted_assert_death|concurrency/adopted_assert_death|assertion/expectation called"
+    "concurrency_adopted_expect_throw_death|concurrency/adopted_expect_throw_death|assertion/expectation called"
+    "concurrency_adopted_fail_death|concurrency/adopted_fail_death|fail called"
+    "concurrency_adopted_skip_death|concurrency/adopted_skip_death|skip called"
+    "concurrency_adopted_xfail_death|concurrency/adopted_xfail_death|xfail called"
+    "concurrency_adopted_log_policy_death|concurrency/adopted_log_policy_death|set_log_policy called"
+    "concurrency_adopted_default_log_policy_death|concurrency/adopted_default_log_policy_death|set_default_log_policy called"
+    "concurrency_adopted_mock_expectation_death|concurrency/adopted_mock_expectation_death|mock expectation configured"
+    "concurrency_adopted_mock_mode_death|concurrency/adopted_mock_mode_death|mock mode configured"
+    "concurrency_adopted_mock_handle_mutation_death|concurrency/adopted_mock_handle_mutation_death|mock expectation configured"
+    "concurrency_adopted_mock_closed_context_death|concurrency/adopted_mock_closed_context_death|mock mode configured"
+    "concurrency_adopted_mock_unexpected_call_death|concurrency/adopted_mock_unexpected_call_death|assertion/expectation recorded"
+    "concurrency_stop_callback_expect_death|concurrency/stop_callback_expect_death|assertion/expectation called")
+
+foreach(_gentest_check IN LISTS _gentest_adopted_context_death_checks)
+    string(REPLACE "|" ";" _gentest_fields "${_gentest_check}")
+    list(GET _gentest_fields 0 _gentest_name)
+    list(GET _gentest_fields 1 _gentest_run)
+    list(GET _gentest_fields 2 _gentest_operation)
+
+    gentest_add_check_death(
+        NAME ${_gentest_name}
+        PROG ${PROJECT_NAME}_concurrency_tests
+        REQUIRED_SUBSTRINGS
+            "gentest: fatal: ${_gentest_operation} from an adopted test context."
+            "Worker/adopted contexts may log and observe stop only; report results back and assert on the owning test."
+        ARGS --run=${_gentest_run})
+endforeach()
+unset(_gentest_adopted_context_death_checks)
+unset(_gentest_check)
+unset(_gentest_fields)
+unset(_gentest_name)
+unset(_gentest_operation)
 unset(_gentest_run)
 
 gentest_add_check_counts(
@@ -248,14 +289,14 @@ gentest_add_cmake_script_test(
         "FORBID_SUBSTRING=fail-fast allowed a later self-adopted sync case to run")
 
 gentest_add_cmake_script_test(
-    NAME async_fail_fast_done_adopted_late_records_worker_failure
+    NAME async_fail_fast_done_adopted_late_logs_worker
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS --filter=async/fail_fast_done_adopted_late/* --kind=test --fail-fast --no-color
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_done_adopted_late/00_done_with_late_worker_failure|adopted worker recorded failure after completed async cancellation|[ FAIL ] async/fail_fast_done_adopted_late/01_sync_failure"
-        "FORBID_SUBSTRING=fail-fast allowed a later sync case after late adopted worker failure")
+        "REQUIRED_SUBSTRINGS=adopted worker logged after completed async cancellation|[ FAIL ] async/fail_fast_done_adopted_late/01_sync_failure"
+        "FORBID_SUBSTRING=fail-fast allowed a later sync case after late adopted worker log")
 
 gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_adopted_context_no_abort
@@ -819,6 +860,22 @@ if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
         concurrency_skip_no_context_death
         concurrency_xfail_no_context_death
         concurrency_multi_noadopt_death
+        concurrency_adopted_expect_pass_death
+        concurrency_adopted_fmt_expect_pass_death
+        concurrency_adopted_expect_fail_death
+        concurrency_adopted_assert_death
+        concurrency_adopted_expect_throw_death
+        concurrency_adopted_fail_death
+        concurrency_adopted_skip_death
+        concurrency_adopted_xfail_death
+        concurrency_adopted_log_policy_death
+        concurrency_adopted_default_log_policy_death
+        concurrency_adopted_mock_expectation_death
+        concurrency_adopted_mock_mode_death
+        concurrency_adopted_mock_handle_mutation_death
+        concurrency_adopted_mock_closed_context_death
+        concurrency_adopted_mock_unexpected_call_death
+        concurrency_stop_callback_expect_death
         async_fail_fast_cancel_released_context_aborts
         PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
@@ -827,6 +884,11 @@ option(GENTEST_SKIP_TSAN_DEATH_TESTS "Skip death tests whose stderr contract is 
 if(GENTEST_SKIP_TSAN_DEATH_TESTS)
     set_tests_properties(
         concurrency_fail_single_death concurrency_skip_no_context_death concurrency_xfail_no_context_death concurrency_multi_noadopt_death
+        concurrency_adopted_expect_pass_death concurrency_adopted_fmt_expect_pass_death concurrency_adopted_expect_fail_death
+        concurrency_adopted_assert_death concurrency_adopted_expect_throw_death concurrency_adopted_fail_death concurrency_adopted_skip_death
+        concurrency_adopted_xfail_death concurrency_adopted_log_policy_death concurrency_adopted_default_log_policy_death
+        concurrency_adopted_mock_expectation_death concurrency_adopted_mock_mode_death concurrency_adopted_mock_handle_mutation_death
+        concurrency_adopted_mock_closed_context_death concurrency_adopted_mock_unexpected_call_death concurrency_stop_callback_expect_death
         async_fail_fast_cancel_released_context_aborts
         PROPERTIES DISABLED TRUE)
 endif()
@@ -2576,7 +2638,13 @@ gentest_add_cmake_script_test(
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCdashExperimentalLive.cmake"
     DEFINES
         "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/cmake_cdash_live")
+        "BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/cmake_cdash_live"
+        "C_COMPILER=${CMAKE_C_COMPILER}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "CXX_COMPILER_CLANG_SCAN_DEPS=${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}"
+        "TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
+        "LLVM_DIR=${LLVM_DIR}"
+        "Clang_DIR=${Clang_DIR}")
 
 # Capture JUnit artifact example: unit suite emits JUnit; this smoke ensures the file is generated in build tree
 gentest_add_check_file_contains(
@@ -3393,13 +3461,23 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_explicit_mock_target_surface APPEND PROPERTY LABELS "modules")
 
-_gentest_add_cmake_helper_test(
-    gentest_explicit_mock_target_validation
-    ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_validation
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExplicitMockTargetValidation.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_explicit_mock_target_validation APPEND PROPERTY LABELS "modules")
+foreach(_gentest_explicit_mock_validation_group IN ITEMS
+        configure
+        third_party_negative
+        third_party_positive
+        native_smoke
+        native_additional
+        native_rejections
+        native_module_rejections)
+    _gentest_add_cmake_helper_test(
+        gentest_explicit_mock_target_validation_${_gentest_explicit_mock_validation_group}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_validation
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExplicitMockTargetValidation.cmake
+        cmake
+        -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DTEST_GROUP=${_gentest_explicit_mock_validation_group})
+    set_property(TEST gentest_explicit_mock_target_validation_${_gentest_explicit_mock_validation_group} APPEND PROPERTY LABELS "modules")
+endforeach()
 
 _gentest_add_cmake_helper_test(
     gentest_explicit_mock_target_staging
@@ -3416,6 +3494,16 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_explicit_mock_target_install_export APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
+    gentest_third_party_mock_consumers
+    ${PROJECT_SOURCE_DIR}/tests/cmake/third_party_mock_consumers
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckThirdPartyMockConsumers.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DREQUIRE_REAL_CONSUMERS=${GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS}
+    -DREQUIRE_TROMPELOEIL_CONSUMER=${GENTEST_REQUIRE_TROMPELOEIL_MOCK_CONSUMER})
+set_property(TEST gentest_third_party_mock_consumers APPEND PROPERTY LABELS "cmake")
 
 _gentest_add_cmake_helper_test(
     gentest_module_pcm_cache_isolation
@@ -4031,6 +4119,16 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         -DCONSUMER_LINK_MODE=main_only
         -DPACKAGE_TEST_USE_MODULES=OFF
         -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        ${_gentest_package_test_compiler_args})
+
+    _gentest_add_cmake_helper_test(
+        gentest_third_party_mock_package_consumers
+        ${PROJECT_SOURCE_DIR}/tests/cmake/third_party_mock_consumers
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckThirdPartyMockConsumers.cmake
+        package
+        -DUSE_INSTALLED_GENTEST=ON
+        -DREQUIRE_REAL_CONSUMERS=${GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS}
+        -DREQUIRE_TROMPELOEIL_CONSUMER=${GENTEST_REQUIRE_TROMPELOEIL_MOCK_CONSUMER}
         ${_gentest_package_test_compiler_args})
 
     _gentest_add_cmake_helper_test(

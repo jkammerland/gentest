@@ -57,6 +57,22 @@ foreach(_death_test IN ITEMS
     concurrency_skip_no_context_death
     concurrency_xfail_no_context_death
     concurrency_multi_noadopt_death
+    concurrency_adopted_expect_pass_death
+    concurrency_adopted_fmt_expect_pass_death
+    concurrency_adopted_expect_fail_death
+    concurrency_adopted_assert_death
+    concurrency_adopted_expect_throw_death
+    concurrency_adopted_fail_death
+    concurrency_adopted_skip_death
+    concurrency_adopted_xfail_death
+    concurrency_adopted_log_policy_death
+    concurrency_adopted_default_log_policy_death
+    concurrency_adopted_mock_expectation_death
+    concurrency_adopted_mock_mode_death
+    concurrency_adopted_mock_handle_mutation_death
+    concurrency_adopted_mock_closed_context_death
+    concurrency_adopted_mock_unexpected_call_death
+    concurrency_stop_callback_expect_death
     async_fail_fast_cancel_released_context_aborts)
   string(FIND "${_tsan_gate_block}" "${_death_test}" _death_test_pos)
   if(_death_test_pos EQUAL -1)

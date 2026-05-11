@@ -34,6 +34,12 @@ enum class ModuleDependencyScanMode {
     On,
 };
 
+enum class MockBackend {
+    Gentest,
+    GMock,
+    Trompeloeil,
+};
+
 enum class TemplateParamKind {
     Type,
     Value,
@@ -152,6 +158,7 @@ struct CollectorOptions {
     std::optional<std::filesystem::path>                                compilation_database;
     std::optional<std::filesystem::path>                                source_root;
     ModuleDependencyScanMode                                            module_dependency_scan_mode = ModuleDependencyScanMode::Auto;
+    MockBackend                                                         mock_backend                = MockBackend::Gentest;
     std::optional<std::filesystem::path>                                clang_scan_deps_executable;
     // Maximum parallelism used when parsing/emitting multiple TUs in TU wrapper mode.
     // 0 selects std::thread::hardware_concurrency().
@@ -221,6 +228,7 @@ struct TestCaseInfo {
 struct MockParamInfo {
     std::string type; // canonical spelling used in generated signature
     std::string name; // argument name (auto-assigned when empty)
+    std::string default_arg;
     enum class PassStyle {
         Value,
         LValueRef,
@@ -266,9 +274,13 @@ struct MockMethodInfo {
     std::vector<MockParamInfo>     parameters;
     std::string                    template_prefix; // e.g. "template <typename T, int N>"
     std::vector<TemplateParamInfo> template_params;
-    bool                           is_static       = false;
-    bool                           is_virtual      = false;
-    bool                           is_pure_virtual = false;
+    bool                           is_static              = false;
+    bool                           is_virtual             = false;
+    bool                           is_pure_virtual        = false;
+    bool                           is_final               = false;
+    bool                           is_variadic            = false;
+    bool                           is_overloaded_operator = false;
+    bool                           is_conversion_operator = false;
     MockMethodQualifiers           qualifiers;
 };
 
@@ -297,6 +309,9 @@ struct MockClassInfo {
     std::vector<std::string> use_files;
     // Owning named module for module-defined mocks. Empty for header-like definitions.
     std::string definition_module_name;
+    // Non-empty when the target type is nested in another record type.
+    std::string enclosing_record_scope;
+    bool        is_template_specialization = false;
     // Global-scope insertion point within `definition_file` where module-owned
     // mock attachments can be injected safely.
     std::optional<std::size_t> attachment_insertion_offset;
@@ -307,6 +322,7 @@ struct MockClassInfo {
     bool                                derive_for_virtual          = false;
     bool                                has_accessible_default_ctor = false;
     bool                                has_virtual_destructor      = false;
+    std::vector<std::string>            unhidden_method_names;
     std::vector<MockCtorInfo>           constructors;
     std::vector<MockMethodInfo>         methods;
 };

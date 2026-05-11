@@ -710,7 +710,7 @@ function(gentest_attach_codegen target)
     endforeach()
 
     set(options STRICT_FIXTURE QUIET_CLANG MODULE_REGISTRATION)
-    set(one_value_args OUTPUT_DIR ENTRY FILE_SET MOCK_AGGREGATE_MODULE_NAME MOCK_AGGREGATE_MODULE_OUTPUT)
+    set(one_value_args OUTPUT_DIR ENTRY FILE_SET MOCK_BACKEND MOCK_AGGREGATE_MODULE_NAME MOCK_AGGREGATE_MODULE_OUTPUT)
     set(multi_value_args SOURCES CLANG_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -752,6 +752,10 @@ function(gentest_attach_codegen target)
                 "Pass a concrete path.")
         endif()
     endif()
+    _gentest_normalize_mock_backend(
+        "${GENTEST_MOCK_BACKEND}"
+        "gentest_attach_codegen(${target}): MOCK_BACKEND"
+        _gentest_mock_backend)
 
     # Scan sources: explicit SOURCES preferred, otherwise pull from target and
     # any named module file sets attached to it. CMake only uses buildsystem
@@ -1077,6 +1081,7 @@ function(gentest_attach_codegen target)
         --depfile ${_gentest_depfile}
         --compdb ${CMAKE_BINARY_DIR}
         --source-root ${CMAKE_SOURCE_DIR})
+    list(APPEND _command --mock-backend ${_gentest_mock_backend})
     if(_gentest_mock_registry AND _gentest_mock_impl)
         list(APPEND _command
             --mock-registry ${_gentest_mock_registry}
