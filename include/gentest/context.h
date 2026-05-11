@@ -29,7 +29,7 @@ class CurrentContext {
 
   private:
     friend struct detail::CurrentContextAccess;
-    friend auto get_current_context() -> CurrentContext;
+    friend GENTEST_RUNTIME_API auto get_current_context() -> CurrentContext;
 
     explicit CurrentContext(std::shared_ptr<detail::TestContextInfo> ctx) noexcept : ctx_(std::move(ctx)) {}
 

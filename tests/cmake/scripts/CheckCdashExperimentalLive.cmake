@@ -44,7 +44,12 @@ endif()
 if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
   list(APPEND _configure_options "-DClang_DIR=${Clang_DIR}")
 endif()
-string(JOIN " " _configure_options_env ${_configure_options})
+set(_configure_options_file "${BINARY_ROOT}/configure-options.txt")
+file(MAKE_DIRECTORY "${BINARY_ROOT}")
+file(WRITE "${_configure_options_file}" "")
+foreach(_configure_option IN LISTS _configure_options)
+  file(APPEND "${_configure_options_file}" "${_configure_option}\n")
+endforeach()
 
 execute_process(
   COMMAND
@@ -55,7 +60,7 @@ execute_process(
     "GENTEST_CDASH_BUILD_TARGETS=gentest_core_tests,gentest_unit_tests"
     "GENTEST_CDASH_TEST_REGEX=^(gentest_core_parse_validate|unit)$"
     "GENTEST_CDASH_PARALLEL_LEVEL=2"
-    "GENTEST_CDASH_CONFIGURE_OPTIONS=${_configure_options_env}"
+    "GENTEST_CDASH_CONFIGURE_OPTIONS_FILE=${_configure_options_file}"
     "${PROG}" -S "${SOURCE_DIR}/cmake/cdash/Experimental.cmake" -VV
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out

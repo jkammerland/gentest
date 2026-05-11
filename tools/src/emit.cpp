@@ -937,6 +937,11 @@ bool write_file_atomic_if_changed(const fs::path &path, std::string_view content
         ec.clear();
         fs::rename(tmp_path, path, ec);
         if (ec) {
+            if (write_file_direct(path)) {
+                std::error_code cleanup_ec;
+                fs::remove(tmp_path, cleanup_ec);
+                return true;
+            }
             log_err("gentest_codegen: failed to replace output file '{}': {}\n", path.string(), ec.message());
             std::error_code cleanup_ec;
             fs::remove(tmp_path, cleanup_ec);
