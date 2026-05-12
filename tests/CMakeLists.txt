@@ -428,8 +428,16 @@ gentest_add_check_counts(
     NAME async_live_slow_demo_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
     LIST
-    CASES 6
+    CASES 8
     ARGS --kind=test)
+
+gentest_add_check_counts(
+    NAME async_live_slow_pingpong_demo
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async_live_slow/pingpong/* --kind=test --no-color)
 
 gentest_add_cmake_script_test(
     NAME async_live_slow_terminal_rendering
