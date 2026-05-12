@@ -548,9 +548,11 @@ gentest::log("visible on stdout and copied");
 handle.remove();
 ```
 
-While async live progress is active, the stdout sink is routed through the
-renderer so logs stay above the live block. Active async rows show a log count
-and the last five log lines by default. Tune this with:
+While async live progress is active, stdout logs from active async cases are
+shown in that case's live row tail, then removed when the case completes; the
+completed row keeps the log count. Additional custom sinks still receive each
+log immediately. Active async rows show the last five log lines by default.
+Tune this with:
 
 ```text
 --async-log-tail=0  # count only

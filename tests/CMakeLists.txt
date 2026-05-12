@@ -440,6 +440,12 @@ gentest_add_check_counts(
     ARGS --filter=async_live_slow/pingpong/* --kind=test --no-color)
 
 gentest_add_cmake_script_test(
+    NAME async_live_slow_pingpong_terminal_tail_zero
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncPingPongTerminal.cmake"
+    ARGS --filter=async_live_slow/pingpong/* --kind=test --async-log-tail=0 --no-color)
+
+gentest_add_cmake_script_test(
     NAME async_live_slow_terminal_rendering
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncLiveTerminal.cmake"

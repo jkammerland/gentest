@@ -30,7 +30,13 @@ class OstreamLogSink final : public LogSink {
 
 class StdoutLogSink final : public LogSink {
   public:
-    void write(std::string_view message) noexcept override { detail::write_default_stdout_log(message); }
+    void write(std::string_view message) noexcept override {
+        auto ctx = detail::current_test_storage();
+        if (ctx && ctx->suppress_stdout_log.load(std::memory_order_acquire)) {
+            return;
+        }
+        detail::write_default_stdout_log(message);
+    }
 };
 
 struct SinkEntry {

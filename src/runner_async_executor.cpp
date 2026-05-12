@@ -469,7 +469,8 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             auto &run = async_runs[run_index];
             if (renderer.enabled() && run.ctxinfo) {
                 std::lock_guard<std::mutex> lk(run.ctxinfo->mtx);
-                run.ctxinfo->recent_log_limit   = state.async_log_tail;
+                run.ctxinfo->recent_log_limit = state.async_log_tail;
+                run.ctxinfo->suppress_stdout_log.store(true, std::memory_order_release);
                 run.ctxinfo->log_observer_state = &renderer;
                 run.ctxinfo->log_observer       = &observe_async_case_logs;
                 run.ctxinfo->log_observer_id    = run_index;

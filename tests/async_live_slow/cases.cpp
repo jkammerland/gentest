@@ -19,7 +19,7 @@ gentest::async::manual_event pong_turn;
 std::vector<std::string>     mix_events;
 
 constexpr auto kVisiblePause   = 250ms;
-constexpr auto kPingPongPause  = 180ms;
+constexpr auto kPingPongPause  = 600ms;
 constexpr auto kPingPongRounds = 8;
 
 auto count_log(std::string_view test_name, int count) -> std::string { return std::string(test_name) + " count " + std::to_string(count); }

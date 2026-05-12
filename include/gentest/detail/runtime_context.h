@@ -79,11 +79,12 @@ struct TestContextInfo {
     std::atomic<ContextState>           state{ContextState::Closed};
     std::atomic<bool>                   has_failures{false};
     std::atomic<std::size_t>            adopted_contexts{0};
-    std::size_t                         log_count          = 0;
-    std::size_t                         recent_log_limit   = 0;
-    void                               *log_observer_state = nullptr;
-    TestLogObserverFn                   log_observer       = nullptr;
-    std::size_t                         log_observer_id    = 0;
+    std::size_t                         log_count           = 0;
+    std::size_t                         recent_log_limit    = 0;
+    std::atomic<bool>                   suppress_stdout_log = false;
+    void                               *log_observer_state  = nullptr;
+    TestLogObserverFn                   log_observer        = nullptr;
+    std::size_t                         log_observer_id     = 0;
 
     std::atomic<bool> runtime_skip_requested{false};
     std::string       runtime_skip_reason;
@@ -197,6 +198,7 @@ inline void notify_context_progress(TestContextInfo &ctx) noexcept;
 
 inline void start_context(TestContextInfo &ctx) noexcept {
     ctx.stop_source = std::stop_source{};
+    ctx.suppress_stdout_log.store(false, std::memory_order_release);
     ctx.state.store(ContextState::Running, std::memory_order_release);
 }
 
