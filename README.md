@@ -50,7 +50,7 @@ Features currently include:
 ## Requirements
 
 - CMake ≥ 3.31
-- C++20 compiler and standard library with `<stop_token>` and `<syncstream>`
+- C++20 compiler and standard library with `<stop_token>`
 - LLVM/Clang (for `gentest_codegen`)
 
 On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.

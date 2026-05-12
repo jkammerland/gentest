@@ -6,23 +6,45 @@
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
-#include <syncstream>
 #include <utility>
 #include <vector>
+#include <version>
+
+#if defined(__has_include)
+#if __has_include(<syncstream>)
+#include <syncstream>
+#endif
+#endif
+
+#if defined(__cpp_lib_syncbuf) && __cpp_lib_syncbuf >= 201803L
+#define GENTEST_HAS_OSYNCSTREAM 1
+#else
+#define GENTEST_HAS_OSYNCSTREAM 0
+#include <mutex>
+#endif
 
 namespace gentest {
 namespace {
+
+void write_line(std::ostream &out, std::string_view message) noexcept {
+    try {
+#if GENTEST_HAS_OSYNCSTREAM
+        std::osyncstream synced(out);
+        synced << message << '\n';
+#else
+        static std::mutex           fallback_mtx;
+        std::lock_guard<std::mutex> lk(fallback_mtx);
+        out << message << '\n';
+        out.flush();
+#endif
+    } catch (...) { return; }
+}
 
 class OstreamLogSink final : public LogSink {
   public:
     explicit OstreamLogSink(std::ostream &out) noexcept : out_(&out) {}
 
-    void write(std::string_view message) noexcept override {
-        try {
-            std::osyncstream synced(*out_);
-            synced << message << '\n';
-        } catch (...) {}
-    }
+    void write(std::string_view message) noexcept override { write_line(*out_, message); }
 
   private:
     std::ostream *out_ = nullptr;
@@ -66,12 +88,7 @@ auto default_stdout_writer_state() -> DefaultStdoutWriterState & {
     return state;
 }
 
-void write_stdout_fallback(std::string_view message) noexcept {
-    try {
-        std::osyncstream synced(std::cout);
-        synced << message << '\n';
-    } catch (...) {}
-}
+void write_stdout_fallback(std::string_view message) noexcept { write_line(std::cout, message); }
 
 auto sink_active(std::size_t id) noexcept -> bool {
     if (id == 0) {
