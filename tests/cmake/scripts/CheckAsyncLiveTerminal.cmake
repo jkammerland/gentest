@@ -137,3 +137,8 @@ foreach(_forbidden IN ITEMS "${_esc}[2J" "${_esc}[H" "${_esc}[r" "${_esc}[?1049"
     message(FATAL_ERROR "async live terminal output used forbidden full-screen escape sequence. Output:\n${_all}")
   endif()
 endforeach()
+
+string(FIND "${_all}" "${_esc}[38;2;000;128;000m" _dark_green_pos)
+if(NOT _dark_green_pos EQUAL -1)
+  message(FATAL_ERROR "async live terminal output used a second PASS green escape sequence. Output:\n${_all}")
+endif()

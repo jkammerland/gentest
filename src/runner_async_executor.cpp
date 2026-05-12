@@ -11,7 +11,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <fmt/color.h>
 #include <fmt/format.h>
 #include <iostream>
 #include <memory>
@@ -24,16 +23,16 @@
 namespace gentest::runner {
 namespace {
 
-auto outcome_color(Outcome outcome) -> fmt::color {
+auto outcome_color_code(Outcome outcome) -> std::string_view {
     switch (outcome) {
-    case Outcome::Pass: return fmt::color::green;
+    case Outcome::Pass: return "32";
     case Outcome::Fail:
-    case Outcome::XPass: return fmt::color::red;
+    case Outcome::XPass: return "31";
     case Outcome::Skip:
-    case Outcome::Blocked: return fmt::color::yellow;
-    case Outcome::XFail: return fmt::color::cyan;
+    case Outcome::Blocked: return "33";
+    case Outcome::XFail: return "36";
     }
-    return fmt::color::white;
+    return "37";
 }
 
 auto async_live_status_for(const RunResult &result) -> AsyncLiveStatus {
@@ -70,7 +69,7 @@ auto async_live_detail_for(const RunResult &result) -> std::string {
 auto deferred_status_prefix(const RunResult &result, bool color_output) -> std::string {
     const auto status = async_live_status_text(async_live_status_for(result));
     if (color_output) {
-        return fmt::format(fmt::fg(outcome_color(result.outcome)), "[ {:^9} ]", status);
+        return fmt::format("\033[{}m[ {:^9} ]\033[0m", outcome_color_code(result.outcome), status);
     }
     return fmt::format("[ {:^9} ]", status);
 }

@@ -89,16 +89,6 @@ auto status_color(AsyncLiveStatus status) -> indicators::Color {
     return indicators::Color::white;
 }
 
-auto status_rank(AsyncLiveStatus status) -> int {
-    if (status == AsyncLiveStatus::Yielded) {
-        return 1;
-    }
-    if (status == AsyncLiveStatus::Running) {
-        return 2;
-    }
-    return 0;
-}
-
 auto find_row(std::vector<AsyncLiveRowSnapshot> &rows, std::size_t id) -> std::vector<AsyncLiveRowSnapshot>::iterator {
     return std::ranges::find_if(rows, [&](const AsyncLiveRowSnapshot &row) { return row.id == id; });
 }
@@ -647,9 +637,6 @@ auto AsyncStatusRenderer::ordered_rows_unlocked() const -> std::vector<AsyncLive
     std::vector<AsyncLiveRowSnapshot> ordered;
     ordered.reserve(rows_.size());
     std::ranges::copy_if(rows_, std::back_inserter(ordered), [](const AsyncLiveRowSnapshot &row) { return !row.final; });
-    std::ranges::stable_sort(ordered, [](const AsyncLiveRowSnapshot &lhs, const AsyncLiveRowSnapshot &rhs) {
-        return status_rank(lhs.status) < status_rank(rhs.status);
-    });
     return ordered;
 }
 

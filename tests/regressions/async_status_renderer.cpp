@@ -192,8 +192,8 @@ int main() {
     renderer.mark_running(0);
 
     std::string snapshot = renderer.render_snapshot_for_test();
-    if (!before(snapshot, "[ SUSPENDED ]", "[  YIELDED  ]") || !before(snapshot, "[  YIELDED  ]", "[  RUNNING  ]")) {
-        return fail("running row should render below yielded rows and yielded rows below suspended rows", snapshot);
+    if (!before(snapshot, "[  RUNNING  ]", "[ SUSPENDED ]") || !before(snapshot, "[ SUSPENDED ]", "[  YIELDED  ]")) {
+        return fail("active rows should stay in case creation order as statuses change", snapshot);
     }
     if (!contains(snapshot, "waiting for dependency @ waiting.cpp:42")) {
         return fail("suspended row should show source location", snapshot);
