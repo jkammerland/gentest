@@ -214,8 +214,8 @@ int main() {
     std::vector<std::string> tail_logs{"first", "second", "third"};
     tail.update_logs(0, tail_logs, 3);
     snapshot = tail.render_snapshot_for_test();
-    if (!contains(snapshot, "3 log(s)") || contains(snapshot, "  first") || !contains(snapshot, "  second") ||
-        !contains(snapshot, "  third")) {
+    if (!contains(snapshot, "3 log(s)") || contains(snapshot, "\nfirst\n") || !contains(snapshot, "\nsecond\n") ||
+        !contains(snapshot, "\nthird\n")) {
         return fail("live async rows should show the log count and the configured recent log tail", snapshot);
     }
 
@@ -226,7 +226,7 @@ int main() {
     std::vector<std::string> hidden_logs{"hidden", "also hidden"};
     no_tail.update_logs(0, hidden_logs, 2);
     snapshot = no_tail.render_snapshot_for_test();
-    if (!contains(snapshot, "2 log(s)") || contains(snapshot, "  hidden") || contains(snapshot, "  also hidden")) {
+    if (!contains(snapshot, "2 log(s)") || contains(snapshot, "\nhidden\n") || contains(snapshot, "\nalso hidden\n")) {
         return fail("zero live async log tail should keep the count but hide recent log lines", snapshot);
     }
 
@@ -238,8 +238,8 @@ int main() {
     std::vector<std::string> clipped_logs{"first", "second", "third"};
     clipped_tail.update_logs(0, clipped_logs, 3);
     snapshot = clipped_tail.render_snapshot_for_test();
-    if (!contains(snapshot, "[ SUSPENDED ]") || !contains(snapshot, "async/live/clipped_log_tail") || !contains(snapshot, "  third") ||
-        contains(snapshot, "  first")) {
+    if (!contains(snapshot, "[ SUSPENDED ]") || !contains(snapshot, "async/live/clipped_log_tail") || !contains(snapshot, "\nthird\n") ||
+        contains(snapshot, "\nfirst\n")) {
         return fail("terminal clipping should keep the owning row visible with the newest tail lines", snapshot);
     }
 

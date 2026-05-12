@@ -89,7 +89,7 @@ foreach(_final_case IN ITEMS
 endforeach()
 
 if(DEFINED EXPECT_LOG_TAIL AND EXPECT_LOG_TAIL)
-  set(_tail_prefix "${_cr}${_esc}[2K  ")
+  set(_tail_prefix "${_cr}${_esc}[2K")
   set(_found_tail FALSE)
   foreach(_tail_line IN ITEMS
       "short async case started"
@@ -108,7 +108,7 @@ if(DEFINED EXPECT_LOG_TAIL AND EXPECT_LOG_TAIL)
 endif()
 
 if(DEFINED FORBID_LOG_TAIL AND FORBID_LOG_TAIL)
-  set(_tail_prefix "${_cr}${_esc}[2K  ")
+  set(_tail_prefix "${_cr}${_esc}[2K")
   foreach(_tail_line IN ITEMS
       "short async case started"
       "short async case resumed"

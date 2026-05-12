@@ -448,8 +448,7 @@ auto format_row(const AsyncLiveRowSnapshot &row, bool color_output, bool hyperli
 }
 
 auto format_log_tail_line(std::string_view message, std::size_t max_width) -> std::string {
-    auto line = fmt::format("  {}", sanitized_terminal_field(message));
-    return shorten_right(line, max_width);
+    return shorten_right(sanitized_terminal_field(message), max_width);
 }
 
 auto format_scrolling_log_line(std::string_view message, std::size_t max_width) -> std::string {
