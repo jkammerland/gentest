@@ -88,6 +88,16 @@ foreach(_final_case IN ITEMS
   endif()
 endforeach()
 
+foreach(_final_log_count IN ITEMS
+    "async_live_slow/panel/02_short_pass :: 2 log(s)"
+    "async_live_slow/panel/03_medium_pass :: 4 log(s)"
+    "async_live_slow/panel/04_long_driver :: 14 log(s)")
+  string(FIND "${_all}" "${_final_log_count}" _final_log_count_pos)
+  if(_final_log_count_pos EQUAL -1)
+    message(FATAL_ERROR "Expected completed async output to include '${_final_log_count}'. Output:\n${_all}")
+  endif()
+endforeach()
+
 if(DEFINED EXPECT_LOG_TAIL AND EXPECT_LOG_TAIL)
   set(_tail_prefix "${_cr}${_esc}[2K")
   set(_found_tail FALSE)

@@ -66,7 +66,7 @@ class AsyncStatusRenderer {
                                     unsigned line = 0); // NOLINT(bugprone-easily-swappable-parameters)
     void               mark_suspended(std::size_t id, std::string_view detail, std::string_view file = {},
                                       unsigned line = 0); // NOLINT(bugprone-easily-swappable-parameters)
-    void               mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms);
+    auto               mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms) -> std::string;
     void               update_logs(std::size_t id, std::span<const std::string> recent_logs, std::size_t log_count);
     void               log(std::string_view message);
     void               result_line(std::string_view message);

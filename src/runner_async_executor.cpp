@@ -173,8 +173,11 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         auto     &run = async_runs[run_index];
         RunResult rr  = finish_invoke_result(final_state, cases[run.case_index], inv, counters);
         if (renderer.enabled()) {
-            renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
-            renderer.result_line(deferred_case_line(cases[run.case_index].name, rr, final_state.color_output));
+            auto line = renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
+            if (line.empty()) {
+                line = deferred_case_line(cases[run.case_index].name, rr, final_state.color_output);
+            }
+            renderer.result_line(line);
             log_async_details(renderer, rr);
         }
         if (state.acc) {
@@ -302,8 +305,11 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
 
         RunResult rr = finish_invoke_result(final_state, cases[run.case_index], inv, counters);
         if (renderer.enabled()) {
-            renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
-            renderer.result_line(deferred_case_line(cases[run.case_index].name, rr, final_state.color_output));
+            auto line = renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
+            if (line.empty()) {
+                line = deferred_case_line(cases[run.case_index].name, rr, final_state.color_output);
+            }
+            renderer.result_line(line);
             log_async_details(renderer, rr);
         }
         if (state.acc) {

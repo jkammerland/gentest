@@ -574,14 +574,15 @@ void AsyncStatusRenderer::mark_suspended(std::size_t id, std::string_view detail
     render();
 }
 
-void AsyncStatusRenderer::mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms) {
+auto AsyncStatusRenderer::mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms)
+    -> std::string {
     std::lock_guard<std::mutex> lk(mtx_);
     if (!enabled() || finished_) {
-        return;
+        return {};
     }
     auto row = find_row(rows_, id);
     if (row == rows_.end()) {
-        return;
+        return {};
     }
     row->status = status;
     row->detail = std::string(detail);
@@ -592,7 +593,9 @@ void AsyncStatusRenderer::mark_final(std::size_t id, AsyncLiveStatus status, std
     row->duration_ms  = duration_ms;
     row->final        = true;
     completed_lines_.push_back(format_row(*row, color_output_, false, output_width()));
+    auto line = completed_lines_.back();
     render();
+    return line;
 }
 
 void AsyncStatusRenderer::update_logs(std::size_t id, std::span<const std::string> recent_logs, std::size_t log_count) {

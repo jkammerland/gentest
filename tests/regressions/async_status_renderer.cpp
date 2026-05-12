@@ -337,7 +337,9 @@ int main() {
         }
     }
 
-    renderer.mark_final(0, gentest::runner::AsyncLiveStatus::Pass, {}, 7);
+    std::vector<std::string> completed_logs{"final first", "final second", "final third"};
+    renderer.update_logs(0, completed_logs, 3);
+    const auto completed_log_line = renderer.mark_final(0, gentest::runner::AsyncLiveStatus::Pass, {}, 7);
     renderer.mark_final(1, gentest::runner::AsyncLiveStatus::Fail, "1 issue(s)", 9);
     renderer.mark_final(2, gentest::runner::AsyncLiveStatus::Pass, {}, 11);
     renderer.mark_final(3, gentest::runner::AsyncLiveStatus::Pass, {}, 13);
@@ -346,10 +348,15 @@ int main() {
         return fail("completed rows should leave the active panel", snapshot);
     }
     const auto &completed = renderer.completed_lines_for_test();
-    if (completed.size() != 4 || !contains(completed[0], "[   PASS    ]") || !contains(completed[0], "async/live/running (7 ms)") ||
-        !contains(completed[1], "[   FAIL    ]") || !contains(completed[1], "async/live/waiting :: 1 issue(s) (9 ms)") ||
-        !contains(completed[2], "async/live/yielding (11 ms)") || visible_width(completed[3]) > 80) {
+    if (completed.size() != 4 || !contains(completed[0], "[   PASS    ]") ||
+        !contains(completed[0], "async/live/running :: 3 log(s) (7 ms)") || !contains(completed[1], "[   FAIL    ]") ||
+        !contains(completed[1], "async/live/waiting :: 1 issue(s) (9 ms)") || !contains(completed[2], "async/live/yielding (11 ms)") ||
+        visible_width(completed[3]) > 80) {
         return fail("final rows should be emitted as completed scrolling lines");
+    }
+    if (!contains(completed_log_line, "async/live/running :: 3 log(s) (7 ms)") ||
+        !contains(completed[0], "async/live/running :: 3 log(s) (7 ms)")) {
+        return fail("completed async rows should preserve the active row log count", completed_log_line);
     }
 
     std::ostringstream                   duplicate_out;
