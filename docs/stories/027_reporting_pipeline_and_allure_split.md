@@ -86,10 +86,10 @@ genuinely shared across sinks.
    - `regression_runtime_selection_mixed_summary_counts`
    - `regression_runtime_selection_duplicate_name_summary_first_location`
    - `regression_runtime_selection_duplicate_name_summary_second_location`
-   - `regression_logging_output_on_failure_policy_pass_silent`
-   - `regression_logging_output_always_policy_visible_on_pass`
-   - `regression_logging_output_default_always_policy_visible_on_pass`
-   - `regression_logging_output_explicit_never_overrides_default_always`
+   - `regression_logging_output_default_sink_visible_on_pass`
+   - `regression_logging_output_default_sink_visible_on_sync_fail`
+   - `regression_logging_output_custom_sink_receives_logs`
+   - `regression_logging_output_remove_all_sinks_silences_default`
    - `regression_runtime_reporting_fallback_assertion_junit_reports_failure`
    - `regression_runtime_reporting_github_annotation_escapes_file_title`
    - `regression_runtime_reporting_junit_cdata_token_split`
@@ -135,10 +135,10 @@ genuinely shared across sinks.
   `regression_runtime_selection_mixed_summary_counts`,
   `regression_runtime_selection_duplicate_name_summary_first_location`,
   `regression_runtime_selection_duplicate_name_summary_second_location`,
-  `regression_logging_output_on_failure_policy_pass_silent`,
-  `regression_logging_output_always_policy_visible_on_pass`,
-  `regression_logging_output_default_always_policy_visible_on_pass`,
-  `regression_logging_output_explicit_never_overrides_default_always`,
+  `regression_logging_output_default_sink_visible_on_pass`,
+  `regression_logging_output_default_sink_visible_on_sync_fail`,
+  `regression_logging_output_custom_sink_receives_logs`,
+  `regression_logging_output_remove_all_sinks_silences_default`,
   `regression_runtime_reporting_fallback_assertion_junit_reports_failure`,
   `regression_runtime_reporting_github_annotation_escapes_file_title`,
   `regression_runtime_reporting_junit_cdata_token_split`,

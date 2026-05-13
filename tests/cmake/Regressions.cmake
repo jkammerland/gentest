@@ -501,89 +501,95 @@ gentest_add_cmake_script_test(
         "REQUIRED_SUBSTRING=regressions/runtime_selection/bench_table_case")
 
 gentest_add_cmake_script_test(
-    NAME regression_logging_output_on_failure_policy_pass_silent
+    NAME regression_logging_output_default_sink_visible_on_pass
     PROG $<TARGET_FILE:gentest_regression_logging_output>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --run=regressions/logging_output/on_failure_policy_pass_silent --kind=test
+    ARGS --run=regressions/logging_output/default_sink_visible_on_pass --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "REQUIRED_SUBSTRING=default sink visible on pass"
+        "EXPECT_COUNT_SUBSTRING=default sink visible on pass"
+        "EXPECT_COUNT=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_default_sink_visible_on_sync_fail
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/default_sink_visible_on_sync_fail --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=default sink visible on sync fail"
+        "EXPECT_COUNT_SUBSTRING=default sink visible on sync fail"
+        "EXPECT_COUNT=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_custom_sink_receives_logs
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/custom_sink_receives_logs --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "REQUIRED_SUBSTRING=Summary: passed 1/1; failed 0; skipped 0; blocked 0; xfail 0; xpass 0.")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_remove_all_sinks_silences_default
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/remove_all_sinks_silences_default --kind=test
     DEFINES
         "EXPECT_RC=0"
         "REQUIRED_SUBSTRING=Summary: passed 1/1; failed 0; skipped 0; blocked 0; xfail 0; xpass 0."
-        "FORBID_SUBSTRING=failure-only hidden on pass")
+        "FORBID_SUBSTRING=removed sinks hidden on pass")
 
 gentest_add_cmake_script_test(
-    NAME regression_logging_output_on_failure_policy_fail_visible
+    NAME regression_logging_output_handle_destruction_does_not_remove_sink
     PROG $<TARGET_FILE:gentest_regression_logging_output>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --run=regressions/logging_output/on_failure_policy_fail_visible --kind=test --no-color
+    ARGS --run=regressions/logging_output/handle_destruction_does_not_remove_sink --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "REQUIRED_SUBSTRING=Summary: passed 1/1; failed 0; skipped 0; blocked 0; xfail 0; xpass 0.")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_explicit_remove_before_reassigning_handle
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/explicit_remove_before_reassigning_handle --kind=test
+    DEFINES
+        "EXPECT_RC=0"
+        "REQUIRED_SUBSTRING=Summary: passed 1/1; failed 0; skipped 0; blocked 0; xfail 0; xpass 0.")
+
+gentest_add_cmake_script_test(
+    NAME regression_logging_output_async_default_sink_visible_on_fail
+    PROG $<TARGET_FILE:gentest_regression_logging_output>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --run=regressions/logging_output/async_default_sink_visible_on_fail --kind=test --no-color
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=failure-only visible on sync fail"
-        "EXPECT_COUNT_SUBSTRING=failure-only visible on sync fail"
+        "REQUIRED_SUBSTRING=default sink visible on async fail"
+        "EXPECT_COUNT_SUBSTRING=default sink visible on async fail"
         "EXPECT_COUNT=1")
 
 gentest_add_cmake_script_test(
-    NAME regression_logging_output_always_policy_visible_on_pass
+    NAME regression_logging_output_async_default_sink_visible_on_pass
     PROG $<TARGET_FILE:gentest_regression_logging_output>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --run=regressions/logging_output/always_policy_visible_on_pass --kind=test
+    ARGS --run=regressions/logging_output/async_default_sink_visible_on_pass --kind=test --no-color
     DEFINES
         "EXPECT_RC=0"
-        "REQUIRED_SUBSTRING=always-policy visible on pass"
-        "EXPECT_COUNT_SUBSTRING=always-policy visible on pass"
+        "REQUIRED_SUBSTRING=default sink visible on async pass"
+        "EXPECT_COUNT_SUBSTRING=default sink visible on async pass"
         "EXPECT_COUNT=1")
 
 gentest_add_cmake_script_test(
-    NAME regression_logging_output_default_always_policy_visible_on_pass
+    NAME regression_logging_output_adopted_thread_log_visible
     PROG $<TARGET_FILE:gentest_regression_logging_output>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --run=regressions/logging_output/default_always_policy_visible_on_pass --kind=test
+    ARGS --run=regressions/logging_output/adopted_thread_log_visible --kind=test --no-color
     DEFINES
         "EXPECT_RC=0"
-        "REQUIRED_SUBSTRING=default-always visible on pass"
-        "EXPECT_COUNT_SUBSTRING=default-always visible on pass"
-        "EXPECT_COUNT=1")
-
-gentest_add_cmake_script_test(
-    NAME regression_logging_output_explicit_never_overrides_default_always
-    PROG $<TARGET_FILE:gentest_regression_logging_output>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --run=regressions/logging_output/explicit_never_overrides_default_always --kind=test
-    DEFINES
-        "EXPECT_RC=0"
-        "REQUIRED_SUBSTRING=Summary: passed 1/1; failed 0; skipped 0; blocked 0; xfail 0; xpass 0."
-        "FORBID_SUBSTRING=default-always overridden by explicit never")
-
-gentest_add_cmake_script_test(
-    NAME regression_logging_output_async_on_failure_policy_fail_visible
-    PROG $<TARGET_FILE:gentest_regression_logging_output>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --run=regressions/logging_output/async_on_failure_policy_fail_visible --kind=test --no-color
-    DEFINES
-        "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=failure-only visible on async fail"
-        "EXPECT_COUNT_SUBSTRING=failure-only visible on async fail"
-        "EXPECT_COUNT=1")
-
-gentest_add_cmake_script_test(
-    NAME regression_logging_output_async_always_policy_visible_on_pass
-    PROG $<TARGET_FILE:gentest_regression_logging_output>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --run=regressions/logging_output/async_always_policy_visible_on_pass --kind=test --no-color
-    DEFINES
-        "EXPECT_RC=0"
-        "REQUIRED_SUBSTRING=always-policy visible on async pass"
-        "EXPECT_COUNT_SUBSTRING=always-policy visible on async pass"
-        "EXPECT_COUNT=1")
-
-gentest_add_cmake_script_test(
-    NAME regression_logging_output_adopted_thread_on_failure_policy_fail_visible
-    PROG $<TARGET_FILE:gentest_regression_logging_output>
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS --run=regressions/logging_output/adopted_thread_on_failure_log_visible --kind=test --no-color
-    DEFINES
-        "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=failure-only visible from adopted thread"
-        "EXPECT_COUNT_SUBSTRING=failure-only visible from adopted thread"
+        "REQUIRED_SUBSTRING=default sink visible from adopted thread"
+        "EXPECT_COUNT_SUBSTRING=default sink visible from adopted thread"
         "EXPECT_COUNT=1")
 
 gentest_add_check_death(

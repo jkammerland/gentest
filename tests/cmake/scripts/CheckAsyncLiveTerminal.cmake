@@ -60,6 +60,8 @@ execute_process(
   ERROR_VARIABLE _err)
 
 set(_all "${_out}\n${_err}")
+string(ASCII 13 _cr)
+string(ASCII 27 _esc)
 
 if(NOT _rc EQUAL 0)
   message(FATAL_ERROR "async live terminal command failed with rc=${_rc}. Output:\n${_all}")
@@ -73,9 +75,9 @@ foreach(_required IN ITEMS "SUSPENDED" "YIELDED" "RUNNING" "async_live_slow/pane
 endforeach()
 
 foreach(_final_case IN ITEMS
-    "async_live_slow/panel/00_async_waits_for_sync"
-    "async_live_slow/panel/01_sync_releases_async"
-    "async_live_slow/panel/05_waiting_on_driver")
+    "async_live_slow/panel/00_async_"
+    "async_live_slow/panel/01_sync_rel"
+    "async_live_slow/panel/05_waiting_")
   string(LENGTH "${_final_case}" _needle_len)
   string(REPLACE "${_final_case}" "" _without_case "${_all}")
   string(LENGTH "${_all}" _all_len)
@@ -86,10 +88,57 @@ foreach(_final_case IN ITEMS
   endif()
 endforeach()
 
-string(ASCII 27 _esc)
+foreach(_final_log_count IN ITEMS
+    "async_live_slow/panel/02_short_pass :: 2 log(s)"
+    "async_live_slow/panel/03_medium_pass :: 4 log(s)"
+    "async_live_slow/panel/04_long_driver :: 14 log(s)")
+  string(FIND "${_all}" "${_final_log_count}" _final_log_count_pos)
+  if(_final_log_count_pos EQUAL -1)
+    message(FATAL_ERROR "Expected completed async output to include '${_final_log_count}'. Output:\n${_all}")
+  endif()
+endforeach()
+
+if(DEFINED EXPECT_LOG_TAIL AND EXPECT_LOG_TAIL)
+  set(_tail_prefix "${_cr}${_esc}[2K")
+  set(_found_tail FALSE)
+  foreach(_tail_line IN ITEMS
+      "short async case started"
+      "short async case resumed"
+      "medium async tick"
+      "long async driver tick")
+    string(FIND "${_all}" "${_tail_prefix}${_tail_line}" _log_tail_pos)
+    if(NOT _log_tail_pos EQUAL -1)
+      set(_found_tail TRUE)
+      break()
+    endif()
+  endforeach()
+  if(NOT _found_tail)
+    message(FATAL_ERROR "Expected async live terminal output to include log tail lines. Output:\n${_all}")
+  endif()
+endif()
+
+if(DEFINED FORBID_LOG_TAIL AND FORBID_LOG_TAIL)
+  set(_tail_prefix "${_cr}${_esc}[2K")
+  foreach(_tail_line IN ITEMS
+      "short async case started"
+      "short async case resumed"
+      "medium async tick"
+      "long async driver tick")
+    string(FIND "${_all}" "${_tail_prefix}${_tail_line}" _log_tail_pos)
+    if(NOT _log_tail_pos EQUAL -1)
+      message(FATAL_ERROR "Expected async live terminal output to hide log tail lines. Output:\n${_all}")
+    endif()
+  endforeach()
+endif()
+
 foreach(_forbidden IN ITEMS "${_esc}[2J" "${_esc}[H" "${_esc}[r" "${_esc}[?1049")
   string(FIND "${_all}" "${_forbidden}" _forbidden_pos)
   if(NOT _forbidden_pos EQUAL -1)
     message(FATAL_ERROR "async live terminal output used forbidden full-screen escape sequence. Output:\n${_all}")
   endif()
 endforeach()
+
+string(FIND "${_all}" "${_esc}[38;2;000;128;000m" _dark_green_pos)
+if(NOT _dark_green_pos EQUAL -1)
+  message(FATAL_ERROR "async live terminal output used a second PASS green escape sequence. Output:\n${_all}")
+endif()

@@ -186,8 +186,6 @@ set(_gentest_adopted_context_death_checks
     "concurrency_adopted_fail_death|concurrency/adopted_fail_death|fail called"
     "concurrency_adopted_skip_death|concurrency/adopted_skip_death|skip called"
     "concurrency_adopted_xfail_death|concurrency/adopted_xfail_death|xfail called"
-    "concurrency_adopted_log_policy_death|concurrency/adopted_log_policy_death|set_log_policy called"
-    "concurrency_adopted_default_log_policy_death|concurrency/adopted_default_log_policy_death|set_default_log_policy called"
     "concurrency_adopted_mock_expectation_death|concurrency/adopted_mock_expectation_death|mock expectation configured"
     "concurrency_adopted_mock_mode_death|concurrency/adopted_mock_mode_death|mock mode configured"
     "concurrency_adopted_mock_handle_mutation_death|concurrency/adopted_mock_handle_mutation_death|mock expectation configured"
@@ -430,20 +428,46 @@ gentest_add_check_counts(
     NAME async_live_slow_demo_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
     LIST
-    CASES 6
+    CASES 8
     ARGS --kind=test)
+
+gentest_add_check_counts(
+    NAME async_live_slow_pingpong_demo
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async_live_slow/pingpong/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_live_slow_pingpong_terminal_tail_zero
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncPingPongTerminal.cmake"
+    ARGS --filter=async_live_slow/pingpong/* --kind=test --async-log-tail=0 --no-color)
 
 gentest_add_cmake_script_test(
     NAME async_live_slow_terminal_rendering
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncLiveTerminal.cmake"
-    ARGS --filter=async_live_slow/panel/* --kind=test)
+    ARGS --filter=async_live_slow/panel/* --kind=test
+    DEFINES
+        "EXPECT_LOG_TAIL=1")
 
 gentest_add_cmake_script_test(
     NAME async_live_slow_terminal_rendering_no_color
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncLiveTerminal.cmake"
-    ARGS --filter=async_live_slow/panel/* --kind=test --no-color)
+    ARGS --filter=async_live_slow/panel/* --kind=test --no-color
+    DEFINES
+        "EXPECT_LOG_TAIL=1")
+
+gentest_add_cmake_script_test(
+    NAME async_live_slow_terminal_rendering_log_tail_zero
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncLiveTerminal.cmake"
+    ARGS --filter=async_live_slow/panel/* --kind=test --async-log-tail=0
+    DEFINES
+        "FORBID_LOG_TAIL=1")
 
 gentest_add_check_counts(
     NAME async_value_discard
@@ -868,8 +892,6 @@ if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
         concurrency_adopted_fail_death
         concurrency_adopted_skip_death
         concurrency_adopted_xfail_death
-        concurrency_adopted_log_policy_death
-        concurrency_adopted_default_log_policy_death
         concurrency_adopted_mock_expectation_death
         concurrency_adopted_mock_mode_death
         concurrency_adopted_mock_handle_mutation_death
@@ -886,8 +908,8 @@ if(GENTEST_SKIP_TSAN_DEATH_TESTS)
         concurrency_fail_single_death concurrency_skip_no_context_death concurrency_xfail_no_context_death concurrency_multi_noadopt_death
         concurrency_adopted_expect_pass_death concurrency_adopted_fmt_expect_pass_death concurrency_adopted_expect_fail_death
         concurrency_adopted_assert_death concurrency_adopted_expect_throw_death concurrency_adopted_fail_death concurrency_adopted_skip_death
-        concurrency_adopted_xfail_death concurrency_adopted_log_policy_death concurrency_adopted_default_log_policy_death
-        concurrency_adopted_mock_expectation_death concurrency_adopted_mock_mode_death concurrency_adopted_mock_handle_mutation_death
+        concurrency_adopted_xfail_death concurrency_adopted_mock_expectation_death concurrency_adopted_mock_mode_death
+        concurrency_adopted_mock_handle_mutation_death
         concurrency_adopted_mock_closed_context_death concurrency_adopted_mock_unexpected_call_death concurrency_stop_callback_expect_death
         async_fail_fast_cancel_released_context_aborts
         PROPERTIES DISABLED TRUE)
@@ -945,11 +967,11 @@ _gentest_add_proof_test(
     gentest_proof_api_context_event_chronology
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/event_chronology_red.cpp)
 _gentest_add_proof_test(
-    gentest_proof_api_context_always_log
-    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/always_log_red.cpp)
+    gentest_proof_api_context_log_capture
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/log_capture_red.cpp)
 _gentest_add_proof_test(
-    gentest_proof_api_context_log_policy
-    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/log_policy_red.cpp)
+    gentest_proof_api_context_log_sinks
+    ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/log_sinks_red.cpp)
 _gentest_add_proof_test(
     gentest_proof_api_context_expect_throw_std_exception
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/expect_throw_std_exception_red.cpp)
@@ -2166,6 +2188,7 @@ gentest_add_check_exit_code(
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING gentest ARGS --help)
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--time-unit=<mode>" ARGS --help)
+gentest_add_check_contains(NAME unit_help_async_log_tail PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--async-log-tail=N" ARGS --help)
 gentest_add_check_contains(NAME unit_list_contains_attr_close_marker_name_prefix PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "unit/attributes/close_marker_in_string_" ARGS --list-tests)
 gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "tags=fast" ARGS --list)
 gentest_add_check_contains(
@@ -2296,7 +2319,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             "EXPECTED_REASON=shared fixture unavailable for 'regressions::shared_setup_skip::NullSuiteFx': fixture allocation returned null")
     set_tests_properties(allure_blocked_shared_fixture_label PROPERTIES LABELS "allure")
 
-    # Allure logs attachment: failing test with LogPolicy::OnFailure should create a logs attachment
+    # Allure logs attachment: failing tests should create a logs attachment.
     gentest_add_run_and_check_file(
         NAME allure_logs_attachment
         PROG $<TARGET_FILE:gentest_failing_tests>
@@ -2903,6 +2926,24 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_unit_tests>
     REQUIRED_SUBSTRING "error: --bench-table requires --kind=bench or --kind=all"
     ARGS --bench-table --kind=jitter)
+
+gentest_add_check_death(
+    NAME cli_async_log_tail_duplicate
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    REQUIRED_SUBSTRING "error: duplicate --async-log-tail"
+    ARGS --async-log-tail=1 --async-log-tail=2)
+
+gentest_add_check_death(
+    NAME cli_async_log_tail_missing_value
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    REQUIRED_SUBSTRING "error: --async-log-tail requires a value"
+    ARGS --async-log-tail)
+
+gentest_add_check_death(
+    NAME cli_async_log_tail_non_numeric
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    REQUIRED_SUBSTRING "error: --async-log-tail must be a non-negative decimal integer"
+    ARGS --async-log-tail=abc)
 
 function(_gentest_add_cmake_helper_test name source_dir script_path label)
     # Keep helper fixture roots compact so nested CMake/Ninja scratch paths stay under

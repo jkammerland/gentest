@@ -13,7 +13,8 @@ Use it to record which installed symbols or surfaces are:
 
 ## Inventory
 
-- `gentest::log`, `gentest::set_log_policy`, `gentest::set_default_log_policy`, `gentest::skip`,
+- `gentest::log`, `gentest::add_log_sink`, `gentest::remove_log_sink`, `gentest::remove_all_log_sinks`,
+  `gentest::restore_default_log_sink`, `gentest::make_ostream_log_sink`, `gentest::skip`,
   `gentest::skip_if`, `gentest::xfail`, `gentest::xfail_if`: `public` -> keep
 - `gentest::get_current_context`, `gentest::set_current_context`, `gentest::CurrentContextLease`: `public` -> keep
 - `gentest::CurrentContext`: `public` -> keep as the shared-pointer context type; current reduction work hides the

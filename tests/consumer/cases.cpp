@@ -1,8 +1,23 @@
 #include "gentest/attributes.h"
 #include "gentest/bench_util.h"
+#include "gentest/context.h"
 #include "gentest_consumer_mocks.hpp"
 
+#include <sstream>
+#include <string>
+#include <string_view>
+
 using namespace gentest::asserts;
+
+namespace {
+
+struct RestoreDefaultLogSink {
+    ~RestoreDefaultLogSink() { gentest::restore_default_log_sink(); }
+};
+
+bool contains(std::string_view haystack, std::string_view needle) { return haystack.find(needle) != std::string_view::npos; }
+
+} // namespace
 
 namespace consumer {
 
@@ -31,6 +46,21 @@ void module_mock() {
 
     Service *service = &mock_service;
     EXPECT_EQ(service->compute(3), 9);
+}
+
+[[using gentest: test("consumer/log_sink")]]
+void log_sink() {
+    RestoreDefaultLogSink restore;
+    gentest::remove_all_log_sinks();
+    std::ostringstream out;
+    auto               handle = gentest::add_log_sink(gentest::make_ostream_log_sink(out));
+
+    gentest::log("consumer log sink first");
+    EXPECT_TRUE(contains(out.str(), "consumer log sink first"));
+    EXPECT_TRUE(handle.remove());
+
+    gentest::log("consumer log sink after remove");
+    EXPECT_FALSE(contains(out.str(), "consumer log sink after remove"));
 }
 
 [[using gentest: bench("consumer/module_bench"), baseline]]

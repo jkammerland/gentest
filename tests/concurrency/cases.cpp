@@ -18,7 +18,6 @@ namespace [[using gentest: suite("concurrency")]] gentest_concurrency_tests {
 
 [[using gentest: test("child_log_pass")]]
 void child_log_pass() {
-    gentest::set_log_policy(gentest::LogPolicy::Always);
     auto              context = gentest::get_current_context();
     std::promise<int> result;
     auto              done = result.get_future();
@@ -76,7 +75,6 @@ void child_reports_exception_pass() {
 
 [[using gentest: test("multi_adopt_log_pass")]]
 void multi_adopt_log_pass() {
-    gentest::set_log_policy(gentest::LogPolicy::Always);
     auto             context = gentest::get_current_context();
     std::atomic<int> completed{0};
     std::thread      t1([context, &completed] {
@@ -211,26 +209,6 @@ void adopted_xfail_death() {
     std::thread t([context] {
         auto g = gentest::set_current_context(context);
         gentest::xfail("adopted xfail");
-    });
-    t.join();
-}
-
-[[using gentest: test("adopted_log_policy_death")]]
-void adopted_log_policy_death() {
-    auto        context = gentest::get_current_context();
-    std::thread t([context] {
-        auto g = gentest::set_current_context(context);
-        gentest::set_log_policy(gentest::LogPolicy::Always);
-    });
-    t.join();
-}
-
-[[using gentest: test("adopted_default_log_policy_death")]]
-void adopted_default_log_policy_death() {
-    auto        context = gentest::get_current_context();
-    std::thread t([context] {
-        auto g = gentest::set_current_context(context);
-        gentest::set_default_log_policy(gentest::LogPolicy::Always);
     });
     t.join();
 }

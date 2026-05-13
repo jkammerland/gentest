@@ -2,7 +2,6 @@
 
 #include "gentest/detail/runtime_base.h"
 #include "gentest/detail/runtime_support.h"
-#include "gentest/log_policy.h"
 
 #include <atomic>
 #include <cassert>
@@ -20,6 +19,9 @@
 
 namespace gentest::detail {
 
+using TestLogObserverFn        = void (*)(void *, std::size_t, const std::vector<std::string> &, std::size_t) noexcept;
+using DefaultStdoutLogWriterFn = void (*)(void *, std::string_view) noexcept;
+
 enum class ContextState : unsigned char {
     Running,
     Stopping,
@@ -35,10 +37,11 @@ struct TestContextInfo {
     };
     std::vector<FailureLoc>  failure_locations;
     std::vector<std::string> logs;
-    // Chronological event stream for console/reporting.
-    // kind: 'F' failure, 'L' failure-only log, 'A' always-visible log
+    // Chronological event stream for failure reporting.
+    // kind: 'F' failure
     std::vector<std::string> event_lines;
     std::vector<char>        event_kinds;
+    std::vector<std::string> recent_logs;
     std::mutex               mtx;
     std::mutex               adopted_mtx;
     std::condition_variable  adopted_cv;
@@ -76,8 +79,12 @@ struct TestContextInfo {
     std::atomic<ContextState>           state{ContextState::Closed};
     std::atomic<bool>                   has_failures{false};
     std::atomic<std::size_t>            adopted_contexts{0};
-    gentest::LogPolicy                  log_policy{gentest::LogPolicy::Never};
-    bool                                log_policy_overridden{false};
+    std::size_t                         log_count           = 0;
+    std::size_t                         recent_log_limit    = 0;
+    std::atomic<bool>                   suppress_stdout_log = false;
+    void                               *log_observer_state  = nullptr;
+    TestLogObserverFn                   log_observer        = nullptr;
+    std::size_t                         log_observer_id     = 0;
 
     std::atomic<bool> runtime_skip_requested{false};
     std::string       runtime_skip_reason;
@@ -116,7 +123,22 @@ struct TestContextLocalBuffer {
 GENTEST_RUNTIME_API auto current_test_storage() -> std::shared_ptr<TestContextInfo> &;
 GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer &;
 GENTEST_RUNTIME_API auto current_context_role_storage() -> CurrentContextRole &;
-GENTEST_RUNTIME_API auto default_log_policy_storage() -> std::atomic<std::underlying_type_t<gentest::LogPolicy>> &;
+GENTEST_RUNTIME_API void dispatch_log_to_sinks(std::string_view message) noexcept;
+GENTEST_RUNTIME_API void write_default_stdout_log(std::string_view message) noexcept;
+GENTEST_RUNTIME_API void install_default_stdout_log_writer(void *state, DefaultStdoutLogWriterFn writer) noexcept;
+GENTEST_RUNTIME_API void remove_default_stdout_log_writer(void *state, DefaultStdoutLogWriterFn writer) noexcept;
+
+class DefaultStdoutLogWriterScope {
+  public:
+    DefaultStdoutLogWriterScope(void *state, DefaultStdoutLogWriterFn writer) noexcept;
+    DefaultStdoutLogWriterScope(const DefaultStdoutLogWriterScope &)            = delete;
+    DefaultStdoutLogWriterScope &operator=(const DefaultStdoutLogWriterScope &) = delete;
+    ~DefaultStdoutLogWriterScope();
+
+  private:
+    void                    *state_  = nullptr;
+    DefaultStdoutLogWriterFn writer_ = nullptr;
+};
 
 [[noreturn]] inline void fail_without_active_context(std::string_view operation) {
     (void)std::fprintf(stderr,
@@ -176,6 +198,7 @@ inline void notify_context_progress(TestContextInfo &ctx) noexcept;
 
 inline void start_context(TestContextInfo &ctx) noexcept {
     ctx.stop_source = std::stop_source{};
+    ctx.suppress_stdout_log.store(false, std::memory_order_release);
     ctx.state.store(ContextState::Running, std::memory_order_release);
 }
 

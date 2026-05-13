@@ -24,8 +24,6 @@ std::atomic<bool>                   releaser_case_resumed{false};
 void unused_sync(void *) {}
 
 auto completed_case_with_adopted_worker() -> gentest::async_test<void> {
-    gentest::set_log_policy(gentest::LogPolicy::Always);
-
     complete_first_case.reset_all();
     worker_release = std::make_shared<std::promise<void>>();
     first_case_resumed.store(false, std::memory_order_release);
@@ -79,8 +77,6 @@ struct StopConditionState {
 };
 
 auto condition_variable_any_worker_observes_stop() -> gentest::async_test<void> {
-    gentest::set_log_policy(gentest::LogPolicy::Always);
-
     auto context = gentest::get_current_context();
     ASSERT_TRUE(static_cast<bool>(context));
 
@@ -109,8 +105,6 @@ auto condition_variable_any_worker_observes_stop_fn(void *) -> gentest::detail::
 }
 
 auto condition_variable_worker_observes_stop() -> gentest::async_test<void> {
-    gentest::set_log_policy(gentest::LogPolicy::Always);
-
     auto context = gentest::get_current_context();
     ASSERT_TRUE(static_cast<bool>(context));
 
@@ -141,8 +135,6 @@ auto condition_variable_worker_observes_stop_fn(void *) -> gentest::detail::Asyn
 }
 
 auto stop_callback_can_use_gentest_context() -> gentest::async_test<void> {
-    gentest::set_log_policy(gentest::LogPolicy::Always);
-
     auto context = gentest::get_current_context();
     ASSERT_TRUE(static_cast<bool>(context));
 

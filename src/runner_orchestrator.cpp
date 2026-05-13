@@ -182,6 +182,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         TestRunContext test_state{};
         test_state.color_output   = state.color_output;
         test_state.record_results = state.record_results;
+        test_state.async_log_tail = opt.async_log_tail;
         test_state.acc            = &state.acc;
         const auto test_plans     = gentest::runner::build_suite_execution_plan(
             kCases, std::span<const std::size_t>{test_idxs.data(), test_idxs.size()}, opt.shuffle, opt.shuffle_seed);
@@ -325,6 +326,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --time-unit=<mode>    Time display unit: auto|ns (default auto)\n");
         fmt::print("  --fail-fast           Stop after the first failing case\n");
         fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
+        fmt::print("  --async-log-tail=N    Live async log lines per case (default 5, 0 disables)\n");
         fmt::print("  --shuffle             Shuffle tests (respects fixture/grouping)\n");
         fmt::print("  --seed N              RNG seed used with --shuffle\n");
         fmt::print("\nBenchmark options:\n");

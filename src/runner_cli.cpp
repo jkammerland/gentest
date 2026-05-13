@@ -81,6 +81,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
     bool github_annotations_flag = false;
 
     bool seen_repeat               = false;
+    bool seen_async_log_tail       = false;
     bool seen_bench_min_epoch_time = false;
     bool seen_bench_min_total_time = false;
     bool seen_bench_max_total_time = false;
@@ -308,6 +309,29 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
                     return false;
                 continue;
             }
+        }
+        if (const OptionParseResult async_log_tail_result =
+                parse_value_option(i, s, "--async-log-tail",
+                                   [&](std::string_view value) {
+                                       if (seen_async_log_tail) {
+                                           fmt::print(stderr, "error: duplicate --async-log-tail\n");
+                                           return false;
+                                       }
+                                       std::uint64_t tail = 0;
+                                       if (!parse_u64_option("--async-log-tail", value, tail))
+                                           return false;
+                                       if (tail > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                                           fmt::print(stderr, "error: --async-log-tail is out of range\n");
+                                           return false;
+                                       }
+                                       opt.async_log_tail  = static_cast<std::size_t>(tail);
+                                       seen_async_log_tail = true;
+                                       return true;
+                                   });
+            async_log_tail_result != OptionParseResult::NoMatch) {
+            if (async_log_tail_result == OptionParseResult::Error)
+                return false;
+            continue;
         }
 
         if (const OptionParseResult run_result = parse_value_option(

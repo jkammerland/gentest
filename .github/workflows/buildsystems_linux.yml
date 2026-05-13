@@ -213,6 +213,7 @@ jobs:
           ./bazel-bin/gentest_consumer_textual_bazel --list
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_test --kind=test
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test
+          ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/log_sink --kind=test
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_bench --kind=bench
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_jitter --kind=jitter
           bazel build \
@@ -235,6 +236,7 @@ jobs:
           ./bazel-bin/gentest_consumer_module_bazel --list
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_test --kind=test
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test
+          ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/log_sink --kind=test
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_bench --kind=bench
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_jitter --kind=jitter
 
@@ -395,6 +397,7 @@ jobs:
           su - ci -c "\"${consumer_textual_bin}\" --list"
           su - ci -c "\"${consumer_textual_bin}\" --run=consumer/consumer/module_test --kind=test"
           su - ci -c "\"${consumer_textual_bin}\" --run=consumer/consumer/module_mock --kind=test"
+          su - ci -c "\"${consumer_textual_bin}\" --run=consumer/consumer/log_sink --kind=test"
           su - ci -c "\"${consumer_textual_bin}\" --run=consumer/consumer/module_bench --kind=bench"
           su - ci -c "\"${consumer_textual_bin}\" --run=consumer/consumer/module_jitter --kind=jitter"
           consumer_module_bin="$(find "${GITHUB_WORKSPACE}" -type f \( -name 'gentest_consumer_module_xmake' -o -name 'gentest_consumer_module_xmake.exe' \) | head -n 1)"
@@ -402,6 +405,7 @@ jobs:
           su - ci -c "\"${consumer_module_bin}\" --list"
           su - ci -c "\"${consumer_module_bin}\" --run=consumer/consumer/module_test --kind=test"
           su - ci -c "\"${consumer_module_bin}\" --run=consumer/consumer/module_mock --kind=test"
+          su - ci -c "\"${consumer_module_bin}\" --run=consumer/consumer/log_sink --kind=test"
           su - ci -c "\"${consumer_module_bin}\" --run=consumer/consumer/module_bench --kind=bench"
           su - ci -c "\"${consumer_module_bin}\" --run=consumer/consumer/module_jitter --kind=jitter"
 

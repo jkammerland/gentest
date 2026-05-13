@@ -66,10 +66,12 @@ endif()
 foreach(_consumer_run IN ITEMS
     "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_test --kind=test"
     "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test"
+    "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/log_sink --kind=test"
     "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_bench --kind=bench"
     "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_jitter --kind=jitter"
     "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_test --kind=test"
     "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test"
+    "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/log_sink --kind=test"
     "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_bench --kind=bench"
     "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_jitter --kind=jitter")
   string(FIND "${_content}" "${_consumer_run}" _consumer_run_pos)
@@ -120,6 +122,7 @@ foreach(_literal IN ITEMS
     [[--list]]
     [[--run=consumer/consumer/module_test --kind=test]]
     [[--run=consumer/consumer/module_mock --kind=test]]
+    [[--run=consumer/consumer/log_sink --kind=test]]
     [[--run=consumer/consumer/module_bench --kind=bench]]
     [[--run=consumer/consumer/module_jitter --kind=jitter]])
   string(FIND "${_content}" "${_literal}" _literal_pos)

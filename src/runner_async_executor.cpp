@@ -11,7 +11,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <fmt/color.h>
 #include <fmt/format.h>
 #include <iostream>
 #include <memory>
@@ -24,16 +23,16 @@
 namespace gentest::runner {
 namespace {
 
-auto outcome_color(Outcome outcome) -> fmt::color {
+auto outcome_color_code(Outcome outcome) -> std::string_view {
     switch (outcome) {
-    case Outcome::Pass: return fmt::color::green;
+    case Outcome::Pass: return "32";
     case Outcome::Fail:
-    case Outcome::XPass: return fmt::color::red;
+    case Outcome::XPass: return "31";
     case Outcome::Skip:
-    case Outcome::Blocked: return fmt::color::yellow;
-    case Outcome::XFail: return fmt::color::cyan;
+    case Outcome::Blocked: return "33";
+    case Outcome::XFail: return "36";
     }
-    return fmt::color::white;
+    return "37";
 }
 
 auto async_live_status_for(const RunResult &result) -> AsyncLiveStatus {
@@ -70,7 +69,7 @@ auto async_live_detail_for(const RunResult &result) -> std::string {
 auto deferred_status_prefix(const RunResult &result, bool color_output) -> std::string {
     const auto status = async_live_status_text(async_live_status_for(result));
     if (color_output) {
-        return fmt::format(fmt::fg(outcome_color(result.outcome)), "[ {:^9} ]", status);
+        return fmt::format("\033[{}m[ {:^9} ]\033[0m", outcome_color_code(result.outcome), status);
     }
     return fmt::format("[ {:^9} ]", status);
 }
@@ -117,6 +116,21 @@ void log_async_details(AsyncStatusRenderer &renderer, const RunResult &result) {
     }
 }
 
+void write_async_log_through_renderer(void *state, std::string_view message) noexcept {
+    auto *renderer = static_cast<AsyncStatusRenderer *>(state);
+    if (renderer) {
+        renderer->log(message);
+    }
+}
+
+void observe_async_case_logs(void *state, std::size_t case_id, const std::vector<std::string> &recent_logs,
+                             std::size_t log_count) noexcept {
+    auto *renderer = static_cast<AsyncStatusRenderer *>(state);
+    if (renderer) {
+        renderer->update_logs(case_id, recent_logs, log_count);
+    }
+}
+
 } // namespace
 
 bool plans_include_async_cases(std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans) {
@@ -147,16 +161,22 @@ bool plans_include_async_cases(std::span<const gentest::Case> cases, std::span<c
 bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans,
                            bool fail_fast, TestCounters &counters) {
     std::vector<AsyncCaseRun> async_runs;
-    AsyncStatusRenderer       renderer(std::cout, AsyncStatusRenderer::terminal_mode(state.color_output), state.color_output);
-    TestRunContext            final_state = state;
-    final_state.suppress_case_output      = renderer.enabled();
+    AsyncStatusRenderer       renderer(std::cout, AsyncStatusRenderer::terminal_mode(state.color_output), state.color_output, {},
+                                       state.async_log_tail);
+    gentest::detail::DefaultStdoutLogWriterScope log_writer_scope(renderer.enabled() ? &renderer : nullptr,
+                                                                  &write_async_log_through_renderer);
+    TestRunContext final_state       = state;
+    final_state.suppress_case_output = renderer.enabled();
 
     const auto record_invoke_result = [&](std::size_t run_index, const InvokeResult &inv) {
         auto     &run = async_runs[run_index];
         RunResult rr  = finish_invoke_result(final_state, cases[run.case_index], inv, counters);
         if (renderer.enabled()) {
-            renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
-            renderer.log(deferred_case_line(cases[run.case_index].name, rr, final_state.color_output));
+            auto line = renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
+            if (line.empty()) {
+                line = deferred_case_line(cases[run.case_index].name, rr, final_state.color_output);
+            }
+            renderer.result_line(line);
             log_async_details(renderer, rr);
         }
         if (state.acc) {
@@ -284,8 +304,11 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
 
         RunResult rr = finish_invoke_result(final_state, cases[run.case_index], inv, counters);
         if (renderer.enabled()) {
-            renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
-            renderer.log(deferred_case_line(cases[run.case_index].name, rr, final_state.color_output));
+            auto line = renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
+            if (line.empty()) {
+                line = deferred_case_line(cases[run.case_index].name, rr, final_state.color_output);
+            }
+            renderer.result_line(line);
             log_async_details(renderer, rr);
         }
         if (state.acc) {
@@ -430,7 +453,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         if (test.should_skip) {
             RunResult rr = make_static_skip_result(renderer.enabled() ? final_state : state, test, counters);
             if (renderer.enabled()) {
-                renderer.log(deferred_case_line(test.name, rr, final_state.color_output));
+                renderer.result_line(deferred_case_line(test.name, rr, final_state.color_output));
                 log_async_details(renderer, rr);
             }
             if (state.acc) {
@@ -443,6 +466,14 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             schedule_async_case(async_runs, test, i, ctx);
             renderer.add_case(run_index, test.name);
             auto &run = async_runs[run_index];
+            if (renderer.enabled() && run.ctxinfo) {
+                std::lock_guard<std::mutex> lk(run.ctxinfo->mtx);
+                run.ctxinfo->recent_log_limit = state.async_log_tail;
+                run.ctxinfo->suppress_stdout_log.store(true, std::memory_order_release);
+                run.ctxinfo->log_observer_state = &renderer;
+                run.ctxinfo->log_observer       = &observe_async_case_logs;
+                run.ctxinfo->log_observer_id    = run_index;
+            }
             if (run.task && run.exception == InvokeException::None) {
                 scheduler.add_top_level(run_index, *run.task);
             } else {
@@ -452,7 +483,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         }
         if (renderer.enabled()) {
             RunResult rr = execute_one(final_state, test, ctx, counters);
-            renderer.log(deferred_case_line(test.name, rr, final_state.color_output));
+            renderer.result_line(deferred_case_line(test.name, rr, final_state.color_output));
             log_async_details(renderer, rr);
             if (state.acc) {
                 gentest::runner::record_case_result(*state.acc, test, std::move(rr), state.record_results);
@@ -492,7 +523,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                             rr.skipped     = true;
                             rr.outcome     = Outcome::Blocked;
                             rr.skip_reason = msg;
-                            renderer.log(deferred_case_line(cases[i].name, rr, final_state.color_output));
+                            renderer.result_line(deferred_case_line(cases[i].name, rr, final_state.color_output));
                         }
                         if (should_stop()) {
                             return true;

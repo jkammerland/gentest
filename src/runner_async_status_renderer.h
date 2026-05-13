@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <iosfwd>
+#include <mutex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -22,16 +24,18 @@ enum class AsyncLiveStatus {
 };
 
 struct AsyncLiveRowSnapshot {
-    std::size_t     id = 0;
-    std::string     name;
-    AsyncLiveStatus status = AsyncLiveStatus::Suspended;
-    std::string     detail;
-    std::string     suspend_file;
-    std::string     suspend_label;
-    std::string     suspend_uri;
-    unsigned        suspend_line = 0;
-    long long       duration_ms  = 0;
-    bool            final        = false;
+    std::size_t              id = 0;
+    std::string              name;
+    AsyncLiveStatus          status = AsyncLiveStatus::Suspended;
+    std::string              detail;
+    std::string              suspend_file;
+    std::string              suspend_label;
+    std::string              suspend_uri;
+    std::vector<std::string> recent_logs;
+    std::size_t              log_count    = 0;
+    unsigned                 suspend_line = 0;
+    long long                duration_ms  = 0;
+    bool                     final        = false;
 };
 
 struct AsyncTerminalSizeOverride {
@@ -47,7 +51,8 @@ class AsyncStatusRenderer {
         Terminal,
     };
 
-    AsyncStatusRenderer(std::ostream &out, Mode mode, bool color_output, AsyncTerminalSizeOverride size_override = {});
+    AsyncStatusRenderer(std::ostream &out, Mode mode, bool color_output, AsyncTerminalSizeOverride size_override = {},
+                        std::size_t log_tail_limit = 5);
     AsyncStatusRenderer(const AsyncStatusRenderer &)            = delete;
     AsyncStatusRenderer &operator=(const AsyncStatusRenderer &) = delete;
     ~AsyncStatusRenderer();
@@ -61,8 +66,10 @@ class AsyncStatusRenderer {
                                     unsigned line = 0); // NOLINT(bugprone-easily-swappable-parameters)
     void               mark_suspended(std::size_t id, std::string_view detail, std::string_view file = {},
                                       unsigned line = 0); // NOLINT(bugprone-easily-swappable-parameters)
-    void               mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms);
+    auto               mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms) -> std::string;
+    void               update_logs(std::size_t id, std::span<const std::string> recent_logs, std::size_t log_count);
     void               log(std::string_view message);
+    void               result_line(std::string_view message);
     void               finish();
 
     [[nodiscard]] auto ordered_rows_for_test() const -> std::vector<AsyncLiveRowSnapshot>;
@@ -77,6 +84,8 @@ class AsyncStatusRenderer {
     std::size_t                       visible_lines_   = 0;
     std::size_t                       width_override_  = 0;
     std::size_t                       height_override_ = 0;
+    std::size_t                       log_tail_limit_  = 5;
+    mutable std::mutex                mtx_;
     std::vector<AsyncLiveRowSnapshot> rows_;
     std::vector<std::string>          completed_lines_;
     struct LocationParts {
@@ -88,11 +97,12 @@ class AsyncStatusRenderer {
     [[nodiscard]] auto output_width() const -> std::size_t;
     [[nodiscard]] auto terminal_rows() const -> std::size_t;
     [[nodiscard]] auto location_parts(std::string_view file, unsigned line) -> LocationParts;
+    [[nodiscard]] auto ordered_rows_unlocked() const -> std::vector<AsyncLiveRowSnapshot>;
     [[nodiscard]] auto active_lines_for_render(bool hyperlink_locations) const -> std::vector<std::string>;
     void               render();
     void               erase_terminal_block();
     void               draw_terminal_block(const std::vector<std::string> &lines);
-    void               redraw_terminal(std::string_view message, bool has_message);
+    void               redraw_terminal(std::string_view message, bool has_message, bool sanitize_message);
     void               restore_terminal();
 };
 

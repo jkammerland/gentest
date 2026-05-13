@@ -192,8 +192,8 @@ int main() {
     renderer.mark_running(0);
 
     std::string snapshot = renderer.render_snapshot_for_test();
-    if (!before(snapshot, "[ SUSPENDED ]", "[  YIELDED  ]") || !before(snapshot, "[  YIELDED  ]", "[  RUNNING  ]")) {
-        return fail("running row should render below yielded rows and yielded rows below suspended rows", snapshot);
+    if (!before(snapshot, "[  RUNNING  ]", "[ SUSPENDED ]") || !before(snapshot, "[ SUSPENDED ]", "[  YIELDED  ]")) {
+        return fail("active rows should stay in case creation order as statuses change", snapshot);
     }
     if (!contains(snapshot, "waiting for dependency @ waiting.cpp:42")) {
         return fail("suspended row should show source location", snapshot);
@@ -205,6 +205,42 @@ int main() {
         gentest::runner::async_live_status_color_name(gentest::runner::AsyncLiveStatus::Yielded) != "green" ||
         gentest::runner::async_live_status_color_name(gentest::runner::AsyncLiveStatus::Suspended) != "yellow") {
         return fail("running, yielded, and suspended rows should map to green/green/yellow colors", snapshot);
+    }
+
+    std::ostringstream                   tail_out;
+    gentest::runner::AsyncStatusRenderer tail(tail_out, gentest::runner::AsyncStatusRenderer::Mode::Virtual, false, {}, 2);
+    tail.add_case(0, "async/live/log_tail");
+    tail.mark_suspended(0, "waiting", "tail.cpp", 7);
+    std::vector<std::string> tail_logs{"first", "second", "third"};
+    tail.update_logs(0, tail_logs, 3);
+    snapshot = tail.render_snapshot_for_test();
+    if (!contains(snapshot, "3 log(s)") || contains(snapshot, "\nfirst\n") || !contains(snapshot, "\nsecond\n") ||
+        !contains(snapshot, "\nthird\n")) {
+        return fail("live async rows should show the log count and the configured recent log tail", snapshot);
+    }
+
+    std::ostringstream                   no_tail_out;
+    gentest::runner::AsyncStatusRenderer no_tail(no_tail_out, gentest::runner::AsyncStatusRenderer::Mode::Virtual, false, {}, 0);
+    no_tail.add_case(0, "async/live/no_log_tail");
+    no_tail.mark_running(0);
+    std::vector<std::string> hidden_logs{"hidden", "also hidden"};
+    no_tail.update_logs(0, hidden_logs, 2);
+    snapshot = no_tail.render_snapshot_for_test();
+    if (!contains(snapshot, "2 log(s)") || contains(snapshot, "\nhidden\n") || contains(snapshot, "\nalso hidden\n")) {
+        return fail("zero live async log tail should keep the count but hide recent log lines", snapshot);
+    }
+
+    std::ostringstream                   clipped_tail_out;
+    gentest::runner::AsyncStatusRenderer clipped_tail(clipped_tail_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                      {.width = 80, .height = 3}, 5);
+    clipped_tail.add_case(0, "async/live/clipped_log_tail");
+    clipped_tail.mark_suspended(0, "waiting", "tail.cpp", 8);
+    std::vector<std::string> clipped_logs{"first", "second", "third"};
+    clipped_tail.update_logs(0, clipped_logs, 3);
+    snapshot = clipped_tail.render_snapshot_for_test();
+    if (!contains(snapshot, "[ SUSPENDED ]") || !contains(snapshot, "async/live/clipped_log_tail") || !contains(snapshot, "\nthird\n") ||
+        contains(snapshot, "\nfirst\n")) {
+        return fail("terminal clipping should keep the owning row visible with the newest tail lines", snapshot);
     }
 
     renderer.add_case(3, "async/live/" + std::string(120, 'n'));
@@ -301,7 +337,9 @@ int main() {
         }
     }
 
-    renderer.mark_final(0, gentest::runner::AsyncLiveStatus::Pass, {}, 7);
+    std::vector<std::string> completed_logs{"final first", "final second", "final third"};
+    renderer.update_logs(0, completed_logs, 3);
+    const auto completed_log_line = renderer.mark_final(0, gentest::runner::AsyncLiveStatus::Pass, {}, 7);
     renderer.mark_final(1, gentest::runner::AsyncLiveStatus::Fail, "1 issue(s)", 9);
     renderer.mark_final(2, gentest::runner::AsyncLiveStatus::Pass, {}, 11);
     renderer.mark_final(3, gentest::runner::AsyncLiveStatus::Pass, {}, 13);
@@ -310,10 +348,15 @@ int main() {
         return fail("completed rows should leave the active panel", snapshot);
     }
     const auto &completed = renderer.completed_lines_for_test();
-    if (completed.size() != 4 || !contains(completed[0], "[   PASS    ]") || !contains(completed[0], "async/live/running (7 ms)") ||
-        !contains(completed[1], "[   FAIL    ]") || !contains(completed[1], "async/live/waiting :: 1 issue(s) (9 ms)") ||
-        !contains(completed[2], "async/live/yielding (11 ms)") || visible_width(completed[3]) > 80) {
+    if (completed.size() != 4 || !contains(completed[0], "[   PASS    ]") ||
+        !contains(completed[0], "async/live/running :: 3 log(s) (7 ms)") || !contains(completed[1], "[   FAIL    ]") ||
+        !contains(completed[1], "async/live/waiting :: 1 issue(s) (9 ms)") || !contains(completed[2], "async/live/yielding (11 ms)") ||
+        visible_width(completed[3]) > 80) {
         return fail("final rows should be emitted as completed scrolling lines");
+    }
+    if (!contains(completed_log_line, "async/live/running :: 3 log(s) (7 ms)") ||
+        !contains(completed[0], "async/live/running :: 3 log(s) (7 ms)")) {
+        return fail("completed async rows should preserve the active row log count", completed_log_line);
     }
 
     std::ostringstream                   duplicate_out;
@@ -361,6 +404,34 @@ int main() {
     }
     if (!contains(terminal_output, "\033[?25hafter\n")) {
         return fail("terminal finish should leave normal output at the local cursor position", terminal_output);
+    }
+
+    std::ostringstream                   control_log_out;
+    gentest::runner::AsyncStatusRenderer control_log(control_log_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                     {.width = 120, .height = 12});
+    control_log.add_case(0, "async/live/control_log");
+    control_log.mark_running(0);
+    control_log.log(std::string("bad\r") + '\x1B' + "[2J\nnext");
+    control_log.finish();
+    const auto control_log_output = control_log_out.str();
+    if (contains(control_log_output, std::string("\x1B") + "[2J\nnext")) {
+        return fail("terminal live logs should not emit user-provided clear-screen control sequences", control_log_output);
+    }
+    if (!contains(control_log_output, R"(bad\r\x1B[2J\nnext)")) {
+        return fail("terminal live logs should escape control characters on the scrolling log line", control_log_output);
+    }
+
+    std::ostringstream                   raw_result_out;
+    gentest::runner::AsyncStatusRenderer raw_result(raw_result_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, true,
+                                                    {.width = 120, .height = 12});
+    raw_result.result_line("\033[32m[   PASS    ]\033[0m async/live/raw_result (0 ms)");
+    raw_result.finish();
+    const auto raw_result_output = raw_result_out.str();
+    if (!contains(raw_result_output, "\033[32m[   PASS    ]\033[0m async/live/raw_result (0 ms)")) {
+        return fail("terminal result lines should preserve framework ANSI color escapes", raw_result_output);
+    }
+    if (contains(raw_result_output, R"(\x1B[32m)")) {
+        return fail("terminal result lines should not be escaped like user log messages", raw_result_output);
     }
 
     std::ostringstream                   disabled_out;

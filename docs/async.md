@@ -530,6 +530,35 @@ error. With a leased context, outcome-changing APIs from a worker are still a
 hard test program error. Signal the owning async test and perform assertions or
 outcome changes there.
 
+## Logs
+
+`gentest::log()` is captured on the current test and streamed to the registered
+log sinks immediately. The default sink writes to stdout. Add more sinks when a
+consumer needs a copy, and remove them explicitly with the returned handle.
+Sink handles are explicit removal tokens, not RAII guards; destroying a handle
+does not unregister the sink. Configure sinks outside active logging, and do not
+change the sink registry concurrently with `gentest::log()`.
+
+```cpp
+std::ostringstream log_copy;
+auto handle = gentest::add_log_sink(gentest::make_ostream_log_sink(log_copy));
+
+gentest::log("visible on stdout and copied");
+
+handle.remove();
+```
+
+While async live progress is active, stdout logs from active async cases are
+shown in that case's live row tail, then removed when the case completes; the
+completed row keeps the log count. Additional custom sinks still receive each
+log immediately. Active async rows show the last five log lines by default.
+Tune this with:
+
+```text
+--async-log-tail=0  # count only
+--async-log-tail=10 # keep ten recent lines per active async case
+```
+
 ## Outcomes
 
 Async cases use the same outcomes as sync cases.
@@ -632,6 +661,8 @@ Non-terminal output is final-result only; it does not print the live block.
   external completion.
 - Use `gentest::log()` instead of direct `std::cout` / `std::cerr` writes while
   live progress is active.
+- Use `--async-log-tail=N` to tune the number of recent per-case log lines shown
+  in the live async status block.
 - Lease the current context in worker threads only for `gentest::log()` and
   cooperative stop observation.
 - Do not assert, skip, xfail, fail, or configure mocks from worker threads or

@@ -12,6 +12,7 @@ add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/async.cpp
     ${PROJECT_SOURCE_DIR}/src/bench_stats.cpp
     ${PROJECT_SOURCE_DIR}/src/context_api.cpp
+    ${PROJECT_SOURCE_DIR}/src/log_sink.cpp
     ${PROJECT_SOURCE_DIR}/src/runtime_context.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_async_executor.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_async_scheduler.cpp

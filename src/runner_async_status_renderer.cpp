@@ -13,6 +13,7 @@
 #include <indicators/color.hpp>
 #include <indicators/terminal_size.hpp>
 #include <iterator>
+#include <mutex>
 #include <ranges>
 
 #if defined(_WIN32)
@@ -88,21 +89,7 @@ auto status_color(AsyncLiveStatus status) -> indicators::Color {
     return indicators::Color::white;
 }
 
-auto status_rank(AsyncLiveStatus status) -> int {
-    if (status == AsyncLiveStatus::Yielded) {
-        return 1;
-    }
-    if (status == AsyncLiveStatus::Running) {
-        return 2;
-    }
-    return 0;
-}
-
 auto find_row(std::vector<AsyncLiveRowSnapshot> &rows, std::size_t id) -> std::vector<AsyncLiveRowSnapshot>::iterator {
-    return std::ranges::find_if(rows, [&](const AsyncLiveRowSnapshot &row) { return row.id == id; });
-}
-
-auto find_row(const std::vector<AsyncLiveRowSnapshot> &rows, std::size_t id) -> std::vector<AsyncLiveRowSnapshot>::const_iterator {
     return std::ranges::find_if(rows, [&](const AsyncLiveRowSnapshot &row) { return row.id == id; });
 }
 
@@ -397,6 +384,9 @@ auto format_row(const AsyncLiveRowSnapshot &row, bool color_output, bool hyperli
     if (!row.detail.empty()) {
         primary += fmt::format(" :: {}", sanitized_terminal_field(row.detail));
     }
+    if (row.log_count != 0) {
+        primary += row.detail.empty() ? fmt::format(" :: {} log(s)", row.log_count) : fmt::format("; {} log(s)", row.log_count);
+    }
 
     std::string location_prefix;
     std::string location_label = sanitized_terminal_field(row.suspend_label);
@@ -447,6 +437,14 @@ auto format_row(const AsyncLiveRowSnapshot &row, bool color_output, bool hyperli
     return status + shorten_right(primary + location_prefix + location_label + duration, tail_width);
 }
 
+auto format_log_tail_line(std::string_view message, std::size_t max_width) -> std::string {
+    return shorten_right(sanitized_terminal_field(message), max_width);
+}
+
+auto format_scrolling_log_line(std::string_view message, std::size_t max_width) -> std::string {
+    return shorten_right(sanitized_terminal_field(message), max_width);
+}
+
 } // namespace
 
 auto async_live_status_text(AsyncLiveStatus status) -> std::string_view {
@@ -479,9 +477,10 @@ auto async_live_status_color_name(AsyncLiveStatus status) -> std::string_view {
     return "unspecified";
 }
 
-AsyncStatusRenderer::AsyncStatusRenderer(std::ostream &out, Mode mode, bool color_output, AsyncTerminalSizeOverride size_override)
+AsyncStatusRenderer::AsyncStatusRenderer(std::ostream &out, Mode mode, bool color_output, AsyncTerminalSizeOverride size_override,
+                                         std::size_t log_tail_limit)
     : out_(&out), mode_(mode), color_output_(color_output && mode != Mode::Disabled), width_override_(size_override.width),
-      height_override_(size_override.height) {
+      height_override_(size_override.height), log_tail_limit_(log_tail_limit) {
     if (mode_ == Mode::Terminal) {
         *out_ << "\033[?25l" << std::flush;
     }
@@ -499,7 +498,8 @@ auto AsyncStatusRenderer::terminal_mode(bool /*color_output*/) -> Mode {
 auto AsyncStatusRenderer::enabled() const noexcept -> bool { return mode_ != Mode::Disabled && out_ != nullptr; }
 
 void AsyncStatusRenderer::add_case(std::size_t id, std::string_view name) {
-    if (!enabled() || find_row(rows_, id) != rows_.end()) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_ || find_row(rows_, id) != rows_.end()) {
         return;
     }
     rows_.push_back(AsyncLiveRowSnapshot{.id = id, .name = std::string(name), .status = AsyncLiveStatus::Suspended});
@@ -507,7 +507,8 @@ void AsyncStatusRenderer::add_case(std::size_t id, std::string_view name) {
 }
 
 void AsyncStatusRenderer::mark_running(std::size_t id) {
-    if (!enabled()) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_) {
         return;
     }
     auto row = find_row(rows_, id);
@@ -525,7 +526,8 @@ void AsyncStatusRenderer::mark_running(std::size_t id) {
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void AsyncStatusRenderer::mark_yielded(std::size_t id, std::string_view detail, std::string_view file, unsigned line) {
-    if (!enabled()) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_) {
         return;
     }
     auto row = find_row(rows_, id);
@@ -544,7 +546,8 @@ void AsyncStatusRenderer::mark_yielded(std::size_t id, std::string_view detail, 
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void AsyncStatusRenderer::mark_suspended(std::size_t id, std::string_view detail, std::string_view file, unsigned line) {
-    if (!enabled()) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_) {
         return;
     }
     auto row = find_row(rows_, id);
@@ -561,13 +564,15 @@ void AsyncStatusRenderer::mark_suspended(std::size_t id, std::string_view detail
     render();
 }
 
-void AsyncStatusRenderer::mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms) {
-    if (!enabled()) {
-        return;
+auto AsyncStatusRenderer::mark_final(std::size_t id, AsyncLiveStatus status, std::string_view detail, long long duration_ms)
+    -> std::string {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_) {
+        return {};
     }
     auto row = find_row(rows_, id);
     if (row == rows_.end()) {
-        return;
+        return {};
     }
     row->status = status;
     row->detail = std::string(detail);
@@ -578,17 +583,43 @@ void AsyncStatusRenderer::mark_final(std::size_t id, AsyncLiveStatus status, std
     row->duration_ms  = duration_ms;
     row->final        = true;
     completed_lines_.push_back(format_row(*row, color_output_, false, output_width()));
+    auto line = completed_lines_.back();
+    render();
+    return line;
+}
+
+void AsyncStatusRenderer::update_logs(std::size_t id, std::span<const std::string> recent_logs, std::size_t log_count) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_) {
+        return;
+    }
+    auto row = find_row(rows_, id);
+    if (row == rows_.end() || row->final) {
+        return;
+    }
+    row->log_count = log_count;
+    row->recent_logs.assign(recent_logs.begin(), recent_logs.end());
     render();
 }
 
 void AsyncStatusRenderer::log(std::string_view message) {
-    if (!enabled() || mode_ != Mode::Terminal) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_ || mode_ != Mode::Terminal) {
         return;
     }
-    redraw_terminal(message, true);
+    redraw_terminal(message, true, true);
+}
+
+void AsyncStatusRenderer::result_line(std::string_view message) {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_ || mode_ != Mode::Terminal) {
+        return;
+    }
+    redraw_terminal(message, true, false);
 }
 
 void AsyncStatusRenderer::finish() {
+    std::lock_guard<std::mutex> lk(mtx_);
     if (!enabled() || finished_) {
         return;
     }
@@ -598,17 +629,20 @@ void AsyncStatusRenderer::finish() {
 }
 
 auto AsyncStatusRenderer::ordered_rows_for_test() const -> std::vector<AsyncLiveRowSnapshot> {
+    std::lock_guard<std::mutex> lk(mtx_);
+    return ordered_rows_unlocked();
+}
+
+auto AsyncStatusRenderer::ordered_rows_unlocked() const -> std::vector<AsyncLiveRowSnapshot> {
     std::vector<AsyncLiveRowSnapshot> ordered;
     ordered.reserve(rows_.size());
     std::ranges::copy_if(rows_, std::back_inserter(ordered), [](const AsyncLiveRowSnapshot &row) { return !row.final; });
-    std::ranges::stable_sort(ordered, [](const AsyncLiveRowSnapshot &lhs, const AsyncLiveRowSnapshot &rhs) {
-        return status_rank(lhs.status) < status_rank(rhs.status);
-    });
     return ordered;
 }
 
 auto AsyncStatusRenderer::render_snapshot_for_test() const -> std::string {
-    std::ostringstream out;
+    std::lock_guard<std::mutex> lk(mtx_);
+    std::ostringstream          out;
     for (const auto &line : active_lines_for_render(false)) {
         out << line << '\n';
     }
@@ -656,24 +690,72 @@ auto AsyncStatusRenderer::location_parts(std::string_view file, unsigned line) -
 }
 
 auto AsyncStatusRenderer::active_lines_for_render(bool hyperlink_locations) const -> std::vector<std::string> {
-    const auto ordered = ordered_rows_for_test();
+    const auto ordered = ordered_rows_unlocked();
     if (ordered.empty()) {
         return {};
     }
 
-    const std::size_t max_rows      = mode_ == Mode::Terminal ? std::max<std::size_t>(terminal_rows(), 2) - 1 : ordered.size();
-    const std::size_t row_count     = std::min(ordered.size(), max_rows);
-    const auto        first_visible = ordered.size() - row_count;
-
-    std::vector<std::string> lines;
-    lines.reserve(row_count);
     const std::size_t width      = output_width();
     const std::size_t line_width = mode_ == Mode::Terminal && width > 1 ? width - 1 : width;
-    for (std::size_t i = 0; i < row_count; ++i) {
-        auto line = format_row(ordered[first_visible + i], color_output_, hyperlink_locations, line_width);
+    const std::size_t max_rows   = mode_ == Mode::Terminal ? std::max<std::size_t>(terminal_rows(), 2) - 1 : 0;
+
+    std::vector<std::vector<std::string>> blocks;
+    blocks.reserve(ordered.size());
+    for (const auto &row : ordered) {
+        std::vector<std::string> block;
+        const auto               tail_capacity = log_tail_limit_ == 0 ? 0 : std::min(row.recent_logs.size(), log_tail_limit_);
+        block.reserve(tail_capacity + 1);
+        auto line = format_row(row, color_output_, hyperlink_locations, line_width);
         trim_trailing_padding(line);
-        lines.push_back(std::move(line));
+        block.push_back(std::move(line));
+        if (log_tail_limit_ != 0 && !row.recent_logs.empty()) {
+            const auto first_log = row.recent_logs.size() > log_tail_limit_ ? row.recent_logs.size() - log_tail_limit_ : 0;
+            for (std::size_t i = first_log; i < row.recent_logs.size(); ++i) {
+                auto log_line = format_log_tail_line(row.recent_logs[i], line_width);
+                trim_trailing_padding(log_line);
+                block.push_back(std::move(log_line));
+            }
+        }
+        if (mode_ == Mode::Terminal && block.size() > max_rows) {
+            std::vector<std::string> clipped;
+            clipped.reserve(max_rows);
+            clipped.push_back(std::move(block.front()));
+            const auto keep_tail = max_rows - 1;
+            if (keep_tail != 0) {
+                clipped.insert(clipped.end(), std::make_move_iterator(block.end() - static_cast<std::ptrdiff_t>(keep_tail)),
+                               std::make_move_iterator(block.end()));
+            }
+            block = std::move(clipped);
+        }
+        blocks.push_back(std::move(block));
     }
+
+    std::vector<std::string> lines;
+    if (mode_ != Mode::Terminal) {
+        for (auto &block : blocks) {
+            lines.insert(lines.end(), std::make_move_iterator(block.begin()), std::make_move_iterator(block.end()));
+        }
+        return lines;
+    }
+
+    std::size_t remaining = max_rows;
+    for (auto block = blocks.rbegin(); block != blocks.rend() && remaining != 0; ++block) {
+        std::vector<std::string> visible_block;
+        if (block->size() <= remaining) {
+            visible_block = std::move(*block);
+        } else {
+            visible_block.reserve(remaining);
+            visible_block.push_back(std::move(block->front()));
+            const auto keep_tail = std::min(remaining - 1, block->size() - 1);
+            if (keep_tail != 0) {
+                visible_block.insert(visible_block.end(), std::make_move_iterator(block->end() - static_cast<std::ptrdiff_t>(keep_tail)),
+                                     std::make_move_iterator(block->end()));
+            }
+        }
+        remaining -= visible_block.size();
+        lines.insert(lines.begin(), std::make_move_iterator(visible_block.begin()), std::make_move_iterator(visible_block.end()));
+    }
+
     return lines;
 }
 
@@ -681,7 +763,7 @@ void AsyncStatusRenderer::render() {
     if (!enabled() || mode_ != Mode::Terminal) {
         return;
     }
-    redraw_terminal({}, false);
+    redraw_terminal({}, false, true);
 }
 
 void AsyncStatusRenderer::erase_terminal_block() {
@@ -714,7 +796,7 @@ void AsyncStatusRenderer::draw_terminal_block(const std::vector<std::string> &li
     visible_lines_ = lines.size();
 }
 
-void AsyncStatusRenderer::redraw_terminal(std::string_view message, bool has_message) {
+void AsyncStatusRenderer::redraw_terminal(std::string_view message, bool has_message, bool sanitize_message) {
     if (mode_ != Mode::Terminal || !out_) {
         return;
     }
@@ -725,7 +807,11 @@ void AsyncStatusRenderer::redraw_terminal(std::string_view message, bool has_mes
         if (color_output_) {
             *out_ << "\033[0m";
         }
-        *out_ << message << '\n';
+        const std::size_t width      = output_width();
+        const std::size_t line_width = width > 1 ? width - 1 : width;
+        auto              line       = sanitize_message ? format_scrolling_log_line(message, line_width) : std::string(message);
+        trim_trailing_padding(line);
+        *out_ << line << '\n';
     }
     draw_terminal_block(lines);
     out_->flush();

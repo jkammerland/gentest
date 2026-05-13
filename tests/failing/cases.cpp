@@ -50,7 +50,6 @@ void ambiguous_template_member_pointer() {
 
 [[using gentest: test("logging/attachment")]]
 void logging_attachment() {
-    gentest::set_log_policy(gentest::LogPolicy::OnFailure);
     gentest::log("hello from log");
     gentest::log("world from log");
     using namespace gentest::asserts;
