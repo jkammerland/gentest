@@ -41,6 +41,7 @@ Features currently include:
 - Sharing fixtures between test cases
 - Native syntax for tags, requirements, and custom labels
 - Unified APIs for other test kinds (for example, benchmark, jitter, and coroutine cases)
+- (Experimental) Async tests, using C++20 coroutines. Whole test case suspension.
 
 >[!NOTE]
 > Start at [`docs/index.md`](docs/index.md) for the rest of the docs. See
@@ -49,8 +50,8 @@ Features currently include:
 
 ## Requirements
 
-- CMake ≥ 3.31
-- C++20 compiler and standard library with `<stop_token>`
+- CMake ≥ 3.31 (see below for non-cmake buildsystems)
+- C++20 compiler and standard library
 - LLVM/Clang (for `gentest_codegen`)
 
 On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
