@@ -2,18 +2,19 @@
 #  -DPROG=<path to async live test binary>
 # Optional:
 #  -DARGS=<optional CLI args>
+#  -DCAPTURE_ENV=<CODEX_CI|CI|TERM_DUMB>
 
 if(NOT DEFINED PROG)
-  message(FATAL_ERROR "CheckAsyncPingPongTerminal.cmake: PROG not set")
+  message(FATAL_ERROR "CheckAsyncPlainCapturedTerminal.cmake: PROG not set")
 endif()
 
 if(WIN32)
-  message(STATUS "GENTEST_SKIP_TEST: async ping-pong terminal check requires a Unix PTY helper")
+  message(STATUS "GENTEST_SKIP_TEST: async captured terminal check requires a Unix PTY helper")
   return()
 endif()
 
 if(DEFINED EMU AND NOT "${EMU}" STREQUAL "")
-  message(STATUS "GENTEST_SKIP_TEST: async ping-pong terminal check is host-only")
+  message(STATUS "GENTEST_SKIP_TEST: async captured terminal check is host-only")
   return()
 endif()
 
@@ -52,40 +53,56 @@ foreach(_arg IN LISTS _args)
   string(APPEND _command " \"${_escaped_arg}\"")
 endforeach()
 
+set(_capture_env "${CAPTURE_ENV}")
+if(_capture_env STREQUAL "")
+  set(_capture_env "CODEX_CI")
+endif()
+
+set(_term "xterm-256color")
+set(_plain_env)
+if(_capture_env STREQUAL "CODEX_CI")
+  list(APPEND _plain_env "CODEX_CI=1")
+elseif(_capture_env STREQUAL "CI")
+  list(APPEND _plain_env "CI=1")
+elseif(_capture_env STREQUAL "TERM_DUMB")
+  set(_term "dumb")
+else()
+  message(FATAL_ERROR "Unknown CAPTURE_ENV '${_capture_env}'")
+endif()
+
 execute_process(
   COMMAND ${CMAKE_COMMAND} -E env
           --unset=NO_COLOR
           --unset=GENTEST_NO_COLOR
+          --unset=GENTEST_ASYNC_LIVE
           --unset=GENTEST_NO_ASYNC_LIVE
-          GENTEST_ASYNC_LIVE=1
-          TERM=xterm-256color
+          TERM=${_term}
+          ${_plain_env}
           "${SCRIPT_EXECUTABLE}" -q -e -c "${_command}" /dev/null
-  TIMEOUT 20
+  TIMEOUT 10
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err)
 
 set(_all "${_out}\n${_err}")
+string(ASCII 27 _esc)
 
 if(NOT _rc EQUAL 0)
-  message(FATAL_ERROR "async ping-pong terminal command failed with rc=${_rc}. Output:\n${_all}")
+  message(FATAL_ERROR "async captured terminal command failed with rc=${_rc}. Output:\n${_all}")
 endif()
 
 foreach(_required IN ITEMS
-    "async_live_slow/pingpong/00_ping :: 8 log(s)"
-    "async_live_slow/pingpong/01_pong :: 8 log(s)"
-    "Summary: passed 2/2; failed 0; skipped 0; blocked 0; xfail 0; xpass 0.")
+    "short async case started"
+    "short async case resumed"
+    "[ PASS ] async_live_slow/panel/02_short_pass"
+    "Summary: passed 1/1; failed 0; skipped 0; blocked 0; xfail 0; xpass 0.")
   string(FIND "${_all}" "${_required}" _pos)
   if(_pos EQUAL -1)
-    message(FATAL_ERROR "Expected terminal output substring not found: '${_required}'. Output:\n${_all}")
+    message(FATAL_ERROR "Expected captured terminal output substring not found: '${_required}'. Output:\n${_all}")
   endif()
 endforeach()
 
-foreach(_forbidden IN ITEMS
-    "async_live_slow/pingpong/00_ping count"
-    "async_live_slow/pingpong/01_pong count")
-  string(FIND "${_all}" "${_forbidden}" _pos)
-  if(NOT _pos EQUAL -1)
-    message(FATAL_ERROR "Async live log tail was disabled, but streamed stdout logs leaked into terminal output: '${_forbidden}'. Output:\n${_all}")
-  endif()
-endforeach()
+string(FIND "${_all}" "${_esc}" _esc_pos)
+if(NOT _esc_pos EQUAL -1)
+  message(FATAL_ERROR "Captured async terminal output should be plain, but contained an escape character. Output:\n${_all}")
+endif()

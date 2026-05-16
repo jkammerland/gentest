@@ -469,6 +469,30 @@ gentest_add_cmake_script_test(
     DEFINES
         "FORBID_LOG_TAIL=1")
 
+gentest_add_cmake_script_test(
+    NAME async_live_slow_captured_terminal_plain_codex
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncPlainCapturedTerminal.cmake"
+    ARGS --run=async_live_slow/panel/02_short_pass --kind=test --no-color
+    DEFINES
+        "CAPTURE_ENV=CODEX_CI")
+
+gentest_add_cmake_script_test(
+    NAME async_live_slow_captured_terminal_plain_ci
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncPlainCapturedTerminal.cmake"
+    ARGS --run=async_live_slow/panel/02_short_pass --kind=test --no-color
+    DEFINES
+        "CAPTURE_ENV=CI")
+
+gentest_add_cmake_script_test(
+    NAME async_live_slow_captured_terminal_plain_dumb
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_live_slow_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncPlainCapturedTerminal.cmake"
+    ARGS --run=async_live_slow/panel/02_short_pass --kind=test --no-color
+    DEFINES
+        "CAPTURE_ENV=TERM_DUMB")
+
 gentest_add_check_counts(
     NAME async_value_discard
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>

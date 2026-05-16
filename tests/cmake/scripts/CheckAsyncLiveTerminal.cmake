@@ -53,7 +53,13 @@ foreach(_arg IN LISTS _args)
 endforeach()
 
 execute_process(
-  COMMAND ${CMAKE_COMMAND} -E env --unset=NO_COLOR --unset=GENTEST_NO_COLOR TERM=xterm-256color "${SCRIPT_EXECUTABLE}" -q -e -c "${_command}" /dev/null
+  COMMAND ${CMAKE_COMMAND} -E env
+          --unset=NO_COLOR
+          --unset=GENTEST_NO_COLOR
+          --unset=GENTEST_NO_ASYNC_LIVE
+          GENTEST_ASYNC_LIVE=1
+          TERM=xterm-256color
+          "${SCRIPT_EXECUTABLE}" -q -e -c "${_command}" /dev/null
   TIMEOUT 15
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
