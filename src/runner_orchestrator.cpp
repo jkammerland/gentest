@@ -9,6 +9,7 @@
 #include "runner_test_executor.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <fmt/format.h>
 #include <map>
 #include <span>
@@ -158,6 +159,61 @@ void record_measured_result(OrchestratorState &state, const gentest::Case &c, Ru
     gentest::runner::record_case_result(state.acc, c, std::move(result), state.record_results);
 }
 
+bool is_machine_measured_report(const CliOptions &opt) {
+    return opt.measured_report_format == MeasuredReportFormat::Csv || opt.measured_report_format == MeasuredReportFormat::Json;
+}
+
+std::vector<MeasuredReportIssue> collect_measured_report_issues(const RunAccumulator &acc) {
+    std::vector<MeasuredReportIssue> issues;
+    for (const auto &item : acc.failure_items) {
+        for (const auto &issue : item.issues) {
+            const bool infrastructure = std::ranges::find(acc.infra_errors, issue) != acc.infra_errors.end();
+            issues.push_back(MeasuredReportIssue{
+                .name           = item.name,
+                .file           = item.file,
+                .line           = item.line,
+                .message        = issue,
+                .infrastructure = infrastructure,
+            });
+        }
+    }
+    return issues;
+}
+
+std::string format_run_summary(const TestCounters &counters, const TimedRunStatus &bench_status, const TimedRunStatus &jitter_status,
+                               const RunAccumulator &acc) {
+    const std::size_t passed_count  = counters.passed + bench_status.passed + jitter_status.passed;
+    const std::size_t total_count   = counters.total + bench_status.total + jitter_status.total;
+    const std::size_t failed_count  = counters.failed + bench_status.failed + jitter_status.failed + acc.infra_errors.size();
+    const std::size_t skipped_count = counters.skipped + bench_status.skipped + jitter_status.skipped;
+    const std::size_t blocked_count = counters.blocked + bench_status.blocked + jitter_status.blocked;
+
+    fmt::memory_buffer summary;
+    fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; blocked {}; xfail {}; xpass {}.\n",
+                   passed_count, total_count, failed_count, skipped_count, blocked_count, counters.xfail, counters.xpass);
+    if (!acc.failure_items.empty()) {
+        fmt::format_to(std::back_inserter(summary), "Failed tests:\n");
+        for (const auto &item : acc.failure_items) {
+            if (!item.file.empty() && item.line != 0) {
+                fmt::format_to(std::back_inserter(summary), "  {} ({}:{}):\n", item.name, item.file, item.line);
+            } else {
+                fmt::format_to(std::back_inserter(summary), "  {}:\n", item.name);
+            }
+            std::vector<std::string> unique_issues;
+            unique_issues.reserve(item.issues.size());
+            for (const auto &issue : item.issues) {
+                if (std::ranges::find(unique_issues, issue) == unique_issues.end()) {
+                    unique_issues.push_back(issue);
+                }
+            }
+            for (const auto &issue : unique_issues) {
+                fmt::format_to(std::back_inserter(summary), "    {}\n", issue);
+            }
+        }
+    }
+    return fmt::to_string(summary);
+}
+
 int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, const SelectionResult &selection, bool has_selection) {
     const auto &test_idxs   = selection.test_idxs;
     const auto &bench_idxs  = selection.bench_idxs;
@@ -198,8 +254,10 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         }
     }
 
-    TimedRunStatus bench_status{};
-    TimedRunStatus jitter_status{};
+    TimedRunStatus               bench_status{};
+    TimedRunStatus               jitter_status{};
+    std::vector<BenchReportRow>  bench_report_rows;
+    std::vector<JitterReportRow> jitter_report_rows;
     if (!fixture_runtime_blocked && !(opt.fail_fast && tests_stopped)) {
         bench_status = gentest::runner::run_selected_benches(
             kCases, std::span<const std::size_t>{bench_idxs.data(), bench_idxs.size()}, opt, opt.fail_fast,
@@ -212,7 +270,8 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
             },
             [&](const gentest::Case &measured, const MeasurementCaseFailure &failure, std::string_view failure_message) {
                 record_measured_result(state, measured, make_measured_failure_result(failure, failure_message));
-            });
+            },
+            &bench_report_rows);
     }
     if (!fixture_runtime_blocked && !(opt.fail_fast && (tests_stopped || bench_status.stopped))) {
         jitter_status = gentest::runner::run_selected_jitters(
@@ -226,7 +285,8 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
             },
             [&](const gentest::Case &measured, const MeasurementCaseFailure &failure, std::string_view failure_message) {
                 record_measured_result(state, measured, make_measured_failure_result(failure, failure_message));
-            });
+            },
+            &jitter_report_rows);
     }
 
     fixture_guard.finalize();
@@ -256,43 +316,29 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         }
     }
 
+    const bool machine_measured_report = is_machine_measured_report(opt);
+    const bool measured_only_selection = test_idxs.empty() && (!bench_idxs.empty() || !jitter_idxs.empty());
+
     if (opt.github_annotations) {
-        gentest::runner::emit_github_annotations(state.acc);
+        gentest::runner::emit_github_annotations(state.acc, machine_measured_report ? stderr : stdout);
     }
 
-    const bool machine_measured_report =
-        opt.measured_report_format == MeasuredReportFormat::Csv || opt.measured_report_format == MeasuredReportFormat::Json;
-    const bool measured_only_selection = test_idxs.empty() && (!bench_idxs.empty() || !jitter_idxs.empty());
-    if ((!selection.idxs.empty() || !state.acc.failure_items.empty()) && !(machine_measured_report && measured_only_selection)) {
-        const std::size_t  passed_count  = counters.passed + bench_status.passed + jitter_status.passed;
-        const std::size_t  total_count   = counters.total + bench_status.total + jitter_status.total;
-        const std::size_t  failed_count  = counters.failed + bench_status.failed + jitter_status.failed + state.acc.infra_errors.size();
-        const std::size_t  skipped_count = counters.skipped + bench_status.skipped + jitter_status.skipped;
-        const std::size_t  blocked_count = counters.blocked + bench_status.blocked + jitter_status.blocked;
-        fmt::memory_buffer summary;
-        fmt::format_to(std::back_inserter(summary), "Summary: passed {}/{}; failed {}; skipped {}; blocked {}; xfail {}; xpass {}.\n",
-                       passed_count, total_count, failed_count, skipped_count, blocked_count, counters.xfail, counters.xpass);
-        if (!state.acc.failure_items.empty()) {
-            fmt::format_to(std::back_inserter(summary), "Failed tests:\n");
-            for (const auto &item : state.acc.failure_items) {
-                if (!item.file.empty() && item.line != 0) {
-                    fmt::format_to(std::back_inserter(summary), "  {} ({}:{}):\n", item.name, item.file, item.line);
-                } else {
-                    fmt::format_to(std::back_inserter(summary), "  {}:\n", item.name);
-                }
-                std::vector<std::string> unique_issues;
-                unique_issues.reserve(item.issues.size());
-                for (const auto &issue : item.issues) {
-                    if (std::ranges::find(unique_issues, issue) == unique_issues.end()) {
-                        unique_issues.push_back(issue);
-                    }
-                }
-                for (const auto &issue : unique_issues) {
-                    fmt::format_to(std::back_inserter(summary), "    {}\n", issue);
-                }
+    const bool ran_measured_cases = bench_status.total != 0 || jitter_status.total != 0;
+    if (ran_measured_cases && !bench_status.stopped && !jitter_status.stopped) {
+        const auto issues = collect_measured_report_issues(state.acc);
+        gentest::runner::print_measured_report(bench_report_rows, jitter_report_rows, opt, issues, bench_status.total != 0,
+                                               jitter_status.total != 0);
+    }
+
+    if (!selection.idxs.empty() || !state.acc.failure_items.empty()) {
+        const std::string summary = format_run_summary(counters, bench_status, jitter_status, state.acc);
+        if (machine_measured_report && measured_only_selection) {
+            if (!state.acc.failure_items.empty() || !state.acc.infra_errors.empty()) {
+                fmt::print(stderr, "{}", summary);
             }
+        } else {
+            fmt::print("{}", summary);
         }
-        fmt::print("{}", std::string_view(summary.data(), summary.size()));
     }
 
     const bool ok = (counters.failures == 0) && (counters.blocked == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() &&
@@ -405,8 +451,18 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     case SelectionStatus::DeathExcludedAll: fmt::print("Executed 0 case(s). (death tests excluded; use --include-death)\n"); return 0;
     }
 
+    const bool machine_measured_report = is_machine_measured_report(opt);
+    if (machine_measured_report && !selection.test_idxs.empty() && (!selection.bench_idxs.empty() || !selection.jitter_idxs.empty())) {
+        fmt::print(
+            stderr,
+            "error: --report-format={} requires a measured-only selection; use --kind=bench, --kind=jitter, or a measured-only filter\n",
+            opt.measured_report_format == MeasuredReportFormat::Json ? "json" : "csv");
+        return 1;
+    }
+
     if (selection.filtered_death > 0) {
-        fmt::print("Note: excluded {} death test(s). Use --include-death to run them.\n", selection.filtered_death);
+        fmt::print(machine_measured_report ? stderr : stdout, "Note: excluded {} death test(s). Use --include-death to run them.\n",
+                   selection.filtered_death);
     }
 
     return run_execution(kCases, opt, selection, has_selection);

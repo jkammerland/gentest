@@ -782,11 +782,18 @@ Failures are reported by phase (`setup`, `call`, or `teardown`), and the executa
 Benchmark calls are the C++ function invocations that Gentest times. Use
 `items_per_call(N)` or its `ops_per_call(N)` alias when one timed function call
 does `N` logical operations; reports include `Items/call` and normalize the main
-timing columns to ns/item. Automatic time units are chosen per cell so mixed
-slow/fast tables do not hide nanosecond-scale rows behind a suite-wide unit.
+timing columns per item using the selected or automatic display unit. Use
+`--time-unit=ns` when you need explicit ns/item text. Automatic time units are
+chosen per cell so mixed slow/fast tables do not hide nanosecond-scale rows
+behind a suite-wide unit.
 Jitter reports use timer-overhead estimates and switch to batch sampling for
 very small operations, so prefer jitter when comparing sub-10ns work or timing
 variance.
+
+`--report-format=json` emits one JSON document for the measured selection. JSON
+uses stable, typed fields such as `median_ns_per_item`, `items_per_call`, and
+`baseline_delta_pct` rather than display headers. `--report-format=csv` emits a
+strict long-form CSV schema: `report,table,row,field,type,value`.
 
 ### Reporting (JUnit / Allure / GitHub annotations)
 

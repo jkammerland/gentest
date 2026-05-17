@@ -2762,6 +2762,65 @@ gentest_add_check_contains(
         --bench-max-total-time-s=0.01
         --report-format=markdown)
 
+gentest_add_cmake_script_test(
+    NAME benches_json_combined_machine_report
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredJsonReport.cmake"
+    ARGS
+        --filter=benchmarks/fixture/free_suite_global*
+        --kind=all
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+        --bench-max-total-time-s=0.01
+        --jitter-bins=2
+        --report-format=json
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_REPORT=measured"
+        "REQUIRED_STDOUT_SUBSTRING=\"id\":\"jitter.summary\""
+        "FORBID_STDOUT_SUBSTRING=Summary:")
+
+gentest_add_cmake_script_test(
+    NAME benches_csv_combined_machine_report
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredCsvReport.cmake"
+    ARGS
+        --filter=benchmarks/fixture/free_suite_global*
+        --kind=all
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+        --bench-max-total-time-s=0.01
+        --jitter-bins=2
+        --report-format=csv
+    DEFINES
+        "EXPECT_RC=0"
+        "REQUIRED_STDOUT_SUBSTRING=jitter,jitter.summary,0,items_per_call,number,1"
+        "FORBID_STDOUT_SUBSTRING=Summary:")
+
+gentest_add_cmake_script_test(
+    NAME benches_json_blocked_machine_report_stderr
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredJsonReport.cmake"
+    ENV_VARS GENTEST_BENCH_NULL_FIXTURE=1
+    ARGS
+        --run=benchmarks/fixture/null
+        --kind=bench
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+        --report-format=json
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_REPORT=bench"
+        "EXPECT_ISSUES_MIN=1"
+        "REQUIRED_STDERR_SUBSTRING=[ BLOCKED ]"
+        "FORBID_STDOUT_SUBSTRING=[ BLOCKED ]")
+
 gentest_add_check_contains(
     NAME benches_filter_space
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
@@ -2977,6 +3036,12 @@ gentest_add_check_death(
     PROG $<TARGET_FILE:gentest_unit_tests>
     REQUIRED_SUBSTRING "error: duplicate --report-format"
     ARGS --report-format=table --report-format=markdown)
+
+gentest_add_check_death(
+    NAME cli_report_format_machine_rejects_mixed_test_measured_selection
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    REQUIRED_SUBSTRING "requires a measured-only selection"
+    ARGS --filter=* --report-format=json)
 
 gentest_add_check_death(
     NAME cli_async_log_tail_duplicate

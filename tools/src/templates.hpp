@@ -21,7 +21,7 @@
 //   wrapper_stateful: {w}, {fixture}, {method}
 //   case_entry:       {name}, {wrapper}, {file}, {line}, {tags}, {reqs},
 //                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite},
-//                     {async_wrapper}, {is_async}
+//                     {async_wrapper}, {is_async}, {items_per_call}
 //   group_runner_*:   {gid}, {fixture}, {count}, {idxs}
 //   array_decl_*:     {name}; or {count}, {name}, {body}
 //   forward_decl_*:   {name}; or {scope}, {lines}

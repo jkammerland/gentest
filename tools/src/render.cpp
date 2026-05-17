@@ -925,7 +925,8 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
             fmt::arg("suite", !test.suite_name.empty() ? "\"" + escape_string(test.suite_name) + "\"" : std::string("std::string_view{}")),
             fmt::arg("async_wrapper",
                      test.returns_async ? std::string("&::kCaseAsyncInvoke_") + std::to_string(idx) : std::string("nullptr")),
-            fmt::arg("is_async", test.returns_async ? "true" : "false"), fmt::arg("items_per_call", test.items_per_call));
+            fmt::arg("is_async", test.returns_async ? "true" : "false"),
+            fmt::arg("items_per_call", fmt::format("{}ULL", test.items_per_call)));
     }
     return out;
 }

@@ -10,7 +10,8 @@
 namespace gentest {
 
 // Runtime-visible test case description used by generated code and by runtime
-// registry snapshots.
+// registry snapshots. This is a source contract, not a stable binary ABI:
+// rebuild generated/manual registrations with the runtime they link against.
 enum class FixtureLifetime {
     None,
     MemberEphemeral,

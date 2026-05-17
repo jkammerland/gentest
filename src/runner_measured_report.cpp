@@ -7,12 +7,14 @@
 #include <cmath>
 #include <cstdint>
 #include <fmt/format.h>
+#include <initializer_list>
 #include <iostream>
 #include <iterator>
 #include <map>
 #include <string>
 #include <string_view>
 #include <tabulate/table.hpp>
+#include <utility>
 #include <vector>
 
 namespace gentest::runner {
@@ -22,11 +24,31 @@ using tabulate::FontAlign;
 using tabulate::Table;
 using Row_t = Table::Row_t;
 
+enum class MachineValueKind {
+    String,
+    Number,
+    Bool,
+    Null,
+};
+
+struct MachineField {
+    std::string      key;
+    std::string      value;
+    MachineValueKind kind = MachineValueKind::String;
+};
+
+struct MachineRow {
+    std::vector<MachineField> fields;
+};
+
 struct ReportTable {
     std::string                           title;
+    std::string                           id;
+    std::string                           report;
     std::vector<std::string>              headers;
     std::vector<std::vector<std::string>> rows;
     std::vector<bool>                     right_align;
+    std::vector<MachineRow>               machine_rows;
 };
 
 std::uint64_t case_items_per_call(const gentest::Case &c) { return c.items_per_call == 0 ? 1 : c.items_per_call; }
@@ -40,6 +62,45 @@ double total_items(const BenchResult &result, const gentest::Case &c) {
 double total_items(const JitterResult &result, const gentest::Case &c) {
     return static_cast<double>(result.total_iters) * static_cast<double>(case_items_per_call(c));
 }
+
+std::string format_machine_number(double value) {
+    if (!std::isfinite(value)) {
+        return {};
+    }
+    return fmt::format("{:.17g}", value);
+}
+
+MachineField machine_string(std::string key, std::string value) {
+    return MachineField{.key = std::move(key), .value = std::move(value), .kind = MachineValueKind::String};
+}
+
+MachineField machine_string(std::string key, std::string_view value) { return machine_string(std::move(key), std::string(value)); }
+
+MachineField machine_number(std::string key, double value) {
+    std::string text = format_machine_number(value);
+    if (text.empty()) {
+        return MachineField{.key = std::move(key), .kind = MachineValueKind::Null};
+    }
+    return MachineField{.key = std::move(key), .value = std::move(text), .kind = MachineValueKind::Number};
+}
+
+template <typename Int> MachineField machine_count(std::string key, Int value) {
+    return MachineField{.key   = std::move(key),
+                        .value = fmt::format("{}", static_cast<std::uint64_t>(value)),
+                        .kind  = MachineValueKind::Number};
+}
+
+MachineField machine_bool(std::string key, bool value) {
+    return MachineField{.key = std::move(key), .value = value ? "true" : "false", .kind = MachineValueKind::Bool};
+}
+
+MachineField machine_null(std::string key) { return MachineField{.key = std::move(key), .kind = MachineValueKind::Null}; }
+
+MachineField machine_optional_pct(std::string key, bool present, double value) {
+    return present ? machine_number(std::move(key), value) : machine_null(std::move(key));
+}
+
+MachineRow machine_row(std::initializer_list<MachineField> fields) { return MachineRow{.fields = std::vector<MachineField>(fields)}; }
 
 std::string time_header(std::string_view label, std::string_view denominator, TimeUnitMode mode) {
     if (mode == TimeUnitMode::Ns) {
@@ -170,72 +231,113 @@ void print_markdown_report(std::span<const ReportTable> tables) {
     }
 }
 
-void print_csv_report(std::span<const ReportTable> tables) {
+std::string machine_kind_name(MachineValueKind kind) {
+    switch (kind) {
+    case MachineValueKind::String: return "string";
+    case MachineValueKind::Number: return "number";
+    case MachineValueKind::Bool: return "bool";
+    case MachineValueKind::Null: return "null";
+    }
+    return "string";
+}
+
+void print_csv_record(std::initializer_list<std::string_view> cells) {
+    bool first = true;
+    for (std::string_view cell : cells) {
+        if (!first) {
+            std::cout << ',';
+        }
+        first = false;
+        std::cout << escape_csv_cell(cell);
+    }
+    std::cout << "\n";
+}
+
+void print_csv_report(std::span<const ReportTable> tables, std::span<const MeasuredReportIssue> issues) {
+    print_csv_record({"report", "table", "row", "field", "type", "value"});
     for (std::size_t table_idx = 0; table_idx < tables.size(); ++table_idx) {
-        const auto &table = tables[table_idx];
-        if (table_idx != 0) {
-            std::cout << "\n";
-        }
-        std::cout << "# " << escape_csv_cell(table.title) << "\n";
-        for (std::size_t col = 0; col < table.headers.size(); ++col) {
-            if (col != 0) {
-                std::cout << ',';
+        const auto &table    = tables[table_idx];
+        const auto  table_id = table.id.empty() ? table.title : table.id;
+        const auto  report   = table.report.empty() ? std::string_view("measured") : std::string_view(table.report);
+        std::string row_index;
+        for (std::size_t row_idx = 0; row_idx < table.machine_rows.size(); ++row_idx) {
+            row_index = fmt::format("{}", row_idx);
+            for (const auto &field : table.machine_rows[row_idx].fields) {
+                print_csv_record({report, table_id, row_index, field.key, machine_kind_name(field.kind), field.value});
             }
-            std::cout << escape_csv_cell(table.headers[col]);
         }
-        std::cout << "\n";
-        for (const auto &row : table.rows) {
-            for (std::size_t col = 0; col < row.size(); ++col) {
-                if (col != 0) {
-                    std::cout << ',';
-                }
-                std::cout << escape_csv_cell(row[col]);
-            }
-            std::cout << "\n";
-        }
+    }
+    for (std::size_t issue_idx = 0; issue_idx < issues.size(); ++issue_idx) {
+        const auto &issue = issues[issue_idx];
+        const auto  row   = fmt::format("{}", issue_idx);
+        const auto  line  = fmt::format("{}", issue.line);
+        const auto  infra = issue.infrastructure ? std::string_view("true") : std::string_view("false");
+        print_csv_record({"measured", "issues", row, "name", "string", issue.name});
+        print_csv_record({"measured", "issues", row, "file", "string", issue.file});
+        print_csv_record({"measured", "issues", row, "line", "number", line});
+        print_csv_record({"measured", "issues", row, "message", "string", issue.message});
+        print_csv_record({"measured", "issues", row, "infrastructure", "bool", infra});
     }
 }
 
-void print_json_report(std::string_view report_name, std::span<const ReportTable> tables) {
+void print_json_field_value(const MachineField &field) {
+    switch (field.kind) {
+    case MachineValueKind::String: std::cout << '"' << escape_json_string(field.value) << '"'; break;
+    case MachineValueKind::Number: std::cout << field.value; break;
+    case MachineValueKind::Bool: std::cout << field.value; break;
+    case MachineValueKind::Null: std::cout << "null"; break;
+    }
+}
+
+void print_json_report(std::string_view report_name, std::span<const ReportTable> tables, std::span<const MeasuredReportIssue> issues) {
     std::cout << "{\"report\":\"" << escape_json_string(report_name) << "\",\"tables\":[";
     for (std::size_t table_idx = 0; table_idx < tables.size(); ++table_idx) {
         const auto &table = tables[table_idx];
         if (table_idx != 0) {
             std::cout << ',';
         }
-        std::cout << "{\"title\":\"" << escape_json_string(table.title) << "\",\"columns\":[";
-        for (std::size_t col = 0; col < table.headers.size(); ++col) {
-            if (col != 0) {
-                std::cout << ',';
-            }
-            std::cout << '"' << escape_json_string(table.headers[col]) << '"';
-        }
-        std::cout << "],\"rows\":[";
-        for (std::size_t row_idx = 0; row_idx < table.rows.size(); ++row_idx) {
+        const auto table_id = table.id.empty() ? std::string_view(table.title) : std::string_view(table.id);
+        const auto report   = table.report.empty() ? std::string_view("measured") : std::string_view(table.report);
+        std::cout << "{\"report\":\"" << escape_json_string(report) << "\",\"id\":\"" << escape_json_string(table_id) << "\",\"title\":\""
+                  << escape_json_string(table.title) << "\",\"rows\":[";
+        for (std::size_t row_idx = 0; row_idx < table.machine_rows.size(); ++row_idx) {
             if (row_idx != 0) {
                 std::cout << ',';
             }
             std::cout << '{';
-            const auto &row = table.rows[row_idx];
-            for (std::size_t col = 0; col < table.headers.size() && col < row.size(); ++col) {
-                if (col != 0) {
+            const auto &row = table.machine_rows[row_idx];
+            for (std::size_t field_idx = 0; field_idx < row.fields.size(); ++field_idx) {
+                if (field_idx != 0) {
                     std::cout << ',';
                 }
-                std::cout << '"' << escape_json_string(table.headers[col]) << "\":\"" << escape_json_string(row[col]) << '"';
+                const auto &field = row.fields[field_idx];
+                std::cout << '"' << escape_json_string(field.key) << "\":";
+                print_json_field_value(field);
             }
             std::cout << '}';
         }
         std::cout << "]}";
     }
+    std::cout << "],\"issues\":[";
+    for (std::size_t issue_idx = 0; issue_idx < issues.size(); ++issue_idx) {
+        const auto &issue = issues[issue_idx];
+        if (issue_idx != 0) {
+            std::cout << ',';
+        }
+        std::cout << "{\"name\":\"" << escape_json_string(issue.name) << "\",\"file\":\"" << escape_json_string(issue.file)
+                  << "\",\"line\":" << issue.line << ",\"message\":\"" << escape_json_string(issue.message)
+                  << "\",\"infrastructure\":" << (issue.infrastructure ? "true" : "false") << "}";
+    }
     std::cout << "]}\n";
 }
 
-void print_report(std::string_view report_name, std::span<const ReportTable> tables, MeasuredReportFormat format) {
+void print_report(std::string_view report_name, std::span<const ReportTable> tables, MeasuredReportFormat format,
+                  std::span<const MeasuredReportIssue> issues = {}) {
     switch (format) {
     case MeasuredReportFormat::Table: print_table_report(tables); break;
     case MeasuredReportFormat::Markdown: print_markdown_report(tables); break;
-    case MeasuredReportFormat::Csv: print_csv_report(tables); break;
-    case MeasuredReportFormat::Json: print_json_report(report_name, tables); break;
+    case MeasuredReportFormat::Csv: print_csv_report(tables, issues); break;
+    case MeasuredReportFormat::Json: print_json_report(report_name, tables, issues); break;
     }
 }
 
@@ -589,7 +691,7 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
     return attachments;
 }
 
-void print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &opt) {
+static std::vector<ReportTable> build_bench_report_tables(std::span<const BenchReportRow> rows, const CliOptions &opt) {
     std::map<std::string, double> baseline_ns;
     for (const auto &row : rows) {
         if (!row.c || !row.c->is_baseline)
@@ -607,7 +709,9 @@ void print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &
     };
 
     ReportTable summary{
-        .title = "Benchmarks",
+        .title  = "Benchmarks",
+        .id     = "bench.summary",
+        .report = "bench",
         .headers =
             {
                 "Benchmark",
@@ -629,11 +733,12 @@ void print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &
         if (!row.c)
             continue;
         const std::string suite(row.c->suite);
-        const auto        base_it        = baseline_ns.find(suite);
-        const double      base_ns        = (base_it == baseline_ns.end()) ? 0.0 : base_it->second;
-        const double      median_item_ns = per_item_ns(row.result.median_ns, *row.c);
-        const std::string baseline_cell =
-            (base_ns > 0.0) ? fmt::format("{:+.2f}%", (median_item_ns - base_ns) / base_ns * 100.0) : std::string("-");
+        const auto        base_it            = baseline_ns.find(suite);
+        const double      base_ns            = (base_it == baseline_ns.end()) ? 0.0 : base_it->second;
+        const double      median_item_ns     = per_item_ns(row.result.median_ns, *row.c);
+        const bool        has_baseline       = base_ns > 0.0;
+        const double      baseline_delta_pct = has_baseline ? ((median_item_ns - base_ns) / base_ns * 100.0) : 0.0;
+        const std::string baseline_cell      = has_baseline ? fmt::format("{:+.2f}%", baseline_delta_pct) : std::string("-");
         summary.rows.push_back({
             std::string(row.c->name),
             fmt::format("{}", row.result.epochs),
@@ -647,10 +752,27 @@ void print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &
             format_report_time_s(row.result.wall_time_s, opt.time_unit_mode),
             baseline_cell,
         });
+        summary.machine_rows.push_back(machine_row({
+            machine_string("benchmark", row.c->name),
+            machine_string("suite", row.c->suite),
+            machine_bool("is_baseline", row.c->is_baseline),
+            machine_count("samples", row.result.epochs),
+            machine_count("iters_per_epoch", row.result.iters_per_epoch),
+            machine_count("items_per_call", case_items_per_call(*row.c)),
+            machine_number("median_ns_per_item", median_item_ns),
+            machine_number("mean_ns_per_item", per_item_ns(row.result.mean_ns, *row.c)),
+            machine_number("p05_ns_per_item", per_item_ns(row.result.p05_ns, *row.c)),
+            machine_number("p95_ns_per_item", per_item_ns(row.result.p95_ns, *row.c)),
+            machine_number("worst_ns_per_item", per_item_ns(row.result.worst_ns, *row.c)),
+            machine_number("wall_time_s", row.result.wall_time_s),
+            machine_optional_pct("baseline_delta_pct", has_baseline, baseline_delta_pct),
+        }));
     }
 
     ReportTable debug{
-        .title = "Bench debug",
+        .title  = "Bench debug",
+        .id     = "bench.debug",
+        .report = "bench",
         .headers =
             {
                 "Benchmark",
@@ -677,6 +799,7 @@ void print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &
         if (!row.c)
             continue;
         const double calls_per_sec = bench_calls_per_sec(row.result);
+        const double items_per_sec = calls_per_sec * static_cast<double>(case_items_per_call(*row.c));
         debug.rows.push_back({
             std::string(row.c->name),
             fmt::format("{}", row.result.epochs),
@@ -693,17 +816,36 @@ void print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &
             format_report_time_s(opt.bench_cfg.min_total_time_s, opt.time_unit_mode),
             format_report_time_s(opt.bench_cfg.max_total_time_s, opt.time_unit_mode),
             fmt::format("{:.3f}", calls_per_sec),
-            fmt::format("{:.3f}", calls_per_sec * static_cast<double>(case_items_per_call(*row.c))),
+            fmt::format("{:.3f}", items_per_sec),
         });
+        debug.machine_rows.push_back(machine_row({
+            machine_string("benchmark", row.c->name),
+            machine_string("suite", row.c->suite),
+            machine_count("epochs", row.result.epochs),
+            machine_count("iters_per_epoch", row.result.iters_per_epoch),
+            machine_count("items_per_call", case_items_per_call(*row.c)),
+            machine_count("total_calls", row.result.total_iters),
+            machine_number("total_items", total_items(row.result, *row.c)),
+            machine_number("measured_time_s", row.result.total_time_s),
+            machine_number("wall_time_s", row.result.wall_time_s),
+            machine_number("warmup_time_s", row.result.warmup_time_s),
+            machine_count("calibration_iters", row.result.calibration_iters),
+            machine_number("calibration_time_s", row.result.calibration_time_s),
+            machine_number("min_epoch_time_s", opt.bench_cfg.min_epoch_time_s),
+            machine_number("min_total_time_s", opt.bench_cfg.min_total_time_s),
+            machine_number("max_total_time_s", opt.bench_cfg.max_total_time_s),
+            machine_number("calls_per_sec", calls_per_sec),
+            machine_number("items_per_sec", items_per_sec),
+        }));
     }
 
     std::vector<ReportTable> tables;
     tables.push_back(std::move(summary));
     tables.push_back(std::move(debug));
-    print_report("bench", tables, opt.measured_report_format);
+    return tables;
 }
 
-void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions &opt) {
+static std::vector<ReportTable> build_jitter_report_tables(std::span<const JitterReportRow> rows, const CliOptions &opt) {
     const int                     bins = opt.jitter_bins;
     std::map<std::string, double> baseline_median_ns;
     std::map<std::string, double> baseline_stddev_ns;
@@ -719,7 +861,9 @@ void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions
 
     std::vector<ReportTable> tables;
     ReportTable              summary{
-                     .title = "Jitter summary",
+                     .title  = "Jitter summary",
+                     .id     = "jitter.summary",
+                     .report = "jitter",
                      .headers =
                          {
                 "Benchmark",
@@ -743,16 +887,18 @@ void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions
         if (!row.c)
             continue;
         const std::string suite(row.c->suite);
-        const auto        base_med_it    = baseline_median_ns.find(suite);
-        const auto        base_sd_it     = baseline_stddev_ns.find(suite);
-        const double      base_median    = (base_med_it == baseline_median_ns.end()) ? 0.0 : base_med_it->second;
-        const double      base_sd        = (base_sd_it == baseline_stddev_ns.end()) ? 0.0 : base_sd_it->second;
-        const double      median_item_ns = per_item_ns(row.result.median_ns, *row.c);
-        const double      sd_item_ns     = per_item_ns(row.result.stddev_ns, *row.c);
-        const std::string baseline_med_cell =
-            (base_median > 0.0) ? fmt::format("{:+.2f}%", (median_item_ns - base_median) / base_median * 100.0) : std::string("-");
-        const std::string baseline_sd_cell =
-            (base_sd > 0.0) ? fmt::format("{:+.2f}%", (sd_item_ns - base_sd) / base_sd * 100.0) : std::string("-");
+        const auto        base_med_it            = baseline_median_ns.find(suite);
+        const auto        base_sd_it             = baseline_stddev_ns.find(suite);
+        const double      base_median            = (base_med_it == baseline_median_ns.end()) ? 0.0 : base_med_it->second;
+        const double      base_sd                = (base_sd_it == baseline_stddev_ns.end()) ? 0.0 : base_sd_it->second;
+        const double      median_item_ns         = per_item_ns(row.result.median_ns, *row.c);
+        const double      sd_item_ns             = per_item_ns(row.result.stddev_ns, *row.c);
+        const bool        has_baseline_med       = base_median > 0.0;
+        const bool        has_baseline_sd        = base_sd > 0.0;
+        const double      baseline_med_delta_pct = has_baseline_med ? ((median_item_ns - base_median) / base_median * 100.0) : 0.0;
+        const double      baseline_sd_delta_pct  = has_baseline_sd ? ((sd_item_ns - base_sd) / base_sd * 100.0) : 0.0;
+        const std::string baseline_med_cell      = has_baseline_med ? fmt::format("{:+.2f}%", baseline_med_delta_pct) : std::string("-");
+        const std::string baseline_sd_cell       = has_baseline_sd ? fmt::format("{:+.2f}%", baseline_sd_delta_pct) : std::string("-");
         summary.rows.push_back({
             std::string(row.c->name),
             fmt::format("{}", row.result.samples_ns.size()),
@@ -768,11 +914,30 @@ void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions
             baseline_med_cell,
             baseline_sd_cell,
         });
+        summary.machine_rows.push_back(machine_row({
+            machine_string("benchmark", row.c->name),
+            machine_string("suite", row.c->suite),
+            machine_bool("is_baseline", row.c->is_baseline),
+            machine_count("samples", row.result.samples_ns.size()),
+            machine_count("items_per_call", case_items_per_call(*row.c)),
+            machine_number("median_ns_per_item", median_item_ns),
+            machine_number("mean_ns_per_item", per_item_ns(row.result.mean_ns, *row.c)),
+            machine_number("stddev_ns_per_item", sd_item_ns),
+            machine_number("p05_ns_per_item", per_item_ns(row.result.p05_ns, *row.c)),
+            machine_number("p95_ns_per_item", per_item_ns(row.result.p95_ns, *row.c)),
+            machine_number("min_ns_per_item", per_item_ns(row.result.min_ns, *row.c)),
+            machine_number("max_ns_per_item", per_item_ns(row.result.max_ns, *row.c)),
+            machine_number("wall_time_s", row.result.wall_time_s),
+            machine_optional_pct("baseline_delta_pct", has_baseline_med, baseline_med_delta_pct),
+            machine_optional_pct("baseline_stddev_delta_pct", has_baseline_sd, baseline_sd_delta_pct),
+        }));
     }
     tables.push_back(std::move(summary));
 
     ReportTable debug{
-        .title = "Jitter debug",
+        .title  = "Jitter debug",
+        .id     = "jitter.debug",
+        .report = "jitter",
         .headers =
             {
                 "Benchmark",
@@ -816,6 +981,23 @@ void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions
             format_report_time_s(opt.bench_cfg.max_total_time_s, opt.time_unit_mode),
             format_report_time_s(row.result.wall_time_s, opt.time_unit_mode),
         });
+        debug.machine_rows.push_back(machine_row({
+            machine_string("benchmark", row.c->name),
+            machine_string("suite", row.c->suite),
+            machine_string("mode", mode),
+            machine_bool("batch_mode", row.result.batch_mode),
+            machine_count("samples", row.result.samples_ns.size()),
+            machine_count("iters_per_epoch", row.result.iters_per_epoch),
+            machine_count("items_per_call", case_items_per_call(*row.c)),
+            machine_number("overhead_mean_ns_per_call", row.result.overhead_mean_ns),
+            machine_number("overhead_sd_ns_per_call", row.result.overhead_sd_ns),
+            machine_number("overhead_ratio_pct", row.result.overhead_ratio_pct),
+            machine_number("measured_time_s", row.result.total_time_s),
+            machine_number("warmup_time_s", row.result.warmup_time_s),
+            machine_number("min_total_time_s", opt.bench_cfg.min_total_time_s),
+            machine_number("max_total_time_s", opt.bench_cfg.max_total_time_s),
+            machine_number("wall_time_s", row.result.wall_time_s),
+        }));
     }
     tables.push_back(std::move(debug));
 
@@ -852,12 +1034,32 @@ void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions
 
         ReportTable hist{
             .title       = fmt::format("Jitter histogram (bins={}, name={})", bins, row.c->name),
+            .id          = "jitter.histogram",
+            .report      = "jitter",
             .headers     = {"Bin", fmt::format("Range ({}/item)", hist_spec.suffix), "Count", "Percent", "Cumulative %"},
             .right_align = {true, false, true, true, true},
         };
 
         const auto  total_samples    = static_cast<double>(row.result.samples_ns.size());
         std::size_t cumulative_count = 0;
+        for (std::size_t i = 0; i < scaled_bins.size(); ++i) {
+            const auto &bin = scaled_bins[i];
+            cumulative_count += bin.count;
+            const double pct            = (total_samples > 0.0) ? (static_cast<double>(bin.count) / total_samples * 100.0) : 0.0;
+            const double cumulative_pct = (total_samples > 0.0) ? (static_cast<double>(cumulative_count) / total_samples * 100.0) : 0.0;
+            hist.machine_rows.push_back(machine_row({
+                machine_string("benchmark", row.c->name),
+                machine_string("suite", row.c->suite),
+                machine_count("bin", i + 1),
+                machine_number("range_lo_ns_per_item", bin.lo),
+                machine_number("range_hi_ns_per_item", bin.hi),
+                machine_bool("inclusive_hi", bin.inclusive_hi),
+                machine_count("count", bin.count),
+                machine_number("percent", pct),
+                machine_number("cumulative_percent", cumulative_pct),
+            }));
+        }
+        cumulative_count = 0;
         for (std::size_t i = 0; i < display_bins.size(); ++i) {
             const auto       &bin = display_bins[i];
             const std::string range =
@@ -876,7 +1078,41 @@ void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions
         tables.push_back(std::move(hist));
     }
 
+    return tables;
+}
+
+void print_bench_report(std::span<const BenchReportRow> rows, const CliOptions &opt) {
+    auto tables = build_bench_report_tables(rows, opt);
+    print_report("bench", tables, opt.measured_report_format);
+}
+
+void print_jitter_report(std::span<const JitterReportRow> rows, const CliOptions &opt) {
+    auto tables = build_jitter_report_tables(rows, opt);
     print_report("jitter", tables, opt.measured_report_format);
+}
+
+void print_measured_report(std::span<const BenchReportRow> bench_rows, std::span<const JitterReportRow> jitter_rows, const CliOptions &opt,
+                           std::span<const MeasuredReportIssue> issues, bool include_bench_report, bool include_jitter_report) {
+    include_bench_report  = include_bench_report || !bench_rows.empty();
+    include_jitter_report = include_jitter_report || !jitter_rows.empty();
+
+    std::vector<ReportTable> tables;
+    if (include_bench_report) {
+        auto bench_tables = build_bench_report_tables(bench_rows, opt);
+        tables.insert(tables.end(), std::make_move_iterator(bench_tables.begin()), std::make_move_iterator(bench_tables.end()));
+    }
+    if (include_jitter_report) {
+        auto jitter_tables = build_jitter_report_tables(jitter_rows, opt);
+        tables.insert(tables.end(), std::make_move_iterator(jitter_tables.begin()), std::make_move_iterator(jitter_tables.end()));
+    }
+
+    std::string_view report_name = "measured";
+    if (include_bench_report && !include_jitter_report) {
+        report_name = "bench";
+    } else if (!include_bench_report && include_jitter_report) {
+        report_name = "jitter";
+    }
+    print_report(report_name, tables, opt.measured_report_format, issues);
 }
 
 } // namespace gentest::runner

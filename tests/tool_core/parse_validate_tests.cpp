@@ -298,6 +298,25 @@ int main() {
     }
 
     {
+        const std::vector<std::string> invalid_item_counts{
+            R"(bench("x"), items_per_call(1), items_per_call(2))",
+            R"(bench("x"), items_per_call(1), ops_per_call(2))",
+            R"(bench("x"), items_per_call())",
+            R"(bench("x"), items_per_call(1, 2))",
+            R"(bench("x"), items_per_call(foo))",
+            R"(bench("x"), items_per_call(-1))",
+            R"(bench("x"), items_per_call(18446744073709551616))",
+        };
+        for (const auto &source : invalid_item_counts) {
+            auto                     attrs = parse_attribute_list(source);
+            std::vector<std::string> diags;
+            auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+            t.expect(summary.had_error, "invalid items_per_call form errors: " + source);
+            t.expect(!diags.empty(), "invalid items_per_call form reports a diagnostic: " + source);
+        }
+    }
+
+    {
         auto                     attrs = parse_attribute_list(R"(bench)");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
