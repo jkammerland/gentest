@@ -38,10 +38,10 @@ bool is_known_gentest_attribute_name(std::string_view name) {
     const std::string lowered = to_lower_copy(name);
     return lowered == "test" || lowered == "bench" || lowered == "benchmark" || lowered == "baseline" || lowered == "jitter" ||
            lowered == "req" || lowered == "requires" || lowered == "skip" || lowered == "template" || lowered == "parameters" ||
-           lowered == "range" || lowered == "linspace" || lowered == "geom" || lowered == "geomspace" || lowered == "geospace" ||
-           lowered == "logspace" || lowered == "parameters_pack" || lowered == "fixtures" || lowered == "fast" || lowered == "slow" ||
-           lowered == "linux" || lowered == "windows" || lowered == "death" || lowered == "owner" || lowered == "fixture" ||
-           lowered == "suite";
+           lowered == "items_per_call" || lowered == "ops_per_call" || lowered == "range" || lowered == "linspace" || lowered == "geom" ||
+           lowered == "geomspace" || lowered == "geospace" || lowered == "logspace" || lowered == "parameters_pack" ||
+           lowered == "fixtures" || lowered == "fast" || lowered == "slow" || lowered == "linux" || lowered == "windows" ||
+           lowered == "death" || lowered == "owner" || lowered == "fixture" || lowered == "suite";
 }
 
 bool is_gentest_scoped_attribute_token(std::string_view token) {

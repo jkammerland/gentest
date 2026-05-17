@@ -122,6 +122,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
     bool seen_bench_epochs         = false;
     bool seen_jitter_bins          = false;
     bool seen_time_unit            = false;
+    bool seen_report_format        = false;
 
     enum class ValueMatch { No, Yes, Error };
     auto match_value = [&](std::size_t &i, std::string_view s, std::string_view opt_name, std::string_view &value) -> ValueMatch {
@@ -228,6 +229,27 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             return true;
         }
         fmt::print(stderr, "error: --time-unit must be one of auto,ns; got: '{}'\n", value);
+        return false;
+    };
+
+    auto parse_report_format_option = [&](std::string_view value, MeasuredReportFormat &out_format) -> bool {
+        if (value == "table") {
+            out_format = MeasuredReportFormat::Table;
+            return true;
+        }
+        if (value == "markdown" || value == "md") {
+            out_format = MeasuredReportFormat::Markdown;
+            return true;
+        }
+        if (value == "csv") {
+            out_format = MeasuredReportFormat::Csv;
+            return true;
+        }
+        if (value == "json") {
+            out_format = MeasuredReportFormat::Json;
+            return true;
+        }
+        fmt::print(stderr, "error: --report-format must be one of table,markdown,csv,json; got: '{}'\n", value);
         return false;
     };
 
@@ -401,6 +423,23 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
                                                                           });
             time_unit_result != OptionParseResult::NoMatch) {
             if (time_unit_result == OptionParseResult::Error)
+                return false;
+            continue;
+        }
+        if (const OptionParseResult report_format_result =
+                parse_value_option(i, s, "--report-format",
+                                   [&](std::string_view value) {
+                                       if (seen_report_format) {
+                                           fmt::print(stderr, "error: duplicate --report-format\n");
+                                           return false;
+                                       }
+                                       if (!parse_report_format_option(value, opt.measured_report_format))
+                                           return false;
+                                       seen_report_format = true;
+                                       return true;
+                                   });
+            report_format_result != OptionParseResult::NoMatch) {
+            if (report_format_result == OptionParseResult::Error)
                 return false;
             continue;
         }

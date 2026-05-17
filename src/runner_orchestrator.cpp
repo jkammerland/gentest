@@ -260,7 +260,10 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         gentest::runner::emit_github_annotations(state.acc);
     }
 
-    if (!selection.idxs.empty() || !state.acc.failure_items.empty()) {
+    const bool machine_measured_report =
+        opt.measured_report_format == MeasuredReportFormat::Csv || opt.measured_report_format == MeasuredReportFormat::Json;
+    const bool measured_only_selection = test_idxs.empty() && (!bench_idxs.empty() || !jitter_idxs.empty());
+    if ((!selection.idxs.empty() || !state.acc.failure_items.empty()) && !(machine_measured_report && measured_only_selection)) {
         const std::size_t  passed_count  = counters.passed + bench_status.passed + jitter_status.passed;
         const std::size_t  total_count   = counters.total + bench_status.total + jitter_status.total;
         const std::size_t  failed_count  = counters.failed + bench_status.failed + jitter_status.failed + state.acc.infra_errors.size();
@@ -324,6 +327,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --junit=<file>        Write JUnit XML report to file\n");
         fmt::print("  --allure-dir=<dir>    Write Allure result JSON files into directory\n");
         fmt::print("  --time-unit=<mode>    Time display unit: auto|ns (default auto)\n");
+        fmt::print("  --report-format=<mode> Measured reports: table|markdown|csv|json (default table)\n");
         fmt::print("  --fail-fast           Stop after the first failing case\n");
         fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
         fmt::print("  --async-log-tail=N    Live async log lines per case (default 5, 0 disables)\n");

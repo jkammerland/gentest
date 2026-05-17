@@ -450,7 +450,8 @@ inline constexpr std::string_view case_entry = R"FMT(    gentest::Case{{
         .fixture_lifetime = {lifetime},
         .suite = {suite},
         .async_fn = {async_wrapper},
-        .is_async = {is_async}
+        .is_async = {is_async},
+        .items_per_call = {items_per_call}
     }},
 
 )FMT";

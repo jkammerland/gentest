@@ -3,6 +3,7 @@
 #include "gentest/async.h"
 #include "gentest/detail/runtime_config.h"
 
+#include <cstdint>
 #include <span>
 #include <string_view>
 
@@ -37,6 +38,7 @@ struct Case {
     std::string_view                  suite;
     gentest::detail::AsyncCaseFn      async_fn{nullptr};
     bool                              is_async{false};
+    std::uint64_t                     items_per_call{1};
 };
 
 } // namespace gentest

@@ -142,7 +142,7 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
         gentest::runner::detail::CurrentTestScope test_scope(ctxinfo);
         gentest::detail::BenchPhaseScope          bench_scope(gentest::detail::BenchPhase::Call);
         try {
-            // Bench/jitter ns/op should measure only the user call body.
+            // Bench/jitter per-call timing should measure only the user call body.
             start = clock::now();
             body();
             stop_timer();

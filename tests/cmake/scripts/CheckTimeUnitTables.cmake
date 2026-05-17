@@ -108,14 +108,14 @@ _run(
   --bench-warmup=0
   --bench-max-total-time-s=0.02)
 
-string(FIND "${_bench_out}" "Median (ms/op)" _bench_header_pos)
+string(FIND "${_bench_out}" "Median/item" _bench_header_pos)
 if(_bench_header_pos EQUAL -1)
-  message(FATAL_ERROR "Expected scaled bench header 'Median (ms/op)'. Output:\n${_bench_out}")
+  message(FATAL_ERROR "Expected auto-unit bench header 'Median/item'. Output:\n${_bench_out}")
 endif()
 
 _extract_row(_bench_row "${_bench_out}" "regressions/bench_sleep_ms")
-foreach(_col IN ITEMS 4 5 6 7 8 9)
-  _assert_row_cell_regex("${_bench_row}" ${_col} "^[0-9]+\\.[0-9][0-9][0-9]$" "bench column ${_col}")
+foreach(_col IN ITEMS 5 6 7 8 9 10)
+  _assert_row_cell_regex("${_bench_row}" ${_col} "^[0-9]+\\.[0-9][0-9][0-9] ms$" "bench column ${_col}")
 endforeach()
 
 _run(
@@ -128,14 +128,14 @@ _run(
   --bench-max-total-time-s=0.02
   --jitter-bins=5)
 
-string(FIND "${_jitter_out}" "Median (ms/op)" _jitter_header_pos)
+string(FIND "${_jitter_out}" "Median/item" _jitter_header_pos)
 if(_jitter_header_pos EQUAL -1)
-  message(FATAL_ERROR "Expected scaled jitter header 'Median (ms/op)'. Output:\n${_jitter_out}")
+  message(FATAL_ERROR "Expected auto-unit jitter header 'Median/item'. Output:\n${_jitter_out}")
 endif()
 
 _extract_row(_jitter_row "${_jitter_out}" "regressions/jitter_sleep_ms")
-foreach(_col IN ITEMS 3 4 6 7 8 9 10)
-  _assert_row_cell_regex("${_jitter_row}" ${_col} "^[0-9]+\\.[0-9][0-9][0-9]$" "jitter column ${_col}")
+foreach(_col IN ITEMS 4 5 7 8 9 10 11)
+  _assert_row_cell_regex("${_jitter_row}" ${_col} "^[0-9]+\\.[0-9][0-9][0-9] ms$" "jitter column ${_col}")
 endforeach()
 
 _collect_hist_ranges("${_jitter_out}" _ranges)

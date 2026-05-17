@@ -52,11 +52,11 @@ _run(
   --bench-warmup=0
   --bench-max-total-time-s=0.02)
 
-_require_contains("${_bench_out}" "Median (ns/op)")
+_require_contains("${_bench_out}" "Median (ns/item)")
 _require_contains("${_bench_out}" "Total (ns)")
-_require_not_contains("${_bench_out}" "(us/op)")
-_require_not_contains("${_bench_out}" "(ms/op)")
-_require_not_contains("${_bench_out}" "(s/op)")
+_require_not_contains("${_bench_out}" "(us/item)")
+_require_not_contains("${_bench_out}" "(ms/item)")
+_require_not_contains("${_bench_out}" "(s/item)")
 
 _run(
   _jitter_out
@@ -69,10 +69,10 @@ _run(
   --bench-max-total-time-s=0.02
   --jitter-bins=5)
 
-_require_contains("${_jitter_out}" "Median (ns/op)")
-_require_contains("${_jitter_out}" "Range (ns/op)")
-_require_not_contains("${_jitter_out}" "(us/op)")
-_require_not_contains("${_jitter_out}" "(ms/op)")
-_require_not_contains("${_jitter_out}" "(s/op)")
+_require_contains("${_jitter_out}" "Median (ns/item)")
+_require_contains("${_jitter_out}" "Range (ns/item)")
+_require_not_contains("${_jitter_out}" "(us/item)")
+_require_not_contains("${_jitter_out}" "(ms/item)")
+_require_not_contains("${_jitter_out}" "(s/item)")
 
 message(STATUS "Forced ns unit checks passed")

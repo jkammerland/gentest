@@ -265,6 +265,39 @@ int main() {
     }
 
     {
+        auto                     attrs = parse_attribute_list(R"(bench("x"), items_per_call(1024))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "items_per_call is valid on bench");
+        t.expect(diags.empty(), "items_per_call should not report diagnostics");
+        t.expect(summary.items_per_call == 1024, "items_per_call value is recorded");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(jitter("x"), ops_per_call(7))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "ops_per_call alias is valid on jitter");
+        t.expect(summary.items_per_call == 7, "ops_per_call value is recorded");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(test("x"), items_per_call(2))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "items_per_call without measured kind errors");
+        t.expect(!diags.empty(), "items_per_call without measured kind reports a diagnostic");
+    }
+
+    {
+        auto                     attrs = parse_attribute_list(R"(bench("x"), items_per_call(0))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(summary.had_error, "items_per_call rejects zero");
+        t.expect(!diags.empty(), "items_per_call zero reports a diagnostic");
+    }
+
+    {
         auto                     attrs = parse_attribute_list(R"(bench)");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });

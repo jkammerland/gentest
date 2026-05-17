@@ -93,7 +93,7 @@ template <typename Mutex> void lock_guard_small() {
 }
 } // namespace spacing
 
-[[using gentest: bench("string/concat_small"), baseline]]
+[[using gentest: bench("string/concat_small"), baseline, items_per_call(3)]]
 void bench_concat_small() {
     // Minimal work; harness repeats this function many times
     std::string a = "hello";

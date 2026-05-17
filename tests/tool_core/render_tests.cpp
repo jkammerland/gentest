@@ -73,6 +73,7 @@ int main() {
         cases[1].is_benchmark           = true;
         cases[1].is_jitter              = true;
         cases[1].is_baseline            = true;
+        cases[1].items_per_call         = 64;
         cases[1].should_skip            = true;
         cases[1].skip_reason            = "why \"quoted\"";
         cases[1].fixture_qualified_name = "fixtures::Shared";
@@ -82,16 +83,16 @@ int main() {
         const std::string rendered = render_case_entries(
             cases, {"kTags_0", "kTags_1"}, {"kReqs_0", "kReqs_1"},
             "N={name}|W={wrapper}|F={file}|L={line}|B={is_bench}|J={is_jitter}|BASE={is_baseline}|T={tags}|R={reqs}|SK={skip_reason}"
-            "|SS={should_skip}|FX={fixture}|LT={lifetime}|SU={suite}\n");
+            "|SS={should_skip}|FX={fixture}|LT={lifetime}|SU={suite}|IPC={items_per_call}\n");
         t.contains(rendered, "N=suite/plain|W=::kCaseInvoke_0|F=plain.cpp|L=17|B=false|J=false|BASE=false",
                    "render_case_entries renders plain case");
-        t.contains(rendered, "SK=std::string_view{}|SS=false|FX=std::string_view{}|LT=gentest::FixtureLifetime::None|SU=\"suite\"",
+        t.contains(rendered, "SK=std::string_view{}|SS=false|FX=std::string_view{}|LT=gentest::FixtureLifetime::None|SU=\"suite\"|IPC=1",
                    "render_case_entries renders empty skip and fixture fields");
         t.contains(rendered, "N=bench/case|W=::kCaseInvoke_1|F=bench.cpp|L=23|B=true|J=true|BASE=true",
                    "render_case_entries renders measured flags");
         t.contains(rendered,
-                   R"(SK="why \"quoted\""|SS=true|FX="fixtures::Shared"|LT=gentest::FixtureLifetime::MemberSuite|SU="bench/suite")",
-                   "render_case_entries escapes skip reason and fixture name");
+                   R"(SK="why \"quoted\""|SS=true|FX="fixtures::Shared"|LT=gentest::FixtureLifetime::MemberSuite|SU="bench/suite"|IPC=64)",
+                   "render_case_entries escapes skip reason, fixture name, and item count");
     }
 
     {
