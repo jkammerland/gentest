@@ -61,7 +61,7 @@ bool env_flag_disabled(const char *name) {
     return value == "0" || value == "false" || value == "FALSE" || value == "no" || value == "NO" || value == "off" || value == "OFF";
 }
 
-bool env_disables_async_live() { return env_has_value("GENTEST_NO_ASYNC_LIVE") || env_flag_disabled("GENTEST_ASYNC_LIVE"); }
+bool env_disables_async_live() { return env_flag_enabled("GENTEST_NO_ASYNC_LIVE") || env_flag_disabled("GENTEST_ASYNC_LIVE"); }
 
 bool env_forces_async_live() { return env_flag_enabled("GENTEST_ASYNC_LIVE"); }
 

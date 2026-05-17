@@ -46,11 +46,15 @@ if(DEFINED ARGS)
   endif()
 endif()
 
-set(_command "\"${PROG}\"")
+function(_gentest_shell_quote out_var value)
+  string(REPLACE "'" [=['"'"']=] _quoted "${value}")
+  set(${out_var} "'${_quoted}'" PARENT_SCOPE)
+endfunction()
+
+_gentest_shell_quote(_command "${PROG}")
 foreach(_arg IN LISTS _args)
-  string(REPLACE "\\" "\\\\" _escaped_arg "${_arg}")
-  string(REPLACE "\"" "\\\"" _escaped_arg "${_escaped_arg}")
-  string(APPEND _command " \"${_escaped_arg}\"")
+  _gentest_shell_quote(_quoted_arg "${_arg}")
+  string(APPEND _command " ${_quoted_arg}")
 endforeach()
 
 set(_capture_env "${CAPTURE_ENV}")
@@ -72,6 +76,8 @@ endif()
 
 execute_process(
   COMMAND ${CMAKE_COMMAND} -E env
+          --unset=CI
+          --unset=CODEX_CI
           --unset=NO_COLOR
           --unset=GENTEST_NO_COLOR
           --unset=GENTEST_ASYNC_LIVE
