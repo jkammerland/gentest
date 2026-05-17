@@ -1,6 +1,7 @@
 #include "runner_cli.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <fmt/format.h>
 #include <limits>
@@ -8,26 +9,58 @@
 #include <string>
 #include <string_view>
 
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace gentest::runner {
 namespace {
 
-static bool env_has_value(const char *name) {
+auto env_value(const char *name) -> std::string {
 #if defined(_WIN32) && defined(_MSC_VER)
-    char  *value = nullptr;
-    size_t len   = 0;
-    if (_dupenv_s(&value, &len, name) != 0 || value == nullptr)
-        return false;
-    const bool has_value = value[0] != '\0';
+    char  *value  = nullptr;
+    size_t length = 0;
+    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr)
+        return {};
+    std::string result(value);
     std::free(value);
-    return has_value;
+    return result;
 #else
     const char *value = std::getenv(name);
-    return value != nullptr && value[0] != '\0';
+    return value == nullptr ? std::string{} : std::string(value);
+#endif
+}
+
+bool env_has_value(const char *name) { return !env_value(name).empty(); }
+
+bool env_equals(const char *name, std::string_view expected) { return env_value(name) == expected; }
+
+bool env_flag_enabled(const char *name) {
+    const auto value = env_value(name);
+    return value == "1" || value == "true" || value == "TRUE" || value == "yes" || value == "YES" || value == "on" || value == "ON";
+}
+
+bool env_flag_disabled(const char *name) {
+    const auto value = env_value(name);
+    return value == "0" || value == "false" || value == "FALSE" || value == "no" || value == "NO" || value == "off" || value == "OFF";
+}
+
+bool stdout_is_tty() {
+#if defined(_WIN32)
+    return _isatty(_fileno(stdout)) != 0;
+#else
+    return ::isatty(::fileno(stdout)) != 0;
 #endif
 }
 
 bool env_no_color() { return env_has_value("NO_COLOR") || env_has_value("GENTEST_NO_COLOR"); }
 bool env_github_actions() { return env_has_value("GITHUB_ACTIONS"); }
+bool env_plain_output() {
+    return !stdout_is_tty() || env_equals("TERM", "dumb") || env_has_value("CI") || env_has_value("CODEX_CI") ||
+           env_flag_enabled("GENTEST_NO_ASYNC_LIVE") || env_flag_disabled("GENTEST_ASYNC_LIVE");
+}
 
 enum class ParseU64DecimalStatus {
     Ok,
@@ -552,7 +585,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         return false;
     }
 
-    opt.color_output       = !no_color_flag && !env_no_color();
+    opt.color_output       = !no_color_flag && !env_no_color() && !env_plain_output();
     opt.github_annotations = github_annotations_flag || env_github_actions();
 
     if (opt.bench_cfg.measure_epochs == 0)

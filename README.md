@@ -303,7 +303,9 @@ captured on the active test and streamed to registered log sinks immediately. Th
 `gentest::add_log_sink(...)`, `gentest::remove_log_sink(...)`, `gentest::remove_all_log_sinks()`, and `gentest::restore_default_log_sink()`.
 Sink handles are explicit removal tokens, not RAII guards; do not change the sink registry concurrently with `gentest::log()`.
 During async live rendering, stdout logs from active async cases are shown in the live row tail and the completed row keeps only the log
-count; additional custom sinks still receive each log immediately.
+count; additional custom sinks still receive each log immediately. The live renderer and framework color are disabled for non-TTY output,
+`TERM=dumb`, and capture-oriented environments such as `CI` or `CODEX_CI`; use `GENTEST_ASYNC_LIVE=1` to force live rendering in a
+capable terminal, or `GENTEST_ASYNC_LIVE=0` / `GENTEST_NO_ASYNC_LIVE=1` to force plain output.
 
 ```cpp
 #include "gentest/attributes.h"

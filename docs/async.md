@@ -559,6 +559,13 @@ Tune this with:
 --async-log-tail=10 # keep ten recent lines per active async case
 ```
 
+Live progress uses cursor-control sequences, so gentest disables it when stdout
+is not a TTY, `TERM=dumb`, or capture-oriented environments such as `CI` or
+`CODEX_CI` are present. Those plain-output modes also disable framework color.
+Set `GENTEST_ASYNC_LIVE=1` to force live rendering in a capable terminal, or set
+`GENTEST_ASYNC_LIVE=0` / `GENTEST_NO_ASYNC_LIVE=1` to force plain append-only
+output.
+
 ## Outcomes
 
 Async cases use the same outcomes as sync cases.
@@ -663,6 +670,9 @@ Non-terminal output is final-result only; it does not print the live block.
   live progress is active.
 - Use `--async-log-tail=N` to tune the number of recent per-case log lines shown
   in the live async status block.
+- Use `GENTEST_ASYNC_LIVE=0` or `GENTEST_NO_ASYNC_LIVE=1` for plain,
+  non-colored captured logs; `TERM=dumb`, `CI`, and `CODEX_CI` already select
+  that mode by default.
 - Lease the current context in worker threads only for `gentest::log()` and
   cooperative stop observation.
 - Do not assert, skip, xfail, fail, or configure mocks from worker threads or

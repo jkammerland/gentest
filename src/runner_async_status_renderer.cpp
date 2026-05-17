@@ -29,23 +29,43 @@
 namespace gentest::runner {
 namespace {
 
-bool env_equals(const char *name, std::string_view expected) {
+auto env_value(const char *name) -> std::string {
 #if defined(_WIN32) && defined(_MSC_VER)
     char  *value  = nullptr;
     size_t length = 0;
     if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
-        return false;
+        return {};
     }
-    const bool matches = std::string_view(value) == expected;
+    std::string result(value);
     std::free(value);
-    return matches;
+    return result;
 #else
     const char *value = std::getenv(name);
-    return value != nullptr && std::string_view(value) == expected;
+    return value == nullptr ? std::string{} : std::string(value);
 #endif
 }
 
+bool env_has_value(const char *name) { return !env_value(name).empty(); }
+
+bool env_equals(const char *name, std::string_view expected) { return env_value(name) == expected; }
+
 bool env_term_dumb() { return env_equals("TERM", "dumb"); }
+
+bool env_flag_enabled(const char *name) {
+    const auto value = env_value(name);
+    return value == "1" || value == "true" || value == "TRUE" || value == "yes" || value == "YES" || value == "on" || value == "ON";
+}
+
+bool env_flag_disabled(const char *name) {
+    const auto value = env_value(name);
+    return value == "0" || value == "false" || value == "FALSE" || value == "no" || value == "NO" || value == "off" || value == "OFF";
+}
+
+bool env_disables_async_live() { return env_flag_enabled("GENTEST_NO_ASYNC_LIVE") || env_flag_disabled("GENTEST_ASYNC_LIVE"); }
+
+bool env_forces_async_live() { return env_flag_enabled("GENTEST_ASYNC_LIVE"); }
+
+bool env_capture_prefers_plain_output() { return env_has_value("CI") || env_has_value("CODEX_CI"); }
 
 bool stdout_is_tty() {
 #if defined(_WIN32)
@@ -489,7 +509,14 @@ AsyncStatusRenderer::AsyncStatusRenderer(std::ostream &out, Mode mode, bool colo
 AsyncStatusRenderer::~AsyncStatusRenderer() { finish(); }
 
 auto AsyncStatusRenderer::terminal_mode(bool /*color_output*/) -> Mode {
-    if (env_term_dumb() || !stdout_is_tty() || !stdout_supports_virtual_terminal()) {
+    if (env_disables_async_live()) {
+        return Mode::Disabled;
+    }
+    const bool force_live = env_forces_async_live();
+    if (!force_live && (env_term_dumb() || env_capture_prefers_plain_output())) {
+        return Mode::Disabled;
+    }
+    if (!stdout_is_tty() || !stdout_supports_virtual_terminal()) {
         return Mode::Disabled;
     }
     return Mode::Terminal;

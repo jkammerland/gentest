@@ -319,7 +319,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --filter=<pattern>    Run cases matching wildcard pattern (*, ?)\n");
         fmt::print("  --kind=<kind>         Restrict to kind: all|test|bench|jitter (default all)\n");
         fmt::print("  --include-death       Allow running tests tagged 'death'\n");
-        fmt::print("  --no-color            Disable colorized output (or set NO_COLOR/GENTEST_NO_COLOR)\n");
+        fmt::print("  --no-color            Disable colorized output (also disabled for dumb/captured output)\n");
         fmt::print("  --github-annotations  Emit GitHub Actions annotations (::error ...) on failures\n");
         fmt::print("  --junit=<file>        Write JUnit XML report to file\n");
         fmt::print("  --allure-dir=<dir>    Write Allure result JSON files into directory\n");
