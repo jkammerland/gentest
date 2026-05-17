@@ -211,7 +211,7 @@ void print_markdown_report(std::span<const ReportTable> tables) {
         if (table_idx != 0) {
             std::cout << "\n";
         }
-        std::cout << "## " << table.title << "\n\n|";
+        std::cout << "## " << escape_markdown_cell(table.title) << "\n\n|";
         for (const auto &header : table.headers) {
             std::cout << ' ' << escape_markdown_cell(header) << " |";
         }

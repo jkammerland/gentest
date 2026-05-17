@@ -2802,6 +2802,24 @@ gentest_add_cmake_script_test(
         "FORBID_STDOUT_SUBSTRING=Summary:")
 
 gentest_add_cmake_script_test(
+    NAME benches_csv_escaped_machine_report
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredCsvReport.cmake"
+    ARGS
+        --run=benchmarks/escaping/csv,comma
+        --kind=bench
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+        --bench-max-total-time-s=0.01
+        --report-format=csv
+    DEFINES
+        "EXPECT_RC=0"
+        "REQUIRED_STDOUT_SUBSTRING=\"benchmarks/escaping/csv,comma\""
+        "FORBID_STDOUT_SUBSTRING=Summary:")
+
+gentest_add_cmake_script_test(
     NAME benches_json_blocked_machine_report_stderr
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredJsonReport.cmake"
@@ -2820,6 +2838,110 @@ gentest_add_cmake_script_test(
         "EXPECT_ISSUES_MIN=1"
         "REQUIRED_STDERR_SUBSTRING=[ BLOCKED ]"
         "FORBID_STDOUT_SUBSTRING=[ BLOCKED ]")
+
+gentest_add_cmake_script_test(
+    NAME benches_csv_blocked_machine_report_stderr
+    PROG $<TARGET_FILE:gentest_benchmarks_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredCsvReport.cmake"
+    ENV_VARS GENTEST_BENCH_NULL_FIXTURE=1
+    ARGS
+        --run=benchmarks/fixture/null
+        --kind=bench
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+        --report-format=csv
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_ISSUES_MIN=1"
+        "REQUIRED_STDOUT_SUBSTRING=message,string,BLOCKED:"
+        "REQUIRED_STDERR_SUBSTRING=[ BLOCKED ]"
+        "FORBID_STDOUT_SUBSTRING=[ BLOCKED ]")
+
+gentest_add_cmake_script_test(
+    NAME regression_bench_fail_fast_json_machine_report
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredJsonReport.cmake"
+    ARGS
+        --run=regressions/bench_assert_should_fail
+        --kind=bench
+        --fail-fast
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+        --report-format=json
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_REPORT=bench"
+        "EXPECT_ISSUES_MIN=1"
+        "REQUIRED_STDERR_SUBSTRING=benchmark call failed"
+        "FORBID_STDOUT_SUBSTRING=Summary:")
+
+gentest_add_cmake_script_test(
+    NAME regression_bench_fail_fast_csv_machine_report
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredCsvReport.cmake"
+    ARGS
+        --run=regressions/bench_assert_should_fail
+        --kind=bench
+        --fail-fast
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+        --report-format=csv
+    DEFINES
+        "EXPECT_RC=1"
+        "EXPECT_ISSUES_MIN=1"
+        "REQUIRED_STDERR_SUBSTRING=benchmark call failed"
+        "FORBID_STDOUT_SUBSTRING=Summary:")
+
+gentest_add_cmake_script_test(
+    NAME regression_bench_setup_skip_json_machine_report
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredJsonReport.cmake"
+    ARGS
+        --run=regressions/bench_setup_skip_should_not_fail
+        --kind=bench
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+        --report-format=json
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_REPORT=bench"
+        "EXPECT_ISSUES_MIN=1"
+        "REQUIRED_STDOUT_SUBSTRING=SKIP:"
+        "REQUIRED_STDERR_SUBSTRING=[ SKIP ]"
+        "FORBID_STDOUT_SUBSTRING=[ SKIP ]")
+
+gentest_add_cmake_script_test(
+    NAME regression_bench_setup_skip_csv_machine_report
+    PROG $<TARGET_FILE:gentest_regression_bench_assert>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredCsvReport.cmake"
+    ARGS
+        --run=regressions/bench_setup_skip_should_not_fail
+        --kind=bench
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+        --report-format=csv
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_ISSUES_MIN=1"
+        "REQUIRED_STDOUT_SUBSTRING=measured,issues,0,message,string,SKIP:"
+        "REQUIRED_STDERR_SUBSTRING=[ SKIP ]"
+        "FORBID_STDOUT_SUBSTRING=[ SKIP ]")
+
+gentest_add_check_death(
+    NAME cli_report_format_machine_rejects_test_only_selection
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    REQUIRED_SUBSTRING "requires a measured-only selection"
+    ARGS --run=unit/arithmetic/sum --kind=test --report-format=json)
 
 gentest_add_check_contains(
     NAME benches_filter_space

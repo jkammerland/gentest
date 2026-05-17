@@ -786,6 +786,9 @@ timing columns per item using the selected or automatic display unit. Use
 `--time-unit=ns` when you need explicit ns/item text. Automatic time units are
 chosen per cell so mixed slow/fast tables do not hide nanosecond-scale rows
 behind a suite-wide unit.
+`N` is a positive non-zero decimal integer; prefixes, suffixes, digit
+separators, and leading-zero forms are rejected so the reported item count
+matches the source spelling.
 Jitter reports use timer-overhead estimates and switch to batch sampling for
 very small operations, so prefer jitter when comparing sub-10ns work or timing
 variance.
@@ -794,6 +797,9 @@ variance.
 uses stable, typed fields such as `median_ns_per_item`, `items_per_call`, and
 `baseline_delta_pct` rather than display headers. `--report-format=csv` emits a
 strict long-form CSV schema: `report,table,row,field,type,value`.
+Machine formats require a measured-only selection (`--kind=bench`, `--kind=jitter`,
+or a filter that selects only measured cases); human test output is not mixed into
+JSON or CSV stdout.
 
 ### Reporting (JUnit / Allure / GitHub annotations)
 

@@ -325,6 +325,17 @@ void check_measured_report_formats_and_items() {
     expect(contains(line_containing(jitter_markdown_output, "jitter_item_row"), "| 5 |"),
            "markdown jitter output should include item count");
 
+    const auto jitter_title_case = make_case("regressions/measured_report/jitter_title|\n# injected", "suite_auto", false, true, false);
+    auto       jitter_title      = make_jitter_result({70.0, 75.0}, 2);
+    std::vector<JitterReportRow> jitter_title_rows{
+        JitterReportRow{.c = &jitter_title_case, .result = std::move(jitter_title)},
+    };
+    const std::string escaped_title_markdown =
+        capture_stdout([&] { gentest::runner::print_jitter_report(jitter_title_rows, jitter_markdown_opt); });
+    expect(contains(escaped_title_markdown, R"(name=regressions/measured_report/jitter_title\|<br># injected)"),
+           "markdown jitter histogram headings should escape case names");
+    expect(!contains(escaped_title_markdown, "\n# injected"), "markdown jitter histogram headings should not inject new headings");
+
     const std::string measured_json_output =
         capture_stdout([&] { gentest::runner::print_measured_report(bench_rows, jitter_rows, json_opt); });
     expect(contains(measured_json_output, R"("report":"measured")"), "combined json output should use one measured root");

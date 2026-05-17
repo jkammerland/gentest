@@ -7,6 +7,9 @@
 #include <span>
 #include <string_view>
 
+#define GENTEST_CASE_API_VERSION            2
+#define GENTEST_CASE_API_HAS_ITEMS_PER_CALL 1
+
 namespace gentest {
 
 // Runtime-visible test case description used by generated code and by runtime

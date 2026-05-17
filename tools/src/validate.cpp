@@ -69,6 +69,9 @@ bool parse_positive_u64(std::string_view text, std::uint64_t &out) {
     if (text.empty()) {
         return false;
     }
+    if (text.size() > 1 && text.front() == '0') {
+        return false;
+    }
     std::uint64_t value = 0;
     for (const char ch : text) {
         if (ch < '0' || ch > '9') {

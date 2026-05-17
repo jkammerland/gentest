@@ -48,9 +48,10 @@ struct SharedFixtureRunGuard {
 };
 
 struct OrchestratorState {
-    bool                            color_output   = true;
-    bool                            record_results = false;
-    gentest::runner::RunAccumulator acc;
+    bool                                              color_output   = true;
+    bool                                              record_results = false;
+    gentest::runner::RunAccumulator                   acc;
+    std::vector<gentest::runner::MeasuredReportIssue> measured_report_issues;
 };
 
 std::string join_span(std::span<const std::string_view> items, char sep) {
@@ -120,6 +121,7 @@ RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, st
             result.time_s           = failure.time_s;
             const std::string issue = failure.reason.empty() ? std::string("shared fixture unavailable") : failure.reason;
             result.skip_reason      = fmt::format("blocked: {}", issue);
+            result.summary_issues.push_back(fmt::format("BLOCKED: {}", issue));
             return result;
         }
         result.skipped     = true;
@@ -144,6 +146,23 @@ RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, st
     return result;
 }
 
+std::string measured_issue_message(const MeasurementCaseFailure &failure, std::string_view failure_message) {
+    if (failure.skipped) {
+        if (failure.infra_failure) {
+            const std::string issue = failure.reason.empty() ? std::string("shared fixture unavailable") : failure.reason;
+            return fmt::format("BLOCKED: {}", issue);
+        }
+        return failure.reason.empty() ? std::string("SKIP") : fmt::format("SKIP: {}", failure.reason);
+    }
+    if (!failure_message.empty()) {
+        return std::string(failure_message);
+    }
+    if (!failure.reason.empty()) {
+        return failure.reason;
+    }
+    return "measured case failed";
+}
+
 RunResult make_measured_success_result(double wall_time_s, std::vector<ReportAttachment> attachments = {}) {
     RunResult run_result;
     run_result.time_s      = wall_time_s;
@@ -159,23 +178,50 @@ void record_measured_result(OrchestratorState &state, const gentest::Case &c, Ru
     gentest::runner::record_case_result(state.acc, c, std::move(result), state.record_results);
 }
 
+void append_unique_measured_issue(std::vector<MeasuredReportIssue> &issues, MeasuredReportIssue issue) {
+    const auto same_issue = [&](const MeasuredReportIssue &existing) {
+        return existing.name == issue.name && existing.file == issue.file && existing.line == issue.line &&
+               existing.message == issue.message;
+    };
+    if (auto existing = std::ranges::find_if(issues, same_issue); existing != issues.end()) {
+        existing->infrastructure = existing->infrastructure || issue.infrastructure;
+        return;
+    }
+    issues.push_back(std::move(issue));
+}
+
+void record_measured_report_issue(OrchestratorState &state, const gentest::Case &c, const MeasurementCaseFailure &failure,
+                                  std::string_view failure_message) {
+    append_unique_measured_issue(state.measured_report_issues, MeasuredReportIssue{
+                                                                   .name           = std::string(c.name),
+                                                                   .file           = std::string(c.file),
+                                                                   .line           = c.line,
+                                                                   .message        = measured_issue_message(failure, failure_message),
+                                                                   .infrastructure = failure.infra_failure,
+                                                               });
+}
+
 bool is_machine_measured_report(const CliOptions &opt) {
     return opt.measured_report_format == MeasuredReportFormat::Csv || opt.measured_report_format == MeasuredReportFormat::Json;
 }
 
-std::vector<MeasuredReportIssue> collect_measured_report_issues(const RunAccumulator &acc) {
+std::vector<MeasuredReportIssue> collect_measured_report_issues(const RunAccumulator                &acc,
+                                                                std::span<const MeasuredReportIssue> measured_issues) {
     std::vector<MeasuredReportIssue> issues;
     for (const auto &item : acc.failure_items) {
         for (const auto &issue : item.issues) {
             const bool infrastructure = std::ranges::find(acc.infra_errors, issue) != acc.infra_errors.end();
-            issues.push_back(MeasuredReportIssue{
-                .name           = item.name,
-                .file           = item.file,
-                .line           = item.line,
-                .message        = issue,
-                .infrastructure = infrastructure,
-            });
+            append_unique_measured_issue(issues, MeasuredReportIssue{
+                                                     .name           = item.name,
+                                                     .file           = item.file,
+                                                     .line           = item.line,
+                                                     .message        = issue,
+                                                     .infrastructure = infrastructure,
+                                                 });
         }
+    }
+    for (const auto &issue : measured_issues) {
+        append_unique_measured_issue(issues, issue);
     }
     return issues;
 }
@@ -269,6 +315,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
                 record_measured_result(state, measured, make_measured_success_result(result.wall_time_s, std::move(attachments)));
             },
             [&](const gentest::Case &measured, const MeasurementCaseFailure &failure, std::string_view failure_message) {
+                record_measured_report_issue(state, measured, failure, failure_message);
                 record_measured_result(state, measured, make_measured_failure_result(failure, failure_message));
             },
             &bench_report_rows);
@@ -284,6 +331,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
                 record_measured_result(state, measured, make_measured_success_result(result.wall_time_s, std::move(attachments)));
             },
             [&](const gentest::Case &measured, const MeasurementCaseFailure &failure, std::string_view failure_message) {
+                record_measured_report_issue(state, measured, failure, failure_message);
                 record_measured_result(state, measured, make_measured_failure_result(failure, failure_message));
             },
             &jitter_report_rows);
@@ -323,11 +371,16 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         gentest::runner::emit_github_annotations(state.acc, machine_measured_report ? stderr : stdout);
     }
 
-    const bool ran_measured_cases = bench_status.total != 0 || jitter_status.total != 0;
-    if (ran_measured_cases && !bench_status.stopped && !jitter_status.stopped) {
-        const auto issues = collect_measured_report_issues(state.acc);
-        gentest::runner::print_measured_report(bench_report_rows, jitter_report_rows, opt, issues, bench_status.total != 0,
-                                               jitter_status.total != 0);
+    const bool selected_measured_cases = !bench_idxs.empty() || !jitter_idxs.empty();
+    const bool ran_measured_cases      = bench_status.total != 0 || jitter_status.total != 0;
+    if (ran_measured_cases || (machine_measured_report && measured_only_selection && selected_measured_cases)) {
+        const auto issues = collect_measured_report_issues(state.acc, state.measured_report_issues);
+        const bool include_bench_report =
+            (bench_status.total != 0) || (machine_measured_report && measured_only_selection && !bench_idxs.empty());
+        const bool include_jitter_report =
+            (jitter_status.total != 0) || (machine_measured_report && measured_only_selection && !jitter_idxs.empty());
+        gentest::runner::print_measured_report(bench_report_rows, jitter_report_rows, opt, issues, include_bench_report,
+                                               include_jitter_report);
     }
 
     if (!selection.idxs.empty() || !state.acc.failure_items.empty()) {
@@ -452,7 +505,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     }
 
     const bool machine_measured_report = is_machine_measured_report(opt);
-    if (machine_measured_report && !selection.test_idxs.empty() && (!selection.bench_idxs.empty() || !selection.jitter_idxs.empty())) {
+    if (machine_measured_report && !selection.test_idxs.empty()) {
         fmt::print(
             stderr,
             "error: --report-format={} requires a measured-only selection; use --kind=bench, --kind=jitter, or a measured-only filter\n",

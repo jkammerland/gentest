@@ -1,4 +1,5 @@
 #include "render.hpp"
+#include "templates.hpp"
 
 #include <cstdint>
 #include <iostream>
@@ -44,6 +45,10 @@ int main() {
 
     t.expect(escape_string("\\\"\n\r\t") == R"(\\\"\n\r\t)", "escape_string escapes control characters");
     t.expect(render_forward_decls({}, "ignored", "ignored").empty(), "render_forward_decls stays empty");
+    t.contains(gentest::codegen::tpl::registration_preamble_light, "GENTEST_CASE_API_VERSION",
+               "generated light preamble checks the Case API version");
+    t.contains(gentest::codegen::tpl::registration_preamble_full, "GENTEST_CASE_API_VERSION",
+               "generated full preamble checks the Case API version");
 
     {
         std::vector<TestCaseInfo> cases(2);

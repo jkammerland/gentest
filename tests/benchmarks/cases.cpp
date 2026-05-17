@@ -103,6 +103,12 @@ void bench_concat_small() {
     gentest::doNotOptimizeAway(s);
 }
 
+[[using gentest: bench("escaping/csv,comma")]]
+void bench_csv_comma_name() {
+    int value = 42;
+    gentest::doNotOptimizeAway(value);
+}
+
 [[using gentest: bench("math/sqrt"), baseline]]
 void bench_sqrt() {
     // Compute a sqrt to exercise math pipeline

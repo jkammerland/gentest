@@ -35,7 +35,8 @@
 // - Use `test("...")` to disambiguate overloads and keep names stable across
 //   refactors.
 // - `baseline` is only valid for `bench`/`jitter` cases.
-// - `items_per_call(N)` / `ops_per_call(N)` declare logical measured items per benchmark function call.
+// - `items_per_call(N)` / `ops_per_call(N)` declare logical measured items per bench/jitter function call.
+//   `N` must be a positive non-zero decimal integer with no prefix, suffix, separator, or leading zero.
 // Additional attribute names (e.g. `slow`, `linux`) are collected as tags,
 // while attributes such as `req("BUG-123")` or `skip("reason")` attach
 // requirements or skipping instructions. All information is extracted by the
