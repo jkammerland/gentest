@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <tabulate/table.hpp>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -255,8 +256,7 @@ void print_csv_record(std::initializer_list<std::string_view> cells) {
 
 void print_csv_report(std::span<const ReportTable> tables, std::span<const MeasuredReportIssue> issues) {
     print_csv_record({"report", "table", "row", "field", "type", "value"});
-    for (std::size_t table_idx = 0; table_idx < tables.size(); ++table_idx) {
-        const auto &table    = tables[table_idx];
+    for (const auto &table : tables) {
         const auto  table_id = table.id.empty() ? table.title : table.id;
         const auto  report   = table.report.empty() ? std::string_view("measured") : std::string_view(table.report);
         std::string row_index;
@@ -283,14 +283,14 @@ void print_csv_report(std::span<const ReportTable> tables, std::span<const Measu
 void print_json_field_value(const MachineField &field) {
     switch (field.kind) {
     case MachineValueKind::String: std::cout << '"' << escape_json_string(field.value) << '"'; break;
-    case MachineValueKind::Number: std::cout << field.value; break;
+    case MachineValueKind::Number:
     case MachineValueKind::Bool: std::cout << field.value; break;
     case MachineValueKind::Null: std::cout << "null"; break;
     }
 }
 
 void print_json_report(std::string_view report_name, std::span<const ReportTable> tables, std::span<const MeasuredReportIssue> issues) {
-    std::cout << "{\"report\":\"" << escape_json_string(report_name) << "\",\"tables\":[";
+    std::cout << R"({"report":")" << escape_json_string(report_name) << R"(","tables":[)";
     for (std::size_t table_idx = 0; table_idx < tables.size(); ++table_idx) {
         const auto &table = tables[table_idx];
         if (table_idx != 0) {
@@ -298,8 +298,8 @@ void print_json_report(std::string_view report_name, std::span<const ReportTable
         }
         const auto table_id = table.id.empty() ? std::string_view(table.title) : std::string_view(table.id);
         const auto report   = table.report.empty() ? std::string_view("measured") : std::string_view(table.report);
-        std::cout << "{\"report\":\"" << escape_json_string(report) << "\",\"id\":\"" << escape_json_string(table_id) << "\",\"title\":\""
-                  << escape_json_string(table.title) << "\",\"rows\":[";
+        std::cout << R"({"report":")" << escape_json_string(report) << R"(","id":")" << escape_json_string(table_id) << R"(","title":")"
+                  << escape_json_string(table.title) << R"(","rows":[)";
         for (std::size_t row_idx = 0; row_idx < table.machine_rows.size(); ++row_idx) {
             if (row_idx != 0) {
                 std::cout << ',';
@@ -311,22 +311,22 @@ void print_json_report(std::string_view report_name, std::span<const ReportTable
                     std::cout << ',';
                 }
                 const auto &field = row.fields[field_idx];
-                std::cout << '"' << escape_json_string(field.key) << "\":";
+                std::cout << '"' << escape_json_string(field.key) << R"(":)";
                 print_json_field_value(field);
             }
             std::cout << '}';
         }
         std::cout << "]}";
     }
-    std::cout << "],\"issues\":[";
+    std::cout << R"(],"issues":[)";
     for (std::size_t issue_idx = 0; issue_idx < issues.size(); ++issue_idx) {
         const auto &issue = issues[issue_idx];
         if (issue_idx != 0) {
             std::cout << ',';
         }
-        std::cout << "{\"name\":\"" << escape_json_string(issue.name) << "\",\"file\":\"" << escape_json_string(issue.file)
-                  << "\",\"line\":" << issue.line << ",\"message\":\"" << escape_json_string(issue.message)
-                  << "\",\"infrastructure\":" << (issue.infrastructure ? "true" : "false") << "}";
+        std::cout << R"({"name":")" << escape_json_string(issue.name) << R"(","file":")" << escape_json_string(issue.file) << R"(","line":)"
+                  << issue.line << R"(,"message":")" << escape_json_string(issue.message) << R"(","infrastructure":)"
+                  << (issue.infrastructure ? "true" : "false") << "}";
     }
     std::cout << "]}\n";
 }
@@ -362,6 +362,12 @@ void append_tsv_metric(std::string &out, std::string_view key, std::string_view 
 }
 
 void append_tsv_metric(std::string &out, std::string_view key, double value) { append_tsv_metric(out, key, fmt::format("{}", value)); }
+
+template <typename Int>
+    requires(std::is_integral_v<Int> && !std::is_same_v<std::remove_cv_t<Int>, bool>)
+void append_tsv_metric(std::string &out, std::string_view key, Int value) {
+    append_tsv_metric(out, key, fmt::format("{}", value));
+}
 
 void append_tsv_metric(std::string &out, std::string_view key, std::size_t value) { append_tsv_metric(out, key, fmt::format("{}", value)); }
 
@@ -535,7 +541,7 @@ std::vector<gentest::detail::HistogramBin> per_item_histogram_bins(std::span<con
                                                                    std::uint64_t                                  items_per_call) {
     std::vector<gentest::detail::HistogramBin> scaled;
     scaled.reserve(bins.size());
-    const double divisor = static_cast<double>(items_per_call == 0 ? 1 : items_per_call);
+    const auto divisor = static_cast<double>(items_per_call == 0 ? 1 : items_per_call);
     for (const auto &bin : bins) {
         scaled.push_back(gentest::detail::HistogramBin{
             .lo                 = bin.lo / divisor,
