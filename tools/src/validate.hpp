@@ -3,6 +3,7 @@
 
 #include "model.hpp"
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <set>
@@ -23,10 +24,11 @@ struct AttributeSummary {
     std::vector<std::string>   requirements;
     bool                       should_skip = false;
     std::string                skip_reason;
-    bool                       had_error    = false;
-    bool                       is_benchmark = false;
-    bool                       is_jitter    = false;
-    bool                       is_baseline  = false;
+    bool                       had_error      = false;
+    bool                       is_benchmark   = false;
+    bool                       is_jitter      = false;
+    bool                       is_baseline    = false;
+    std::uint64_t              items_per_call = 1;
     // Template matrix: one candidate list per declared template parameter.
     std::vector<TemplateBindingSet> template_sets;
     // Parameterized tests: named parameters with literal values.

@@ -55,6 +55,16 @@ struct JitterResult {
     std::vector<double>        samples_ns;
 };
 
+struct BenchReportRow {
+    const gentest::Case *c = nullptr;
+    BenchResult          result{};
+};
+
+struct JitterReportRow {
+    const gentest::Case *c = nullptr;
+    JitterResult         result{};
+};
+
 struct TimedRunStatus {
     bool        ok      = true;
     bool        stopped = false;
@@ -79,9 +89,11 @@ using BenchSuccessFn       = std::function<void(const gentest::Case &, const Ben
 using JitterSuccessFn      = std::function<void(const gentest::Case &, const JitterResult &)>;
 
 TimedRunStatus run_selected_benches(std::span<const gentest::Case> cases, std::span<const std::size_t> idxs, const CliOptions &opt,
-                                    bool fail_fast, const BenchSuccessFn &on_success, const MeasurementFailureFn &on_failure);
+                                    bool fail_fast, const BenchSuccessFn &on_success, const MeasurementFailureFn &on_failure,
+                                    std::vector<BenchReportRow> *report_rows = nullptr);
 
 TimedRunStatus run_selected_jitters(std::span<const gentest::Case> cases, std::span<const std::size_t> idxs, const CliOptions &opt,
-                                    bool fail_fast, const JitterSuccessFn &on_success, const MeasurementFailureFn &on_failure);
+                                    bool fail_fast, const JitterSuccessFn &on_success, const MeasurementFailureFn &on_failure,
+                                    std::vector<JitterReportRow> *report_rows = nullptr);
 
 } // namespace gentest::runner

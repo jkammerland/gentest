@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <fmt/format.h>
 #include <memory>
 #include <mutex>
@@ -142,7 +143,7 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
         gentest::runner::detail::CurrentTestScope test_scope(ctxinfo);
         gentest::detail::BenchPhaseScope          bench_scope(gentest::detail::BenchPhase::Call);
         try {
-            // Bench/jitter ns/op should measure only the user call body.
+            // Bench/jitter per-call timing should measure only the user call body.
             start = clock::now();
             body();
             stop_timer();
@@ -325,6 +326,10 @@ OverheadEstimate estimate_timer_overhead_batch(std::size_t sample_count, std::si
     est.stddev_ns = stddev_of(samples, est.mean_ns);
     est.samples   = samples.size();
     return est;
+}
+
+bool is_machine_measured_report(MeasuredReportFormat format) {
+    return format == MeasuredReportFormat::Csv || format == MeasuredReportFormat::Json;
 }
 
 // NOLINTBEGIN(bugprone-easily-swappable-parameters)
@@ -679,33 +684,36 @@ std::string format_measured_fixture_failure_message(std::string_view kind_label,
     }
 }
 
-void report_measured_case_skip(const gentest::Case &c, std::string_view reason, double time_s) {
+void report_measured_case_skip(const gentest::Case &c, std::string_view reason, double time_s, bool machine_report) {
     long long duration_ms = std::llround(time_s * 1000.0);
     if (time_s > 0.0 && duration_ms == 0) {
         duration_ms = 1;
     }
+    FILE *stream = machine_report ? stderr : stdout;
     if (!reason.empty()) {
-        fmt::print("[ SKIP ] {} :: {} ({} ms)\n", c.name, reason, duration_ms);
+        fmt::print(stream, "[ SKIP ] {} :: {} ({} ms)\n", c.name, reason, duration_ms);
     } else {
-        fmt::print("[ SKIP ] {} ({} ms)\n", c.name, duration_ms);
+        fmt::print(stream, "[ SKIP ] {} ({} ms)\n", c.name, duration_ms);
     }
 }
 
-void report_measured_case_blocked(const gentest::Case &c, std::string_view reason, double time_s) {
+void report_measured_case_blocked(const gentest::Case &c, std::string_view reason, double time_s, bool machine_report) {
     long long duration_ms = std::llround(time_s * 1000.0);
     if (time_s > 0.0 && duration_ms == 0) {
         duration_ms = 1;
     }
+    FILE *stream = machine_report ? stderr : stdout;
     if (!reason.empty()) {
-        fmt::print("[ BLOCKED ] {} :: {} ({} ms)\n", c.name, reason, duration_ms);
+        fmt::print(stream, "[ BLOCKED ] {} :: {} ({} ms)\n", c.name, reason, duration_ms);
     } else {
-        fmt::print("[ BLOCKED ] {} ({} ms)\n", c.name, duration_ms);
+        fmt::print(stream, "[ BLOCKED ] {} ({} ms)\n", c.name, duration_ms);
     }
 }
 
 template <typename Result, typename CallFn, typename SuccessFn>
 TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::span<const std::size_t> idxs, std::string_view kind_label,
-                                  bool fail_fast, CallFn run_call, const SuccessFn &on_success, const MeasurementFailureFn &on_failure) {
+                                  bool fail_fast, bool machine_report, CallFn run_call, const SuccessFn &on_success,
+                                  const MeasurementFailureFn &on_failure) {
     TimedRunStatus status{};
     for (auto i : idxs) {
         const auto            &c = kCases[i];
@@ -715,7 +723,7 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
         if (!run_measured_case(c, run_call, result, failure)) {
             if (failure.skipped) {
                 if (failure.infra_failure) {
-                    report_measured_case_blocked(c, failure.reason, failure.time_s);
+                    report_measured_case_blocked(c, failure.reason, failure.time_s, machine_report);
                     on_failure(c, failure, {});
                     status.ok = false;
                     ++status.blocked;
@@ -730,7 +738,7 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
                     }
                     continue;
                 }
-                report_measured_case_skip(c, failure.reason, failure.time_s);
+                report_measured_case_skip(c, failure.reason, failure.time_s, machine_report);
                 on_failure(c, failure, {});
                 ++status.skipped;
                 continue;
@@ -760,14 +768,17 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
 } // namespace
 
 TimedRunStatus run_selected_benches(std::span<const gentest::Case> kCases, std::span<const std::size_t> idxs, const CliOptions &opt,
-                                    bool fail_fast, const BenchSuccessFn &on_success, const MeasurementFailureFn &on_failure) {
+                                    bool fail_fast, const BenchSuccessFn &on_success, const MeasurementFailureFn &on_failure,
+                                    std::vector<BenchReportRow> *report_rows) {
     if (idxs.empty())
         return TimedRunStatus{};
 
-    std::vector<BenchReportRow> rows;
-    rows.reserve(idxs.size());
+    std::vector<BenchReportRow> local_rows;
+    auto                       &rows = report_rows == nullptr ? local_rows : *report_rows;
+    rows.reserve(rows.size() + idxs.size());
+    const bool           machine_report  = is_machine_measured_report(opt.measured_report_format);
     const TimedRunStatus measured_status = run_measured_cases<BenchResult>(
-        kCases, idxs, "benchmark", fail_fast,
+        kCases, idxs, "benchmark", fail_fast, machine_report,
         [&](const gentest::Case &measured, void *measured_ctx) { return run_bench(measured, measured_ctx, opt.bench_cfg); },
         [&](const gentest::Case &measured, BenchResult &&br) {
             on_success(measured, br);
@@ -779,19 +790,24 @@ TimedRunStatus run_selected_benches(std::span<const gentest::Case> kCases, std::
         on_failure);
     if (measured_status.stopped)
         return measured_status;
-    print_bench_report(rows, opt);
+    if (report_rows == nullptr) {
+        print_bench_report(rows, opt);
+    }
     return measured_status;
 }
 
 TimedRunStatus run_selected_jitters(std::span<const gentest::Case> kCases, std::span<const std::size_t> idxs, const CliOptions &opt,
-                                    bool fail_fast, const JitterSuccessFn &on_success, const MeasurementFailureFn &on_failure) {
+                                    bool fail_fast, const JitterSuccessFn &on_success, const MeasurementFailureFn &on_failure,
+                                    std::vector<JitterReportRow> *report_rows) {
     if (idxs.empty())
         return TimedRunStatus{};
 
-    std::vector<JitterReportRow> rows;
-    rows.reserve(idxs.size());
+    std::vector<JitterReportRow> local_rows;
+    auto                        &rows = report_rows == nullptr ? local_rows : *report_rows;
+    rows.reserve(rows.size() + idxs.size());
+    const bool           machine_report  = is_machine_measured_report(opt.measured_report_format);
     const TimedRunStatus measured_status = run_measured_cases<JitterResult>(
-        kCases, idxs, "jitter", fail_fast,
+        kCases, idxs, "jitter", fail_fast, machine_report,
         [&](const gentest::Case &measured, void *measured_ctx) { return run_jitter(measured, measured_ctx, opt.bench_cfg); },
         [&](const gentest::Case &measured, JitterResult &&jr) {
             jr.histogram_bins = opt.jitter_bins;
@@ -805,7 +821,9 @@ TimedRunStatus run_selected_jitters(std::span<const gentest::Case> kCases, std::
         on_failure);
     if (measured_status.stopped)
         return measured_status;
-    print_jitter_report(rows, opt);
+    if (report_rows == nullptr) {
+        print_jitter_report(rows, opt);
+    }
     return measured_status;
 }
 

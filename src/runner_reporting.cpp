@@ -233,9 +233,9 @@ void add_error_annotation(RunAccumulator &acc, std::string_view file, unsigned l
     acc.github_annotations.push_back(std::move(item));
 }
 
-void emit_github_annotations(const RunAccumulator &acc) {
+void emit_github_annotations(const RunAccumulator &acc, FILE *stream) {
     for (const auto &it : acc.github_annotations) {
-        fmt::print("::error file={},line={},title={}::{}\n", gha_escape_property(it.file), it.line, gha_escape_property(it.title),
+        fmt::print(stream, "::error file={},line={},title={}::{}\n", gha_escape_property(it.file), it.line, gha_escape_property(it.title),
                    gha_escape_message(it.message));
     }
 }

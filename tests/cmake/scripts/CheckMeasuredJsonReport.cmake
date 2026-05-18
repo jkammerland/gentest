@@ -1,0 +1,91 @@
+if(NOT DEFINED PROG)
+  message(FATAL_ERROR "CheckMeasuredJsonReport.cmake: PROG not set")
+endif()
+if(NOT DEFINED EXPECT_REPORT)
+  message(FATAL_ERROR "CheckMeasuredJsonReport.cmake: EXPECT_REPORT not set")
+endif()
+
+set(_emu)
+if(DEFINED EMU)
+  if(EMU MATCHES ";")
+    set(_emu ${EMU})
+  else()
+    separate_arguments(_emu NATIVE_COMMAND "${EMU}")
+  endif()
+endif()
+
+set(_args)
+if(DEFINED ARGS)
+  if(ARGS MATCHES ";")
+    set(_args ${ARGS})
+  else()
+    separate_arguments(_args NATIVE_COMMAND "${ARGS}")
+  endif()
+endif()
+
+set(_command ${_emu} "${PROG}" ${_args})
+if(DEFINED ENV_VARS)
+  set(_env)
+  foreach(kv IN LISTS ENV_VARS)
+    list(APPEND _env "${kv}")
+  endforeach()
+  set(_command ${CMAKE_COMMAND} -E env ${_env} ${_emu} "${PROG}" ${_args})
+endif()
+
+execute_process(
+  COMMAND ${_command}
+  RESULT_VARIABLE rc
+  OUTPUT_VARIABLE out
+  ERROR_VARIABLE err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+
+if(DEFINED EXPECT_RC)
+  if(NOT "${rc}" MATCHES "^-?[0-9]+$")
+    message(FATAL_ERROR "Expected numeric exit code ${EXPECT_RC}, got '${rc}'. Stdout:\n${out}\nStderr:\n${err}")
+  endif()
+  if(NOT rc EQUAL EXPECT_RC)
+    message(FATAL_ERROR "Expected exit code ${EXPECT_RC}, got ${rc}. Stdout:\n${out}\nStderr:\n${err}")
+  endif()
+endif()
+
+string(JSON _report ERROR_VARIABLE _json_error GET "${out}" report)
+if(_json_error)
+  message(FATAL_ERROR "stdout is not a single valid JSON report: ${_json_error}\nStdout:\n${out}\nStderr:\n${err}")
+endif()
+if(NOT "${_report}" STREQUAL "${EXPECT_REPORT}")
+  message(FATAL_ERROR "Expected report '${EXPECT_REPORT}', got '${_report}'. Stdout:\n${out}")
+endif()
+
+string(JSON _table_count LENGTH "${out}" tables)
+if(_table_count LESS 1)
+  message(FATAL_ERROR "Expected at least one table in JSON report. Stdout:\n${out}")
+endif()
+
+if(DEFINED EXPECT_ISSUES_MIN)
+  string(JSON _issue_count LENGTH "${out}" issues)
+  if(_issue_count LESS EXPECT_ISSUES_MIN)
+    message(FATAL_ERROR "Expected at least ${EXPECT_ISSUES_MIN} issue(s), got ${_issue_count}. Stdout:\n${out}\nStderr:\n${err}")
+  endif()
+endif()
+
+if(DEFINED REQUIRED_STDOUT_SUBSTRING AND NOT "${REQUIRED_STDOUT_SUBSTRING}" STREQUAL "")
+  string(FIND "${out}" "${REQUIRED_STDOUT_SUBSTRING}" _required_stdout_pos)
+  if(_required_stdout_pos EQUAL -1)
+    message(FATAL_ERROR "Expected stdout substring not found: '${REQUIRED_STDOUT_SUBSTRING}'. Stdout:\n${out}")
+  endif()
+endif()
+
+if(DEFINED FORBID_STDOUT_SUBSTRING AND NOT "${FORBID_STDOUT_SUBSTRING}" STREQUAL "")
+  string(FIND "${out}" "${FORBID_STDOUT_SUBSTRING}" _forbid_stdout_pos)
+  if(NOT _forbid_stdout_pos EQUAL -1)
+    message(FATAL_ERROR "Forbidden stdout substring found: '${FORBID_STDOUT_SUBSTRING}'. Stdout:\n${out}")
+  endif()
+endif()
+
+if(DEFINED REQUIRED_STDERR_SUBSTRING AND NOT "${REQUIRED_STDERR_SUBSTRING}" STREQUAL "")
+  string(FIND "${err}" "${REQUIRED_STDERR_SUBSTRING}" _required_stderr_pos)
+  if(_required_stderr_pos EQUAL -1)
+    message(FATAL_ERROR "Expected stderr substring not found: '${REQUIRED_STDERR_SUBSTRING}'. Stderr:\n${err}\nStdout:\n${out}")
+  endif()
+endif()

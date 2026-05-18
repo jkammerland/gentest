@@ -27,6 +27,13 @@ enum class TimeUnitMode {
     Ns,
 };
 
+enum class MeasuredReportFormat {
+    Table,
+    Markdown,
+    Csv,
+    Json,
+};
+
 struct BenchConfig {
     double      min_epoch_time_s = 0.01; // 10 ms
     double      min_total_time_s = 0.0;  // per benchmark
@@ -36,9 +43,10 @@ struct BenchConfig {
 };
 
 struct CliOptions {
-    Mode         mode           = Mode::Execute;
-    KindFilter   kind           = KindFilter::All;
-    TimeUnitMode time_unit_mode = TimeUnitMode::Auto;
+    Mode                 mode                   = Mode::Execute;
+    KindFilter           kind                   = KindFilter::All;
+    TimeUnitMode         time_unit_mode         = TimeUnitMode::Auto;
+    MeasuredReportFormat measured_report_format = MeasuredReportFormat::Table;
 
     bool color_output       = true;
     bool github_annotations = false;

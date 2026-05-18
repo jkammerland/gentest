@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <fmt/core.h>
+#include <limits>
 #include <optional>
 #include <set>
 #include <string>
@@ -62,6 +64,31 @@ bool is_likely_template_right(char ch) {
 }
 
 bool is_word_char(char ch) { return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_'; }
+
+bool parse_positive_u64(std::string_view text, std::uint64_t &out) {
+    if (text.empty()) {
+        return false;
+    }
+    if (text.size() > 1 && text.front() == '0') {
+        return false;
+    }
+    std::uint64_t value = 0;
+    for (const char ch : text) {
+        if (ch < '0' || ch > '9') {
+            return false;
+        }
+        const auto digit = static_cast<std::uint64_t>(ch - '0');
+        if (value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10) {
+            return false;
+        }
+        value = value * 10 + digit;
+    }
+    if (value == 0) {
+        return false;
+    }
+    out = value;
+    return true;
+}
 
 bool is_char_literal_prefix(std::string_view text, std::size_t index) {
     if (index >= 1 && (text[index - 1] == 'L' || text[index - 1] == 'u' || text[index - 1] == 'U')) {
@@ -220,10 +247,11 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
     -> AttributeSummary {
     AttributeSummary summary;
 
-    bool                       saw_case   = false;
-    bool                       saw_test   = false;
-    bool                       saw_bench  = false;
-    bool                       saw_jitter = false;
+    bool                       saw_case           = false;
+    bool                       saw_test           = false;
+    bool                       saw_bench          = false;
+    bool                       saw_jitter         = false;
+    bool                       saw_items_per_call = false;
     std::set<std::string>      seen_flags;
     std::optional<std::string> seen_owner;
 
@@ -285,6 +313,25 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             summary.case_name = attr.arguments.front();
             summary.is_jitter = true;
+        } else if (lowered == "items_per_call" || lowered == "ops_per_call") {
+            if (saw_items_per_call) {
+                summary.had_error = true;
+                report("duplicate measured item-count attribute");
+                continue;
+            }
+            saw_items_per_call = true;
+            if (attr.arguments.size() != 1) {
+                summary.had_error = true;
+                report(fmt::format("'{}' requires exactly one positive integer argument", lowered));
+                continue;
+            }
+            std::uint64_t items_per_call = 1;
+            if (!parse_positive_u64(trim_copy(attr.arguments.front()), items_per_call)) {
+                summary.had_error = true;
+                report(fmt::format("'{}' requires exactly one positive integer argument", lowered));
+                continue;
+            }
+            summary.items_per_call = items_per_call;
         } else if (lowered == "req" || lowered == "requires") {
             if (attr.arguments.empty()) {
                 summary.had_error = true;
@@ -626,6 +673,10 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
     if (summary.is_baseline && !summary.is_benchmark && !summary.is_jitter) {
         summary.had_error = true;
         report("'baseline' requires 'bench' or 'jitter' on the same declaration");
+    }
+    if (saw_items_per_call && !summary.is_benchmark && !summary.is_jitter) {
+        summary.had_error = true;
+        report("'items_per_call'/'ops_per_call' requires 'bench' or 'jitter' on the same declaration");
     }
 
     summary.is_case = saw_case;

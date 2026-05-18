@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <functional>
 #include <iostream>
@@ -26,7 +27,8 @@ using gentest::runner::JitterResult;
 using gentest::runner::ReportAttachment;
 using gentest::runner::TimeUnitMode;
 
-Case make_case(std::string_view name, std::string_view suite, bool is_benchmark, bool is_jitter, bool is_baseline) {
+Case make_case(std::string_view name, std::string_view suite, bool is_benchmark, bool is_jitter, bool is_baseline,
+               std::uint64_t items_per_call = 1) {
     return Case{
         .name             = name,
         .fn               = nullptr,
@@ -42,6 +44,7 @@ Case make_case(std::string_view name, std::string_view suite, bool is_benchmark,
         .fixture          = {},
         .fixture_lifetime = FixtureLifetime::None,
         .suite            = suite,
+        .items_per_call   = items_per_call,
     };
 }
 
@@ -131,7 +134,7 @@ void expect(bool condition, std::string_view message) {
 }
 
 void check_bench_attachments() {
-    const auto baseline_case = make_case("regressions/measured_report/bench_baseline", "measured_suite", true, false, true);
+    const auto baseline_case = make_case("regressions/measured_report/bench_baseline", "measured_suite", true, false, true, 2);
     const auto delta_case    = make_case("regressions/measured_report/bench_zero_calls", "other_suite", true, false, false);
 
     const auto baseline_attachments =
@@ -139,6 +142,12 @@ void check_bench_attachments() {
     expect(baseline_attachments.size() == 2, "expected two bench attachments");
     expect(contains(find_attachment(baseline_attachments, "metrics").contents, "calls_per_sec\t20000"),
            "bench metrics should include non-zero calls/sec");
+    expect(contains(find_attachment(baseline_attachments, "metrics").contents, "items_per_call\t2"),
+           "bench metrics should include item count");
+    expect(contains(find_attachment(baseline_attachments, "metrics").contents, "items_per_sec\t40000"),
+           "bench metrics should include item throughput");
+    expect(contains(find_attachment(baseline_attachments, "metrics").contents, "median_ns_per_item\t5"),
+           "bench metrics should normalize item timing");
     expect(contains(find_attachment(baseline_attachments, "metrics").contents, "is_baseline\ttrue"),
            "bench metrics should record baseline status");
     expect(contains(find_attachment(baseline_attachments, "summary-plot").contents, "<svg"), "bench summary plot should be SVG");
@@ -157,13 +166,16 @@ void check_jitter_histogram_recompute_and_truncation() {
     auto jitter       = make_jitter_result(std::move(samples), 4);
     jitter.batch_mode = true;
 
-    const auto  jitter_case  = make_case("regressions/measured_report/jitter_large", "measured_suite", false, true, false);
+    const auto  jitter_case  = make_case("regressions/measured_report/jitter_large", "measured_suite", false, true, false, 4);
     const auto  attachments  = gentest::runner::make_jitter_allure_attachments(jitter_case, jitter, 7);
+    const auto &metrics      = find_attachment(attachments, "metrics").contents;
     const auto &histogram    = find_attachment(attachments, "histogram").contents;
     const auto &histogramSvg = find_attachment(attachments, "histogram-plot").contents;
     const auto &samplesJson  = find_attachment(attachments, "samples").contents;
 
     expect(attachments.size() == 4, "expected four jitter attachments");
+    expect(contains(metrics, "items_per_call\t4"), "jitter metrics should include item count");
+    expect(contains(metrics, "median_ns_per_item\t256.125"), "jitter metrics should normalize item timing");
     expect(std::count(histogram.begin(), histogram.end(), '\n') == 8, "histogram TSV should contain seven recomputed bins plus header");
     expect(contains(histogramSvg, "bins 7  peak count"), "histogram SVG should reflect recomputed bin count");
     expect(contains(samplesJson, "\"sample_count\":2050"), "samples JSON should report original sample count");
@@ -262,6 +274,89 @@ void check_mixed_baseline_output() {
            "jitter report should print histogram header for empty samples");
 }
 
+void check_measured_report_formats_and_items() {
+    const auto fast_case   = make_case("regressions/measured_report/fast_item_row", "suite_auto", true, false, true, 4);
+    const auto slow_case   = make_case("regressions/measured_report/slow_item_row", "suite_auto", true, false, false, 2);
+    const auto jitter_case = make_case("regressions/measured_report/jitter_item_row", "suite_auto", false, true, false, 5);
+
+    std::vector<BenchReportRow> bench_rows{
+        BenchReportRow{.c = &fast_case, .result = make_bench_result(20.0, 24.0, 0.010, 100)},
+        BenchReportRow{.c = &slow_case, .result = make_bench_result(4'000'000.0, 4'200'000.0, 0.020, 10)},
+    };
+
+    CliOptions        auto_opt{};
+    const std::string auto_output = capture_stdout([&] { gentest::runner::print_bench_report(bench_rows, auto_opt); });
+    expect(contains(auto_output, "Items/call"), "bench report should show item metadata column");
+    expect(contains(line_containing(auto_output, "fast_item_row"), "5 ns"), "auto unit report should preserve ns-scale rows");
+    expect(contains(line_containing(auto_output, "slow_item_row"), "2.000 ms"), "auto unit report should scale slow rows independently");
+
+    CliOptions markdown_opt{};
+    markdown_opt.measured_report_format = gentest::runner::MeasuredReportFormat::Markdown;
+    const std::string markdown_output   = capture_stdout([&] { gentest::runner::print_bench_report(bench_rows, markdown_opt); });
+    expect(contains(markdown_output, "## Benchmarks"), "markdown bench output should include a heading");
+    expect(contains(markdown_output, "| Benchmark | Samples |"), "markdown bench output should include a pipe table");
+
+    CliOptions csv_opt{};
+    csv_opt.measured_report_format = gentest::runner::MeasuredReportFormat::Csv;
+    const std::string csv_output   = capture_stdout([&] { gentest::runner::print_bench_report(bench_rows, csv_opt); });
+    expect(contains(csv_output, "report,table,row,field,type,value\n"), "csv bench output should include the long-form csv header");
+    expect(contains(csv_output, "bench,bench.summary,0,items_per_call,number,4"),
+           "csv bench output should include stable item count fields");
+
+    CliOptions json_opt{};
+    json_opt.measured_report_format = gentest::runner::MeasuredReportFormat::Json;
+    const std::string json_output   = capture_stdout([&] { gentest::runner::print_bench_report(bench_rows, json_opt); });
+    expect(contains(json_output, R"("report":"bench")"), "json bench output should include report kind");
+    expect(contains(json_output, R"("items_per_call":4)"), "json bench output should include typed item count");
+    expect(contains(json_output, R"("median_ns_per_item":5)"), "json bench output should include typed per-item timing");
+
+    auto                         jitter = make_jitter_result({50.0, 55.0, 60.0, 65.0}, 2);
+    std::vector<JitterReportRow> jitter_rows{
+        JitterReportRow{.c = &jitter_case, .result = std::move(jitter)},
+    };
+
+    CliOptions jitter_markdown_opt{};
+    jitter_markdown_opt.jitter_bins            = 2;
+    jitter_markdown_opt.measured_report_format = gentest::runner::MeasuredReportFormat::Markdown;
+    const std::string jitter_markdown_output =
+        capture_stdout([&] { gentest::runner::print_jitter_report(jitter_rows, jitter_markdown_opt); });
+    expect(contains(jitter_markdown_output, "## Jitter summary"), "markdown jitter output should include summary heading");
+    expect(contains(jitter_markdown_output, "Range (ns/item)"), "jitter histogram should report per-item ranges");
+    expect(contains(line_containing(jitter_markdown_output, "jitter_item_row"), "| 5 |"),
+           "markdown jitter output should include item count");
+
+    const auto jitter_title_case = make_case("regressions/measured_report/jitter_title|\n# injected", "suite_auto", false, true, false);
+    auto       jitter_title      = make_jitter_result({70.0, 75.0}, 2);
+    std::vector<JitterReportRow> jitter_title_rows{
+        JitterReportRow{.c = &jitter_title_case, .result = std::move(jitter_title)},
+    };
+    const std::string escaped_title_markdown =
+        capture_stdout([&] { gentest::runner::print_jitter_report(jitter_title_rows, jitter_markdown_opt); });
+    expect(contains(escaped_title_markdown, R"(name=regressions/measured_report/jitter_title\|<br># injected)"),
+           "markdown jitter histogram headings should escape case names");
+    expect(!contains(escaped_title_markdown, "\n# injected"), "markdown jitter histogram headings should not inject new headings");
+
+    const std::string measured_json_output =
+        capture_stdout([&] { gentest::runner::print_measured_report(bench_rows, jitter_rows, json_opt); });
+    expect(contains(measured_json_output, R"("report":"measured")"), "combined json output should use one measured root");
+    expect(std::count(measured_json_output.begin(), measured_json_output.end(), '\n') == 1,
+           "combined json output should be one newline-terminated document");
+    expect(contains(measured_json_output, R"("id":"bench.summary")"), "combined json output should include bench tables");
+    expect(contains(measured_json_output, R"("id":"jitter.summary")"), "combined json output should include jitter tables");
+
+    const auto escaped_case = make_case("regressions/measured_report/pipe|quote\"comma,\nline", "suite_escape", true, false, false);
+    std::vector<BenchReportRow> escaped_rows{
+        BenchReportRow{.c = &escaped_case, .result = make_bench_result(12.0, 12.0, 0.001, 3)},
+    };
+    const std::string escaped_markdown = capture_stdout([&] { gentest::runner::print_bench_report(escaped_rows, markdown_opt); });
+    expect(contains(escaped_markdown, R"(pipe\|quote"comma,<br>line)"), "markdown output should escape pipes and newlines");
+    const std::string escaped_csv = capture_stdout([&] { gentest::runner::print_bench_report(escaped_rows, csv_opt); });
+    expect(contains(escaped_csv, "\"regressions/measured_report/pipe|quote\"\"comma,\nline\""),
+           "csv output should quote commas, quotes, and newlines");
+    const std::string escaped_json = capture_stdout([&] { gentest::runner::print_bench_report(escaped_rows, json_opt); });
+    expect(contains(escaped_json, R"(pipe|quote\"comma,\nline)"), "json output should escape quotes and newlines");
+}
+
 } // namespace
 
 int main() {
@@ -270,6 +365,7 @@ int main() {
         check_jitter_histogram_recompute_and_truncation();
         check_zero_and_one_sample_attachments();
         check_mixed_baseline_output();
+        check_measured_report_formats_and_items();
     } catch (const std::exception &e) {
         std::cerr << e.what() << '\n';
         return 1;

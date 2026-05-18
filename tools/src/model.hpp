@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -187,9 +188,10 @@ struct TestCaseInfo {
     std::string suite_name;
     unsigned    line = 0;
     // Benchmarks: true if discovered via bench("...") attribute
-    bool is_benchmark = false;
-    bool is_jitter    = false;
-    bool is_baseline  = false;
+    bool          is_benchmark   = false;
+    bool          is_jitter      = false;
+    bool          is_baseline    = false;
+    std::uint64_t items_per_call = 1;
     // True when the discovered callable is declared as a function template.
     bool is_function_template = false;
     // True when the test function/method returns a non-void value.

@@ -12,7 +12,7 @@
 //   [[using gentest : bench("suite/bench_name")]]
 //   void my_benchmark();
 //   - Run via --run= / --filter= (optionally --kind=bench), list via --list-benches.
-//   - Optional flags: --bench-table, --bench-min-epoch-time-s, --bench-epochs, --bench-warmup, --bench-max-total-time-s
+//   - Optional flags: --bench-table, --report-format, --bench-min-epoch-time-s, --bench-epochs, --bench-warmup, --bench-max-total-time-s
 //   - Jitter runs via --run= / --filter= with --kind=jitter; use --jitter-bins to control histogram bins.
 //
 // Fixture composition for test/bench/jitter function parameters:
@@ -35,6 +35,8 @@
 // - Use `test("...")` to disambiguate overloads and keep names stable across
 //   refactors.
 // - `baseline` is only valid for `bench`/`jitter` cases.
+// - `items_per_call(N)` / `ops_per_call(N)` declare logical measured items per bench/jitter function call.
+//   `N` must be a positive non-zero decimal integer with no prefix, suffix, separator, or leading zero.
 // Additional attribute names (e.g. `slow`, `linux`) are collected as tags,
 // while attributes such as `req("BUG-123")` or `skip("reason")` attach
 // requirements or skipping instructions. All information is extracted by the
@@ -51,6 +53,7 @@
 //   [[using gentest : bench("suite/name")]]
 //   [[using gentest : jitter("suite/name")]]
 //   [[using gentest : baseline]] // optional: marks a bench as baseline within the suite
+//   [[using gentest : items_per_call(1024)]] // optional: report ns/item in addition to call counts
 //
 // Parameter generators (global convenience):
 //   [[using gentest : range(i, 1, 2, 9)]]                 // 1,3,5,7,9 (integers)

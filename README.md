@@ -745,6 +745,7 @@ Define microbenchmarks and jitter benchmarks (for timing variance):
 #include <string>
 
 [[gentest::bench("bench/concat")]]
+[[gentest::items_per_call(2)]]
 void bench_concat() {
     std::string s = "hello";
     s += " world";
@@ -768,6 +769,8 @@ CLI:
 ./my_tests --run=bench/sin --kind=jitter --jitter-bins=20
 ./my_tests --filter=bench/* --kind=jitter --jitter-bins=20
 ./my_tests --filter=bench/* --kind=all --time-unit=ns
+./my_tests --filter=bench/* --kind=bench --report-format=markdown
+./my_tests --filter=bench/* --kind=jitter --report-format=json
 ```
 
 Bench/jitter execution is phase-based per measured case:
@@ -775,6 +778,28 @@ Bench/jitter execution is phase-based per measured case:
 - `call`: runs in loops; reported benchmark/jitter metrics come from this phase.
 - `teardown`: runs once after call loops.
 Failures are reported by phase (`setup`, `call`, or `teardown`), and the executable exits non-zero.
+
+Benchmark calls are the C++ function invocations that Gentest times. Use
+`items_per_call(N)` or its `ops_per_call(N)` alias when one timed function call
+does `N` logical operations; reports include `Items/call` and normalize the main
+timing columns per item using the selected or automatic display unit. Use
+`--time-unit=ns` when you need explicit ns/item text. Automatic time units are
+chosen per cell so mixed slow/fast tables do not hide nanosecond-scale rows
+behind a suite-wide unit.
+`N` is a positive non-zero decimal integer; prefixes, suffixes, digit
+separators, and leading-zero forms are rejected so the reported item count
+matches the source spelling.
+Jitter reports use timer-overhead estimates and switch to batch sampling for
+very small operations, so prefer jitter when comparing sub-10ns work or timing
+variance.
+
+`--report-format=json` emits one JSON document for the measured selection. JSON
+uses stable, typed fields such as `median_ns_per_item`, `items_per_call`, and
+`baseline_delta_pct` rather than display headers. `--report-format=csv` emits a
+strict long-form CSV schema: `report,table,row,field,type,value`.
+Machine formats require a measured-only selection (`--kind=bench`, `--kind=jitter`,
+or a filter that selects only measured cases); human test output is not mixed into
+JSON or CSV stdout.
 
 ### Reporting (JUnit / Allure / GitHub annotations)
 
