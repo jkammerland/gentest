@@ -21,6 +21,8 @@ void               duplicate_failure_two(void *) { gentest::fail("duplicate-summ
 
 void death_case(void *) {}
 
+void death_bench(void *) {}
+
 void bench_table_case(void *) {}
 
 gentest::Case kCases[] = {
@@ -94,6 +96,22 @@ gentest::Case kCases[] = {
         .file             = __FILE__,
         .line             = __LINE__,
         .is_benchmark     = false,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = kDeathTag,
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+    },
+    {
+        .name             = "regressions/runtime_selection/death_bench",
+        .fn               = &death_bench,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = true,
         .is_jitter        = false,
         .is_baseline      = false,
         .tags             = kDeathTag,

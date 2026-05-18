@@ -2943,6 +2943,62 @@ gentest_add_check_death(
     REQUIRED_SUBSTRING "requires a measured-only selection"
     ARGS --run=unit/arithmetic/sum --kind=test --report-format=json)
 
+gentest_add_cmake_script_test(
+    NAME cli_report_format_empty_bench_json
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredJsonReport.cmake"
+    ARGS --kind=bench --report-format=json
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_REPORT=bench"
+        "REQUIRED_STDOUT_SUBSTRING=\"id\":\"bench.summary\""
+        "FORBID_STDOUT_SUBSTRING=Executed 0")
+
+gentest_add_cmake_script_test(
+    NAME cli_report_format_empty_bench_csv
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredCsvReport.cmake"
+    ARGS --kind=bench --report-format=csv
+    DEFINES
+        "EXPECT_RC=0"
+        "ALLOW_HEADER_ONLY=1"
+        "REQUIRED_STDOUT_SUBSTRING=report,table,row,field,type,value"
+        "FORBID_STDOUT_SUBSTRING=Executed 0")
+
+gentest_add_cmake_script_test(
+    NAME cli_report_format_empty_jitter_json
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredJsonReport.cmake"
+    ARGS --kind=jitter --report-format=json
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_REPORT=jitter"
+        "REQUIRED_STDOUT_SUBSTRING=\"id\":\"jitter.summary\""
+        "FORBID_STDOUT_SUBSTRING=Executed 0")
+
+gentest_add_cmake_script_test(
+    NAME cli_report_format_empty_jitter_csv
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredCsvReport.cmake"
+    ARGS --kind=jitter --report-format=csv
+    DEFINES
+        "EXPECT_RC=0"
+        "ALLOW_HEADER_ONLY=1"
+        "REQUIRED_STDOUT_SUBSTRING=report,table,row,field,type,value"
+        "FORBID_STDOUT_SUBSTRING=Executed 0")
+
+gentest_add_cmake_script_test(
+    NAME cli_report_format_death_excluded_bench_json
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMeasuredJsonReport.cmake"
+    ARGS --filter=regressions/runtime_selection/death_bench --kind=bench --report-format=json
+    DEFINES
+        "EXPECT_RC=0"
+        "EXPECT_REPORT=bench"
+        "REQUIRED_STDOUT_SUBSTRING=\"id\":\"bench.summary\""
+        "REQUIRED_STDERR_SUBSTRING=death test"
+        "FORBID_STDOUT_SUBSTRING=Executed 0")
+
 gentest_add_check_contains(
     NAME benches_filter_space
     PROG $<TARGET_FILE:gentest_benchmarks_tests>

@@ -205,6 +205,23 @@ bool is_machine_measured_report(const CliOptions &opt) {
     return opt.measured_report_format == MeasuredReportFormat::Csv || opt.measured_report_format == MeasuredReportFormat::Json;
 }
 
+std::string_view machine_measured_report_format_name(const CliOptions &opt) {
+    return opt.measured_report_format == MeasuredReportFormat::Json ? std::string_view("json") : std::string_view("csv");
+}
+
+int reject_machine_measured_report_unmeasured_selection(const CliOptions &opt) {
+    fmt::print(stderr,
+               "error: --report-format={} requires a measured-only selection; use --kind=bench, --kind=jitter, or a measured-only filter\n",
+               machine_measured_report_format_name(opt));
+    return 1;
+}
+
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+void print_empty_machine_measured_report(const CliOptions &opt, bool include_bench_report, bool include_jitter_report) {
+    gentest::runner::print_measured_report(std::span<const BenchReportRow>{}, std::span<const JitterReportRow>{}, opt,
+                                           std::span<const MeasuredReportIssue>{}, include_bench_report, include_jitter_report);
+}
+
 std::vector<MeasuredReportIssue> collect_measured_report_issues(const RunAccumulator                &acc,
                                                                 std::span<const MeasuredReportIssue> measured_issues) {
     std::vector<MeasuredReportIssue> issues;
@@ -467,8 +484,9 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     case Mode::Execute: break;
     }
 
-    const auto selection     = gentest::runner::select_cases(kCases, opt);
-    const bool has_selection = selection.has_selection;
+    const auto selection               = gentest::runner::select_cases(kCases, opt);
+    const bool has_selection           = selection.has_selection;
+    const bool machine_measured_report = is_machine_measured_report(opt);
 
     switch (selection.status) {
     case SelectionStatus::Ok: break;
@@ -491,6 +509,14 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print(stderr, "hint: use --list-benches to see available names\n");
         return 1;
     case SelectionStatus::ZeroSelected:
+        if (machine_measured_report) {
+            switch (opt.kind) {
+            case KindFilter::Test: return reject_machine_measured_report_unmeasured_selection(opt);
+            case KindFilter::Bench: print_empty_machine_measured_report(opt, true, false); return 0;
+            case KindFilter::Jitter: print_empty_machine_measured_report(opt, false, true); return 0;
+            case KindFilter::All: print_empty_machine_measured_report(opt, true, true); return 0;
+            }
+        }
         switch (opt.kind) {
         case KindFilter::Test: fmt::print("Executed 0 test(s).\n"); break;
         case KindFilter::Bench: fmt::print("Executed 0 benchmark(s).\n"); break;
@@ -501,16 +527,28 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     case SelectionStatus::DeathExcludedExact:
         fmt::print(stderr, "Case '{}' is tagged as a death test; rerun with --include-death\n", opt.run_exact);
         return 1;
-    case SelectionStatus::DeathExcludedAll: fmt::print("Executed 0 case(s). (death tests excluded; use --include-death)\n"); return 0;
+    case SelectionStatus::DeathExcludedAll:
+        if (machine_measured_report) {
+            CliOptions death_included_opt       = opt;
+            death_included_opt.include_death    = true;
+            const auto death_included_selection = gentest::runner::select_cases(kCases, death_included_opt);
+            const bool death_selection_is_measured_only =
+                death_included_selection.status == SelectionStatus::Ok && death_included_selection.test_idxs.empty() &&
+                (!death_included_selection.bench_idxs.empty() || !death_included_selection.jitter_idxs.empty());
+            if (!death_selection_is_measured_only) {
+                return reject_machine_measured_report_unmeasured_selection(opt);
+            }
+            fmt::print(stderr, "Note: excluded {} death test(s). Use --include-death to run them.\n", selection.filtered_death);
+            print_empty_machine_measured_report(opt, !death_included_selection.bench_idxs.empty(),
+                                                !death_included_selection.jitter_idxs.empty());
+            return 0;
+        }
+        fmt::print("Executed 0 case(s). (death tests excluded; use --include-death)\n");
+        return 0;
     }
 
-    const bool machine_measured_report = is_machine_measured_report(opt);
     if (machine_measured_report && !selection.test_idxs.empty()) {
-        fmt::print(
-            stderr,
-            "error: --report-format={} requires a measured-only selection; use --kind=bench, --kind=jitter, or a measured-only filter\n",
-            opt.measured_report_format == MeasuredReportFormat::Json ? "json" : "csv");
-        return 1;
+        return reject_machine_measured_report_unmeasured_selection(opt);
     }
 
     if (selection.filtered_death > 0) {
