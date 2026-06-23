@@ -68,13 +68,16 @@ jobs:
       - name: Configure environment
         run: |
           set -euxo pipefail
+          base_source="${RUNNER_TEMP}/gentest-measured-base"
           echo "GENTEST_MEASURED_CURRENT_BUILD=build/measured-current" >> "$GITHUB_ENV"
           echo "GENTEST_MEASURED_BASE_BUILD=${RUNNER_TEMP}/gentest-measured-base-build" >> "$GITHUB_ENV"
-          echo "GENTEST_MEASURED_BASE_SOURCE=${RUNNER_TEMP}/gentest-measured-base" >> "$GITHUB_ENV"
+          echo "GENTEST_MEASURED_BASE_SOURCE=${base_source}" >> "$GITHUB_ENV"
           echo "GENTEST_MEASURED_REPORT_DIR=${GITHUB_WORKSPACE}/build/measured-report-compare" >> "$GITHUB_ENV"
           echo "GENTEST_CODEGEN_HOST_CLANG=$(command -v clang++)" >> "$GITHUB_ENV"
           echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
           echo "PATH=/usr/local/bin:$PATH" >> "$GITHUB_ENV"
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          git config --global --add safe.directory "${base_source}"
 
       - name: Prepare base worktree
         run: |
