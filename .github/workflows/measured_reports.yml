@@ -1,0 +1,169 @@
+name: measured-reports
+
+on:
+  pull_request:
+    branches: [ master ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CCACHE_DISABLE: 1
+  CC: clang
+  CXX: clang++
+  LLVM_DIR: /usr/lib64/cmake/llvm
+  Clang_DIR: /usr/lib64/cmake/clang
+  GENTEST_MEASURED_CURRENT_BUILD: build/measured-current
+  GENTEST_MEASURED_BASE_BUILD: ${{ runner.temp }}/gentest-measured-base-build
+  GENTEST_MEASURED_BASE_SOURCE: ${{ runner.temp }}/gentest-measured-base
+  GENTEST_MEASURED_REPORT_DIR: ${{ github.workspace }}/build/measured-report-compare
+
+jobs:
+  compare:
+    name: Fedora 43 • measured reports
+    runs-on: ubuntu-24.04
+    container: fedora:43
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          dnf -y upgrade --refresh
+          dnf -y install \
+            git \
+            which \
+            tar \
+            xz \
+            ninja-build \
+            python3 \
+            python3-pip \
+            pkg-config \
+            clang \
+            clang-libs \
+            clang-devel \
+            llvm-devel \
+            fmt-devel \
+            zlib-ng-compat-devel \
+            libunwind-devel \
+            libcurl-devel \
+            libffi-devel \
+            libxml2-devel \
+            gcc \
+            gcc-c++ \
+            make \
+            ca-certificates
+          python3 -m pip install --upgrade pip cmake ninja
+          python3 - <<'PY' >> "$GITHUB_PATH"
+          import sysconfig
+          print(sysconfig.get_path("scripts"))
+          PY
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Prepare base worktree
+        run: |
+          set -euxo pipefail
+          git fetch --no-tags origin "+refs/heads/${{ github.event.pull_request.base.ref }}:refs/remotes/origin/${{ github.event.pull_request.base.ref }}"
+          git cat-file -e "${{ github.event.pull_request.base.sha }}^{commit}"
+          git worktree add --detach "${GENTEST_MEASURED_BASE_SOURCE}" "${{ github.event.pull_request.base.sha }}"
+
+      - name: Configure environment
+        run: |
+          set -euxo pipefail
+          echo "GENTEST_CODEGEN_HOST_CLANG=$(command -v clang++)" >> "$GITHUB_ENV"
+          echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
+          echo "PATH=/usr/local/bin:$PATH" >> "$GITHUB_ENV"
+
+      - name: Show tool versions
+        run: |
+          set -euxo pipefail
+          cmake --version
+          command -v ninja
+          ninja --version
+          ${CC} --version
+          ${CXX} --version
+
+      - name: Configure current
+        run: |
+          set -euxo pipefail
+          cmake \
+            -S . \
+            -B "${GENTEST_MEASURED_CURRENT_BUILD}" \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="${CC}" \
+            -DCMAKE_CXX_COMPILER="${CXX}" \
+            -DCMAKE_MAKE_PROGRAM="$(command -v ninja)" \
+            -DCMAKE_TOOLCHAIN_FILE= \
+            -DCMAKE_CXX_EXTENSIONS=OFF \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DLLVM_DIR="${LLVM_DIR}" \
+            -DClang_DIR="${Clang_DIR}" \
+            -DGENTEST_CODEGEN_HOST_CLANG="${GENTEST_CODEGEN_HOST_CLANG}" \
+            -Dgentest_BUILD_TESTING=ON \
+            -DGENTEST_ENABLE_PACKAGE_TESTS=OFF
+
+      - name: Build current benchmark executable
+        run: |
+          set -euxo pipefail
+          cmake --build "${GENTEST_MEASURED_CURRENT_BUILD}" --target gentest_benchmarks_tests --parallel
+
+      - name: Configure base
+        run: |
+          set -euxo pipefail
+          cmake \
+            -S "${GENTEST_MEASURED_BASE_SOURCE}" \
+            -B "${GENTEST_MEASURED_BASE_BUILD}" \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER="${CC}" \
+            -DCMAKE_CXX_COMPILER="${CXX}" \
+            -DCMAKE_MAKE_PROGRAM="$(command -v ninja)" \
+            -DCMAKE_TOOLCHAIN_FILE= \
+            -DCMAKE_CXX_EXTENSIONS=OFF \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DLLVM_DIR="${LLVM_DIR}" \
+            -DClang_DIR="${Clang_DIR}" \
+            -DGENTEST_CODEGEN_HOST_CLANG="${GENTEST_CODEGEN_HOST_CLANG}" \
+            -Dgentest_BUILD_TESTING=ON \
+            -DGENTEST_ENABLE_PACKAGE_TESTS=OFF
+
+      - name: Build base benchmark executable
+        run: |
+          set -euxo pipefail
+          cmake --build "${GENTEST_MEASURED_BASE_BUILD}" --target gentest_benchmarks_tests --parallel
+
+      - name: Compare measured reports
+        run: |
+          set -euxo pipefail
+          GENTEST_MEASURED_BASE_EXE="${GENTEST_MEASURED_BASE_BUILD}/tests/gentest_benchmarks_tests" \
+          GENTEST_MEASURED_CURRENT_EXE="${GENTEST_MEASURED_CURRENT_BUILD}/tests/gentest_benchmarks_tests" \
+            scripts/ci_measured_report_compare.sh
+
+      - name: Publish measured report summary
+        if: ${{ always() }}
+        run: |
+          set -euxo pipefail
+          summary_file="${GENTEST_MEASURED_REPORT_DIR}/measured-compare.md"
+          if [ -f "${summary_file}" ]; then
+            cat "${summary_file}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '%s\n' "Measured report summary was not produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload measured report artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: measured-report-compare
+          path: ${{ env.GENTEST_MEASURED_REPORT_DIR }}/
+          if-no-files-found: warn
