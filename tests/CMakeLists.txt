@@ -2210,7 +2210,11 @@ gentest_add_check_exit_code(
     EXPECT_RC 0)
 
 # CLI checks for VSCode integration
-gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING gentest ARGS --help)
+gentest_add_check_contains(
+    NAME unit_help
+    PROG $<TARGET_FILE:gentest_unit_tests>
+    REQUIRED_SUBSTRING "gentest v${PROJECT_VERSION}"
+    ARGS --help)
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--time-unit=<mode>" ARGS --help)
 gentest_add_check_contains(NAME unit_help_report_format PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--report-format=<mode>" ARGS --help)
 gentest_add_check_contains(NAME unit_help_async_log_tail PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--async-log-tail=N" ARGS --help)

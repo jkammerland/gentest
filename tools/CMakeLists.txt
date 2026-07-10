@@ -285,9 +285,6 @@ if(UNIX AND ${PROJECT_NAME}_INSTALL AND _gentest_codegen_install_rpaths)
     set_property(TARGET gentest_codegen APPEND PROPERTY INSTALL_RPATH "${_gentest_codegen_install_rpaths}")
 endif()
 
-# Provide generator with project version for --help output in generated code
-target_compile_definitions(gentest_codegen PRIVATE GENTEST_VERSION_STR="${PROJECT_VERSION}")
-
 # Toggle for template attribute validation (default ON)
 option(GENTEST_ENABLE_TEMPLATE_VALIDATION "Enable template attribute validation in generator" ON)
 if(NOT GENTEST_ENABLE_TEMPLATE_VALIDATION)
