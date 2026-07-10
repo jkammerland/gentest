@@ -22,6 +22,8 @@ mocking-support/
 .DS_Store
 
 # Compiled files
+__pycache__/
+*.py[cod]
 *.o
 *.obj
 *.a
