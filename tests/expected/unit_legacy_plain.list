@@ -6,6 +6,7 @@ unit/arithmetic/sum
 unit/attributes/close_marker_after_block_comment_]]_ok
 unit/attributes/close_marker_after_line_comment_]]_ok
 unit/attributes/close_marker_in_string_]]_ok
+unit/attributes/digit_separator_before_attribute
 unit/bench_stats/hist_bimodal
 unit/bench_stats/hist_skewed
 unit/bench_stats/stats_known

@@ -25,6 +25,7 @@ std::string_view trim_view(std::string_view text) {
 }
 
 bool try_start_raw_string(std::string_view text, std::size_t index, std::string &delimiter, std::size_t &open_paren);
+bool should_enter_char_literal(std::string_view text, std::size_t index);
 
 std::string to_lower_copy(std::string_view text) {
     std::string lowered(text);
@@ -214,7 +215,7 @@ bool extract_gentest_scoped_payload(std::string_view list, std::string &payload,
             in_string = true;
             continue;
         }
-        if (ch == '\'') {
+        if (ch == '\'' && should_enter_char_literal(list, i)) {
             in_char = true;
             continue;
         }
@@ -338,6 +339,39 @@ bool is_raw_string_delimiter_char(char ch) {
     return ch != '(' && ch != ')' && ch != '\\' && ch != '"';
 }
 
+bool is_word_char(char ch) { return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_'; }
+
+bool is_char_literal_prefix(std::string_view text, std::size_t index) {
+    if (index >= 1 && (text[index - 1] == 'L' || text[index - 1] == 'u' || text[index - 1] == 'U')) {
+        return index == 1 || !is_word_char(text[index - 2]);
+    }
+    if (index >= 2 && text[index - 2] == 'u' && text[index - 1] == '8') {
+        return index == 2 || !is_word_char(text[index - 3]);
+    }
+    return false;
+}
+
+bool should_enter_char_literal(std::string_view text, std::size_t index) {
+    if (index >= text.size() || text[index] != '\'') {
+        return false;
+    }
+    if (is_char_literal_prefix(text, index)) {
+        return true;
+    }
+
+    const char prev = index > 0 ? text[index - 1] : '\0';
+    const char next = index + 1 < text.size() ? text[index + 1] : '\0';
+    if (next == '\0') {
+        return false;
+    }
+    // An apostrophe surrounded by preprocessing-number characters is a C++
+    // digit separator, not the beginning of a character literal.
+    if (std::isalnum(static_cast<unsigned char>(prev)) != 0 && std::isalnum(static_cast<unsigned char>(next)) != 0) {
+        return false;
+    }
+    return true;
+}
+
 bool try_start_raw_string(std::string_view text, std::size_t index, std::string &delimiter, std::size_t &open_paren) {
     if (index + 2 >= text.size() || text[index] != 'R' || text[index + 1] != '"') {
         return false;
@@ -452,7 +486,7 @@ std::size_t find_attribute_open_for_close(llvm::StringRef buffer, std::size_t cl
             in_string = true;
             continue;
         }
-        if (ch == '\'') {
+        if (ch == '\'' && should_enter_char_literal(text, i)) {
             in_char = true;
             continue;
         }
@@ -533,7 +567,7 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
                 in_string = true;
                 continue;
             }
-            if (ch == '\'') {
+            if (ch == '\'' && should_enter_char_literal(line, i)) {
                 in_char = true;
                 continue;
             }

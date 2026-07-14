@@ -31,7 +31,7 @@
 #include <clang/Tooling/Tooling.h>
 #include <cstdlib>
 #include <filesystem>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <fstream>
 #include <functional>
 #include <iterator>

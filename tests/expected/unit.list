@@ -6,6 +6,7 @@
 [PASS] unit/attributes/close_marker_after_block_comment_]]_ok
 [PASS] unit/attributes/close_marker_after_line_comment_]]_ok
 [PASS] unit/attributes/close_marker_in_string_]]_ok
+[PASS] unit/attributes/digit_separator_before_attribute
 [PASS] unit/bench_stats/hist_bimodal
 [PASS] unit/bench_stats/hist_skewed
 [PASS] unit/bench_stats/stats_known

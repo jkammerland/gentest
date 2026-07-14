@@ -118,6 +118,14 @@ void attribute_name_with_close_marker_after_block_comment() {
     EXPECT_TRUE(true);
 }
 
+[[maybe_unused]] constexpr auto kDigitSeparatedValueBeforeAttribute = 30'000'000;
+
+[[using gentest: test("attributes/digit_separator_before_attribute"), fast]]
+// A digit separator in source or comment text such as 1'000 must not hide this test. ]]
+void attribute_after_digit_separator() {
+    EXPECT_EQ(kDigitSeparatedValueBeforeAttribute, 30'000'000);
+}
+
 [[gentest::test("exceptions/expect_throw")]]
 void expect_throw_simple() {
     EXPECT_THROW(throw_runtime_error(), std::runtime_error);

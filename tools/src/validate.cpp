@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <limits>
 #include <optional>
 #include <set>

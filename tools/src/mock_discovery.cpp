@@ -21,7 +21,7 @@
 #include <clang/Basic/SourceManager.h>
 #include <clang/Lex/Lexer.h>
 #include <filesystem>
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <fstream>
 #include <llvm/ADT/SmallPtrSet.h>
 #include <llvm/ADT/StringRef.h>
