@@ -77,6 +77,8 @@ struct TimedRunStatus {
 
 struct MeasurementCaseFailure {
     std::string      reason;
+    std::string      source_file;
+    unsigned         source_line        = 0;
     bool             allocation_failure = false;
     bool             skipped            = false;
     bool             infra_failure      = false;

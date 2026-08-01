@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gentest/detail/runtime_base.h"
+#include "gentest/format_value.h"
 
 #include <cstddef>
 #include <cstdio>
@@ -9,13 +10,10 @@
 #include <fmt/format.h>
 #include <iterator>
 #include <memory>
-#include <ostream>
 #include <source_location>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <typeinfo>
 #include <utility>
 
 namespace gentest::detail {
@@ -143,28 +141,7 @@ inline void run_noexceptions_fatal_hook() noexcept {
     state.hook(state.user_data);
 }
 
-template <typename T>
-concept Ostreamable = requires(std::ostream &os, const T &v) { os << v; };
-
-template <typename T> inline std::string to_string_fallback(const T &v) {
-    if constexpr (Ostreamable<T>) {
-        std::ostringstream oss;
-        oss << std::boolalpha << v;
-        return oss.str();
-    } else {
-#if defined(__clang__)
-#if __has_feature(cxx_rtti)
-        return fmt::format("{} (unprintable)", typeid(T).name());
-#else
-        return "(unprintable, enable RTTI)";
-#endif
-#elif defined(__GXX_RTTI) || defined(_CPPRTTI)
-        return fmt::format("{} (unprintable)", typeid(T).name());
-#else
-        return "(unprintable, enable RTTI)";
-#endif
-    }
-}
+template <typename T> inline std::string to_string_fallback(const T &v) { return ::gentest::format_value(v); }
 
 inline std::string loc_to_string(const std::source_location &loc) {
     std::filesystem::path p(std::string(loc.file_name()));

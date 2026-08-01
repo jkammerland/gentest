@@ -450,8 +450,8 @@ std::string prepend_call_arg(std::string_view first_arg, const std::string &rest
 }
 
 std::string build_helper_definition(const WrapperSpec &spec, std::string_view helper_name) {
-    const bool include_self = spec.kind == WrapperKind::MemberEphemeral || spec.kind == WrapperKind::MemberShared ||
-                              spec.kind == WrapperKind::MemberEphemeralWithFixtures || spec.kind == WrapperKind::MemberSharedWithFixtures;
+    const bool include_self  = spec.kind == WrapperKind::MemberEphemeral || spec.kind == WrapperKind::MemberShared ||
+                               spec.kind == WrapperKind::MemberEphemeralWithFixtures || spec.kind == WrapperKind::MemberSharedWithFixtures;
     const std::string params = build_helper_param_decls(spec.fixtures, include_self);
 
     std::string call_expr;
@@ -641,8 +641,8 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
-        const auto        invoke           = make_invoke_for_free(spec, qualified_helper,
-                                                                  format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
+        const auto invoke = make_invoke_for_free(spec, qualified_helper,
+                                                 format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
 
         const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
@@ -926,7 +926,8 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
             fmt::arg("async_wrapper",
                      test.returns_async ? std::string("&::kCaseAsyncInvoke_") + std::to_string(idx) : std::string("nullptr")),
             fmt::arg("is_async", test.returns_async ? "true" : "false"),
-            fmt::arg("items_per_call", fmt::format("{}ULL", test.items_per_call)));
+            fmt::arg("items_per_call", fmt::format("{}ULL", test.items_per_call)),
+            fmt::arg("owner", !test.owner.empty() ? "\"" + escape_string(test.owner) + "\"" : std::string("std::string_view{}")));
     }
     return out;
 }

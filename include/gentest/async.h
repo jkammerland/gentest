@@ -45,11 +45,17 @@ struct AsyncFrame {
     [[nodiscard]] auto address() const noexcept -> void * { return handle.address(); }
     [[nodiscard]] auto done() const noexcept -> bool { return !handle || handle.done(); }
 
+    [[nodiscard]] auto try_claim_waiter() noexcept -> bool {
+        bool expected = false;
+        return waiter_claimed.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
+    }
+
     void               cancel() noexcept { canceled.store(true, std::memory_order_release); }
     [[nodiscard]] auto is_canceled() const noexcept -> bool { return canceled.load(std::memory_order_acquire); }
 
     std::coroutine_handle<> handle{};
     std::atomic_bool        canceled{false};
+    std::atomic_bool        waiter_claimed{false};
 };
 
 using AsyncFramePtr = std::shared_ptr<AsyncFrame>;
@@ -707,6 +713,14 @@ struct final_resume_awaiter {
     constexpr void await_resume() const noexcept {}
 };
 
+[[noreturn]] inline void reject_concurrent_async_test_await() {
+#if GENTEST_EXCEPTIONS_ENABLED
+    throw std::logic_error("gentest::async_test already has an active waiter (concurrent co_await is not supported)");
+#else
+    std::abort();
+#endif
+}
+
 } // namespace detail
 
 template <typename T> class async_test final : public detail::AsyncTask {
@@ -781,6 +795,9 @@ template <typename T> class async_test final : public detail::AsyncTask {
         auto handle = typed_handle();
         if (!handle) {
             std::abort();
+        }
+        if (!frame_->try_claim_waiter()) {
+            detail::reject_concurrent_async_test_await();
         }
         handle.promise().scheduler          = &scheduler;
         handle.promise().continuation       = continuation;
@@ -907,6 +924,9 @@ template <> class async_test<void> final : public detail::AsyncTask {
         auto handle = typed_handle();
         if (!handle) {
             std::abort();
+        }
+        if (!frame_->try_claim_waiter()) {
+            detail::reject_concurrent_async_test_await();
         }
         handle.promise().scheduler          = &scheduler;
         handle.promise().continuation       = continuation;

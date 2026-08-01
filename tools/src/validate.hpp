@@ -14,7 +14,7 @@ namespace gentest::codegen {
 
 // Summary of function-level attributes after validation.
 // - case_name: optional display base name override (from test("...")/bench("...")/jitter("..."))
-// - tags/requirements: collected metadata
+// - tags/requirements/owner: collected metadata
 // - should_skip/skip_reason: skip semantics
 // - had_error: any validation error encountered (diagnosed via `report`)
 struct AttributeSummary {
@@ -72,7 +72,8 @@ struct AttributeSummary {
         std::vector<std::string>              names; // function parameter names, in order
         std::vector<std::vector<std::string>> rows;
     };
-    std::vector<ParamPack> param_packs;
+    std::vector<ParamPack>     param_packs;
+    std::optional<std::string> owner;
 };
 
 // Summary of class/struct-level attributes after validation.

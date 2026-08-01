@@ -372,6 +372,38 @@ int main() {
     }
     duplicate.finish();
 
+    auto                                 refresh_now = gentest::runner::AsyncStatusRenderer::MonotonicClock::time_point{};
+    std::ostringstream                   throttled_out;
+    gentest::runner::AsyncStatusRenderer throttled(throttled_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                   {.width = 80, .height = 12}, 5, [&refresh_now] { return refresh_now; });
+    throttled.add_case(0, "async/live/throttled_primary");
+    const auto first_refresh = throttled_out.str();
+    throttled.add_case(1, "async/live/throttled_secondary");
+    throttled.mark_running(0);
+    throttled.mark_suspended(1, "burst one");
+    throttled.mark_yielded(1, "burst two");
+    if (throttled_out.str() != first_refresh) {
+        return fail("ordinary terminal updates inside one refresh interval should not redraw repeatedly", throttled_out.str());
+    }
+
+    refresh_now += gentest::runner::AsyncStatusRenderer::kTerminalRefreshInterval;
+    throttled.mark_running(1);
+    const auto interval_refresh = throttled_out.str();
+    if (interval_refresh.size() <= first_refresh.size() || !contains(interval_refresh, "[  RUNNING  ] async/live/throttled_secondary")) {
+        return fail("an ordinary terminal update should redraw when the refresh interval elapses", interval_refresh);
+    }
+
+    throttled.mark_suspended(1, "pending final refresh");
+    const auto before_final_refresh = throttled_out.str();
+    throttled.mark_final(0, gentest::runner::AsyncLiveStatus::Pass, {}, 5);
+    const auto after_final_refresh = throttled_out.str();
+    const auto final_refresh       = std::string_view(after_final_refresh).substr(before_final_refresh.size());
+    if (after_final_refresh.size() <= before_final_refresh.size() ||
+        !contains(final_refresh, "[ SUSPENDED ] async/live/throttled_secondary :: pending final refresh")) {
+        return fail("a final terminal event should redraw immediately even inside the refresh interval", after_final_refresh);
+    }
+    throttled.finish();
+
     std::ostringstream                   terminal_out;
     gentest::runner::AsyncStatusRenderer terminal(terminal_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
                                                   {.width = 80, .height = 12});

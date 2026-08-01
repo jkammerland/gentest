@@ -430,8 +430,8 @@ This approach intentionally gives up CMake-only convenience shortcuts:
 
 - build systems need to predeclare output paths and then validate them through
   an inspect/manifest step
-- multi-config generators need explicit per-config output policy or a manifest
-  format that can describe config-specific outputs
+- multi-config generators use configuration-scoped generated-output
+  directories and manifests
 - non-CMake backends must learn to consume the artifact manifest
 - generated module implementation units must be compiled in the same target
   context as the owning module interface

@@ -10,6 +10,22 @@ endif()
 
 add_subdirectory(tool_core)
 
+add_executable(gentest_format_value_tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/format_value.cpp)
+target_compile_features(gentest_format_value_tests PRIVATE cxx_std_20)
+target_link_libraries(gentest_format_value_tests PRIVATE gentest::gentest)
+add_dependencies(gentest_test_suites gentest_format_value_tests)
+add_test(NAME format_value COMMAND $<TARGET_FILE:gentest_format_value_tests>)
+set_property(TEST format_value APPEND PROPERTY LABELS "public-api")
+
+add_executable(gentest_run_cases_api_tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/run_cases_api.cpp)
+target_compile_features(gentest_run_cases_api_tests PRIVATE cxx_std_20)
+target_link_libraries(gentest_run_cases_api_tests PRIVATE gentest::gentest)
+add_dependencies(gentest_test_suites gentest_run_cases_api_tests)
+add_test(NAME run_cases_api COMMAND $<TARGET_FILE:gentest_run_cases_api_tests>)
+set_property(TEST run_cases_api APPEND PROPERTY LABELS "public-api;runner")
+
 gentest_resolve_test_std(_gentest_test_std_feature _gentest_codegen_std_flag)
 unset(_gentest_test_std_feature)
 gentest_normalize_std_flag_for_compiler(_gentest_codegen_scan_std_flag "clang++" "${_gentest_codegen_std_flag}")
@@ -111,8 +127,10 @@ unset(_gentest_parallel_bench_std_feature)
 
 # User-facing benchmark target: run only the code generation step for the
 # multi-TU bench.
+get_target_property(_gentest_codegen_parallel_bench_dep gentest_codegen_parallel_bench_obj GENTEST_CODEGEN_DEP_TARGET)
 add_custom_target(gentest_codegen_parallel_bench
-    DEPENDS gentest_codegen_gentest_codegen_parallel_bench_obj)
+    DEPENDS ${_gentest_codegen_parallel_bench_dep})
+unset(_gentest_codegen_parallel_bench_dep)
 
 unset(_gentest_codegen_parallel_bench_sources)
 unset(_gentest_codegen_parallel_bench_suites)
@@ -414,6 +432,25 @@ gentest_add_check_counts(
     SKIP 0
     ARGS --filter=async/wait_for/async_test* --kind=test --no-color)
 
+gentest_add_check_counts(
+    NAME async_lvalue_concurrent_await
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 1
+    SKIP 0
+    BLOCKED 0
+    EXPECT_RC 1
+    ARGS --filter=async/lvalue_await/* --kind=test --no-color)
+
+gentest_add_cmake_script_test(
+    NAME async_lvalue_concurrent_await_diagnostic
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --filter=async/lvalue_await/* --kind=test --no-color
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/lvalue_await/01_concurrent_waiter|gentest::async_test already has an active waiter (concurrent co_await is not supported)")
+
 gentest_add_cmake_script_test(
     NAME async_wait_for_no_raw_this_token_callbacks
     PROG ${CMAKE_COMMAND}
@@ -537,7 +574,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 98
+    CASES 101
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
@@ -2177,6 +2214,42 @@ gentest_add_check_death(
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Regressions.cmake)
 
+gentest_add_cmake_script_test(
+    NAME regression_measured_bench_github_annotation_source_and_count
+    PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS
+        --run=regressions/runtime_reporting/measured_bench_github_annotation
+        --kind=bench
+        --github-annotations
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=::error file=tests/regressions/measured_github_annotation_source.cpp,line=701,title=regressions/runtime_reporting/measured_bench_github_annotation::"
+        "EXPECT_COUNT_SUBSTRING=::error "
+        "EXPECT_COUNT=1")
+
+gentest_add_cmake_script_test(
+    NAME regression_measured_jitter_github_annotation_source_and_count
+    PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS
+        --run=regressions/runtime_reporting/measured_jitter_github_annotation
+        --kind=jitter
+        --github-annotations
+        --bench-epochs=1
+        --bench-warmup=0
+        --bench-min-epoch-time-s=0
+        --bench-min-total-time-s=0
+    DEFINES
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRING=::error file=tests/regressions/measured_github_annotation_source.cpp,line=801,title=regressions/runtime_reporting/measured_jitter_github_annotation::"
+        "EXPECT_COUNT_SUBSTRING=::error "
+        "EXPECT_COUNT=1")
+
 gentest_add_manual_regression(
     TARGET gentest_regression_measured_report_coverage
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_report_coverage.cpp)
@@ -2214,6 +2287,7 @@ gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests>
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--time-unit=<mode>" ARGS --help)
 gentest_add_check_contains(NAME unit_help_report_format PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--report-format=<mode>" ARGS --help)
 gentest_add_check_contains(NAME unit_help_async_log_tail PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--async-log-tail=N" ARGS --help)
+gentest_add_check_contains(NAME unit_help_list_json PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--list-json" ARGS --help)
 gentest_add_check_contains(NAME unit_list_contains_attr_close_marker_name_prefix PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "unit/attributes/close_marker_in_string_" ARGS --list-tests)
 gentest_add_check_contains(NAME unit_list_tags_fast PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "tags=fast" ARGS --list)
 gentest_add_check_contains(
@@ -2221,12 +2295,15 @@ gentest_add_check_contains(
     PROG $<TARGET_FILE:gentest_unit_tests>
     REQUIRED_SUBSTRING "strings/concatenate [gentest:tags=slow;requires=#42]"
     ARGS --list)
-gentest_add_check_contains(NAME integration_list_tags_owner PROG $<TARGET_FILE:gentest_integration_tests> REQUIRED_SUBSTRING "owner=team-runtime" ARGS --list)
 gentest_add_check_contains(
-    NAME integration_list_tags_requires_shape
+    NAME integration_list_structured_and_legacy_owner
     PROG $<TARGET_FILE:gentest_integration_tests>
-    REQUIRED_SUBSTRING "errors/recover [gentest:tags=owner=team-runtime;requires=BUG-123]"
+    REQUIRED_SUBSTRING "errors/recover [gentest:tags=owner=team-runtime;requires=BUG-123;owner=team-runtime]"
     ARGS --list)
+gentest_add_cmake_script_test(
+    NAME integration_list_json_inventory
+    PROG $<TARGET_FILE:gentest_integration_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckJsonInventory.cmake")
 gentest_add_check_contains(
     NAME integration_list_skip_shape
     PROG $<TARGET_FILE:gentest_integration_tests>
@@ -3324,6 +3401,20 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_tu_header_case_collision APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_generated_artifact_collision
+    ${PROJECT_SOURCE_DIR}/tests/cmake/generated_artifact_collision
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckGeneratedArtifactCollision.cmake
+    cmake
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_generated_artifact_collision APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_multi_config_explicit_mock_late_link
+    ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_surface
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMultiConfigExplicitMocks.cmake
+    "cmake;multiconfig")
+
+_gentest_add_cmake_helper_test(
     gentest_tu_register_symbol_collision
     ${PROJECT_SOURCE_DIR}/tests/cmake/tu_register_symbol_collision
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTuRegisterSymbolCollision.cmake
@@ -3863,6 +3954,13 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_module_registration_manifest APPEND PROPERTY LABELS "modules;codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_multi_config_module_registration_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_registration_manifest
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleRegistrationManifest.cmake
+    "modules;codegen;multiconfig"
+    "-DGENERATOR=Ninja Multi-Config")
 
 _gentest_add_cmake_helper_test(
     gentest_module_registration_mock_split

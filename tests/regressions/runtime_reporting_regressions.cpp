@@ -24,10 +24,13 @@ void junit_invalid_xml_control_failure(void *) {
 void github_annotation_xpass_with_punctuation(void *) { gentest::xfail("runtime-reporting-annotation"); }
 
 void pass_for_junit_io_visibility(void *) {}
+void measured_bench_github_annotation_failure(void *);
+void measured_jitter_github_annotation_failure(void *);
 
-constexpr char             kWindowsStyleFile[]       = "C:/repo,win/src/runtime_reporting_case.cpp";
-constexpr char             kXmlControlRequirement[]  = {'R', 'E', 'Q', '-', '\x1B', ' ', 'm', 'a', 'r', 'k', 'e', 'r'};
-constexpr std::string_view kXmlControlRequirements[] = {std::string_view{kXmlControlRequirement, sizeof(kXmlControlRequirement)}};
+constexpr char             kWindowsStyleFile[]         = "C:/repo,win/src/runtime_reporting_case.cpp";
+constexpr char             kMeasuredRegistrationFile[] = "registration-only/measured_case.cpp";
+constexpr char             kXmlControlRequirement[]    = {'R', 'E', 'Q', '-', '\x1B', ' ', 'm', 'a', 'r', 'k', 'e', 'r'};
+constexpr std::string_view kXmlControlRequirements[]   = {std::string_view{kXmlControlRequirement, sizeof(kXmlControlRequirement)}};
 
 gentest::Case kCases[] = {
     {
@@ -110,7 +113,55 @@ gentest::Case kCases[] = {
         .fixture_lifetime = gentest::FixtureLifetime::None,
         .suite            = "regressions",
     },
+    {
+        .name             = "regressions/runtime_reporting/measured_bench_github_annotation",
+        .fn               = &measured_bench_github_annotation_failure,
+        .file             = kMeasuredRegistrationFile,
+        .line             = 41,
+        .is_benchmark     = true,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+    },
+    {
+        .name             = "regressions/runtime_reporting/measured_jitter_github_annotation",
+        .fn               = &measured_jitter_github_annotation_failure,
+        .file             = kMeasuredRegistrationFile,
+        .line             = 42,
+        .is_benchmark     = false,
+        .is_jitter        = true,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "regressions",
+    },
 };
+
+void measured_bench_github_annotation_failure(void *) {
+    if (gentest::detail::bench_phase() != gentest::detail::BenchPhase::Call) {
+        return;
+    }
+#line 701 "tests/regressions/measured_github_annotation_source.cpp"
+    EXPECT_TRUE(false, "measured benchmark annotation source marker");
+}
+
+void measured_jitter_github_annotation_failure(void *) {
+    if (gentest::detail::bench_phase() != gentest::detail::BenchPhase::Call) {
+        return;
+    }
+#line 801 "tests/regressions/measured_github_annotation_source.cpp"
+    EXPECT_TRUE(false, "measured jitter annotation source marker");
+}
 
 } // namespace
 

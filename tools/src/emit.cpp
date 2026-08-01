@@ -25,6 +25,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -1111,6 +1112,156 @@ bool write_artifact_manifest(const CollectorOptions &opts) {
 
 } // namespace
 
+bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::string &error) {
+    struct GeneratedArtifact {
+        std::string canonical_path;
+        std::string role;
+        std::string owner;
+    };
+
+    error.clear();
+    std::vector<GeneratedArtifact> artifacts;
+    artifacts.reserve(opts.sources.size() * 4 + opts.mock_domain_registry_outputs.size() + opts.mock_domain_impl_outputs.size() + 8);
+
+    auto add_artifact = [&](const fs::path &path, std::string role, std::string owner) {
+        if (path.empty()) {
+            error = fmt::format("generated artifact output is empty for role '{}' owned by {}", role, owner);
+            return false;
+        }
+        artifacts.push_back(GeneratedArtifact{
+            .canonical_path = casefolded_path_key(path),
+            .role           = std::move(role),
+            .owner          = std::move(owner),
+        });
+        return true;
+    };
+
+    auto validate_source_alignment = [&](const std::vector<fs::path> &paths, std::string_view option) {
+        if (paths.empty() || paths.size() == opts.sources.size()) {
+            return true;
+        }
+        error = fmt::format("generated artifact output alignment for {} expected {} slot(s), got {}", option, opts.sources.size(),
+                            paths.size());
+        return false;
+    };
+
+    if ((!opts.tu_output_headers.empty() || !opts.textual_wrapper_outputs.empty() || !opts.module_wrapper_outputs.empty() ||
+         !opts.module_registration_outputs.empty()) &&
+        opts.tu_output_dir.empty()) {
+        error = "source-associated generated artifact outputs require --tu-out-dir";
+        return false;
+    }
+    if (!validate_source_alignment(opts.tu_output_headers, "--tu-header-output") ||
+        !validate_source_alignment(opts.textual_wrapper_outputs, "--textual-wrapper-output") ||
+        !validate_source_alignment(opts.module_wrapper_outputs, "--module-wrapper-output") ||
+        !validate_source_alignment(opts.module_registration_outputs, "--module-registration-output")) {
+        return false;
+    }
+
+    if (!opts.tu_output_dir.empty()) {
+        for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+            const bool        explicit_header = idx < opts.tu_output_headers.size() && !opts.tu_output_headers[idx].empty();
+            const std::string owner           = fmt::format("source slot {} '{}' ({})", idx, opts.sources[idx],
+                                                            explicit_header ? "--tu-header-output" : "derived from --tu-out-dir");
+            if (!add_artifact(resolve_tu_header_output(opts, idx), "TU registration header", owner)) {
+                return false;
+            }
+        }
+    }
+
+    for (std::size_t idx = 0; idx < opts.textual_wrapper_outputs.size(); ++idx) {
+        const std::string owner = fmt::format("source slot {} '{}' (--textual-wrapper-output)", idx, opts.sources[idx]);
+        if (!add_artifact(opts.textual_wrapper_outputs[idx], "textual wrapper", owner)) {
+            return false;
+        }
+    }
+    for (std::size_t idx = 0; idx < opts.module_wrapper_outputs.size(); ++idx) {
+        if (opts.module_wrapper_outputs[idx].empty()) {
+            if (opts.module_interface_sources.contains(opts.sources[idx])) {
+                error = fmt::format("generated artifact output is empty for role 'module wrapper' owned by source slot {} '{}' "
+                                    "(--module-wrapper-output)",
+                                    idx, opts.sources[idx]);
+                return false;
+            }
+            continue;
+        }
+        const std::string owner = fmt::format("source slot {} '{}' (--module-wrapper-output)", idx, opts.sources[idx]);
+        if (!add_artifact(opts.module_wrapper_outputs[idx], "module wrapper", owner)) {
+            return false;
+        }
+    }
+    for (std::size_t idx = 0; idx < opts.module_registration_outputs.size(); ++idx) {
+        const std::string owner = fmt::format("source slot {} '{}' (--module-registration-output)", idx, opts.sources[idx]);
+        if (!add_artifact(opts.module_registration_outputs[idx], "module registration", owner)) {
+            return false;
+        }
+    }
+
+    auto add_option_artifact = [&](const fs::path &path, std::string_view role, std::string_view option) {
+        if (path.empty()) {
+            return true;
+        }
+        return add_artifact(path, std::string(role), fmt::format("option '{}'", option));
+    };
+    if (!add_option_artifact(opts.artifact_manifest_path, "artifact manifest", "--artifact-manifest") ||
+        !add_option_artifact(opts.mock_registry_path, "mock registry", "--mock-registry") ||
+        !add_option_artifact(opts.mock_impl_path, "mock implementation", "--mock-impl") ||
+        !add_option_artifact(opts.mock_public_header_path, "mock public header", "--mock-public-header") ||
+        !add_option_artifact(opts.mock_aggregate_module_path, "mock aggregate module", "--mock-aggregate-module-output") ||
+        !add_option_artifact(opts.mock_manifest_output_path, "mock manifest", "--mock-manifest-output")) {
+        return false;
+    }
+    if (opts.depfile_path.has_value() && !add_option_artifact(*opts.depfile_path, "depfile", "--depfile")) {
+        return false;
+    }
+
+    if (opts.mock_domain_registry_outputs.size() != opts.mock_domain_impl_outputs.size()) {
+        error = fmt::format("generated artifact output alignment for explicit mock domains expected matching registry/implementation "
+                            "slots, got {} and {}",
+                            opts.mock_domain_registry_outputs.size(), opts.mock_domain_impl_outputs.size());
+        return false;
+    }
+    auto mock_domain_owner = [&](std::size_t idx, std::string_view option) {
+        if (idx == 0) {
+            return fmt::format("mock output domain slot 0 'header' ({})", option);
+        }
+        if (idx - 1 < opts.mock_output_domain_modules.size()) {
+            return fmt::format("mock output domain slot {} module '{}' ({})", idx, opts.mock_output_domain_modules[idx - 1], option);
+        }
+        return fmt::format("mock output domain slot {} ({})", idx, option);
+    };
+    for (std::size_t idx = 0; idx < opts.mock_domain_registry_outputs.size(); ++idx) {
+        if (!add_artifact(opts.mock_domain_registry_outputs[idx], "mock domain registry",
+                          mock_domain_owner(idx, "--mock-domain-registry-output")) ||
+            !add_artifact(opts.mock_domain_impl_outputs[idx], "mock domain implementation",
+                          mock_domain_owner(idx, "--mock-domain-impl-output"))) {
+            return false;
+        }
+    }
+
+    std::ranges::sort(artifacts, [](const GeneratedArtifact &lhs, const GeneratedArtifact &rhs) {
+        return std::tie(lhs.canonical_path, lhs.role, lhs.owner) < std::tie(rhs.canonical_path, rhs.role, rhs.owner);
+    });
+    for (std::size_t idx = 1; idx < artifacts.size(); ++idx) {
+        const auto &first  = artifacts[idx - 1];
+        const auto &second = artifacts[idx];
+        if (first.canonical_path != second.canonical_path) {
+            continue;
+        }
+        if (first.role == second.role && first.owner == second.owner) {
+            continue;
+        }
+        error = fmt::format("generated artifact collision at canonical path '{}': role '{}' owned by {} conflicts with role '{}' "
+                            "owned by {}",
+                            first.canonical_path, first.role, first.owner, second.role, second.owner);
+        if (first.role == "TU registration header" && second.role == "TU registration header") {
+            error.append("; multiple sources map to the same TU output header");
+        }
+        return false;
+    }
+    return true;
+}
+
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void replace_all(std::string &inout, std::string_view needle, std::string_view replacement) {
     const std::string target{needle};
@@ -1224,6 +1375,12 @@ void apply_registration_core(std::string &output, const RenderedRegistrationCore
 
 int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures,
          const std::vector<MockClassInfo> &mocks) {
+    std::string artifact_output_error;
+    if (!validate_generated_artifact_outputs(opts, artifact_output_error)) {
+        log_err("gentest_codegen: {}\n", artifact_output_error);
+        return 1;
+    }
+
     std::vector<TestCaseInfo> cases_for_render = cases;
     if (opts.source_root && !opts.source_root->empty()) {
         for (auto &c : cases_for_render) {
@@ -1306,21 +1463,6 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         }
 
         const auto templates = load_registration_render_templates();
-
-        // Guard against multiple input sources mapping to the same output header
-        // name (would be nondeterministic under parallel emission).
-        std::unordered_map<std::string, std::string> header_owner;
-        header_owner.reserve(opts.sources.size());
-        for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
-            const auto       &src        = opts.sources[idx];
-            fs::path          header_out = resolve_tu_header_output(opts, idx);
-            const std::string key        = casefolded_path_key(header_out);
-            auto [it, inserted]          = header_owner.emplace(key, src);
-            if (!inserted) {
-                log_err("gentest_codegen: multiple sources map to the same TU output header '{}': '{}' and '{}'\n", key, it->second, src);
-                return 1;
-            }
-        }
 
         const std::size_t                        jobs = resolve_concurrency(opts.sources.size(), opts.jobs);
         std::vector<int>                         statuses(opts.sources.size(), 0);

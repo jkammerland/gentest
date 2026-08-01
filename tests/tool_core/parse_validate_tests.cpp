@@ -50,6 +50,7 @@ int main() {
         t.expect(has("slow"), "flag 'slow' present");
         t.expect(has("linux"), "flag 'linux' present");
         t.expect(has("owner=bar"), "owner value present");
+        t.expect(summary.owner && *summary.owner == "bar", "owner value is available as structured metadata");
         t.expect(summary.requirements.size() == 1 && summary.requirements[0] == "#1", "single req present");
     }
 
@@ -68,6 +69,7 @@ int main() {
         };
         t.expect(has("slow"), "scoped flag is normalized");
         t.expect(has("owner=ops"), "scoped owner is normalized");
+        t.expect(summary.owner && *summary.owner == "ops", "scoped owner is available as structured metadata");
         t.expect(summary.requirements.size() == 1 && summary.requirements[0] == "#2", "scoped req present");
     }
 
@@ -116,6 +118,7 @@ int main() {
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(summary.had_error, "duplicate owner errors");
+        t.expect(summary.owner && *summary.owner == "a", "duplicate owner retains the first valid structured value");
     }
 
     {
@@ -505,6 +508,7 @@ int main() {
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(summary.had_error, "owner with invalid arity errors");
         t.expect(!diags.empty(), "owner with invalid arity reports a diagnostic");
+        t.expect(!summary.owner, "owner with invalid arity does not produce structured metadata");
     }
 
     // Regression: split_arguments must treat '<...>' as a nesting delimiter so template commas

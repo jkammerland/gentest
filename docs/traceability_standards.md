@@ -13,11 +13,13 @@ Test annotation with requirement ID:
 void add_test();
 ```
 
-List output includes requirement IDs:
+List output exposes the owner structurally and retains its legacy tag:
 
 ```text
-math/add [requires=SSR-001] [owner=team-runtime]
+math/add [gentest:tags=owner=team-runtime;requires=SSR-001;owner=team-runtime] (tests/math.cpp:12)
 ```
+
+The generated public `gentest::Case` descriptor also carries `owner` separately; an absent owner is an empty string view.
 
 JUnit export contains requirement properties:
 

@@ -26,6 +26,14 @@ gentest::async::manual_event server_ready;
 gentest::async::manual_event client_done;
 std::vector<std::string>     order;
 
+gentest::async::manual_event concurrent_lvalue_value_child_started;
+gentest::async::manual_event concurrent_lvalue_value_child_release;
+gentest::async::manual_event concurrent_lvalue_void_child_started;
+gentest::async::manual_event concurrent_lvalue_void_child_release;
+gentest::async::manual_event concurrent_lvalue_first_waiter_done;
+gentest::async_test<int>     concurrent_lvalue_value_task;
+gentest::async_test<void>    concurrent_lvalue_void_task;
+
 void reset_batch_if_previous_round_completed() {
     if (server_ready.is_set("batch server ready") && client_done.is_set("batch client done")) {
         server_ready.reset_all();
@@ -362,6 +370,17 @@ gentest::async_test<void> wait_for_child_throws() {
 gentest::async_test<void> wait_for_child_never(gentest::async::manual_event &event) { co_await event.wait("child release"); }
 
 gentest::async_test<void> wait_for_nested_child_never(gentest::async::manual_event &event) { co_await wait_for_child_never(event); }
+
+gentest::async_test<int> concurrent_lvalue_value_child() {
+    concurrent_lvalue_value_child_started.set("value child started");
+    co_await concurrent_lvalue_value_child_release.wait("release concurrent lvalue value child");
+    co_return 42;
+}
+
+gentest::async_test<void> concurrent_lvalue_void_child() {
+    concurrent_lvalue_void_child_started.set("void child started");
+    co_await concurrent_lvalue_void_child_release.wait("release concurrent lvalue void child");
+}
 
 struct [[using gentest: fixture(suite)]] SharedSuiteAsyncFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
     static inline int                      setups    = 0;
@@ -1156,6 +1175,46 @@ gentest::async_test<void> wait_for_async_test_timeout_cancels_nested_stale_waite
     event.set("child release");
     co_await gentest::async::yield();
     EXPECT_TRUE(result.timed_out());
+}
+
+[[using gentest: test("lvalue_await/00_first_waiter")]]
+gentest::async_test<void> lvalue_await_first_waiter() {
+    concurrent_lvalue_value_task = concurrent_lvalue_value_child();
+
+    const int value = co_await concurrent_lvalue_value_task;
+
+    EXPECT_EQ(value, 42);
+    concurrent_lvalue_void_task = concurrent_lvalue_void_child();
+    co_await concurrent_lvalue_void_task;
+    concurrent_lvalue_first_waiter_done.set("first waiter completed");
+}
+
+[[using gentest: test("lvalue_await/01_concurrent_waiter")]]
+gentest::async_test<void> lvalue_await_concurrent_waiter() {
+    co_await concurrent_lvalue_value_child_started.wait("value child started");
+    concurrent_lvalue_value_child_release.set("release concurrent lvalue value child");
+
+    try {
+        (void)(co_await concurrent_lvalue_value_task);
+        gentest::fail("concurrent lvalue co_await of async_test<T> unexpectedly succeeded");
+    } catch (const std::logic_error &ex) {
+        EXPECT_EQ(std::string_view(ex.what()),
+                  std::string_view("gentest::async_test already has an active waiter (concurrent co_await is not supported)"));
+    }
+
+    co_await concurrent_lvalue_void_child_started.wait("void child started");
+    concurrent_lvalue_void_child_release.set("release concurrent lvalue void child");
+
+    co_await concurrent_lvalue_void_task;
+    gentest::fail("concurrent lvalue co_await of async_test<void> unexpectedly succeeded");
+}
+
+[[using gentest: test("lvalue_await/02_completed_reawait")]]
+gentest::async_test<void> lvalue_await_completed_task() {
+    co_await concurrent_lvalue_first_waiter_done.wait("first waiter completed");
+
+    EXPECT_EQ(co_await concurrent_lvalue_value_task, 42);
+    co_await concurrent_lvalue_void_task;
 }
 
 [[using gentest: test("value/discard")]]

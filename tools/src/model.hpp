@@ -175,7 +175,7 @@ struct CollectorOptions {
 // - display_name: display string exposed to users (from test("...") and suite prefix)
 // - suite_name: logical suite (from enclosing namespace attribute)
 // - filename/line: origin information for list/diagnostics
-// - tags/requirements/skip/skip_reason: validation results
+// - tags/requirements/skip/skip_reason/owner: validation results
 // - fixture_*: present for member tests; empty for free functions
 struct TestCaseInfo {
     std::string qualified_name;
@@ -224,6 +224,8 @@ struct TestCaseInfo {
     std::vector<FreeCallArg> free_call_args;
     // Namespace parts for this test (used for fixture resolution).
     std::vector<std::string> namespace_parts;
+    // Structured owner metadata; the legacy owner=... tag remains in tags.
+    std::string owner;
 };
 
 // Parameter metadata for mocked member functions.

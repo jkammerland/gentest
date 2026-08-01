@@ -5,6 +5,7 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,7 +15,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Lint • plan
+    runs-on: ubuntu-24.04
+    outputs:
+      run_lint: ${{ steps.plan.outputs.run_lint }}
+    steps:
+      - name: Checkout planner and history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute CI plan
+        id: plan
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_REF: ${{ github.ref }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if ! python3 scripts/ci_plan.py \
+            --event "${CI_EVENT_NAME}" \
+            --ref "${CI_REF}" \
+            --base "${CI_BASE_SHA}" \
+            --head "${CI_HEAD_SHA}" \
+            --github-output "${GITHUB_OUTPUT}"
+          then
+            echo "CI planner failed; enabling all lanes." >&2
+            for lane in cmake lint coverage cross_qemu bazel meson xmake; do
+              printf 'run_%s=true\n' "${lane}" >> "${GITHUB_OUTPUT}"
+            done
+          fi
+
   format:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_lint == 'true' }}
     name: Clang Format
     runs-on: ubuntu-24.04
     container: fedora:43
@@ -38,6 +73,8 @@ jobs:
         run: scripts/check_clang_format.sh
 
   tidy:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_lint == 'true' }}
     name: Clang Tidy
     runs-on: ubuntu-24.04
     container: fedora:43

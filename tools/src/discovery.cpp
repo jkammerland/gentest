@@ -530,6 +530,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.line                         = lnum;
         info.tags                         = summary.tags;
         info.requirements                 = summary.requirements;
+        info.owner                        = summary.owner.value_or(std::string{});
         info.should_skip                  = summary.should_skip;
         info.skip_reason                  = summary.skip_reason;
         info.is_benchmark                 = summary.is_benchmark;
@@ -1264,9 +1265,9 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
             const auto        emit_local     = [&](const std::string &qualified_name) {
                 if (required_scope.has_value()) {
                     report(test,
-                                      fmt::format(
+                           fmt::format(
                                "fixture '{}' is declared as '{}' but resolved as local; ensure the fixture declaration is visible and in "
-                                          "an ancestor namespace",
+                               "an ancestor namespace",
                                parsed.full, scope_name(*required_scope)));
                     return;
                 }

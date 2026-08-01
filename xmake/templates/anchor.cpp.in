@@ -1,7 +1,0 @@
-// generated placeholder
-
-namespace gentest {
-namespace anchor {
-int ${ANCHOR_SYMBOL} = 0;
-} // namespace anchor
-} // namespace gentest

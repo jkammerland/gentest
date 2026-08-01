@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gentest/format_value.h"
 #include "gentest/mock_fwd.h"
 #include "gentest/runner.h"
 
@@ -14,8 +15,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <ostream>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -85,14 +84,9 @@ struct ExpectationBase {
 
 template <typename Signature> struct Expectation;
 
-template <typename T>
-concept Ostreamable = requires(std::ostream &os, const T &v) { os << v; };
-
 template <typename T> inline std::string to_string_fallback(const T &v) {
-    if constexpr (Ostreamable<T>) {
-        std::ostringstream oss;
-        oss << v;
-        return oss.str();
+    if constexpr (::gentest::detail::ValueFormattable<T>) {
+        return ::gentest::detail::format_printable_value(v, false);
     } else {
         return std::string(typeid(T).name());
     }
@@ -693,7 +687,7 @@ template <typename V> struct EqFactory {
         ap.test             = [exp](const T &a) { return a == exp; };
         ap.describe         = [exp](const T &a) {
             return fmt::format("expected == {}, got {}", ::gentest::detail::mocking::to_string_fallback(exp),
-                                       ::gentest::detail::mocking::to_string_fallback(a));
+                               ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
@@ -712,7 +706,7 @@ template <typename A, typename B> struct InRangeFactory {
         ap.test            = [lo, hi](const T &a) { return (a >= lo) && (a <= hi); };
         ap.describe        = [lo, hi](const T &a) {
             return fmt::format("expected in [{}, {}], got {}", ::gentest::detail::mocking::to_string_fallback(lo),
-                                      ::gentest::detail::mocking::to_string_fallback(hi), ::gentest::detail::mocking::to_string_fallback(a));
+                               ::gentest::detail::mocking::to_string_fallback(hi), ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
@@ -745,7 +739,7 @@ template <typename V> struct GeFactory {
         ap.test           = [b](const T &a) { return a >= b; };
         ap.describe       = [b](const T &a) {
             return fmt::format("expected >= {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                                     ::gentest::detail::mocking::to_string_fallback(a));
+                               ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
@@ -761,7 +755,7 @@ template <typename V> struct LeFactory {
         ap.test           = [b](const T &a) { return a <= b; };
         ap.describe       = [b](const T &a) {
             return fmt::format("expected <= {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                                     ::gentest::detail::mocking::to_string_fallback(a));
+                               ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
@@ -777,7 +771,7 @@ template <typename V> struct GtFactory {
         ap.test           = [b](const T &a) { return a > b; };
         ap.describe       = [b](const T &a) {
             return fmt::format("expected > {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                                     ::gentest::detail::mocking::to_string_fallback(a));
+                               ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }
@@ -793,7 +787,7 @@ template <typename V> struct LtFactory {
         ap.test           = [b](const T &a) { return a < b; };
         ap.describe       = [b](const T &a) {
             return fmt::format("expected < {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                                     ::gentest::detail::mocking::to_string_fallback(a));
+                               ::gentest::detail::mocking::to_string_fallback(a));
         };
         return ap;
     }

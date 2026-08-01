@@ -178,7 +178,16 @@ class AsyncSchedulerCore {
         }
         frames_[child->address()] = child;
         owners_[child->address()] = parent_owner;
-        children_[parent.address()].push_back(child->address());
+        auto &children            = children_[parent.address()];
+        auto &parents             = parents_[child->address()];
+        children.push_back(ChildReference{
+            .child             = child->address(),
+            .parent_link_index = parents.size(),
+        });
+        parents.push_back(ParentReference{
+            .parent      = parent.address(),
+            .child_index = children.size() - 1,
+        });
     }
 
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters) - Mirrors the public scheduler hook.
@@ -297,6 +306,16 @@ class AsyncSchedulerCore {
     }
 
   private:
+    struct ChildReference {
+        void       *child             = nullptr;
+        std::size_t parent_link_index = 0;
+    };
+
+    struct ParentReference {
+        void       *parent      = nullptr;
+        std::size_t child_index = 0;
+    };
+
     struct BlockedHandle {
         std::size_t   owner    = 0;
         SuspendKind   kind     = SuspendKind::Suspended;
@@ -356,8 +375,8 @@ class AsyncSchedulerCore {
         if (const auto child_it = children_.find(address); child_it != children_.end()) {
             auto children = std::move(child_it->second);
             children_.erase(child_it);
-            for (auto *child : children) {
-                cancel_address_locked(child, tokens);
+            for (const auto &child : children) {
+                cancel_address_locked(child.child, tokens);
             }
         }
         remove_child_references_locked(address);
@@ -379,13 +398,35 @@ class AsyncSchedulerCore {
     }
 
     void remove_child_references_locked(void *address) {
-        for (auto it = children_.begin(); it != children_.end();) {
-            auto &children = it->second;
-            std::erase(children, address);
+        const auto parent_it = parents_.find(address);
+        if (parent_it == parents_.end()) {
+            return;
+        }
+
+        auto parents = std::move(parent_it->second);
+        parents_.erase(parent_it);
+        for (const auto &parent : parents) {
+            const auto children_it = children_.find(parent.parent);
+            if (children_it == children_.end()) {
+                continue;
+            }
+            auto &children = children_it->second;
+            if (parent.child_index >= children.size() || children[parent.child_index].child != address) {
+                continue;
+            }
+
+            const std::size_t last_index = children.size() - 1;
+            if (parent.child_index != last_index) {
+                const auto moved_child       = children[last_index];
+                children[parent.child_index] = moved_child;
+                if (const auto moved_parent_it = parents_.find(moved_child.child);
+                    moved_parent_it != parents_.end() && moved_child.parent_link_index < moved_parent_it->second.size()) {
+                    moved_parent_it->second[moved_child.parent_link_index].child_index = parent.child_index;
+                }
+            }
+            children.pop_back();
             if (children.empty()) {
-                it = children_.erase(it);
-            } else {
-                ++it;
+                children_.erase(children_it);
             }
         }
     }
@@ -407,7 +448,8 @@ class AsyncSchedulerCore {
     std::deque<FramePtr>                                                                 ready_;
     std::unordered_map<void *, FramePtr>                                                 frames_;
     std::unordered_map<void *, std::size_t>                                              owners_;
-    std::unordered_map<void *, std::vector<void *>>                                      children_;
+    std::unordered_map<void *, std::vector<ChildReference>>                              children_;
+    std::unordered_map<void *, std::vector<ParentReference>>                             parents_;
     std::unordered_map<void *, BlockedHandle>                                            blocked_;
     std::unordered_map<void *, std::vector<std::weak_ptr<WaiterTokenPtr::element_type>>> waiter_tokens_;
     gentest::detail::AsyncTimerQueue                                                     timers_;

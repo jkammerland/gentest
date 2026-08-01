@@ -28,14 +28,31 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-if(NOT GENERATOR STREQUAL "Ninja")
-  gentest_skip_test("module registration manifest regression: MODULE_REGISTRATION requires a single-config Ninja fixture")
+if(NOT GENERATOR STREQUAL "Ninja" AND NOT GENERATOR STREQUAL "Ninja Multi-Config")
+  gentest_skip_test("module registration manifest regression: Ninja or Ninja Multi-Config is required")
   return()
+endif()
+
+set(_build_config "")
+set(_generated_dir "")
+if(GENERATOR STREQUAL "Ninja Multi-Config")
+  set(_build_config "Debug")
+  set(_generated_dir "Debug")
 endif()
 
 set(_work_dir "${BUILD_ROOT}/module_registration_manifest")
 set(_src_dir "${_work_dir}/src")
 set(_build_dir "${_work_dir}/build")
+set(_generated_output_dir "${_build_dir}/generated")
+set(_exe_dir "${_build_dir}")
+if(_generated_dir)
+  string(APPEND _generated_output_dir "/${_generated_dir}")
+  string(APPEND _exe_dir "/${_generated_dir}")
+endif()
+string(MAKE_C_IDENTIFIER "module_registration_manifest_tests" _target_id_stem)
+string(SHA256 _target_id_hash "module_registration_manifest_tests")
+string(SUBSTRING "${_target_id_hash}" 0 12 _target_id_hash12)
+set(_target_id "${_target_id_stem}_${_target_id_hash12}")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
@@ -81,7 +98,7 @@ gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
 if(NOT "${_clang_scan_deps}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_clang_scan_deps}")
 endif()
-if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
+if(NOT _build_config AND DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 gentest_append_public_modules_cache_arg(_cmake_cache_args)
@@ -98,12 +115,16 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 
 message(STATUS "Build module registration manifest fixture...")
+set(_build_config_args "")
+if(_build_config)
+  list(APPEND _build_config_args --config "${_build_config}")
+endif()
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target module_registration_manifest_tests
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" ${_build_config_args} --target module_registration_manifest_tests
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-set(_exe "${_build_dir}/module_registration_manifest_tests")
+set(_exe "${_exe_dir}/module_registration_manifest_tests")
 if(CMAKE_HOST_WIN32)
   set(_exe "${_exe}.exe")
 endif()
@@ -165,7 +186,7 @@ foreach(_required IN ITEMS
   endif()
 endforeach()
 
-set(_registration_source "${_build_dir}/generated/tu_0000_cases.registration.gentest.cpp")
+set(_registration_source "${_generated_output_dir}/tu_0000_cases.registration.gentest.cpp")
 if(NOT EXISTS "${_registration_source}")
   message(FATAL_ERROR "Expected generated registration source '${_registration_source}'")
 endif()
@@ -187,7 +208,7 @@ foreach(_forbidden IN ITEMS
   endif()
 endforeach()
 
-set(_manifest "${_build_dir}/generated/module_registration_manifest_tests.artifact_manifest.json")
+set(_manifest "${_generated_output_dir}/${_target_id}.artifact_manifest.json")
 if(NOT EXISTS "${_manifest}")
   message(FATAL_ERROR "Expected generated artifact manifest '${_manifest}'")
 endif()
@@ -202,7 +223,7 @@ string(JSON _artifact_compile_as GET "${_manifest_json}" artifacts 0 compile_as)
 string(JSON _artifact_module GET "${_manifest_json}" artifacts 0 module)
 string(JSON _artifact_context GET "${_manifest_json}" artifacts 0 compile_context_id)
 string(JSON _artifact_scan GET "${_manifest_json}" artifacts 0 requires_module_scan)
-set(_expected_context "module_registration_manifest_tests:${_src_dir}/cases.cppm")
+set(_expected_context "${_target_id}:${_src_dir}/cases.cppm")
 
 foreach(_actual_expected IN ITEMS
     "_manifest_schema=gentest.artifact_manifest.v1"
@@ -223,7 +244,7 @@ foreach(_actual_expected IN ITEMS
   endif()
 endforeach()
 
-set(_validation_stamp "${_build_dir}/generated/module_registration_manifest_tests.artifact_manifest.validated")
+set(_validation_stamp "${_generated_output_dir}/${_target_id}.artifact_manifest.validated")
 if(NOT EXISTS "${_validation_stamp}")
   message(FATAL_ERROR "Expected manifest validation stamp '${_validation_stamp}'")
 endif()
@@ -247,9 +268,18 @@ foreach(_expected_entry IN ITEMS
   endif()
 endforeach()
 
+if(GENERATOR STREQUAL "Ninja Multi-Config")
+  # CMake's multi-config phony target first refreshes a manually modified
+  # custom-command output before it reaches the validation byproduct. The
+  # configured artifact contract above is the regression this configuration
+  # covers; mutation validation remains covered by the single-config lane.
+  message(STATUS "Module registration manifest multi-config regression passed")
+  return()
+endif()
+
 function(_gentest_expect_manifest_validation_failure expected_substring)
   execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target gentest_codegen_module_registration_manifest_tests
+    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" ${_build_config_args} --target gentest_codegen_${_target_id}
     WORKING_DIRECTORY "${_work_dir}"
     RESULT_VARIABLE _rc
     OUTPUT_VARIABLE _out
@@ -267,7 +297,7 @@ function(_gentest_expect_manifest_validation_failure expected_substring)
   endif()
 endfunction()
 
-set(_bad_registration_source "${_build_dir}/generated/not_declared.registration.gentest.cpp")
+set(_bad_registration_source "${_generated_output_dir}/not_declared.registration.gentest.cpp")
 string(JSON _bad_manifest_json SET "${_manifest_json}" artifacts 0 path "\"${_bad_registration_source}\"")
 file(WRITE "${_manifest}" "${_bad_manifest_json}\n")
 file(REMOVE "${_validation_stamp}")
