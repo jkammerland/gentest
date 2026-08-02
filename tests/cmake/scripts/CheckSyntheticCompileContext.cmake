@@ -1,0 +1,81 @@
+# Verifies the compile-database fallback preserves a target's effective C++ dialect.
+foreach(_required IN ITEMS GENTEST_SOURCE_DIR BUILD_ROOT GENERATOR)
+  if(NOT DEFINED ${_required} OR "${${_required}}" STREQUAL "")
+    message(FATAL_ERROR "CheckSyntheticCompileContext.cmake: ${_required} not set")
+  endif()
+endforeach()
+
+set(_work_dir "${BUILD_ROOT}/synthetic_compile_context")
+file(REMOVE_RECURSE "${_work_dir}")
+file(MAKE_DIRECTORY "${_work_dir}")
+
+file(WRITE "${_work_dir}/CMakeLists.txt" [=[
+cmake_minimum_required(VERSION 3.31)
+project(gentest_synthetic_compile_context LANGUAGES CXX)
+set(CMAKE_CXX_EXTENSIONS OFF)
+include("@GENTEST_SOURCE_DIR@/cmake/gentest/TuMode.cmake")
+
+add_library(default_target STATIC default.cpp)
+set(_default_args "")
+_gentest_append_synthetic_compile_context_args(_default_args default_target)
+
+add_library(feature_target STATIC feature.cpp)
+target_compile_features(feature_target PRIVATE cxx_std_23)
+set_property(TARGET feature_target PROPERTY CXX_EXTENSIONS OFF)
+set(_feature_args "")
+_gentest_append_synthetic_compile_context_args(_feature_args feature_target)
+
+add_library(extension_target STATIC extension.cpp)
+set_property(TARGET extension_target PROPERTY CXX_STANDARD 20)
+set_property(TARGET extension_target PROPERTY CXX_EXTENSIONS ON)
+set(_extension_args "")
+_gentest_append_synthetic_compile_context_args(_extension_args extension_target)
+
+file(WRITE "${CMAKE_BINARY_DIR}/contexts.txt"
+  "default=${_default_args}\nfeature=${_feature_args}\nextensions=${_extension_args}\n")
+]=])
+file(READ "${_work_dir}/CMakeLists.txt" _project)
+string(REPLACE "@GENTEST_SOURCE_DIR@" "${GENTEST_SOURCE_DIR}" _project "${_project}")
+file(WRITE "${_work_dir}/CMakeLists.txt" "${_project}")
+file(WRITE "${_work_dir}/default.cpp" "int default_target;\n")
+file(WRITE "${_work_dir}/feature.cpp" "int feature_target;\n")
+file(WRITE "${_work_dir}/extension.cpp" "int extension_target;\n")
+
+set(_configure_args -G "${GENERATOR}" -S "${_work_dir}" -B "${_work_dir}/build")
+if(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")
+  list(APPEND _configure_args -A "${GENERATOR_PLATFORM}")
+endif()
+if(DEFINED GENERATOR_TOOLSET AND NOT "${GENERATOR_TOOLSET}" STREQUAL "")
+  list(APPEND _configure_args -T "${GENERATOR_TOOLSET}")
+endif()
+if(DEFINED MAKE_PROGRAM AND NOT "${MAKE_PROGRAM}" STREQUAL "")
+  list(APPEND _configure_args "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
+endif()
+if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
+  list(APPEND _configure_args "-DCMAKE_C_COMPILER=${C_COMPILER}")
+endif()
+if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "")
+  list(APPEND _configure_args "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" ${_configure_args}
+  RESULT_VARIABLE _configure_rc
+  OUTPUT_VARIABLE _configure_out
+  ERROR_VARIABLE _configure_err)
+if(NOT _configure_rc EQUAL 0)
+  message(FATAL_ERROR "Synthetic compile-context fixture configure failed.\nstdout:\n${_configure_out}\nstderr:\n${_configure_err}")
+endif()
+
+file(READ "${_work_dir}/build/contexts.txt" _contexts)
+if(NOT _contexts MATCHES "default=[^\n]*-std=c\\+\\+20")
+  message(FATAL_ERROR "Expected C++20 fallback in synthetic context, got '${_contexts}'")
+endif()
+if(NOT _contexts MATCHES "feature=[^\n]*-std=c\\+\\+23")
+  message(FATAL_ERROR "Expected target cxx_std_23 feature in synthetic context, got '${_contexts}'")
+endif()
+if(NOT _contexts MATCHES "extensions=[^\n]*-std=gnu\\+\\+20")
+  message(FATAL_ERROR "Expected enabled CXX_EXTENSIONS in synthetic context, got '${_contexts}'")
+endif()
+
+message(STATUS "Synthetic compile-context regression passed")

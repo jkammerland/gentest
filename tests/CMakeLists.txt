@@ -26,6 +26,20 @@ add_dependencies(gentest_test_suites gentest_run_cases_api_tests)
 add_test(NAME run_cases_api COMMAND $<TARGET_FILE:gentest_run_cases_api_tests>)
 set_property(TEST run_cases_api APPEND PROPERTY LABELS "public-api;runner")
 
+add_test(
+    NAME run_cases_list_json_utf8
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_run_cases_list_json_utf8.py
+            $<TARGET_FILE:gentest_run_cases_api_tests>)
+set_property(TEST run_cases_list_json_utf8 APPEND PROPERTY LABELS "public-api;runner")
+
+add_executable(gentest_runner_api_example
+    ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
+target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)
+target_link_libraries(gentest_runner_api_example PRIVATE gentest::gentest)
+add_dependencies(gentest_test_suites gentest_runner_api_example)
+add_test(NAME runner_api_example COMMAND $<TARGET_FILE:gentest_runner_api_example>)
+set_property(TEST runner_api_example APPEND PROPERTY LABELS "public-api;runner")
+
 gentest_resolve_test_std(_gentest_test_std_feature _gentest_codegen_std_flag)
 unset(_gentest_test_std_feature)
 gentest_normalize_std_flag_for_compiler(_gentest_codegen_scan_std_flag "clang++" "${_gentest_codegen_std_flag}")
@@ -4162,6 +4176,14 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_codegen_wrapped_main_discovery APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_synthetic_compile_context
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckSyntheticCompileContext.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_synthetic_compile_context APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_manifest_header_shared_fixture_visibility

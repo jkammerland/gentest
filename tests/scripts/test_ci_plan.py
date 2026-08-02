@@ -9,6 +9,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "ci_plan.py"
+WORKFLOW_FILES = (
+    ROOT / ".github" / "workflows" / "cmake.yml",
+    ROOT / ".github" / "workflows" / "lint.yml",
+    ROOT / ".github" / "workflows" / "coverage.yml",
+    ROOT / ".github" / "workflows" / "cross_qemu.yml",
+    ROOT / ".github" / "workflows" / "buildsystems_linux.yml",
+)
 sys.path.insert(0, str(SCRIPT.parent))
 
 import ci_plan  # noqa: E402
@@ -180,6 +187,16 @@ class GitAndCliTests(unittest.TestCase):
             ci_plan.compute_plan(base="missing", head="also-missing", repo=ROOT),
             ci_plan.all_enabled(),
         )
+
+
+class WorkflowContractTests(unittest.TestCase):
+    def test_pull_requests_run_the_base_revision_planner(self) -> None:
+        for workflow in WORKFLOW_FILES:
+            with self.subTest(workflow=workflow.name):
+                contents = workflow.read_text(encoding="utf-8")
+                self.assertIn('if [ "${CI_EVENT_NAME}" = "pull_request" ]; then', contents)
+                self.assertIn('git show "${CI_BASE_SHA}:scripts/ci_plan.py" > "${ci_plan_script}"', contents)
+                self.assertIn('if [ -z "${ci_plan_script}" ] || ! python3 "${ci_plan_script}"', contents)
 
 
 if __name__ == "__main__":

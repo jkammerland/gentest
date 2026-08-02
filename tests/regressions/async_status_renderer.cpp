@@ -404,6 +404,24 @@ int main() {
     }
     throttled.finish();
 
+    auto                                 quiet_refresh_now = gentest::runner::AsyncStatusRenderer::MonotonicClock::time_point{};
+    std::ostringstream                   quiet_refresh_out;
+    gentest::runner::AsyncStatusRenderer quiet_refresh(quiet_refresh_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
+                                                       {.width = 80, .height = 12}, 5, [&quiet_refresh_now] { return quiet_refresh_now; });
+    quiet_refresh.add_case(0, "async/live/quiet_refresh");
+    const auto quiet_first_refresh = quiet_refresh_out.str();
+    quiet_refresh.mark_suspended(0, "waiting without later events");
+    if (quiet_refresh_out.str() != quiet_first_refresh || !quiet_refresh.next_refresh_deadline().has_value()) {
+        return fail("a throttled state update should request one deferred terminal refresh", quiet_refresh_out.str());
+    }
+    quiet_refresh_now += gentest::runner::AsyncStatusRenderer::kTerminalRefreshInterval;
+    quiet_refresh.refresh_if_due();
+    if (!contains(quiet_refresh_out.str(), "[ SUSPENDED ] async/live/quiet_refresh :: waiting without later events") ||
+        quiet_refresh.next_refresh_deadline().has_value()) {
+        return fail("a deferred terminal refresh should render without a later status event", quiet_refresh_out.str());
+    }
+    quiet_refresh.finish();
+
     std::ostringstream                   terminal_out;
     gentest::runner::AsyncStatusRenderer terminal(terminal_out, gentest::runner::AsyncStatusRenderer::Mode::Terminal, false,
                                                   {.width = 80, .height = 12});

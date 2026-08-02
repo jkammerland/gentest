@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <ranges>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -87,7 +88,21 @@ bool contains_manual_case(std::span<const gentest::Case> cases) {
 
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
+    if (argc == 2 && std::string_view(argv[1]) == "--list-json-malformed") {
+        const std::string   malformed_name = std::string("embed/malformed-") + static_cast<char>(0xFF);
+        const gentest::Case malformed_case{
+            .name             = malformed_name,
+            .fn               = &alpha_selected,
+            .file             = "malformed.cpp",
+            .line             = 1,
+            .fixture_lifetime = gentest::FixtureLifetime::None,
+            .suite            = "embed",
+        };
+        const char *list_args[] = {"run-cases-api", "--list-json"};
+        return gentest::run_cases(std::span<const gentest::Case>(&malformed_case, 1), list_args);
+    }
+
     int  failures = 0;
     auto expect   = [&](bool condition, const char *message) {
         if (condition)

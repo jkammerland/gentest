@@ -1118,10 +1118,17 @@ bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::stri
         std::string role;
         std::string owner;
     };
+    struct ReservedInput {
+        std::string canonical_path;
+        std::string role;
+        std::string owner;
+    };
 
     error.clear();
     std::vector<GeneratedArtifact> artifacts;
     artifacts.reserve(opts.sources.size() * 4 + opts.mock_domain_registry_outputs.size() + opts.mock_domain_impl_outputs.size() + 8);
+    std::vector<ReservedInput> inputs;
+    inputs.reserve(opts.sources.size() + opts.artifact_owner_sources.size() + opts.explicit_module_sources_by_name.size() + 1);
 
     auto add_artifact = [&](const fs::path &path, std::string role, std::string owner) {
         if (path.empty()) {
@@ -1135,6 +1142,33 @@ bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::stri
         });
         return true;
     };
+    auto add_input = [&](const fs::path &path, std::string role, std::string owner) {
+        if (path.empty()) {
+            return;
+        }
+        inputs.push_back(ReservedInput{
+            .canonical_path = casefolded_path_key(path),
+            .role           = std::move(role),
+            .owner          = std::move(owner),
+        });
+    };
+
+    for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+        add_input(opts.sources[idx], "input source", fmt::format("source slot {} '{}'", idx, opts.sources[idx]));
+    }
+    for (std::size_t idx = 0; idx < opts.artifact_owner_sources.size(); ++idx) {
+        add_input(opts.artifact_owner_sources[idx], "artifact owner source",
+                  fmt::format("artifact owner source slot {} '{}'", idx, opts.artifact_owner_sources[idx].string()));
+    }
+    if (!opts.mock_manifest_input_path.empty()) {
+        add_input(opts.mock_manifest_input_path, "mock manifest input",
+                  fmt::format("option '--mock-manifest-input' ('{}')", opts.mock_manifest_input_path.string()));
+    }
+    for (const auto &[module_name, paths] : opts.explicit_module_sources_by_name) {
+        for (const auto &path : paths) {
+            add_input(path, "external module source", fmt::format("external module source for '{}' ('{}')", module_name, path.string()));
+        }
+    }
 
     auto validate_source_alignment = [&](const std::vector<fs::path> &paths, std::string_view option) {
         if (paths.empty() || paths.size() == opts.sources.size()) {
@@ -1176,6 +1210,14 @@ bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::stri
         }
     }
     for (std::size_t idx = 0; idx < opts.module_wrapper_outputs.size(); ++idx) {
+        // CMake passes the complete wrapper-output vector for slot alignment,
+        // including ordinary TU shims.  Ordinary shims are written by CMake,
+        // never by this emitter, so their output paths must not participate in
+        // the overwrite check.  Named module inputs are the only sources for
+        // which emit() writes a module wrapper itself.
+        if (!is_module_interface_source(opts, fs::path{opts.sources[idx]})) {
+            continue;
+        }
         if (opts.module_wrapper_outputs[idx].empty()) {
             if (opts.module_interface_sources.contains(opts.sources[idx])) {
                 error = fmt::format("generated artifact output is empty for role 'module wrapper' owned by source slot {} '{}' "
@@ -1237,6 +1279,21 @@ bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::stri
                           mock_domain_owner(idx, "--mock-domain-impl-output"))) {
             return false;
         }
+    }
+
+    std::ranges::sort(inputs, [](const ReservedInput &lhs, const ReservedInput &rhs) {
+        return std::tie(lhs.canonical_path, lhs.role, lhs.owner) < std::tie(rhs.canonical_path, rhs.role, rhs.owner);
+    });
+    for (const auto &artifact : artifacts) {
+        const auto input =
+            std::lower_bound(inputs.begin(), inputs.end(), artifact.canonical_path,
+                             [](const ReservedInput &reserved, const std::string &path) { return reserved.canonical_path < path; });
+        if (input == inputs.end() || input->canonical_path != artifact.canonical_path) {
+            continue;
+        }
+        error = fmt::format("generated artifact output at canonical path '{}': role '{}' owned by {} conflicts with {} owned by {}",
+                            artifact.canonical_path, artifact.role, artifact.owner, input->role, input->owner);
+        return false;
     }
 
     std::ranges::sort(artifacts, [](const GeneratedArtifact &lhs, const GeneratedArtifact &rhs) {

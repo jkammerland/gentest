@@ -90,13 +90,22 @@ if(NOT EXISTS "${_build_dir}/compile_commands.json")
 endif()
 
 function(_gentest_expect_artifact_failure name)
-  set(multi_value_args ARGS OUTPUTS REQUIRED_SUBSTRINGS)
+  set(multi_value_args ARGS OUTPUTS PRESERVE_FILES REQUIRED_SUBSTRINGS)
   cmake_parse_arguments(CASE "" "" "${multi_value_args}" ${ARGN})
 
   set(_command "${PROG}" ${CASE_ARGS})
   if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
     list(APPEND _command -- "${TARGET_ARG}")
   endif()
+
+  set(_preserve_hashes "")
+  foreach(_preserve IN LISTS CASE_PRESERVE_FILES)
+    if(NOT EXISTS "${_preserve}")
+      message(FATAL_ERROR "${name}: input '${_preserve}' does not exist before validation")
+    endif()
+    file(SHA256 "${_preserve}" _preserve_before)
+    list(APPEND _preserve_hashes "${_preserve_before}")
+  endforeach()
 
   execute_process(
     COMMAND ${_command}
@@ -123,7 +132,36 @@ function(_gentest_expect_artifact_failure name)
       message(FATAL_ERROR "${name}: collision validation created output '${_output}' before failing. Output:\n${_all}")
     endif()
   endforeach()
+  list(LENGTH CASE_PRESERVE_FILES _preserve_count)
+  if(_preserve_count GREATER 0)
+    math(EXPR _preserve_last "${_preserve_count} - 1")
+    foreach(_preserve_idx RANGE 0 ${_preserve_last})
+      list(GET CASE_PRESERVE_FILES ${_preserve_idx} _preserve)
+      list(GET _preserve_hashes ${_preserve_idx} _preserve_before)
+      if(NOT EXISTS "${_preserve}")
+        message(FATAL_ERROR "${name}: expected input '${_preserve}' to remain after validation. Output:\n${_all}")
+      endif()
+      file(SHA256 "${_preserve}" _preserve_after)
+      if(NOT "${_preserve_after}" STREQUAL "${_preserve_before}")
+        message(FATAL_ERROR "${name}: collision validation modified input '${_preserve}'. Output:\n${_all}")
+      endif()
+    endforeach()
+  endif()
 endfunction()
+
+_gentest_expect_artifact_failure(
+  "TU header/input source collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/source_input"
+    --tu-header-output "${_source}"
+    --compdb "${_build_dir}"
+    "${_source}"
+  PRESERVE_FILES
+    "${_source}"
+  REQUIRED_SUBSTRINGS
+    "generated artifact output at canonical path"
+    "role 'TU registration header'"
+    "input source")
 
 set(_tu_registry_dir "${_work_dir}/tu_registry")
 _gentest_expect_artifact_failure(
@@ -244,16 +282,13 @@ _gentest_expect_artifact_failure(
     "source slot 0"
 )
 
-# An empty TU-header slot intentionally selects the derived header path. Also
-# keep source-associated module-wrapper slots from colliding with their input
-# source: that relationship does not request a second write to the source.
+# An empty TU-header slot intentionally selects the derived header path.
 set(_derived_dir "${_work_dir}/derived_header")
 file(SHA256 "${_source}" _source_hash_before)
 set(_derived_command
   "${PROG}"
   --tu-out-dir "${_derived_dir}"
   "--tu-header-output="
-  --module-wrapper-output "${_source}"
   --compdb "${_build_dir}"
   "${_source}")
 if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")

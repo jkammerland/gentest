@@ -14,7 +14,7 @@ void check_service(void *) {
     // The Gentest assertion APIs are available while this callable runs.
 }
 
-static const gentest::Case cases[] = {
+static const gentest::Case cases[] = {{
     .name = "embedded/check_service",
     .fn = &check_service,
     .file = __FILE__,

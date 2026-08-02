@@ -37,7 +37,14 @@ jobs:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          if ! python3 scripts/ci_plan.py \
+          ci_plan_script="scripts/ci_plan.py"
+          if [ "${CI_EVENT_NAME}" = "pull_request" ]; then
+            ci_plan_script="${RUNNER_TEMP}/ci_plan.py"
+            if ! git show "${CI_BASE_SHA}:scripts/ci_plan.py" > "${ci_plan_script}"; then
+              ci_plan_script=""
+            fi
+          fi
+          if [ -z "${ci_plan_script}" ] || ! python3 "${ci_plan_script}" \
             --event "${CI_EVENT_NAME}" \
             --ref "${CI_REF}" \
             --base "${CI_BASE_SHA}" \

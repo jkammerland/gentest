@@ -5,6 +5,7 @@
 #include <functional>
 #include <iosfwd>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -77,6 +78,8 @@ class AsyncStatusRenderer {
     void               update_logs(std::size_t id, std::span<const std::string> recent_logs, std::size_t log_count);
     void               log(std::string_view message);
     void               result_line(std::string_view message);
+    [[nodiscard]] auto next_refresh_deadline() const -> std::optional<MonotonicClock::time_point>;
+    void               refresh_if_due();
     void               finish();
 
     [[nodiscard]] auto ordered_rows_for_test() const -> std::vector<AsyncLiveRowSnapshot>;
@@ -94,7 +97,8 @@ class AsyncStatusRenderer {
     std::size_t                       log_tail_limit_  = 5;
     MonotonicNow                      monotonic_now_;
     MonotonicClock::time_point        last_terminal_refresh_{};
-    bool                              has_terminal_refresh_ = false;
+    bool                              has_terminal_refresh_     = false;
+    bool                              terminal_refresh_pending_ = false;
     mutable std::mutex                mtx_;
     std::vector<AsyncLiveRowSnapshot> rows_;
     std::vector<std::string>          completed_lines_;

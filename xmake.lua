@@ -125,8 +125,13 @@ target("gentest_consumer_textual_mocks_xmake")
     gentest_add_mocks({
         name = "gentest_consumer_textual_mocks_xmake",
         kind = "textual",
-        defs = {"tests/consumer/header_mock_defs.hpp"},
-        headerfiles = {"tests/consumer/header_mock_defs.hpp", "tests/consumer/service.hpp"},
+        defs = {"tests/consumer/header_mock_defs.hpp", "tests/consumer/additional_header_mock_defs.hpp"},
+        headerfiles = {
+            "tests/consumer/header_mock_defs.hpp",
+            "tests/consumer/additional_header_mock_defs.hpp",
+            "tests/consumer/service.hpp",
+            "tests/consumer/additional_service.hpp",
+        },
         header_name = "gentest_consumer_mocks.hpp",
         output_dir = path.join(current_gen_root(), "consumer_textual_mocks"),
         deps = {"gentest_runtime"},

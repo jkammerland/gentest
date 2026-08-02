@@ -648,6 +648,22 @@ void AsyncStatusRenderer::result_line(std::string_view message) {
     redraw_terminal(message, true, false);
 }
 
+auto AsyncStatusRenderer::next_refresh_deadline() const -> std::optional<MonotonicClock::time_point> {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_ || mode_ != Mode::Terminal || !terminal_refresh_pending_ || !has_terminal_refresh_) {
+        return std::nullopt;
+    }
+    return last_terminal_refresh_ + kTerminalRefreshInterval;
+}
+
+void AsyncStatusRenderer::refresh_if_due() {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_ || mode_ != Mode::Terminal || !terminal_refresh_pending_) {
+        return;
+    }
+    render();
+}
+
 void AsyncStatusRenderer::finish() {
     std::lock_guard<std::mutex> lk(mtx_);
     if (!enabled() || finished_) {
@@ -794,9 +810,11 @@ void AsyncStatusRenderer::render(bool force_refresh) {
         return;
     }
     if (!force_refresh && has_terminal_refresh_ && monotonic_now_() - last_terminal_refresh_ < kTerminalRefreshInterval) {
+        terminal_refresh_pending_ = true;
         return;
     }
     redraw_terminal({}, false, true);
+    terminal_refresh_pending_ = false;
 }
 
 void AsyncStatusRenderer::erase_terminal_block() {
@@ -848,8 +866,9 @@ void AsyncStatusRenderer::redraw_terminal(std::string_view message, bool has_mes
     }
     draw_terminal_block(lines);
     out_->flush();
-    last_terminal_refresh_ = monotonic_now_();
-    has_terminal_refresh_  = true;
+    last_terminal_refresh_    = monotonic_now_();
+    has_terminal_refresh_     = true;
+    terminal_refresh_pending_ = false;
 }
 
 void AsyncStatusRenderer::restore_terminal() {
