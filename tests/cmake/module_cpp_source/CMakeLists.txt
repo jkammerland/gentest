@@ -20,12 +20,16 @@ add_executable(cpp_source_module_tests)
 
 target_sources(cpp_source_module_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/import_only.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/import_only.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/imported_cases.cpp)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp PROPERTIES
     CXX_SCAN_FOR_MODULES ON
     GENTEST_MODULE_NAME gentest.cpp_source_cases)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/import_only.cpp PROPERTIES
     CXX_SCAN_FOR_MODULES ON)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/imported_cases.cpp PROPERTIES
+    CXX_SCAN_FOR_MODULES ON
+    GENTEST_MODULE_NAME gentest.cpp_source_imported_cases)
 
 target_link_libraries(cpp_source_module_tests PRIVATE gentest gentest_main)
 target_compile_features(cpp_source_module_tests PRIVATE cxx_std_20)

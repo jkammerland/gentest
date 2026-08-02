@@ -135,6 +135,12 @@ string(FIND "${_list_out}" "cpp_source/import_only" _import_only_pos)
 if(_import_only_pos EQUAL -1)
   message(FATAL_ERROR "Expected cpp_source/import_only in --list-tests output.\n${_list_out}")
 endif()
+string(REGEX MATCHALL "cpp_source/imported_case" _imported_case_matches "${_list_out}")
+list(LENGTH _imported_case_matches _imported_case_count)
+if(NOT _imported_case_count EQUAL 1)
+  message(FATAL_ERROR
+    "Expected exactly one cpp_source/imported_case registration when import_only.cpp imports the module.\n${_list_out}")
+endif()
 
 gentest_check_run_or_fail(
   COMMAND "${_exe}" --run=cpp_source/basic
@@ -142,6 +148,10 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 gentest_check_run_or_fail(
   COMMAND "${_exe}" --run=cpp_source/import_only
+  WORKING_DIRECTORY "${_build_dir}"
+  STRIP_TRAILING_WHITESPACE)
+gentest_check_run_or_fail(
+  COMMAND "${_exe}" --run=cpp_source/imported_case
   WORKING_DIRECTORY "${_build_dir}"
   STRIP_TRAILING_WHITESPACE)
 
