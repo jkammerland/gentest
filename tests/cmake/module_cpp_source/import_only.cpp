@@ -5,5 +5,6 @@ using namespace gentest::asserts;
 
 [[using gentest: test("cpp_source/import_only")]]
 void importOnly() {
-    EXPECT_TRUE(true);
+    const cpp_source::ImportedValue input{42};
+    EXPECT_EQ(cpp_source::importedAnswer(input), 42);
 }
