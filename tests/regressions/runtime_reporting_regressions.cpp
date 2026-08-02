@@ -7,6 +7,13 @@
 
 using namespace gentest::asserts;
 
+namespace runtime_reporting_regressions {
+
+void measured_bench_github_annotation_failure(void *);
+void measured_jitter_github_annotation_failure(void *);
+
+} // namespace runtime_reporting_regressions
+
 namespace {
 
 void fallback_assertion_failure(void *) { throw gentest::assertion("runtime-reporting-fallback-assertion"); }
@@ -24,8 +31,6 @@ void junit_invalid_xml_control_failure(void *) {
 void github_annotation_xpass_with_punctuation(void *) { gentest::xfail("runtime-reporting-annotation"); }
 
 void pass_for_junit_io_visibility(void *) {}
-void measured_bench_github_annotation_failure(void *);
-void measured_jitter_github_annotation_failure(void *);
 
 constexpr char             kWindowsStyleFile[]         = "C:/repo,win/src/runtime_reporting_case.cpp";
 constexpr char             kMeasuredRegistrationFile[] = "registration-only/measured_case.cpp";
@@ -115,7 +120,7 @@ gentest::Case kCases[] = {
     },
     {
         .name             = "regressions/runtime_reporting/measured_bench_github_annotation",
-        .fn               = &measured_bench_github_annotation_failure,
+        .fn               = &runtime_reporting_regressions::measured_bench_github_annotation_failure,
         .file             = kMeasuredRegistrationFile,
         .line             = 41,
         .is_benchmark     = true,
@@ -131,7 +136,7 @@ gentest::Case kCases[] = {
     },
     {
         .name             = "regressions/runtime_reporting/measured_jitter_github_annotation",
-        .fn               = &measured_jitter_github_annotation_failure,
+        .fn               = &runtime_reporting_regressions::measured_jitter_github_annotation_failure,
         .file             = kMeasuredRegistrationFile,
         .line             = 42,
         .is_benchmark     = false,
@@ -146,22 +151,6 @@ gentest::Case kCases[] = {
         .suite            = "regressions",
     },
 };
-
-void measured_bench_github_annotation_failure(void *) {
-    if (gentest::detail::bench_phase() != gentest::detail::BenchPhase::Call) {
-        return;
-    }
-#line 701 "tests/regressions/measured_github_annotation_source.cpp"
-    EXPECT_TRUE(false, "measured benchmark annotation source marker");
-}
-
-void measured_jitter_github_annotation_failure(void *) {
-    if (gentest::detail::bench_phase() != gentest::detail::BenchPhase::Call) {
-        return;
-    }
-#line 801 "tests/regressions/measured_github_annotation_source.cpp"
-    EXPECT_TRUE(false, "measured jitter annotation source marker");
-}
 
 } // namespace
 

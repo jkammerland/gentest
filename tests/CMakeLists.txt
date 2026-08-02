@@ -2228,6 +2228,9 @@ gentest_add_check_death(
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Regressions.cmake)
 
+target_sources(gentest_regression_runtime_reporting PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/regressions/measured_github_annotation_source.cpp)
+
 gentest_add_cmake_script_test(
     NAME regression_measured_bench_github_annotation_source_and_count
     PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
@@ -2242,9 +2245,10 @@ gentest_add_cmake_script_test(
         --bench-min-total-time-s=0
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=::error file=tests/regressions/measured_github_annotation_source.cpp,line=701,title=regressions/runtime_reporting/measured_bench_github_annotation::"
+        "REQUIRED_SUBSTRINGS=::error file=tests/regressions/measured_github_annotation_source.cpp,line=|,title=regressions/runtime_reporting/measured_bench_github_annotation::"
         "EXPECT_COUNT_SUBSTRING=::error "
-        "EXPECT_COUNT=1")
+        "EXPECT_COUNT=1"
+        "FORBID_SUBSTRING=::error file=registration-only/measured_case.cpp")
 
 gentest_add_cmake_script_test(
     NAME regression_measured_jitter_github_annotation_source_and_count
@@ -2260,9 +2264,10 @@ gentest_add_cmake_script_test(
         --bench-min-total-time-s=0
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=::error file=tests/regressions/measured_github_annotation_source.cpp,line=801,title=regressions/runtime_reporting/measured_jitter_github_annotation::"
+        "REQUIRED_SUBSTRINGS=::error file=tests/regressions/measured_github_annotation_source.cpp,line=|,title=regressions/runtime_reporting/measured_jitter_github_annotation::"
         "EXPECT_COUNT_SUBSTRING=::error "
-        "EXPECT_COUNT=1")
+        "EXPECT_COUNT=1"
+        "FORBID_SUBSTRING=::error file=registration-only/measured_case.cpp")
 
 gentest_add_manual_regression(
     TARGET gentest_regression_measured_report_coverage
