@@ -1515,13 +1515,14 @@ std::vector<clang::Decl *> build_codegen_traversal_scope(clang::ASTContext &cont
 }
 
 class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
-    // MatchFinder::matchAST() traverses the full translation-unit graph,
-    // including imported modules. Limit the ASTContext traversal scope before
-    // delegating to MatchFinder so we keep its normal matcher semantics without
-    // deserializing imported PCM implementation bodies.
+    // MatchFinder::matchAST() walks imported module bodies even with an
+    // ASTContext traversal scope. Match only declarations lexically reachable
+    // from the codegen scope, so loading an imported PCM cannot deserialize
+    // unrelated function bodies.
   public:
-    ScopedTraversalASTConsumer(std::unique_ptr<clang::ASTConsumer> inner, bool allow_includes, bool allow_mock_includes)
-        : inner_(std::move(inner)), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
+    ScopedTraversalASTConsumer(std::unique_ptr<clang::ASTConsumer> inner, clang::ast_matchers::MatchFinder &finder, bool allow_includes,
+                               bool allow_mock_includes)
+        : inner_(std::move(inner)), finder_(finder), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
 
     void Initialize(clang::ASTContext &context) override { inner_->Initialize(context); }
 
@@ -1530,11 +1531,47 @@ class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
     void HandleTranslationUnit(clang::ASTContext &context) override {
         const auto scope = build_codegen_traversal_scope(context, allow_includes_, allow_mock_includes_);
         context.setTraversalScope(scope);
-        inner_->HandleTranslationUnit(context);
+        ScopedMatcherVisitor visitor{finder_, context, allow_includes_, allow_mock_includes_};
+        for (clang::Decl *decl : scope) {
+            visitor.match_decl_tree(decl);
+        }
     }
 
   private:
+    class ScopedMatcherVisitor final {
+      public:
+        ScopedMatcherVisitor(clang::ast_matchers::MatchFinder &finder, clang::ASTContext &context, bool allow_includes,
+                             bool allow_mock_includes)
+            : finder_(finder), context_(context), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
+
+        void match_decl_tree(clang::Decl *decl) {
+            if (decl == nullptr ||
+                !should_traverse_decl_in_codegen_scope(*decl, context_.getSourceManager(), allow_includes_, allow_mock_includes_)) {
+                return;
+            }
+            if (const auto *function = llvm::dyn_cast<clang::FunctionDecl>(decl)) {
+                finder_.match(*function, context_);
+            } else if (const auto *record = llvm::dyn_cast<clang::CXXRecordDecl>(decl)) {
+                finder_.match(*record, context_);
+            } else if (const auto *typedef_name = llvm::dyn_cast<clang::TypedefNameDecl>(decl)) {
+                finder_.match(*typedef_name, context_);
+            }
+            if (const auto *decl_context = llvm::dyn_cast<clang::DeclContext>(decl)) {
+                for (clang::Decl *child : decl_context->decls()) {
+                    match_decl_tree(child);
+                }
+            }
+        }
+
+      private:
+        clang::ast_matchers::MatchFinder &finder_;
+        clang::ASTContext                &context_;
+        bool                              allow_includes_      = false;
+        bool                              allow_mock_includes_ = false;
+    };
+
     std::unique_ptr<clang::ASTConsumer> inner_;
+    clang::ast_matchers::MatchFinder   &finder_;
     bool                                allow_includes_      = false;
     bool                                allow_mock_includes_ = false;
 };
@@ -1556,7 +1593,7 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
         if (!normalized.empty()) {
             dependencies_.push_back(normalized);
         }
-        return std::make_unique<ScopedTraversalASTConsumer>(finder_.newASTConsumer(), allow_includes_, allow_mock_includes_);
+        return std::make_unique<ScopedTraversalASTConsumer>(finder_.newASTConsumer(), finder_, allow_includes_, allow_mock_includes_);
     }
 
   private:
