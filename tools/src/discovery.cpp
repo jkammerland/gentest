@@ -1265,9 +1265,9 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
             const auto        emit_local     = [&](const std::string &qualified_name) {
                 if (required_scope.has_value()) {
                     report(test,
-                           fmt::format(
+                                      fmt::format(
                                "fixture '{}' is declared as '{}' but resolved as local; ensure the fixture declaration is visible and in "
-                               "an ancestor namespace",
+                                          "an ancestor namespace",
                                parsed.full, scope_name(*required_scope)));
                     return;
                 }

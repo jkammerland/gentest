@@ -189,7 +189,7 @@ void append_json_string(fmt::memory_buffer &out, std::string_view value) {
                     valid = false;
                 }
                 if (!valid) {
-                    out.append("\\uFFFD", "\\uFFFD" + 6);
+                    out.append(std::string_view{"\\uFFFD"});
                     ++index;
                     break;
                 }
@@ -274,7 +274,7 @@ std::string format_inventory_case_json(const gentest::Case &test) {
     out.push_back(',');
     append_json_key(out, "suite");
     append_json_string(out, test.suite);
-    fmt::format_to(std::back_inserter(out), ",\"async\":{},\"baseline\":{},\"itemsPerCall\":{}", test.is_async ? "true" : "false",
+    fmt::format_to(std::back_inserter(out), R"(,"async":{},"baseline":{},"itemsPerCall":{})", test.is_async ? "true" : "false",
                    test.is_baseline ? "true" : "false", test.items_per_call);
     out.push_back('}');
     return fmt::to_string(out);

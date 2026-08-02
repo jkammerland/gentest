@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 VCPKG_CONFIG="${REPO_ROOT}/vcpkg-configuration.json"
-VCPKG_REPOSITORY="https://github.com/Microsoft/vcpkg.git"
+VCPKG_REPOSITORY="${GENTEST_VCPKG_REPOSITORY:-https://github.com/Microsoft/vcpkg.git}"
 
 if [ ! -f "${VCPKG_CONFIG}" ]; then
     echo "Missing vcpkg configuration: ${VCPKG_CONFIG}" >&2
@@ -75,10 +75,12 @@ if [ "$VCPKG_HEAD" != "$VCPKG_BASELINE" ] && [ "$VCPKG_CAN_REPIN" != "true" ] &&
     exit 1
 fi
 
+VCPKG_REPINNED=false
 if [ "$VCPKG_HEAD" != "$VCPKG_BASELINE" ]; then
     git -C "$VCPKG_DIR" remote set-url origin "$VCPKG_REPOSITORY"
     git -C "$VCPKG_DIR" fetch --depth 1 origin "$VCPKG_BASELINE"
     git -C "$VCPKG_DIR" checkout --detach --quiet FETCH_HEAD
+    VCPKG_REPINNED=true
 fi
 
 if [ "$(git -C "$VCPKG_DIR" rev-parse HEAD)" != "$VCPKG_BASELINE" ]; then
@@ -88,7 +90,7 @@ fi
 
 # Bootstrap vcpkg.
 cd "$VCPKG_DIR"
-if [ ! -f "vcpkg" ] && [ ! -f "vcpkg.exe" ]; then
+if [ "$VCPKG_REPINNED" = "true" ] || { [ ! -f "vcpkg" ] && [ ! -f "vcpkg.exe" ]; }; then
     echo "Bootstrapping vcpkg..."
     if [ "${RUNNER_OS:-}" = "Windows" ]; then
         ./bootstrap-vcpkg.bat -disableMetrics

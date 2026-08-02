@@ -27,6 +27,8 @@ endif()
 # process-local auto setting would make every one of those commands consume all
 # hardware threads, which is especially expensive on CI.  Keep the direct
 # tool's AUTO behaviour available via 0, but use a conservative CMake default.
+set(_gentest_codegen_jobs_help
+    "Worker threads per CMake-invoked gentest_codegen process (0 or AUTO = auto).")
 if(NOT DEFINED GENTEST_CODEGEN_JOBS)
     if(DEFINED ENV{GENTEST_CODEGEN_JOBS} AND NOT "$ENV{GENTEST_CODEGEN_JOBS}" STREQUAL "")
         set(_gentest_codegen_jobs_default "$ENV{GENTEST_CODEGEN_JOBS}")
@@ -34,11 +36,17 @@ if(NOT DEFINED GENTEST_CODEGEN_JOBS)
         set(_gentest_codegen_jobs_default "1")
     endif()
     set(GENTEST_CODEGEN_JOBS "${_gentest_codegen_jobs_default}" CACHE STRING
-        "Worker threads per CMake-invoked gentest_codegen process (0 = auto).")
+        "${_gentest_codegen_jobs_help}")
     unset(_gentest_codegen_jobs_default)
 endif()
+string(TOUPPER "${GENTEST_CODEGEN_JOBS}" _gentest_codegen_jobs_upper)
+if(_gentest_codegen_jobs_upper STREQUAL "AUTO")
+    set(GENTEST_CODEGEN_JOBS "0" CACHE STRING "${_gentest_codegen_jobs_help}" FORCE)
+endif()
+unset(_gentest_codegen_jobs_upper)
+unset(_gentest_codegen_jobs_help)
 if(NOT GENTEST_CODEGEN_JOBS MATCHES "^[0-9]+$")
-    message(FATAL_ERROR "GENTEST_CODEGEN_JOBS must be a non-negative integer (got '${GENTEST_CODEGEN_JOBS}')")
+    message(FATAL_ERROR "GENTEST_CODEGEN_JOBS must be a non-negative integer or AUTO (got '${GENTEST_CODEGEN_JOBS}')")
 endif()
 
 if(NOT DEFINED GENTEST_CODEGEN_CLANG_SCAN_DEPS)

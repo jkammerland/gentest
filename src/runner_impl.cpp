@@ -46,6 +46,10 @@ auto snapshot_cases() -> std::vector<gentest::Case> {
     }
     return reg.cases;
 }
+
+auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runner::CliOptions &options) -> int {
+    return gentest::runner::run_from_options(cases, options);
+}
 } // namespace
 
 namespace gentest::detail {
@@ -68,12 +72,16 @@ auto run_cases(std::span<const Case> cases, std::span<const char *> args) -> int
         return 1;
 
     const auto sorted_cases = sorted_case_copy(cases);
-    return gentest::runner::run_from_options(sorted_cases, opt);
+    return run_sorted_cases(sorted_cases, opt);
 }
 
 auto run_all_tests(std::span<const char *> args) -> int {
+    gentest::runner::CliOptions opt{};
+    if (!gentest::runner::parse_cli(args, opt))
+        return 1;
+
     const auto cases = gentest::detail::snapshot_registered_cases();
-    return run_cases(cases, args);
+    return run_sorted_cases(cases, opt);
 }
 
 auto run_all_tests(int argc, char **argv) -> int {

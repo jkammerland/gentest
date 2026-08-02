@@ -19,6 +19,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${GENTEST_SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
 
 if(NOT GENERATOR STREQUAL "Ninja")
   gentest_skip_test("textual wrapper artifact manifest regression: fixture uses a single-config Ninja build")
@@ -109,9 +110,10 @@ set(_registration_header_0 "${_build_dir}/generated/tu_0000_cases.gentest.h")
 set(_owner_source_1 "${_src_dir}/more_cases.cpp")
 set(_wrapper_source_1 "${_build_dir}/generated/tu_0001_more_cases.gentest.cpp")
 set(_registration_header_1 "${_build_dir}/generated/tu_0001_more_cases.gentest.h")
-set(_manifest "${_build_dir}/generated/textual_wrapper_artifact_manifest_tests.artifact_manifest.json")
-set(_depfile "${_build_dir}/generated/textual_wrapper_artifact_manifest_tests.gentest.d")
-set(_validation_stamp "${_build_dir}/generated/textual_wrapper_artifact_manifest_tests.artifact_manifest.validated")
+_gentest_make_codegen_target_id("textual_wrapper_artifact_manifest_tests" _textual_manifest_target_id)
+set(_manifest "${_build_dir}/generated/${_textual_manifest_target_id}.artifact_manifest.json")
+set(_depfile "${_build_dir}/generated/${_textual_manifest_target_id}.gentest.d")
+set(_validation_stamp "${_build_dir}/generated/${_textual_manifest_target_id}.artifact_manifest.validated")
 
 foreach(_expected_file IN ITEMS
     "${_wrapper_source_0}"

@@ -19,6 +19,7 @@ std::atomic<unsigned> g_middle_order{0};
 std::atomic<unsigned> g_zeta_runs{0};
 std::atomic<unsigned> g_zeta_order{0};
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void record_call(std::atomic<unsigned> &runs, std::atomic<unsigned> &order) {
     runs.fetch_add(1, std::memory_order_relaxed);
     order.store(g_sequence.fetch_add(1, std::memory_order_relaxed) + 1, std::memory_order_relaxed);
@@ -107,7 +108,7 @@ int main(int argc, char **argv) {
     auto expect   = [&](bool condition, const char *message) {
         if (condition)
             return;
-        std::fprintf(stderr, "run_cases API test failure: %s\n", message);
+        (void)std::fprintf(stderr, "run_cases API test failure: %s\n", message);
         ++failures;
     };
 

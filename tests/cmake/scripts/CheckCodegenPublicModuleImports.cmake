@@ -26,7 +26,6 @@ set(_consumer_build_auto_bad_dir "${_work_dir}/cab")
 set(_consumer_build_on_bad_dir "${_work_dir}/cob")
 set(_install_prefix "${_work_dir}/i")
 set(_consumer_source_dir "${GENTEST_SOURCE_DIR}/tests/consumer")
-set(_consumer_codegen_target gentest_codegen_gentest_consumer)
 
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
@@ -206,6 +205,10 @@ endfunction()
 message(STATUS "Configure consumer with scan-deps disabled...")
 _gentest_configure_consumer("${_consumer_build_off_dir}" "OFF")
 _gentest_assert_codegen_mode("${_consumer_build_off_dir}" "OFF")
+file(STRINGS "${_consumer_build_off_dir}/gentest_codegen_target.txt" _consumer_codegen_target LIMIT_COUNT 1)
+if("${_consumer_codegen_target}" STREQUAL "")
+  message(FATAL_ERROR "Consumer fixture did not expose its GENTEST_CODEGEN_DEP_TARGET")
+endif()
 
 message(STATUS "Build build-time gentest_codegen target with scan-deps disabled...")
 gentest_check_run_or_fail(

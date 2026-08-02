@@ -615,8 +615,11 @@ namespace {\n\
     endif()
 
     add_library(${target} STATIC)
-    set_target_properties(${target} PROPERTIES GENTEST_EXPLICIT_MOCK_TARGET TRUE)
+    set_target_properties(${target} PROPERTIES
+        GENTEST_EXPLICIT_MOCK_TARGET TRUE
+        GENTEST_CODEGEN_TARGET_ID "${_gentest_target_id}")
     _gentest_append_target_export_property(${target} GENTEST_EXPLICIT_MOCK_TARGET)
+    _gentest_append_target_export_property(${target} GENTEST_CODEGEN_TARGET_ID)
     target_compile_features(${target} PUBLIC cxx_std_20)
     if(NOT _gentest_uses_third_party_mock_backend)
         target_link_libraries(${target} PUBLIC gentest::gentest)

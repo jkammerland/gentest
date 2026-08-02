@@ -22,6 +22,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${GENTEST_SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
 
 if(GENERATOR MATCHES "Ninja Multi-Config|Visual Studio|Xcode")
   gentest_skip_test("explicit mock target surface regression: explicit mock targets currently require a single-config generator")
@@ -154,9 +155,10 @@ if(_generated_module_public_headers)
 endif()
 
 file(GLOB _generated_module_root_headers "${_build_dir}/generated/module/*.hpp")
+_gentest_make_codegen_target_id("explicit_module_mocks" _explicit_module_mocks_id)
 foreach(_generated_module_root_header IN LISTS _generated_module_root_headers)
   get_filename_component(_generated_module_root_name "${_generated_module_root_header}" NAME)
-  if(NOT _generated_module_root_name MATCHES "^explicit_module_mocks_mock_(impl|registry)(|__domain_.*)\\.hpp$")
+  if(NOT _generated_module_root_name MATCHES "^${_explicit_module_mocks_id}_mock_(impl|registry)(|__domain_.*)\\.hpp$")
     message(FATAL_ERROR
       "Expected module explicit mocks to emit only internal support headers at the output root, but found unexpected header "
       "'${_generated_module_root_header}'.")

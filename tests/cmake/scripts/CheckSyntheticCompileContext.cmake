@@ -9,11 +9,11 @@ set(_work_dir "${BUILD_ROOT}/synthetic_compile_context")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
-file(WRITE "${_work_dir}/CMakeLists.txt" [=[
+set(_project_template [=[
 cmake_minimum_required(VERSION 3.31)
 project(gentest_synthetic_compile_context LANGUAGES CXX)
 set(CMAKE_CXX_EXTENSIONS OFF)
-include("@GENTEST_SOURCE_DIR@/cmake/gentest/TuMode.cmake")
+include("@GENTEST_SOURCE_DIR_FOR_CONFIGURE@/cmake/gentest/TuMode.cmake")
 
 add_library(default_target STATIC default.cpp)
 set(_default_args "")
@@ -34,8 +34,8 @@ _gentest_append_synthetic_compile_context_args(_extension_args extension_target)
 file(WRITE "${CMAKE_BINARY_DIR}/contexts.txt"
   "default=${_default_args}\nfeature=${_feature_args}\nextensions=${_extension_args}\n")
 ]=])
-file(READ "${_work_dir}/CMakeLists.txt" _project)
-string(REPLACE "@GENTEST_SOURCE_DIR@" "${GENTEST_SOURCE_DIR}" _project "${_project}")
+set(GENTEST_SOURCE_DIR_FOR_CONFIGURE "${GENTEST_SOURCE_DIR}")
+string(CONFIGURE "${_project_template}" _project @ONLY)
 file(WRITE "${_work_dir}/CMakeLists.txt" "${_project}")
 file(WRITE "${_work_dir}/default.cpp" "int default_target;\n")
 file(WRITE "${_work_dir}/feature.cpp" "int feature_target;\n")

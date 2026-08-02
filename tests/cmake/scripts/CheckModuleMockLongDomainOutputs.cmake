@@ -24,6 +24,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${GENTEST_SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
 
 function(_gentest_extract_codegen_command_text build_ninja_text build_dir expected_output out_var)
   set(_expected_output_regex "${expected_output}")
@@ -139,16 +140,18 @@ if(NOT EXISTS "${_build_ninja}")
 endif()
 file(READ "${_build_ninja}" _build_ninja_text)
 
-string(REGEX MATCH "generated/long_domain_tests_mock_registry__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_registry_rel "${_build_ninja_text}")
+_gentest_make_codegen_target_id("long_domain_tests" _long_domain_tests_id)
+_gentest_make_codegen_target_id("long_domain_mocks" _long_domain_mocks_id)
+string(REGEX MATCH "generated/${_long_domain_tests_id}_mock_registry__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_registry_rel "${_build_ninja_text}")
 if(_expected_registry_rel STREQUAL "")
-  string(REGEX MATCH "generated/mocks/long_domain_mocks_mock_registry__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_registry_rel "${_build_ninja_text}")
+  string(REGEX MATCH "generated/mocks/${_long_domain_mocks_id}_mock_registry__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_registry_rel "${_build_ninja_text}")
 endif()
 if(_expected_registry_rel STREQUAL "")
   message(FATAL_ERROR "Expected build.ninja to declare a long explicit module registry domain output")
 endif()
-string(REGEX MATCH "generated/long_domain_tests_mock_impl__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_impl_rel "${_build_ninja_text}")
+string(REGEX MATCH "generated/${_long_domain_tests_id}_mock_impl__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_impl_rel "${_build_ninja_text}")
 if(_expected_impl_rel STREQUAL "")
-  string(REGEX MATCH "generated/mocks/long_domain_mocks_mock_impl__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_impl_rel "${_build_ninja_text}")
+  string(REGEX MATCH "generated/mocks/${_long_domain_mocks_id}_mock_impl__domain_0001_[A-Za-z0-9_]+\\.hpp" _expected_impl_rel "${_build_ninja_text}")
 endif()
 if(_expected_impl_rel STREQUAL "")
   message(FATAL_ERROR "Expected build.ninja to declare a long explicit module impl domain output")
@@ -169,10 +172,10 @@ set(_expected_impl_output "${_build_dir}/${_expected_impl_rel}")
 
 file(GLOB _registry_domain_outputs
   LIST_DIRECTORIES FALSE
-  "${_build_dir}/generated/mocks/long_domain_mocks_mock_registry__domain_0001_*.hpp")
+  "${_build_dir}/generated/mocks/${_long_domain_mocks_id}_mock_registry__domain_0001_*.hpp")
 file(GLOB _impl_domain_outputs
   LIST_DIRECTORIES FALSE
-  "${_build_dir}/generated/mocks/long_domain_mocks_mock_impl__domain_0001_*.hpp")
+  "${_build_dir}/generated/mocks/${_long_domain_mocks_id}_mock_impl__domain_0001_*.hpp")
 
 list(LENGTH _registry_domain_outputs _registry_domain_count)
 if(NOT _registry_domain_count EQUAL 1)

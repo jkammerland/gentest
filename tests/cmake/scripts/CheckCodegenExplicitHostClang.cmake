@@ -202,7 +202,8 @@ set(_configure_cmd
   -S "${_cmake_project_dir}"
   -B "${_cmake_build_dir}"
   -G Ninja
-  "-DCMAKE_MAKE_PROGRAM=${_ninja}")
+  "-DCMAKE_MAKE_PROGRAM=${_ninja}"
+  "-DGENTEST_CODEGEN_JOBS=AuTo")
 if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
   list(APPEND _configure_cmd "-DCMAKE_C_COMPILER=${C_COMPILER}")
 endif()
@@ -241,4 +242,48 @@ if(_host_clang_path_pos EQUAL -1)
     "explicit host-clang regression: GentestCodegen.cmake did not forward the configured host clang path.\n"
     "Expected path: ${_clangxx_norm}\n"
     "build.ninja:\n${_build_ninja}")
+endif()
+string(FIND "${_build_ninja}" "--jobs=0" _auto_jobs_cache_pos)
+if(_auto_jobs_cache_pos EQUAL -1)
+  message(FATAL_ERROR
+    "explicit host-clang regression: cache value GENTEST_CODEGEN_JOBS=AuTo was not normalized to --jobs=0.\n"
+    "build.ninja:\n${_build_ninja}")
+endif()
+
+set(_cmake_env_build_dir "${_work_dir}/cmake_fixture_env_build")
+set(_env_configure_cmd
+  "${CMAKE_COMMAND}"
+  -S "${_cmake_project_dir}"
+  -B "${_cmake_env_build_dir}"
+  -G Ninja
+  "-DCMAKE_MAKE_PROGRAM=${_ninja}")
+if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
+  list(APPEND _env_configure_cmd "-DCMAKE_C_COMPILER=${C_COMPILER}")
+endif()
+if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "")
+  list(APPEND _env_configure_cmd "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
+endif()
+if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
+  list(APPEND _env_configure_cmd "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
+endif()
+gentest_append_host_apple_sysroot(_env_configure_cmd)
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env "GENTEST_CODEGEN_JOBS=aUtO" ${_env_configure_cmd}
+  RESULT_VARIABLE _env_configure_rc
+  OUTPUT_VARIABLE _env_configure_out
+  ERROR_VARIABLE _env_configure_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _env_configure_rc EQUAL 0)
+  message(FATAL_ERROR
+    "explicit host-clang regression: environment value GENTEST_CODEGEN_JOBS=aUtO failed to configure.\n"
+    "Output:\n${_env_configure_out}\nErrors:\n${_env_configure_err}")
+endif()
+file(READ "${_cmake_env_build_dir}/build.ninja" _env_build_ninja)
+string(FIND "${_env_build_ninja}" "--jobs=0" _auto_jobs_env_pos)
+if(_auto_jobs_env_pos EQUAL -1)
+  message(FATAL_ERROR
+    "explicit host-clang regression: environment value GENTEST_CODEGEN_JOBS=aUtO was not normalized to --jobs=0.\n"
+    "build.ninja:\n${_env_build_ninja}")
 endif()

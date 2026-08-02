@@ -1873,10 +1873,10 @@ std::vector<std::string> parse_imported_named_modules_from_source(const std::fil
 
     std::unordered_set<std::string> visited_paths;
     auto                            scan_file = [&](const auto &self, const std::filesystem::path &scan_path,
-                                                    const std::unordered_map<std::string, std::string> &inherited_macros) -> void {
+                         const std::unordered_map<std::string, std::string> &inherited_macros) -> void {
         std::error_code   ec;
         const auto        canonical_scan_path = std::filesystem::weakly_canonical(scan_path, ec);
-        const std::string visit_key           = ec ? scan_path.lexically_normal().generic_string() : canonical_scan_path.generic_string();
+        const std::string visit_key = ec ? scan_path.lexically_normal().generic_string() : canonical_scan_path.generic_string();
         if (!visited_paths.insert(visit_key).second) {
             return;
         }
@@ -2789,9 +2789,9 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             if (!forced_compiler_path.empty()) {
                 const std::filesystem::path forced_path{std::string(forced_compiler_path)};
                 const bool                  forced_is_explicit_path = forced_path.is_absolute() ||
-                                                                      forced_compiler_path.find('/') != std::string_view::npos ||
-                                                                      forced_compiler_path.find('\\') != std::string_view::npos;
-                const std::string           resolved_forced = resolve_clang_compiler_path(forced_compiler_path, forced_is_explicit_path);
+                                                     forced_compiler_path.find('/') != std::string_view::npos ||
+                                                     forced_compiler_path.find('\\') != std::string_view::npos;
+                const std::string resolved_forced = resolve_clang_compiler_path(forced_compiler_path, forced_is_explicit_path);
                 if (is_clang_like_compiler(resolved_forced)) {
                     return resolved_forced;
                 }
@@ -3588,8 +3588,8 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
             "Explicit same-module registration implementation path for a TU-mode input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  artifact_manifest_option{"artifact-manifest",
-                                                                llvm::cl::desc("Path to a generated artifact manifest JSON file"),
-                                                                llvm::cl::init(""), llvm::cl::cat(category)};
+                                                               llvm::cl::desc("Path to a generated artifact manifest JSON file"),
+                                                               llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> artifact_owner_source_option{
         "artifact-owner-source",
         llvm::cl::desc("Original owner source for a TU-mode artifact-manifest input (repeat once per positional source)"),
@@ -3610,7 +3610,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         "strict-fixture", llvm::cl::desc("Treat member tests on suite/global fixtures as errors (deprecated env: GENTEST_STRICT_FIXTURE)"),
         llvm::cl::init(false), llvm::cl::cat(category)};
     static llvm::cl::opt<bool>        quiet_clang_option{"quiet-clang", llvm::cl::desc("Suppress clang diagnostics"), llvm::cl::init(false),
-                                                         llvm::cl::cat(category)};
+                                                  llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> scan_deps_mode_option{"scan-deps-mode",
                                                             llvm::cl::desc("Named-module dependency discovery mode: AUTO, ON, or OFF"),
                                                             llvm::cl::init("AUTO"), llvm::cl::cat(category)};
@@ -3624,25 +3624,25 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
                                                                      llvm::cl::desc("Explicit named-module source mapping (module=path)"),
                                                                      llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::opt<unsigned>     jobs_option{"jobs", llvm::cl::desc("Max concurrency for TU wrapper mode parsing/emission (0=auto)"),
-                                                   llvm::cl::init(0), llvm::cl::cat(category)};
+                                               llvm::cl::init(0), llvm::cl::cat(category)};
     static llvm::cl::opt<bool>         discover_mocks_option{
         "discover-mocks", llvm::cl::desc("Enable explicit gentest::mock<T> discovery and generated mock outputs"), llvm::cl::init(false),
         llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_backend_option{"mock-backend",
-                                                           llvm::cl::desc("Mock output backend: gentest, gmock, or trompeloeil"),
-                                                           llvm::cl::init("gentest"), llvm::cl::cat(category)};
+                                                          llvm::cl::desc("Mock output backend: gentest, gmock, or trompeloeil"),
+                                                          llvm::cl::init("gentest"), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> source_option{llvm::cl::Positional, llvm::cl::desc("Input source files"), llvm::cl::ZeroOrMore,
                                                      llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  template_option{"template",
-                                                       llvm::cl::desc("Removed legacy manifest/single-TU template source option"),
-                                                       llvm::cl::init(""), llvm::cl::cat(category), llvm::cl::Hidden};
+                                                      llvm::cl::desc("Removed legacy manifest/single-TU template source option"),
+                                                      llvm::cl::init(""), llvm::cl::cat(category), llvm::cl::Hidden};
     static llvm::cl::opt<std::string>  mock_registry_option{"mock-registry", llvm::cl::desc("Path to the generated mock registry header"),
-                                                            llvm::cl::init(""), llvm::cl::cat(category)};
+                                                           llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_impl_option{"mock-impl", llvm::cl::desc("Path to the generated mock implementation source"),
-                                                        llvm::cl::init(""), llvm::cl::cat(category)};
+                                                       llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_public_header_option{"mock-public-header",
-                                                                 llvm::cl::desc("Path to a generated textual mock aggregate public header"),
-                                                                 llvm::cl::init(""), llvm::cl::cat(category)};
+                                                                llvm::cl::desc("Path to a generated textual mock aggregate public header"),
+                                                                llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  mock_aggregate_module_output_option{
         "mock-aggregate-module-output", llvm::cl::desc("Path to a generated explicit mock aggregate module interface"), llvm::cl::init(""),
         llvm::cl::cat(category)};

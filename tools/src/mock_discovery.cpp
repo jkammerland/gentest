@@ -340,6 +340,8 @@ class DefaultArgumentDeclRefQualifier : public RecursiveASTVisitor<DefaultArgume
                                     DefaultArgumentTextRange range)
         : ctx_(ctx), sm_(sm), lang_opts_(lang_opts), file_id_(file_id), begin_offset_(range.begin_offset), text_size_(range.text_size) {}
 
+    // RecursiveASTVisitor dispatch requires these exact callback names.
+    // NOLINTBEGIN(bugprone-derived-method-shadowing-base-method)
     bool VisitDeclRefExpr(DeclRefExpr *expr) {
         if (expr == nullptr || expr->hasQualifier()) {
             return true;
@@ -388,6 +390,7 @@ class DefaultArgumentDeclRefQualifier : public RecursiveASTVisitor<DefaultArgume
         add_type_replacement(expr->getArgumentTypeInfo());
         return true;
     }
+    // NOLINTEND(bugprone-derived-method-shadowing-base-method)
 
     [[nodiscard]] const std::vector<DefaultArgumentReplacement> &replacements() const { return replacements_; }
 
