@@ -1556,6 +1556,11 @@ class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
             } else if (const auto *typedef_name = llvm::dyn_cast<clang::TypedefNameDecl>(decl)) {
                 finder_.match(*typedef_name, context_);
             }
+            if (const auto *function_template = llvm::dyn_cast<clang::FunctionTemplateDecl>(decl)) {
+                match_decl_tree(function_template->getTemplatedDecl());
+            } else if (const auto *class_template = llvm::dyn_cast<clang::ClassTemplateDecl>(decl)) {
+                match_decl_tree(class_template->getTemplatedDecl());
+            }
             if (const auto *decl_context = llvm::dyn_cast<clang::DeclContext>(decl)) {
                 for (clang::Decl *child : decl_context->decls()) {
                     match_decl_tree(child);
