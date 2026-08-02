@@ -179,7 +179,7 @@ if(UNIX)
         "GENTEST_MEASURED_COMPARE_SCRIPT=${_fake_compare}"
         "GENTEST_MEASURED_REPORT_DIR=${_wrapper_dir}"
         "${_bash_program}" "${SOURCE_DIR}/scripts/ci_measured_report_compare.sh"
-      WORKING_DIRECTORY "${SOURCE_DIR}"
+      WORKING_DIRECTORY "${_work_dir}"
       RESULT_VARIABLE _wrapper_fail_rc
       OUTPUT_VARIABLE _wrapper_fail_out
       ERROR_VARIABLE _wrapper_fail_err)
@@ -199,7 +199,7 @@ if(UNIX)
         "GENTEST_MEASURED_COMPARE_SCRIPT=${_fake_compare}"
         "GENTEST_MEASURED_REPORT_DIR=${_wrapper_dir}"
         "${_bash_program}" "${SOURCE_DIR}/scripts/ci_measured_report_compare.sh"
-      WORKING_DIRECTORY "${SOURCE_DIR}"
+      WORKING_DIRECTORY "${_work_dir}"
       RESULT_VARIABLE _wrapper_no_summary_rc
       OUTPUT_VARIABLE _wrapper_no_summary_out
       ERROR_VARIABLE _wrapper_no_summary_err)

@@ -18,7 +18,8 @@ if [ ! -x "${GENTEST_MEASURED_CURRENT_EXE}" ]; then
   exit 2
 fi
 
-repo_root="$(git rev-parse --show-toplevel)"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd -- "${script_dir}/.." && pwd)"
 report_dir="${GENTEST_MEASURED_REPORT_DIR:-${repo_root}/build/measured-report-compare}"
 fail_pct="${GENTEST_MEASURED_FAIL_REGRESSION_PCT:-10}"
 compare_script="${GENTEST_MEASURED_COMPARE_SCRIPT:-${repo_root}/scripts/compare_measured_reports.py}"
