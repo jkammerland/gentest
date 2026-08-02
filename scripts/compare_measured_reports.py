@@ -124,6 +124,8 @@ def _load_csv_report(path: Path, text: str) -> dict[CaseKey, CaseMetrics]:
         raise ValueError(f"{path}: CSV report must use header {','.join(expected)}")
 
     for record in reader:
+        if None in record or any(record.get(field) is None for field in expected):
+            raise ValueError(f"{path}: malformed CSV record at line {reader.line_num}")
         report = record["report"]
         table = record["table"]
         if not table.endswith(SUMMARY_TABLE_SUFFIX):
@@ -194,14 +196,22 @@ def compare_reports(
         baseline_metrics = baseline[key].metrics or {}
         current_metrics = current[key].metrics or {}
         for metric in metric_names:
-            if metric not in baseline_metrics or metric not in current_metrics:
+            in_baseline = metric in baseline_metrics
+            in_current = metric in current_metrics
+            if in_baseline != in_current:
+                missing_from = "current" if in_baseline else "baseline"
+                raise ValueError(f"{key.kind}/{key.name}: requested metric '{metric}' is missing from the {missing_from} report")
+            if not in_baseline:
                 omitted = f"{key.kind}/{key.name}:{metric}"
                 omitted_metrics.append(omitted)
                 continue
             before = baseline_metrics[metric]
             after = current_metrics[metric]
             delta = after - before
-            delta_pct = (delta / before * 100.0) if before != 0.0 else None
+            if before == 0.0:
+                delta_pct = 0.0 if delta == 0.0 else math.copysign(math.inf, delta)
+            else:
+                delta_pct = delta / before * 100.0
             status = "stable"
             if delta < 0.0:
                 status = "improvement"
@@ -370,10 +380,10 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--markdown-out", type=Path, help="Write the Markdown summary to this path instead of stdout.")
     args = parser.parse_args(argv)
 
-    if args.fail_regression_pct < 0.0:
-        parser.error("--fail-regression-pct must be non-negative")
-    if args.min_regression_delta < 0.0:
-        parser.error("--min-regression-delta must be non-negative")
+    if not math.isfinite(args.fail_regression_pct) or args.fail_regression_pct < 0.0:
+        parser.error("--fail-regression-pct must be finite and non-negative")
+    if not math.isfinite(args.min_regression_delta) or args.min_regression_delta < 0.0:
+        parser.error("--min-regression-delta must be finite and non-negative")
     args.metrics = _unique_metrics(args.metrics or list(DEFAULT_METRICS))
     return args
 

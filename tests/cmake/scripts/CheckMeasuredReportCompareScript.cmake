@@ -22,6 +22,10 @@ set(_current_json "${_work_dir}/current.json")
 set(_empty_json "${_work_dir}/empty.json")
 set(_baseline_csv "${_work_dir}/baseline.csv")
 set(_current_csv "${_work_dir}/current.csv")
+set(_truncated_csv "${_work_dir}/truncated.csv")
+set(_zero_baseline_json "${_work_dir}/zero-baseline.json")
+set(_zero_current_json "${_work_dir}/zero-current.json")
+set(_missing_metric_json "${_work_dir}/missing-metric.json")
 set(_summary_md "${_work_dir}/summary.md")
 
 file(WRITE "${_baseline_json}" [=[
@@ -52,6 +56,22 @@ bench,bench.summary,0,median_ns_per_item,number,111
 bench,bench.summary,0,p95_ns_per_item,number,109
 ]=])
 
+file(WRITE "${_truncated_csv}" [=[report,table,row,field,type,value
+bench,bench.summary
+]=])
+
+file(WRITE "${_zero_baseline_json}" [=[
+{"report":"measured","tables":[{"report":"jitter","id":"jitter.summary","title":"Jitter summary","rows":[{"benchmark":"jitter/zero","suite":"jitter","stddev_ns_per_item":0.0}]}],"issues":[]}
+]=])
+
+file(WRITE "${_zero_current_json}" [=[
+{"report":"measured","tables":[{"report":"jitter","id":"jitter.summary","title":"Jitter summary","rows":[{"benchmark":"jitter/zero","suite":"jitter","stddev_ns_per_item":1.0}]}],"issues":[]}
+]=])
+
+file(WRITE "${_missing_metric_json}" [=[
+{"report":"measured","tables":[{"report":"bench","id":"bench.summary","title":"Benchmarks","rows":[{"benchmark":"bench/fast","suite":"bench","items_per_call":1,"median_ns_per_item":112.0}]}],"issues":[]}
+]=])
+
 execute_process(
   COMMAND "${Python3_EXECUTABLE}" "${_script}" --help
   RESULT_VARIABLE _help_rc
@@ -69,6 +89,128 @@ foreach(_required_help IN ITEMS "--baseline" "--current" "--fail-regression-pct"
     message(FATAL_ERROR "compare_measured_reports.py --help must document ${_required_help}.")
   endif()
 endforeach()
+
+execute_process(
+  COMMAND "${Python3_EXECUTABLE}" "${_script}"
+    --baseline "${_zero_baseline_json}"
+    --current "${_zero_current_json}"
+    --metric stddev_ns_per_item
+    --fail-regression-pct 10
+  RESULT_VARIABLE _zero_fail_rc
+  OUTPUT_VARIABLE _zero_fail_out
+  ERROR_VARIABLE _zero_fail_err)
+if(NOT _zero_fail_rc EQUAL 1 OR NOT _zero_fail_out MATCHES "\\+inf%")
+  message(FATAL_ERROR
+    "A positive metric increase from zero must be an infinite-percentage regression.\n"
+    "stdout:\n${_zero_fail_out}\n"
+    "stderr:\n${_zero_fail_err}")
+endif()
+
+foreach(_missing_baseline IN ITEMS FALSE TRUE)
+  if(_missing_baseline)
+    set(_metric_baseline "${_missing_metric_json}")
+    set(_metric_current "${_baseline_json}")
+    set(_missing_side "baseline")
+  else()
+    set(_metric_baseline "${_baseline_json}")
+    set(_metric_current "${_missing_metric_json}")
+    set(_missing_side "current")
+  endif()
+  execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${_script}"
+      --baseline "${_metric_baseline}"
+      --current "${_metric_current}"
+      --metric p95_ns_per_item
+    RESULT_VARIABLE _metric_fail_rc
+    OUTPUT_VARIABLE _metric_fail_out
+    ERROR_VARIABLE _metric_fail_err)
+  if(NOT _metric_fail_rc EQUAL 2 OR NOT _metric_fail_err MATCHES "missing from the ${_missing_side} report")
+    message(FATAL_ERROR
+      "One-sided metric loss from the ${_missing_side} report must be an input error.\n"
+      "stdout:\n${_metric_fail_out}\n"
+      "stderr:\n${_metric_fail_err}")
+  endif()
+endforeach()
+
+foreach(_threshold IN ITEMS nan inf -inf)
+  execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${_script}"
+      --baseline "${_baseline_json}"
+      --current "${_current_json}"
+      "--fail-regression-pct=${_threshold}"
+    RESULT_VARIABLE _threshold_fail_rc
+    OUTPUT_VARIABLE _threshold_fail_out
+    ERROR_VARIABLE _threshold_fail_err)
+  if(NOT _threshold_fail_rc EQUAL 2 OR NOT _threshold_fail_err MATCHES "finite and non-negative")
+    message(FATAL_ERROR
+      "Non-finite threshold '${_threshold}' must be rejected.\n"
+      "stdout:\n${_threshold_fail_out}\n"
+      "stderr:\n${_threshold_fail_err}")
+  endif()
+endforeach()
+
+execute_process(
+  COMMAND "${Python3_EXECUTABLE}" "${_script}"
+    --baseline "${_truncated_csv}"
+    --current "${_current_csv}"
+  RESULT_VARIABLE _truncated_fail_rc
+  OUTPUT_VARIABLE _truncated_fail_out
+  ERROR_VARIABLE _truncated_fail_err)
+if(NOT _truncated_fail_rc EQUAL 2 OR NOT _truncated_fail_err MATCHES "malformed CSV record")
+  message(FATAL_ERROR
+    "Truncated CSV rows must use the documented input-error path.\n"
+    "stdout:\n${_truncated_fail_out}\n"
+    "stderr:\n${_truncated_fail_err}")
+endif()
+
+if(UNIX)
+  find_program(_bash_program bash)
+  if(_bash_program)
+    set(_wrapper_dir "${_work_dir}/wrapper")
+    set(_fake_report "${_work_dir}/fake-report.sh")
+    set(_fake_compare "${_work_dir}/fake-compare.py")
+    file(WRITE "${_fake_report}" "#!/usr/bin/env bash\nprintf '%s\\n' '{\"report\":\"measured\",\"tables\":[],\"issues\":[]}'\n")
+    file(CHMOD "${_fake_report}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+    file(WRITE "${_fake_compare}" "raise SystemExit(37)\n")
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" -E env
+        "GENTEST_MEASURED_BASE_EXE=${_fake_report}"
+        "GENTEST_MEASURED_CURRENT_EXE=${_fake_report}"
+        "GENTEST_MEASURED_COMPARE_SCRIPT=${_fake_compare}"
+        "GENTEST_MEASURED_REPORT_DIR=${_wrapper_dir}"
+        "${_bash_program}" "${SOURCE_DIR}/scripts/ci_measured_report_compare.sh"
+      WORKING_DIRECTORY "${SOURCE_DIR}"
+      RESULT_VARIABLE _wrapper_fail_rc
+      OUTPUT_VARIABLE _wrapper_fail_out
+      ERROR_VARIABLE _wrapper_fail_err)
+    if(NOT _wrapper_fail_rc EQUAL 37)
+      message(FATAL_ERROR
+        "The CI wrapper must propagate unexpected comparator failures.\n"
+        "stdout:\n${_wrapper_fail_out}\n"
+        "stderr:\n${_wrapper_fail_err}")
+    endif()
+
+    file(REMOVE_RECURSE "${_wrapper_dir}")
+    file(WRITE "${_fake_compare}" "raise SystemExit(1)\n")
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" -E env
+        "GENTEST_MEASURED_BASE_EXE=${_fake_report}"
+        "GENTEST_MEASURED_CURRENT_EXE=${_fake_report}"
+        "GENTEST_MEASURED_COMPARE_SCRIPT=${_fake_compare}"
+        "GENTEST_MEASURED_REPORT_DIR=${_wrapper_dir}"
+        "${_bash_program}" "${SOURCE_DIR}/scripts/ci_measured_report_compare.sh"
+      WORKING_DIRECTORY "${SOURCE_DIR}"
+      RESULT_VARIABLE _wrapper_no_summary_rc
+      OUTPUT_VARIABLE _wrapper_no_summary_out
+      ERROR_VARIABLE _wrapper_no_summary_err)
+    if(NOT _wrapper_no_summary_rc EQUAL 2 OR NOT _wrapper_no_summary_err MATCHES "without a summary")
+      message(FATAL_ERROR
+        "Regression status without a summary must be rejected as an execution failure.\n"
+        "stdout:\n${_wrapper_no_summary_out}\n"
+        "stderr:\n${_wrapper_no_summary_err}")
+    endif()
+  endif()
+endif()
 
 execute_process(
   COMMAND "${Python3_EXECUTABLE}" "${_script}"

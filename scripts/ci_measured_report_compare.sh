@@ -21,6 +21,7 @@ fi
 repo_root="$(git rev-parse --show-toplevel)"
 report_dir="${GENTEST_MEASURED_REPORT_DIR:-${repo_root}/build/measured-report-compare}"
 fail_pct="${GENTEST_MEASURED_FAIL_REGRESSION_PCT:-10}"
+compare_script="${GENTEST_MEASURED_COMPARE_SCRIPT:-${repo_root}/scripts/compare_measured_reports.py}"
 
 mkdir -p "${report_dir}"
 
@@ -32,11 +33,7 @@ status_file="${report_dir}/comparison-exit-code.txt"
 common_args=(
   --filter=benchmarks/math/*
   --kind=all
-  --bench-epochs=1
-  --bench-warmup=0
-  --bench-min-epoch-time-s=0
-  --bench-min-total-time-s=0
-  --bench-max-total-time-s=0.02
+  --bench-max-total-time-s=0.5
   --jitter-bins=5
   --report-format=json
 )
@@ -49,7 +46,7 @@ echo "[measured] writing current report: ${current_json}"
 
 echo "[measured] comparing reports: ${summary_md}"
 set +e
-python3 "${repo_root}/scripts/compare_measured_reports.py" \
+python3 "${compare_script}" \
   --baseline "${baseline_json}" \
   --current "${current_json}" \
   --fail-regression-pct "${fail_pct}" \
@@ -59,15 +56,25 @@ set -e
 
 printf '%s\n' "${compare_rc}" > "${status_file}"
 
-if [ "${compare_rc}" -eq 2 ]; then
-  echo "error: measured report comparison failed to run" >&2
-  exit 2
-fi
-
-if [ "${compare_rc}" -eq 1 ]; then
-  echo "[measured] comparison found regressions over ${fail_pct}%; reporting only"
-else
-  echo "[measured] comparison completed without over-threshold regressions"
-fi
+case "${compare_rc}" in
+  0)
+    if [ ! -s "${summary_md}" ]; then
+      echo "error: measured report comparison returned success without a summary" >&2
+      exit 2
+    fi
+    echo "[measured] comparison completed without over-threshold regressions"
+    ;;
+  1)
+    if [ ! -s "${summary_md}" ]; then
+      echo "error: measured report comparison returned a regression status without a summary" >&2
+      exit 2
+    fi
+    echo "[measured] comparison found regressions over ${fail_pct}%; reporting only"
+    ;;
+  *)
+    echo "error: measured report comparison failed with exit code ${compare_rc}" >&2
+    exit "${compare_rc}"
+    ;;
+esac
 
 echo "[measured] summary: ${summary_md}"
