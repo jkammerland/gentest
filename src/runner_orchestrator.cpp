@@ -9,6 +9,7 @@
 #include "runner_test_executor.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <fmt/format.h>
 #include <map>
@@ -72,7 +73,7 @@ std::string join_span(std::span<const std::string_view> items, char sep) {
 }
 
 std::string format_list_sections(const gentest::Case &test) {
-    if (test.tags.empty() && test.requirements.empty() && !test.should_skip) {
+    if (test.tags.empty() && test.requirements.empty() && !test.should_skip && test.owner.empty()) {
         return {};
     }
 
@@ -103,9 +104,180 @@ std::string format_list_sections(const gentest::Case &test) {
             fmt::format_to(std::back_inserter(sections), "skip={}", test.skip_reason);
         }
     }
+    if (!test.owner.empty()) {
+        append_separator();
+        fmt::format_to(std::back_inserter(sections), "owner={}", test.owner);
+    }
 
     sections.push_back(']');
     return fmt::to_string(sections);
+}
+
+void append_json_string(fmt::memory_buffer &out, std::string_view value) {
+    out.push_back('"');
+    for (std::size_t index = 0; index < value.size();) {
+        const auto ch = static_cast<unsigned char>(value[index]);
+        switch (ch) {
+        case '"':
+            out.push_back('\\');
+            out.push_back('"');
+            ++index;
+            break;
+        case '\\':
+            out.push_back('\\');
+            out.push_back('\\');
+            ++index;
+            break;
+        case '\b':
+            out.push_back('\\');
+            out.push_back('b');
+            ++index;
+            break;
+        case '\f':
+            out.push_back('\\');
+            out.push_back('f');
+            ++index;
+            break;
+        case '\n':
+            out.push_back('\\');
+            out.push_back('n');
+            ++index;
+            break;
+        case '\r':
+            out.push_back('\\');
+            out.push_back('r');
+            ++index;
+            break;
+        case '\t':
+            out.push_back('\\');
+            out.push_back('t');
+            ++index;
+            break;
+        default:
+            if (ch < 0x20) {
+                fmt::format_to(std::back_inserter(out), "\\u{:04x}", static_cast<unsigned>(ch));
+                ++index;
+            } else {
+                std::size_t   sequence_length = 0;
+                std::uint32_t code_point      = 0;
+                if (ch < 0x80U) {
+                    sequence_length = 1;
+                    code_point      = ch;
+                } else if ((ch & 0xE0U) == 0xC0U) {
+                    sequence_length = 2;
+                    code_point      = ch & 0x1FU;
+                } else if ((ch & 0xF0U) == 0xE0U) {
+                    sequence_length = 3;
+                    code_point      = ch & 0x0FU;
+                } else if ((ch & 0xF8U) == 0xF0U) {
+                    sequence_length = 4;
+                    code_point      = ch & 0x07U;
+                }
+
+                bool valid = sequence_length != 0 && index + sequence_length <= value.size();
+                for (std::size_t offset = 1; valid && offset < sequence_length; ++offset) {
+                    const auto continuation = static_cast<unsigned char>(value[index + offset]);
+                    if ((continuation & 0xC0U) != 0x80U) {
+                        valid = false;
+                        break;
+                    }
+                    code_point = (code_point << 6U) | (continuation & 0x3FU);
+                }
+                if (valid && ((sequence_length == 2 && code_point < 0x80U) || (sequence_length == 3 && code_point < 0x800U) ||
+                              (sequence_length == 4 && code_point < 0x10000U) || (code_point >= 0xD800U && code_point <= 0xDFFFU) ||
+                              code_point > 0x10FFFFU)) {
+                    valid = false;
+                }
+                if (!valid) {
+                    out.append(std::string_view{"\\uFFFD"});
+                    ++index;
+                    break;
+                }
+                for (std::size_t offset = 0; offset < sequence_length; ++offset) {
+                    out.push_back(value[index + offset]);
+                }
+                index += sequence_length;
+            }
+        }
+    }
+    out.push_back('"');
+}
+
+void append_json_key(fmt::memory_buffer &out, std::string_view key) {
+    append_json_string(out, key);
+    out.push_back(':');
+}
+
+void append_json_string_array(fmt::memory_buffer &out, std::span<const std::string_view> values) {
+    out.push_back('[');
+    for (std::size_t i = 0; i < values.size(); ++i) {
+        if (i != 0) {
+            out.push_back(',');
+        }
+        append_json_string(out, values[i]);
+    }
+    out.push_back(']');
+}
+
+std::string_view inventory_kind(const gentest::Case &test) {
+    if (test.is_jitter) {
+        return "jitter";
+    }
+    if (test.is_benchmark) {
+        return "bench";
+    }
+    return "test";
+}
+
+std::string_view inventory_fixture_lifetime(gentest::FixtureLifetime lifetime) {
+    switch (lifetime) {
+    case gentest::FixtureLifetime::None: return "none";
+    case gentest::FixtureLifetime::MemberEphemeral: return "local";
+    case gentest::FixtureLifetime::MemberSuite: return "suite";
+    case gentest::FixtureLifetime::MemberGlobal: return "global";
+    }
+    return "unknown";
+}
+
+std::string format_inventory_case_json(const gentest::Case &test) {
+    fmt::memory_buffer out;
+    out.reserve(256 + test.name.size() + test.file.size() + test.owner.size());
+    out.push_back('{');
+    append_json_key(out, "name");
+    append_json_string(out, test.name);
+    out.push_back(',');
+    append_json_key(out, "file");
+    append_json_string(out, test.file);
+    fmt::format_to(std::back_inserter(out), ",\"line\":{}", test.line);
+    out.push_back(',');
+    append_json_key(out, "kind");
+    append_json_string(out, inventory_kind(test));
+    out.push_back(',');
+    append_json_key(out, "tags");
+    append_json_string_array(out, test.tags);
+    out.push_back(',');
+    append_json_key(out, "requirements");
+    append_json_string_array(out, test.requirements);
+    out.push_back(',');
+    append_json_key(out, "owner");
+    append_json_string(out, test.owner);
+    fmt::format_to(std::back_inserter(out), ",\"skipped\":{}", test.should_skip ? "true" : "false");
+    out.push_back(',');
+    append_json_key(out, "skipReason");
+    append_json_string(out, test.skip_reason);
+    out.push_back(',');
+    append_json_key(out, "fixture");
+    append_json_string(out, test.fixture);
+    out.push_back(',');
+    append_json_key(out, "fixtureLifetime");
+    append_json_string(out, inventory_fixture_lifetime(test.fixture_lifetime));
+    out.push_back(',');
+    append_json_key(out, "suite");
+    append_json_string(out, test.suite);
+    fmt::format_to(std::back_inserter(out), R"(,"async":{},"baseline":{},"itemsPerCall":{})", test.is_async ? "true" : "false",
+                   test.is_baseline ? "true" : "false", test.items_per_call);
+    out.push_back('}');
+    return fmt::to_string(out);
 }
 
 void record_runner_level_failure(OrchestratorState &state, std::string_view name, std::string message) {
@@ -199,6 +371,23 @@ void record_measured_report_issue(OrchestratorState &state, const gentest::Case 
                                                                    .message        = measured_issue_message(failure, failure_message),
                                                                    .infrastructure = failure.infra_failure,
                                                                });
+}
+
+void record_measured_failure(OrchestratorState &state, const gentest::Case &c, const MeasurementCaseFailure &failure,
+                             std::string_view failure_message) {
+    record_measured_report_issue(state, c, failure, failure_message);
+    if (!failure.skipped) {
+        std::string_view source_file = c.file;
+        unsigned         source_line = c.line;
+        if (!failure.source_file.empty() && failure.source_line != 0) {
+            source_file = failure.source_file;
+            source_line = failure.source_line;
+        }
+        const std::string_view annotation_message = !failure.reason.empty() ? std::string_view(failure.reason) : failure_message;
+        gentest::runner::add_error_annotation(state.acc, source_file, source_line, c.name,
+                                              annotation_message.empty() ? std::string_view("measured case failed") : annotation_message);
+    }
+    record_measured_result(state, c, make_measured_failure_result(failure, failure_message));
 }
 
 bool is_machine_measured_report(const CliOptions &opt) {
@@ -332,8 +521,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
                 record_measured_result(state, measured, make_measured_success_result(result.wall_time_s, std::move(attachments)));
             },
             [&](const gentest::Case &measured, const MeasurementCaseFailure &failure, std::string_view failure_message) {
-                record_measured_report_issue(state, measured, failure, failure_message);
-                record_measured_result(state, measured, make_measured_failure_result(failure, failure_message));
+                record_measured_failure(state, measured, failure, failure_message);
             },
             &bench_report_rows);
     }
@@ -348,8 +536,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
                 record_measured_result(state, measured, make_measured_success_result(result.wall_time_s, std::move(attachments)));
             },
             [&](const gentest::Case &measured, const MeasurementCaseFailure &failure, std::string_view failure_message) {
-                record_measured_report_issue(state, measured, failure, failure_message);
-                record_measured_result(state, measured, make_measured_failure_result(failure, failure_message));
+                record_measured_failure(state, measured, failure, failure_message);
             },
             &jitter_report_rows);
     }
@@ -432,6 +619,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --help                Show this help\n");
         fmt::print("  --list-tests          List test names (one per line)\n");
         fmt::print("  --list                List tests with metadata\n");
+        fmt::print("  --list-json           List test inventory as JSON\n");
         fmt::print("  --list-death          List death test names (one per line)\n");
         fmt::print("  --list-benches        List benchmark/jitter names (one per line)\n");
         fmt::print("  --run=<name>          Run a single case by exact name\n");
@@ -468,6 +656,14 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
             const std::string sections = format_list_sections(test);
             fmt::print("{}{} ({}:{})\n", test.name, sections, test.file, test.line);
         }
+        return 0;
+    case Mode::ListJson:
+        fmt::print("[\n");
+        for (std::size_t i = 0; i < kCases.size(); ++i) {
+            const auto json_case = format_inventory_case_json(kCases[i]);
+            fmt::print("  {}{}\n", json_case, i + 1 == kCases.size() ? "" : ",");
+        }
+        fmt::print("]\n");
         return 0;
     case Mode::ListDeath:
         for (const auto &test : kCases) {

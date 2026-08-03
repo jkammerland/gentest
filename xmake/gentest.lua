@@ -361,7 +361,7 @@ local function append_common_codegen_clang_args(args, extra_include_dirs, extra_
     append_user_clang_args(args, extra_clang_args)
 end
 
-local function append_common_codegen_driver_args(args, extra_include_dirs, extra_defines, extra_clang_args)
+local function append_common_codegen_driver_args(args, extra_include_dirs, extra_defines, extra_clang_args, forced_includes)
     local seen_defines = {}
     table.insert(args, "--")
     table.insert(args, "-std=c++20")
@@ -379,6 +379,10 @@ local function append_common_codegen_driver_args(args, extra_include_dirs, extra
     end
     append_raw_user_clang_args(args, gentest_common_cxxflags())
     append_raw_user_clang_args(args, extra_clang_args)
+    for _, forced_include in ipairs(forced_includes or {}) do
+        table.insert(args, "-include")
+        table.insert(args, forced_include)
+    end
 end
 
 local function default_external_module_sources()
@@ -504,14 +508,6 @@ local function shorten_stem_digest(text)
     return digest
 end
 
-local function anchor_symbol_name(target_id)
-    local sanitized = sanitize_target_id(target_id)
-    if sanitized == "" or sanitized:match("^[0-9]") then
-        sanitized = "_" .. sanitized
-    end
-    return sanitized .. "_" .. shorten_stem_digest(target_id):sub(1, 12) .. "_explicit_mock_anchor"
-end
-
 local function shorten_generated_stem(stem)
     local sanitized = stem:gsub("[^%w_]", "_")
     if sanitized == "" then
@@ -566,14 +562,6 @@ end
 local function module_public_output_rel(output_dir, module_name)
     local rel = module_name:gsub("%.", "/"):gsub(":", "/")
     return path.join(output_dir, rel .. ".cppm")
-end
-
-local function template_path(filename)
-    return path.join(helper_script_dir(), "templates", filename)
-end
-
-local function helper_script_path(filename)
-    return path.join(helper_script_dir(), "scripts", filename)
 end
 
 local function append_unique(result, seen, value)
@@ -650,43 +638,6 @@ local function find_nearby_compile_commands(program_path)
     return nil
 end
 
-local function relative_include(from_relpath, to_relpath)
-    return path.translate(path.relative(project_path(to_relpath), path.directory(project_path(from_relpath))))
-end
-
-local function include_lines(from_relpath, relpaths)
-    local lines = {}
-    for _, relpath in ipairs(relpaths or {}) do
-        table.insert(lines, "#include \"" .. relative_include(from_relpath, relpath) .. "\"")
-    end
-    return table.concat(lines, "\n")
-end
-
-local function export_import_lines(module_names)
-    local lines = {}
-    for _, module_name in ipairs(module_names or {}) do
-        table.insert(lines, "export import " .. module_name .. ";")
-    end
-    return table.concat(lines, "\n")
-end
-
-
-local function batch_render_template(batchcmds, template_name, output_rel, variables)
-    local argv = {
-        "template",
-        template_path(template_name),
-        project_path(output_rel),
-    }
-    for key, value in pairs(variables or {}) do
-        table.insert(argv, key .. "=" .. tostring(value))
-    end
-    batchcmds:lua(helper_script_path("materialize_file.lua"), argv)
-end
-
-local function batch_write_literal_file(batchcmds, output_file, content)
-    batchcmds:lua(helper_script_path("materialize_file.lua"), {"literal", output_file, content})
-end
-
 local function ensure_materialized_public_modules(entries, runtime_os)
     for _, entry in ipairs(entries or {}) do
         local output_dir = path.directory(entry.output_abs)
@@ -697,112 +648,32 @@ local function ensure_materialized_public_modules(entries, runtime_os)
     end
 end
 
-local function ensure_parent_dir(filepath, runtime_os)
+local function ensure_fallback_compdb(filepath, runtime_os, runtime_io)
     local output_dir = path.directory(filepath)
     if output_dir and output_dir ~= "" then
         runtime_os.mkdir(output_dir)
     end
-end
-
-local function write_placeholder_file(filepath, content, runtime_os, runtime_io)
-    ensure_parent_dir(filepath, runtime_os)
-    runtime_io.writefile(filepath, content)
-end
-
-local function materialize_textual_mock_placeholders(config, defs, target_id, runtime_os, runtime_io)
-    write_placeholder_file(
-        config.anchor_output,
-        "// generated placeholder\n\nnamespace gentest {\nnamespace anchor {\nint " .. anchor_symbol_name(target_id) ..
-            " = 0;\n} // namespace anchor\n} // namespace gentest\n",
-        runtime_os,
-        runtime_io
-    )
-    write_placeholder_file(config.mock_registry, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
-    write_placeholder_file(config.mock_impl, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
-    write_placeholder_file(config.header_output, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
-    write_placeholder_file(
-        config.wrapper_output,
-        "// generated placeholder\n\n#include \"gentest/mock.h\"\n" .. include_lines(config.wrapper_output, defs) ..
-            "\n\n#if !defined(GENTEST_CODEGEN) && __has_include(\"" .. path.filename(config.header_output) ..
-            "\")\n#include \"" .. path.filename(config.header_output) .. "\"\n#endif\n",
-        runtime_os,
-        runtime_io
-    )
-    write_placeholder_file(
-        config.public_header,
-        "// generated placeholder\n#pragma once\n\n#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n#include \"gentest/mock.h\"\n" ..
-            include_lines(config.public_header, defs) .. "\n#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n\n#include \"" ..
-            path.filename(config.mock_registry) .. "\"\n#include \"" .. path.filename(config.mock_impl) .. "\"\n",
-        runtime_os,
-        runtime_io
-    )
-end
-
-local function inject_gentest_mock_import(source_body, defs_file)
-    if source_body:find("import%s+gentest%.mock%s*;") then
-        return source_body
+    if not runtime_os.isfile(filepath) or runtime_io.readfile(filepath) ~= "[]\n" then
+        runtime_io.writefile(filepath, "[]\n")
     end
-    local _, decl_end = source_body:find("export%s+module%s+[^;]+;")
-    if not decl_end then
-        _, decl_end = source_body:find("module%s+[^;]+;")
-    end
-    if not decl_end then
-        fail("gentest_add_mocks(kind='modules') requires a named module declaration in `" .. tostring(defs_file) .. "`")
-    end
-    return source_body:sub(1, decl_end) .. "\n\nimport gentest.mock;" .. source_body:sub(decl_end + 1)
 end
 
-local function materialize_module_mock_placeholders(config, defs, target_id, runtime_os, runtime_io)
-    ensure_materialized_public_modules(config.public_module_entries, runtime_os)
-    write_placeholder_file(
-        config.anchor_output,
-        "// generated placeholder\n\nnamespace gentest {\nnamespace anchor {\nint " .. anchor_symbol_name(target_id) ..
-            " = 0;\n} // namespace anchor\n} // namespace gentest\n",
-        runtime_os,
-        runtime_io
-    )
-    write_placeholder_file(config.mock_registry, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
-    write_placeholder_file(config.mock_impl, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
-    for index, defs_file in ipairs(defs) do
-        local source_abs = project_path(defs_file)
-        local source_body = runtime_io.readfile(source_abs)
-        if not source_body then
-            fail("gentest_add_mocks(kind='modules') could not read `" .. tostring(defs_file) .. "`")
-        end
-        write_placeholder_file(
-            config.module_wrapper_outputs[index],
-            inject_gentest_mock_import(source_body, defs_file),
-            runtime_os,
-            runtime_io
-        )
-        write_placeholder_file(config.module_header_outputs[index], "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
+local function ensure_textual_mock_aggregate(filepath, defs, runtime_os, runtime_io)
+    local output_dir = path.directory(filepath)
+    if output_dir and output_dir ~= "" then
+        runtime_os.mkdir(output_dir)
     end
-    local public_module_body = "// generated placeholder\nmodule;\n\nexport module " .. config.module_name ..
-                                   ";\n\nexport import gentest;\nexport import gentest.mock;\n"
-    local exported_imports = export_import_lines(config.defs_modules)
-    if exported_imports ~= "" then
-        public_module_body = public_module_body .. exported_imports .. "\n"
+
+    local lines = {"// This file is auto-generated by gentest's Xmake helper.", "// Do not edit manually.", ""}
+    for _, defs_file in ipairs(defs) do
+        local include_path = project_path(defs_file):gsub("\\", "/")
+        table.insert(lines, "#include \"" .. include_path .. "\"")
     end
-    write_placeholder_file(config.public_module, public_module_body, runtime_os, runtime_io)
-end
-
-local function materialize_textual_suite_placeholders(config, source, runtime_os, runtime_io)
-    write_placeholder_file(config.header_output, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
-    write_placeholder_file(
-        config.wrapper_output,
-        "// generated placeholder\n\n// NOLINTNEXTLINE(bugprone-suspicious-include)\n#include \"" ..
-            relative_include(config.wrapper_output, source) .. "\"\n\n#if !defined(GENTEST_CODEGEN) && __has_include(\"" ..
-            path.filename(config.header_output) .. "\")\n#include \"" .. path.filename(config.header_output) ..
-            "\"\n#endif\n",
-        runtime_os,
-        runtime_io
-    )
-end
-
-local function materialize_module_suite_placeholders(config, runtime_os, runtime_io)
-    ensure_materialized_public_modules(config.public_module_entries, runtime_os)
-    write_placeholder_file(config.registration_output, "module;\n\nmodule " .. config.module_name .. ";\n", runtime_os, runtime_io)
-    write_placeholder_file(config.header_output, "// generated placeholder\n#pragma once\n", runtime_os, runtime_io)
+    table.insert(lines, "")
+    local contents = table.concat(lines, "\n")
+    if not runtime_os.isfile(filepath) or runtime_io.readfile(filepath) ~= contents then
+        runtime_io.writefile(filepath, contents)
+    end
 end
 
 local function collect_dep_targets(deps)
@@ -1211,6 +1082,10 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
         "--mock-impl", config.mock_impl,
         "--discover-mocks",
     }
+    if config.depfile and config.depfile ~= "" then
+        table.insert(args, "--depfile")
+        table.insert(args, config.depfile)
+    end
     for _, domain_output in ipairs(config.mock_domain_registry_outputs or {}) do
         table.insert(args, "--mock-domain-registry-output")
         table.insert(args, domain_output)
@@ -1222,7 +1097,11 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
     if config.kind == "textual" then
         table.insert(args, "--tu-header-output")
         table.insert(args, config.header_output)
+        table.insert(args, "--textual-wrapper-output")
         table.insert(args, config.wrapper_output)
+        table.insert(args, "--mock-public-header")
+        table.insert(args, config.public_header)
+        table.insert(args, config.source_file)
     else
         for _, header_output in ipairs(config.module_header_outputs or {}) do
             table.insert(args, "--tu-header-output")
@@ -1240,6 +1119,10 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
             table.insert(args, "--external-module-source")
             table.insert(args, module_source)
         end
+        table.insert(args, "--mock-aggregate-module-output")
+        table.insert(args, config.public_module)
+        table.insert(args, "--mock-aggregate-module-name")
+        table.insert(args, config.module_name)
         for _, defs_file in ipairs(config.defs or {}) do
             table.insert(args, defs_file)
         end
@@ -1256,7 +1139,7 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
         table.insert(args, "--compdb")
         table.insert(args, compdb_dir)
     end
-    append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args)
+    append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args, config.forced_includes)
     run_command(batchcmds, codegen, args)
 end
 
@@ -1293,11 +1176,13 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
     else
         table.insert(args, "--artifact-manifest")
         table.insert(args, config.artifact_manifest)
+        table.insert(args, "--textual-wrapper-output")
+        table.insert(args, config.wrapper_output)
         table.insert(args, "--artifact-owner-source")
         table.insert(args, config.source_file)
         table.insert(args, "--compile-context-id")
         table.insert(args, config.compile_context_id)
-        table.insert(args, config.wrapper_output)
+        table.insert(args, config.source_file)
     end
     if host_clang and host_clang ~= "" then
         table.insert(args, "--host-clang")
@@ -1335,9 +1220,9 @@ function gentest_add_mocks(opts)
 
     local target_id = opts.target_id or sanitize_target_id(target_name)
     local out_dir_abs = project_path(output_dir)
-    local anchor_cpp = path.join(output_dir, target_id .. "_anchor.cpp")
     local mock_registry_h = path.join(output_dir, target_id .. "_mock_registry.hpp")
     local mock_impl_h = path.join(output_dir, target_id .. "_mock_impl.hpp")
+    local mock_depfile = path.join(output_dir, target_id .. "_mock_codegen.d")
     local fallback_compdb_dir, fallback_compdb_file = fallback_compdb_paths(output_dir)
     local config = {
         kind = kind,
@@ -1345,9 +1230,9 @@ function gentest_add_mocks(opts)
         out_dir_abs = out_dir_abs,
         fallback_compdb_dir = fallback_compdb_dir,
         fallback_compdb_file = fallback_compdb_file,
-        anchor_output = project_path(anchor_cpp),
         mock_registry = project_path(mock_registry_h),
         mock_impl = project_path(mock_impl_h),
+        depfile = project_path(mock_depfile),
         mock_domain_registry_outputs = {project_path(mock_domain_output_rel(mock_registry_h, 0, "header"))},
         mock_domain_impl_outputs = {project_path(mock_domain_output_rel(mock_impl_h, 0, "header"))},
         target_id = target_id,
@@ -1356,6 +1241,7 @@ function gentest_add_mocks(opts)
         deps = opts.deps or {},
         defines = opts.defines or {},
         clang_args = opts.clang_args or {},
+        forced_includes = {},
         defs_modules = defs_modules or {},
         public_modules_via_deps = opts.public_modules_via_deps == true,
     }
@@ -1370,12 +1256,16 @@ function gentest_add_mocks(opts)
     if kind == "textual" then
         local public_header_name = require_opt(opts, "header_name", "gentest_add_mocks")
         defs_cpp = path.join(output_dir, target_id .. "_defs.cpp")
+        local defs_input = path.join(output_dir, target_id .. "_defs_input.cpp")
         codegen_h = path.join(output_dir, "tu_0000_" .. target_id .. "_defs.gentest.h")
         public_header = path.join(output_dir, public_header_name)
         config.wrapper_output = project_path(defs_cpp)
         config.header_output = project_path(codegen_h)
         config.public_header = project_path(public_header)
-        add_private_files = {defs_cpp, anchor_cpp}
+        config.aggregate_source = project_path(defs_input)
+        config.source_file = config.aggregate_source
+        table.insert(config.forced_includes, "gentest/mock.h")
+        add_private_files = {defs_cpp}
     else
         local module_name = require_opt(opts, "module_name", "gentest_add_mocks")
         config.module_name = module_name
@@ -1411,7 +1301,6 @@ function gentest_add_mocks(opts)
         end
         public_module = module_public_output_rel(output_dir, module_name)
         config.public_module = project_path(public_module)
-        table.insert(add_private_files, anchor_cpp)
     end
     for _, defs_file in ipairs(defs) do
         table.insert(config.defs, project_path(defs_file))
@@ -1467,7 +1356,27 @@ function gentest_add_mocks(opts)
         add_files(public_module, {public = true, always_added = true})
     end
     if public_header then
-        add_headerfiles(public_header, {public = true})
+        add_headerfiles(public_header, {public = true, always_added = true})
+    end
+    local generated_support_headers = {config.mock_registry, config.mock_impl}
+    for _, generated_header in ipairs(config.mock_domain_registry_outputs) do
+        table.insert(generated_support_headers, generated_header)
+    end
+    for _, generated_header in ipairs(config.mock_domain_impl_outputs) do
+        table.insert(generated_support_headers, generated_header)
+    end
+    if config.header_output then
+        table.insert(generated_support_headers, config.header_output)
+    end
+    for _, generated_header in ipairs(config.module_header_outputs or {}) do
+        table.insert(generated_support_headers, generated_header)
+    end
+    add_headerfiles(table.unpack(generated_support_headers), {always_added = true})
+    if config.depfile then
+        add_extrafiles(config.depfile, {always_added = true})
+    end
+    if config.aggregate_source then
+        add_extrafiles(config.aggregate_source, {always_added = true})
     end
     if opts.headerfiles and #opts.headerfiles > 0 then
         add_headerfiles(table.unpack(opts.headerfiles))
@@ -1478,11 +1387,10 @@ function gentest_add_mocks(opts)
         add_deps(table.unpack(dep_targets))
     end
     on_config(function ()
-        write_placeholder_file(config.fallback_compdb_file, "[]\n", os, io)
-        if kind == "textual" then
-            materialize_textual_mock_placeholders(config, defs, target_id, os, io)
-        else
-            materialize_module_mock_placeholders(config, defs, target_id, os, io)
+        ensure_fallback_compdb(config.fallback_compdb_file, os, io)
+        ensure_materialized_public_modules(config.public_module_entries, os)
+        if config.aggregate_source then
+            ensure_textual_mock_aggregate(config.aggregate_source, defs, os, io)
         end
     end)
     on_load(function (target)
@@ -1492,30 +1400,9 @@ function gentest_add_mocks(opts)
             append_unique(include_dirs, seen_registered_includes, include_dir)
         end
     end)
-    before_buildcmd(function (target, batchcmds)
+    before_preparecmd(function (target, batchcmds)
         if kind == "modules" then
             require_clang_module_toolchain(target, "gentest_add_mocks")
-        end
-        batch_render_template(batchcmds, "anchor.cpp.in", anchor_cpp, {
-            ANCHOR_SYMBOL = anchor_symbol_name(target_id),
-        })
-        batch_render_template(batchcmds, "header.hpp.in", mock_registry_h, {})
-        batch_render_template(batchcmds, "header.hpp.in", mock_impl_h, {})
-        if kind == "textual" then
-            batch_render_template(batchcmds, "textual_mock_defs.cpp.in", defs_cpp, {
-                DEFS_INCLUDES = include_lines(defs_cpp, defs),
-                HEADER_FILENAME = path.filename(codegen_h),
-            })
-            batch_render_template(batchcmds, "textual_mock_public.hpp.in", public_header, {
-                DEFS_INCLUDES = include_lines(public_header, defs),
-                MOCK_REGISTRY_FILENAME = path.filename(mock_registry_h),
-                MOCK_IMPL_FILENAME = path.filename(mock_impl_h),
-            })
-        else
-            batch_render_template(batchcmds, "module_public.cppm.in", public_module, {
-                MODULE_NAME = config.module_name,
-                EXPORTED_IMPORTS = export_import_lines(config.defs_modules),
-            })
         end
         local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
         config.extra_includes = collect_target_package_include_dirs(target)
@@ -1540,7 +1427,6 @@ function gentest_add_mocks(opts)
         config.dep_module_sources = dep_module_sources
         if not compdb_dir then
             compdb_dir = config.fallback_compdb_dir
-            batch_write_literal_file(batchcmds, config.fallback_compdb_file, "[]")
         end
         run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     end)
@@ -1657,16 +1543,14 @@ function gentest_attach_codegen(opts)
     if main_source then
         add_files(main_source, {always_added = true})
     end
+    add_headerfiles(config.header_output, {always_added = true})
+    add_extrafiles(config.artifact_manifest, config.depfile, {always_added = true})
     if #dep_targets > 0 then
         add_deps(table.unpack(dep_targets))
     end
     on_config(function ()
-        write_placeholder_file(config.fallback_compdb_file, "[]\n", os, io)
-        if kind == "textual" then
-            materialize_textual_suite_placeholders(config, source, os, io)
-        else
-            materialize_module_suite_placeholders(config, os, io)
-        end
+        ensure_fallback_compdb(config.fallback_compdb_file, os, io)
+        ensure_materialized_public_modules(config.public_module_entries, os)
     end)
     on_load(function (target)
         local dep_include_dirs = resolve_dep_inputs(config.deps)
@@ -1678,17 +1562,9 @@ function gentest_attach_codegen(opts)
             target:add("includedirs", include_dir)
         end
     end)
-    before_buildcmd(function (target, batchcmds)
+    before_preparecmd(function (target, batchcmds)
         if kind == "modules" then
             require_clang_module_toolchain(target, "gentest_attach_codegen")
-        end
-        if kind == "textual" then
-            batch_render_template(batchcmds, "suite_wrapper.cpp.in", wrapper_cpp, {
-                SOURCE_INCLUDE = relative_include(wrapper_cpp, source),
-                HEADER_FILENAME = path.filename(wrapper_h),
-            })
-        else
-            batch_render_template(batchcmds, "header.hpp.in", wrapper_h, {})
         end
         local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
         local dep_include_dirs = resolve_dep_inputs(config.deps)
@@ -1706,7 +1582,6 @@ function gentest_attach_codegen(opts)
         config.dep_module_sources = dep_module_sources
         if not compdb_dir then
             compdb_dir = config.fallback_compdb_dir
-            batch_write_literal_file(batchcmds, config.fallback_compdb_file, "[]")
         end
         run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     end)

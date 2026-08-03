@@ -1,8 +1,33 @@
 module;
 
 #include <coroutine>
+#include <fmt/format.h>
+#include <ostream>
 #include <stop_token>
+#include <string_view>
 #include <type_traits>
+
+namespace public_module_surface_support {
+
+struct FmtOnlyValue {
+    int value;
+};
+
+struct StreamOnlyValue {
+    int value;
+};
+
+std::ostream &operator<<(std::ostream &stream, const StreamOnlyValue &value) {
+    return stream << "module-stream-value(" << value.value << ')';
+}
+
+} // namespace public_module_surface_support
+
+template <> struct fmt::formatter<public_module_surface_support::FmtOnlyValue> : fmt::formatter<std::string_view> {
+    auto format(const public_module_surface_support::FmtOnlyValue &value, fmt::format_context &ctx) const {
+        return fmt::format_to(ctx.out(), "module-fmt-value({})", value.value);
+    }
+};
 
 export module public_module_surface.cases;
 
@@ -16,6 +41,12 @@ export namespace public_module_surface {
 [[using gentest: test("expect_true")]]
 void expect_true_case() {
     gentest::expect_true(true);
+}
+
+[[using gentest: test("format_value")]]
+void format_value_case() {
+    gentest::expect_eq(gentest::format_value(public_module_surface_support::FmtOnlyValue{42}), "module-fmt-value(42)");
+    gentest::expect_eq(gentest::format_value(public_module_surface_support::StreamOnlyValue{7}), "module-stream-value(7)");
 }
 
 [[using gentest: test("async_yield")]]

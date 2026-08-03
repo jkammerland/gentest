@@ -9,6 +9,9 @@ Public named modules:
 - `import gentest.mock;`
 - `import gentest.bench_util;`
 
+`import gentest;` also exports `gentest::format_value`; see [Formatting values](value_formatting.md) for its diagnostic-compatible
+fallback order.
+
 Supported module-authored test flows:
 - tests, benches, and jitters in named modules
 - suite/global fixtures declared in named modules
@@ -63,7 +66,9 @@ gentest_attach_codegen(my_tests
   OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen")
 gentest_discover_tests(my_tests)
 
-# MODULE_REGISTRATION mode requires a single-config generator such as Ninja.
+# MODULE_REGISTRATION supports both single-config and multi-config generators.
+# With multi-config generators, generated artifacts are emitted under a
+# configuration subdirectory of `OUTPUT_DIR` (for example `OUTPUT_DIR/Debug`).
 ```
 
 If you do not provide your own `main()`, link `gentest::gentest_main` instead of `gentest::gentest_runtime`.

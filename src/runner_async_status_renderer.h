@@ -1,8 +1,11 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
+#include <functional>
 #include <iosfwd>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -45,6 +48,11 @@ struct AsyncTerminalSizeOverride {
 
 class AsyncStatusRenderer {
   public:
+    using MonotonicClock = std::chrono::steady_clock;
+    using MonotonicNow   = std::function<MonotonicClock::time_point()>;
+
+    inline static constexpr auto kTerminalRefreshInterval = std::chrono::milliseconds{40};
+
     enum class Mode {
         Disabled,
         Virtual,
@@ -52,7 +60,7 @@ class AsyncStatusRenderer {
     };
 
     AsyncStatusRenderer(std::ostream &out, Mode mode, bool color_output, AsyncTerminalSizeOverride size_override = {},
-                        std::size_t log_tail_limit = 5);
+                        std::size_t log_tail_limit = 5, MonotonicNow monotonic_now = {});
     AsyncStatusRenderer(const AsyncStatusRenderer &)            = delete;
     AsyncStatusRenderer &operator=(const AsyncStatusRenderer &) = delete;
     ~AsyncStatusRenderer();
@@ -70,6 +78,8 @@ class AsyncStatusRenderer {
     void               update_logs(std::size_t id, std::span<const std::string> recent_logs, std::size_t log_count);
     void               log(std::string_view message);
     void               result_line(std::string_view message);
+    [[nodiscard]] auto next_refresh_deadline() const -> std::optional<MonotonicClock::time_point>;
+    void               refresh_if_due();
     void               finish();
 
     [[nodiscard]] auto ordered_rows_for_test() const -> std::vector<AsyncLiveRowSnapshot>;
@@ -85,6 +95,10 @@ class AsyncStatusRenderer {
     std::size_t                       width_override_  = 0;
     std::size_t                       height_override_ = 0;
     std::size_t                       log_tail_limit_  = 5;
+    MonotonicNow                      monotonic_now_;
+    MonotonicClock::time_point        last_terminal_refresh_{};
+    bool                              has_terminal_refresh_     = false;
+    bool                              terminal_refresh_pending_ = false;
     mutable std::mutex                mtx_;
     std::vector<AsyncLiveRowSnapshot> rows_;
     std::vector<std::string>          completed_lines_;
@@ -99,7 +113,7 @@ class AsyncStatusRenderer {
     [[nodiscard]] auto location_parts(std::string_view file, unsigned line) -> LocationParts;
     [[nodiscard]] auto ordered_rows_unlocked() const -> std::vector<AsyncLiveRowSnapshot>;
     [[nodiscard]] auto active_lines_for_render(bool hyperlink_locations) const -> std::vector<std::string>;
-    void               render();
+    void               render(bool force_refresh = false);
     void               erase_terminal_block();
     void               draw_terminal_block(const std::vector<std::string> &lines);
     void               redraw_terminal(std::string_view message, bool has_message, bool sanitize_message);

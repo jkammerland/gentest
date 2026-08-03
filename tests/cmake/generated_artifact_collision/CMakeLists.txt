@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.31)
+project(gentest_generated_artifact_collision_fixture LANGUAGES CXX)
+
+add_library(generated_artifact_collision_obj OBJECT case.cpp)
+target_compile_features(generated_artifact_collision_obj PRIVATE cxx_std_20)

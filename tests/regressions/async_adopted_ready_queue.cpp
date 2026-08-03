@@ -116,7 +116,10 @@ auto condition_variable_worker_observes_stop() -> gentest::async_test<void> {
         auto lease = gentest::set_current_context(context);
         auto stop  = context.stop_token();
 
-        std::stop_callback wake_on_stop(stop, [&] { state->cv.notify_all(); });
+        std::stop_callback wake_on_stop(stop, [&] {
+            std::lock_guard lk(state->mtx);
+            state->cv.notify_all();
+        });
 
         started->set_value();
         std::unique_lock lk(state->mtx);

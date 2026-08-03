@@ -565,9 +565,14 @@ function(gentest_discover_tests target)
     endif()
     set_property(TARGET ${target} PROPERTY GENTEST_DISCOVERED_TEST_COUNTER ${_gentest_counter})
 
+    get_property(_gentest_is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
     set(_gentest_ctest_file_base "${CMAKE_CURRENT_BINARY_DIR}/${target}[${_gentest_counter}]")
     set(_gentest_ctest_include_file "${_gentest_ctest_file_base}_include.cmake")
-    set(_gentest_ctest_tests_file "${_gentest_ctest_file_base}_tests.cmake")
+    if(_gentest_is_multi_config)
+        set(_gentest_ctest_tests_file "${_gentest_ctest_file_base}_tests-$<CONFIG>.cmake")
+    else()
+        set(_gentest_ctest_tests_file "${_gentest_ctest_file_base}_tests.cmake")
+    endif()
 
     get_property(_gentest_test_launcher TARGET ${target} PROPERTY TEST_LAUNCHER)
     get_property(_gentest_crosscompiling_emulator TARGET ${target} PROPERTY CROSSCOMPILING_EMULATOR)
@@ -605,19 +610,24 @@ function(gentest_discover_tests target)
             VERBATIM
         )
 
-        file(WRITE "${_gentest_ctest_include_file}"
-            "if(EXISTS \"${_gentest_ctest_tests_file}\")\n"
-            "  include(\"${_gentest_ctest_tests_file}\")\n"
-            "else()\n"
-            "  add_test(${target}_NOT_BUILT ${target}_NOT_BUILT)\n"
-            "endif()\n"
-        )
-    elseif(GENTEST_DISCOVERY_MODE STREQUAL "PRE_TEST")
-        get_property(_gentest_is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
         if(_gentest_is_multi_config)
-            set(_gentest_ctest_tests_file "${_gentest_ctest_file_base}_tests-$<CONFIG>.cmake")
+            file(WRITE "${_gentest_ctest_include_file}"
+                "set(_gentest_config_tests_file \"${_gentest_ctest_file_base}_tests-\${CTEST_CONFIGURATION_TYPE}.cmake\")\n"
+                "if(EXISTS \"\${_gentest_config_tests_file}\")\n"
+                "  include(\"\${_gentest_config_tests_file}\")\n"
+                "else()\n"
+                "  add_test(${target}_NOT_BUILT ${target}_NOT_BUILT)\n"
+                "endif()\n"
+                "unset(_gentest_config_tests_file)\n")
+        else()
+            file(WRITE "${_gentest_ctest_include_file}"
+                "if(EXISTS \"${_gentest_ctest_tests_file}\")\n"
+                "  include(\"${_gentest_ctest_tests_file}\")\n"
+                "else()\n"
+                "  add_test(${target}_NOT_BUILT ${target}_NOT_BUILT)\n"
+                "endif()\n")
         endif()
-
+    elseif(GENTEST_DISCOVERY_MODE STREQUAL "PRE_TEST")
         string(CONCAT _gentest_ctest_include_content
             "if(EXISTS \"$<TARGET_FILE:${target}>\")" "\n"
             "  if(NOT EXISTS \"${_gentest_ctest_tests_file}\" OR" "\n"

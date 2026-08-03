@@ -5,6 +5,7 @@ name: buildsystems-linux
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,7 +20,50 @@ env:
   XMAKE_VERSION: "3.0.8"
 
 jobs:
+  plan:
+    name: Buildsystems • plan
+    runs-on: ubuntu-24.04
+    outputs:
+      run_bazel: ${{ steps.plan.outputs.run_bazel }}
+      run_meson: ${{ steps.plan.outputs.run_meson }}
+      run_xmake: ${{ steps.plan.outputs.run_xmake }}
+    steps:
+      - name: Checkout planner and history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute CI plan
+        id: plan
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_REF: ${{ github.ref }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          ci_plan_script="scripts/ci_plan.py"
+          if [ "${CI_EVENT_NAME}" = "pull_request" ]; then
+            ci_plan_script="${RUNNER_TEMP}/ci_plan.py"
+            if ! git show "${CI_BASE_SHA}:scripts/ci_plan.py" > "${ci_plan_script}"; then
+              ci_plan_script=""
+            fi
+          fi
+          if [ -z "${ci_plan_script}" ] || ! python3 "${ci_plan_script}" \
+            --event "${CI_EVENT_NAME}" \
+            --ref "${CI_REF}" \
+            --base "${CI_BASE_SHA}" \
+            --head "${CI_HEAD_SHA}" \
+            --github-output "${GITHUB_OUTPUT}"
+          then
+            echo "CI planner failed; enabling all lanes." >&2
+            for lane in cmake lint coverage cross_qemu bazel meson xmake; do
+              printf 'run_%s=true\n' "${lane}" >> "${GITHUB_OUTPUT}"
+            done
+          fi
+
   bazel:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_bazel == 'true' }}
     name: Bazel • ${{ matrix.name }}
     runs-on: ubuntu-24.04
     container: ${{ matrix.container }}
@@ -249,6 +293,8 @@ jobs:
             -P "${GITHUB_WORKSPACE}/tests/cmake/scripts/CheckBazelBzlmodConsumer.cmake"
 
   meson:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_meson == 'true' }}
     name: Meson • ${{ matrix.name }}
     runs-on: ubuntu-24.04
     container: ${{ matrix.container }}
@@ -311,6 +357,8 @@ jobs:
             -P "${GITHUB_WORKSPACE}/tests/cmake/scripts/CheckMesonWrapConsumer.cmake"
 
   xmake:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_xmake == 'true' }}
     name: Xmake • ${{ matrix.name }}
     runs-on: ubuntu-24.04
     container: ${{ matrix.container }}

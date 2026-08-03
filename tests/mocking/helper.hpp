@@ -17,8 +17,7 @@ namespace mocking::helpers {
     return 0;
 }
 
-// Ensure ODR-use so compilers don't discard the function body.
-// NOLINTNEXTLINE(cert-err58-cpp)
-[[maybe_unused]] static int _ = compile_only_usage();
+// Keep a compile-time reference without adding a potentially throwing static initializer.
+[[maybe_unused]] inline constexpr auto compile_only_usage_anchor = &compile_only_usage;
 
 } // namespace mocking::helpers

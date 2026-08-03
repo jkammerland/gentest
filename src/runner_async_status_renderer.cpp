@@ -498,9 +498,12 @@ auto async_live_status_color_name(AsyncLiveStatus status) -> std::string_view {
 }
 
 AsyncStatusRenderer::AsyncStatusRenderer(std::ostream &out, Mode mode, bool color_output, AsyncTerminalSizeOverride size_override,
-                                         std::size_t log_tail_limit)
+                                         std::size_t log_tail_limit, MonotonicNow monotonic_now)
     : out_(&out), mode_(mode), color_output_(color_output && mode != Mode::Disabled), width_override_(size_override.width),
-      height_override_(size_override.height), log_tail_limit_(log_tail_limit) {
+      height_override_(size_override.height), log_tail_limit_(log_tail_limit), monotonic_now_(std::move(monotonic_now)) {
+    if (!monotonic_now_) {
+        monotonic_now_ = [] { return MonotonicClock::now(); };
+    }
     if (mode_ == Mode::Terminal) {
         *out_ << "\033[?25l" << std::flush;
     }
@@ -611,7 +614,7 @@ auto AsyncStatusRenderer::mark_final(std::size_t id, AsyncLiveStatus status, std
     row->final        = true;
     completed_lines_.push_back(format_row(*row, color_output_, false, output_width()));
     auto line = completed_lines_.back();
-    render();
+    render(true);
     return line;
 }
 
@@ -643,6 +646,22 @@ void AsyncStatusRenderer::result_line(std::string_view message) {
         return;
     }
     redraw_terminal(message, true, false);
+}
+
+auto AsyncStatusRenderer::next_refresh_deadline() const -> std::optional<MonotonicClock::time_point> {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_ || mode_ != Mode::Terminal || !terminal_refresh_pending_ || !has_terminal_refresh_) {
+        return std::nullopt;
+    }
+    return last_terminal_refresh_ + kTerminalRefreshInterval;
+}
+
+void AsyncStatusRenderer::refresh_if_due() {
+    std::lock_guard<std::mutex> lk(mtx_);
+    if (!enabled() || finished_ || mode_ != Mode::Terminal || !terminal_refresh_pending_) {
+        return;
+    }
+    render();
 }
 
 void AsyncStatusRenderer::finish() {
@@ -786,11 +805,16 @@ auto AsyncStatusRenderer::active_lines_for_render(bool hyperlink_locations) cons
     return lines;
 }
 
-void AsyncStatusRenderer::render() {
+void AsyncStatusRenderer::render(bool force_refresh) {
     if (!enabled() || mode_ != Mode::Terminal) {
         return;
     }
+    if (!force_refresh && has_terminal_refresh_ && monotonic_now_() - last_terminal_refresh_ < kTerminalRefreshInterval) {
+        terminal_refresh_pending_ = true;
+        return;
+    }
     redraw_terminal({}, false, true);
+    terminal_refresh_pending_ = false;
 }
 
 void AsyncStatusRenderer::erase_terminal_block() {
@@ -842,6 +866,9 @@ void AsyncStatusRenderer::redraw_terminal(std::string_view message, bool has_mes
     }
     draw_terminal_block(lines);
     out_->flush();
+    last_terminal_refresh_    = monotonic_now_();
+    has_terminal_refresh_     = true;
+    terminal_refresh_pending_ = false;
 }
 
 void AsyncStatusRenderer::restore_terminal() {

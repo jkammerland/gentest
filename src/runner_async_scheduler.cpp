@@ -256,7 +256,13 @@ void BatchAsyncScheduler::wait_for_ready_or_adopted_release(const StopCallback &
         if (stop_or_progress_locked()) {
             break;
         }
-        wake_deadline            = core_.next_timer_deadline();
+        wake_deadline = core_.next_timer_deadline();
+        if (renderer_) {
+            if (const auto renderer_deadline = renderer_->next_refresh_deadline();
+                renderer_deadline && (!wake_deadline || *renderer_deadline < *wake_deadline)) {
+                wake_deadline = renderer_deadline;
+            }
+        }
         const auto wake_observed = [&] { return adopted_release_wake_->generation != wake_generation; };
         if (wake_deadline) {
             (void)adopted_release_wake_->cv.wait_until(wake_lk, *wake_deadline, wake_observed);
@@ -264,6 +270,9 @@ void BatchAsyncScheduler::wait_for_ready_or_adopted_release(const StopCallback &
             adopted_release_wake_->cv.wait(wake_lk, wake_observed);
         }
         break;
+    }
+    if (renderer_) {
+        renderer_->refresh_if_due();
     }
     core_.post_due_timers();
 }

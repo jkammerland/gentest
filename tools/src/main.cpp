@@ -76,6 +76,8 @@ using gentest::codegen::MockUsageCollector;
 using gentest::codegen::ModuleDependencyScanMode;
 using gentest::codegen::register_mock_matchers;
 using gentest::codegen::resolve_free_fixtures;
+using gentest::codegen::SourceDeclMatcher;
+using gentest::codegen::SourceTraversalPolicy;
 using gentest::codegen::TestCaseCollector;
 using gentest::codegen::TestCaseInfo;
 
@@ -425,7 +427,7 @@ ModuleSourceShape inspect_module_source_shape(const std::filesystem::path       
 
 void append_depfile_escaped(std::string &out, std::string_view path) {
     for (const char ch : path) {
-        if (ch == ' ' || ch == '#' || ch == '$' || ch == ':') {
+        if (ch == ' ' || ch == '\t' || ch == '#' || ch == '$' || ch == ':' || ch == '\\') {
             out.push_back('\\');
         }
         out.push_back(ch);
@@ -1463,81 +1465,35 @@ class DependencyRecorder final : public clang::PPCallbacks {
     std::vector<std::string> &dependencies_;
 };
 
-bool should_traverse_decl_in_codegen_scope(const clang::Decl &decl, const clang::SourceManager &sm, bool allow_includes,
-                                           bool allow_mock_includes) {
-    clang::SourceLocation loc = decl.getBeginLoc();
-    if (loc.isInvalid()) {
-        loc = decl.getLocation();
-    }
-    if (loc.isInvalid()) {
-        return false;
-    }
-    if (loc.isMacroID()) {
-        loc = sm.getExpansionLoc(loc);
-    }
-    if (loc.isInvalid()) {
-        return false;
-    }
-    // Codegen only needs declarations from the source being scanned and its
-    // textual includes. Imported PCM declarations can drag in Clang-owned
-    // function bodies that are irrelevant here and noisy under sanitizers.
-    if (decl.isFromASTFile() || decl.isInAnotherModuleUnit()) {
-        return false;
-    }
-    if (sm.isInSystemHeader(loc) || sm.isWrittenInBuiltinFile(loc)) {
-        return false;
-    }
-    if (sm.isWrittenInMainFile(loc)) {
-        return true;
-    }
-    if (!allow_includes) {
-        if (llvm::isa<clang::NamespaceDecl>(decl) || llvm::isa<clang::CXXRecordDecl>(decl)) {
-            return true;
-        }
-        if (allow_mock_includes && llvm::isa<clang::TypedefNameDecl>(decl)) {
-            return true;
-        }
-        return false;
-    }
-    return true;
-}
-
-std::vector<clang::Decl *> build_codegen_traversal_scope(clang::ASTContext &context, bool allow_includes, bool allow_mock_includes) {
-    std::vector<clang::Decl *> scope;
-    auto                      *tu = context.getTranslationUnitDecl();
-    auto                      &sm = context.getSourceManager();
-    for (clang::Decl *decl : tu->decls()) {
-        if (decl != nullptr && should_traverse_decl_in_codegen_scope(*decl, sm, allow_includes, allow_mock_includes)) {
-            scope.push_back(decl);
-        }
-    }
-    return scope;
-}
-
 class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
-    // MatchFinder::matchAST() traverses the full translation-unit graph,
-    // including imported modules. Limit the ASTContext traversal scope before
-    // delegating to MatchFinder so we keep its normal matcher semantics without
-    // deserializing imported PCM implementation bodies.
   public:
-    ScopedTraversalASTConsumer(std::unique_ptr<clang::ASTConsumer> inner, bool allow_includes, bool allow_mock_includes)
-        : inner_(std::move(inner)), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes) {}
-
-    void Initialize(clang::ASTContext &context) override { inner_->Initialize(context); }
-
-    bool HandleTopLevelDecl(clang::DeclGroupRef decl_group) override { return inner_->HandleTopLevelDecl(decl_group); }
+    ScopedTraversalASTConsumer(clang::ast_matchers::MatchFinder &finder, SourceTraversalPolicy policy) : finder_(finder), policy_(policy) {}
 
     void HandleTranslationUnit(clang::ASTContext &context) override {
-        const auto scope = build_codegen_traversal_scope(context, allow_includes_, allow_mock_includes_);
-        context.setTraversalScope(scope);
-        inner_->HandleTranslationUnit(context);
+        SourceDeclMatcher matcher{finder_, context, policy_};
+        for (clang::Decl *decl : context.getTranslationUnitDecl()->decls()) {
+            matcher.match(decl);
+        }
     }
 
   private:
-    std::unique_ptr<clang::ASTConsumer> inner_;
-    bool                                allow_includes_      = false;
-    bool                                allow_mock_includes_ = false;
+    clang::ast_matchers::MatchFinder &finder_;
+    SourceTraversalPolicy             policy_;
 };
+
+void register_codegen_matchers(MatchFinder &finder, TestCaseCollector &test_collector, FixtureDeclCollector &fixture_collector,
+                               MockUsageCollector *mock_collector, bool discover_tests) {
+    if (discover_tests) {
+        finder.addMatcher(traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
+                          &test_collector);
+        finder.addMatcher(
+            traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
+            &fixture_collector);
+    }
+    if (mock_collector != nullptr) {
+        register_mock_matchers(finder, *mock_collector);
+    }
+}
 
 class MatchFinderAction final : public clang::ASTFrontendAction {
   public:
@@ -1556,7 +1512,8 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
         if (!normalized.empty()) {
             dependencies_.push_back(normalized);
         }
-        return std::make_unique<ScopedTraversalASTConsumer>(finder_.newASTConsumer(), allow_includes_, allow_mock_includes_);
+        return std::make_unique<ScopedTraversalASTConsumer>(
+            finder_, SourceTraversalPolicy{.allow_includes = allow_includes_, .allow_mock_includes = allow_mock_includes_});
     }
 
   private:
@@ -2007,7 +1964,10 @@ bool source_contains_codegen_markers(const std::filesystem::path &path) {
     bool        in_block_comment = false;
     while (std::getline(in, line)) {
         const auto stripped = strip_comments_for_line_scan(line, in_block_comment);
-        if (stripped.find("[[using gentest:") != std::string::npos || stripped.find("[[gentest::") != std::string::npos ||
+        // This only decides whether a wrapped main.cpp can be skipped.  It
+        // must err on the side of parsing: standard attributes permit
+        // whitespace around both `using` and the namespace separator.
+        if ((stripped.find("[[") != std::string::npos && stripped.find("gentest") != std::string::npos) ||
             stripped.find("GENTEST_MOCK") != std::string::npos || stripped.find("gentest::mock") != std::string::npos) {
             return true;
         }
@@ -4032,6 +3992,11 @@ int main(int argc, const char **argv) {
             gentest::codegen::log_err("gentest_codegen: {}\n", mock_domain_error);
             return 1;
         }
+        std::string generated_artifact_error;
+        if (!gentest::codegen::validate_generated_artifact_outputs(emit_options, generated_artifact_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", generated_artifact_error);
+            return 1;
+        }
         if (options.check_only) {
             return 0;
         }
@@ -5450,17 +5415,8 @@ int main(int argc, const char **argv) {
             std::vector<std::string> local_dependencies;
 
             MatchFinder finder;
-            if (!mock_manifest_discovery_only) {
-                finder.addMatcher(
-                    traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
-                    &collector);
-                finder.addMatcher(
-                    traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
-                    &fixture_collector);
-            }
-            if (mock_collector.has_value()) {
-                register_mock_matchers(finder, *mock_collector);
-            }
+            register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
+                                      !mock_manifest_discovery_only);
             MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes, options.discover_mocks,
                                                     skip_function_bodies};
 
@@ -5550,17 +5506,8 @@ int main(int argc, const char **argv) {
         std::vector<std::string> depfile_dependencies_local;
 
         MatchFinder finder;
-        if (!mock_manifest_discovery_only) {
-            finder.addMatcher(
-                traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
-                &collector);
-            finder.addMatcher(
-                traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
-                &fixture_collector);
-        }
-        if (mock_collector.has_value()) {
-            register_mock_matchers(finder, *mock_collector);
-        }
+        register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
+                                  !mock_manifest_discovery_only);
         MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes, options.discover_mocks,
                                                 skip_function_bodies};
 
@@ -5624,6 +5571,11 @@ int main(int argc, const char **argv) {
     std::string mock_domain_error;
     if (!gentest::codegen::validate_mock_output_domains(final_options, mock_domain_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", mock_domain_error);
+        return 1;
+    }
+    std::string generated_artifact_error;
+    if (!gentest::codegen::validate_generated_artifact_outputs(final_options, generated_artifact_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", generated_artifact_error);
         return 1;
     }
     if (!options.mock_registration_manifest_path.empty()) {

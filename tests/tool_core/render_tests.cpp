@@ -49,6 +49,11 @@ int main() {
                "generated light preamble checks the Case API version");
     t.contains(gentest::codegen::tpl::registration_preamble_full, "GENTEST_CASE_API_VERSION",
                "generated full preamble checks the Case API version");
+    t.contains(gentest::codegen::tpl::registration_preamble_light, "GENTEST_CASE_API_HAS_OWNER",
+               "generated light preamble checks the Case owner capability");
+    t.contains(gentest::codegen::tpl::registration_preamble_full, "GENTEST_CASE_API_HAS_OWNER",
+               "generated full preamble checks the Case owner capability");
+    t.contains(gentest::codegen::tpl::case_entry, ".owner = {owner}", "generated Case initializer includes structured owner metadata");
 
     {
         std::vector<TestCaseInfo> cases(2);
@@ -86,21 +91,24 @@ int main() {
         cases[1].fixture_qualified_name = "fixtures::Shared";
         cases[1].fixture_lifetime       = FixtureLifetime::MemberSuite;
         cases[1].suite_name             = "bench/suite";
+        cases[1].owner                  = "team \"qa\"";
 
         const std::string rendered = render_case_entries(
             cases, {"kTags_0", "kTags_1"}, {"kReqs_0", "kReqs_1"},
             "N={name}|W={wrapper}|F={file}|L={line}|B={is_bench}|J={is_jitter}|BASE={is_baseline}|T={tags}|R={reqs}|SK={skip_reason}"
-            "|SS={should_skip}|FX={fixture}|LT={lifetime}|SU={suite}|IPC={items_per_call}\n");
+            "|SS={should_skip}|FX={fixture}|LT={lifetime}|SU={suite}|IPC={items_per_call}|O={owner}\n");
         t.contains(rendered, "N=suite/plain|W=::kCaseInvoke_0|F=plain.cpp|L=17|B=false|J=false|BASE=false",
                    "render_case_entries renders plain case");
-        t.contains(rendered, "SK=std::string_view{}|SS=false|FX=std::string_view{}|LT=gentest::FixtureLifetime::None|SU=\"suite\"|IPC=1ULL",
+        t.contains(rendered,
+                   "SK=std::string_view{}|SS=false|FX=std::string_view{}|LT=gentest::FixtureLifetime::None|SU=\"suite\"|IPC=1ULL|O="
+                   "std::string_view{}",
                    "render_case_entries renders empty skip and fixture fields");
         t.contains(rendered, "N=bench/case|W=::kCaseInvoke_1|F=bench.cpp|L=23|B=true|J=true|BASE=true",
                    "render_case_entries renders measured flags");
         t.contains(
             rendered,
-            R"(SK="why \"quoted\""|SS=true|FX="fixtures::Shared"|LT=gentest::FixtureLifetime::MemberSuite|SU="bench/suite"|IPC=64ULL)",
-            "render_case_entries escapes skip reason, fixture name, and item count");
+            R"(SK="why \"quoted\""|SS=true|FX="fixtures::Shared"|LT=gentest::FixtureLifetime::MemberSuite|SU="bench/suite"|IPC=64ULL|O="team \"qa\"")",
+            "render_case_entries escapes skip reason and owner while rendering fixture and item-count metadata");
     }
 
     {

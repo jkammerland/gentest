@@ -75,6 +75,7 @@ function(gentest_add_suite suite)
 
     if(NOT GENTEST_NO_CTEST)
         add_test(NAME ${suite} COMMAND ${GENTEST_TARGET})
+        set_tests_properties(${suite} PROPERTIES LABELS "suite-${suite};default-suite")
     endif()
 endfunction()
 

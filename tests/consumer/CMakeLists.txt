@@ -67,3 +67,9 @@ endif()
 
 gentest_attach_codegen(gentest_consumer
     OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen)
+
+get_target_property(_gentest_consumer_codegen_target gentest_consumer GENTEST_CODEGEN_DEP_TARGET)
+if(NOT _gentest_consumer_codegen_target OR _gentest_consumer_codegen_target MATCHES "-NOTFOUND$")
+    message(FATAL_ERROR "gentest_consumer is missing its GENTEST_CODEGEN_DEP_TARGET property")
+endif()
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen_target.txt" "${_gentest_consumer_codegen_target}\n")

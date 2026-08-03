@@ -662,8 +662,9 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                     report(fmt::format("duplicate '{}' attribute", lowered));
                     continue;
                 }
-                saw_case   = true;
-                seen_owner = attr.arguments.front();
+                saw_case      = true;
+                seen_owner    = attr.arguments.front();
+                summary.owner = attr.arguments.front();
                 add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
             }
         }

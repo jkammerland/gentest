@@ -29,3 +29,22 @@ gentest_attach_codegen(dep_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
     CLANG_ARGS
         -I${CMAKE_CURRENT_SOURCE_DIR})
+
+get_target_property(_dep_mocks_codegen_id dep_mocks GENTEST_CODEGEN_TARGET_ID)
+get_target_property(_dep_mocks_codegen_target dep_mocks GENTEST_CODEGEN_DEP_TARGET)
+get_target_property(_dep_tests_codegen_id dep_tests GENTEST_CODEGEN_TARGET_ID)
+get_target_property(_dep_tests_codegen_target dep_tests GENTEST_CODEGEN_DEP_TARGET)
+foreach(_required_value IN ITEMS
+    _dep_mocks_codegen_id
+    _dep_mocks_codegen_target
+    _dep_tests_codegen_id
+    _dep_tests_codegen_target)
+    if(NOT ${_required_value} OR "${${_required_value}}" MATCHES "-NOTFOUND$")
+        message(FATAL_ERROR "Missing propagated gentest codegen property: ${_required_value}")
+    endif()
+endforeach()
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen_targets.cmake"
+    "set(DEP_MOCKS_CODEGEN_ID [==[${_dep_mocks_codegen_id}]==])\n"
+    "set(DEP_MOCKS_CODEGEN_TARGET [==[${_dep_mocks_codegen_target}]==])\n"
+    "set(DEP_TESTS_CODEGEN_ID [==[${_dep_tests_codegen_id}]==])\n"
+    "set(DEP_TESTS_CODEGEN_TARGET [==[${_dep_tests_codegen_target}]==])\n")

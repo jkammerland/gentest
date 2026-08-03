@@ -11,6 +11,7 @@ enum class Mode {
     Help,
     ListTests,
     ListMeta,
+    ListJson,
     ListDeath,
     ListBenches,
 };

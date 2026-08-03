@@ -62,11 +62,12 @@ elseif(TEST_CASE STREQUAL "escaped_header_name")
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
         HEADER_NAME "../escape.hpp")
 elseif(TEST_CASE STREQUAL "reserved_header_name")
+    _gentest_make_codegen_target_id("explicit_validation_reserved_header" _reserved_header_target_id)
     gentest_add_mocks(explicit_validation_reserved_header
         DEFS
             ${CMAKE_CURRENT_SOURCE_DIR}/defs_a.hpp
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
-        HEADER_NAME "explicit_validation_reserved_header_mock_impl.hpp")
+        HEADER_NAME "${_reserved_header_target_id}_mock_impl.hpp")
 elseif(TEST_CASE STREQUAL "generator_expression_defs")
     gentest_add_mocks(explicit_validation_genex_defs
         DEFS

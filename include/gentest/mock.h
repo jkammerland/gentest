@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gentest/format_value.h"
 #include "gentest/mock_fwd.h"
 #include "gentest/runner.h"
 
@@ -14,8 +15,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <ostream>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -85,14 +84,9 @@ struct ExpectationBase {
 
 template <typename Signature> struct Expectation;
 
-template <typename T>
-concept Ostreamable = requires(std::ostream &os, const T &v) { os << v; };
-
 template <typename T> inline std::string to_string_fallback(const T &v) {
-    if constexpr (Ostreamable<T>) {
-        std::ostringstream oss;
-        oss << v;
-        return oss.str();
+    if constexpr (::gentest::detail::ValueFormattable<T>) {
+        return ::gentest::detail::format_printable_value(v, false);
     } else {
         return std::string(typeid(T).name());
     }

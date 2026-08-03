@@ -267,6 +267,7 @@ endif()
 
 foreach(_expected_glob IN ITEMS
     "${_generated_glob_root}/consumer_textual_mocks/gentest_consumer_mocks.hpp"
+    "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_defs_input.cpp"
     "${_generated_glob_root}/consumer_textual_mocks/tu_0000_consumer_textual_mocks_defs.gentest.h"
     "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_mock_registry.hpp"
     "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_mock_impl.hpp"
@@ -283,6 +284,22 @@ foreach(_expected_glob IN ITEMS
       "stderr:\n${_build_err}")
   endif()
 endforeach()
+
+file(GLOB _public_header_matches LIST_DIRECTORIES FALSE
+  "${_generated_glob_root}/consumer_textual_mocks/gentest_consumer_mocks.hpp")
+list(GET _public_header_matches 0 _public_header)
+file(READ "${_public_header}" _public_header_contents)
+if(NOT _public_header_contents MATCHES "consumer_textual_mocks_defs_input\\.cpp")
+  message(FATAL_ERROR "The textual mock public header did not include the aggregate definitions source.\n${_public_header_contents}")
+endif()
+
+file(GLOB _mock_impl_matches LIST_DIRECTORIES FALSE
+  "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_mock_impl__domain_0000_header.hpp")
+list(GET _mock_impl_matches 0 _mock_impl)
+file(READ "${_mock_impl}" _mock_impl_contents)
+if(NOT _mock_impl_contents MATCHES "AdditionalService")
+  message(FATAL_ERROR "The second textual mock definitions file was not processed by codegen.\n${_mock_impl_contents}")
+endif()
 
 file(GLOB_RECURSE _consumer_bins
   LIST_DIRECTORIES FALSE

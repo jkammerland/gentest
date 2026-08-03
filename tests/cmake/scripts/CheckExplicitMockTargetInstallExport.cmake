@@ -22,6 +22,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${GENTEST_SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
 
 if(GENERATOR MATCHES "Ninja Multi-Config|Visual Studio|Xcode")
   gentest_skip_test("explicit mock target install/export regression: explicit mock targets currently require a single-config generator")
@@ -175,9 +176,14 @@ if(NOT EXISTS "${_installed_module_aggregate}")
 endif()
 
 file(GLOB _installed_root_headers "${_install_prefix}/include/*.hpp")
+_gentest_make_codegen_target_id("explicit_exported_mocks" _explicit_exported_mocks_id)
+_gentest_make_codegen_target_id("explicit_module_exported_mocks" _explicit_module_exported_mocks_id)
+_gentest_make_codegen_target_id("explicit_third_party_exported_mocks" _explicit_third_party_exported_mocks_id)
+set(_installed_internal_header_regex
+  "^(${_explicit_exported_mocks_id}|${_explicit_module_exported_mocks_id}|${_explicit_third_party_exported_mocks_id})_mock_(impl|registry)(|__domain_.*)\\.hpp$")
 foreach(_installed_root_header IN LISTS _installed_root_headers)
   get_filename_component(_installed_root_name "${_installed_root_header}" NAME)
-  if(NOT _installed_root_name MATCHES "^explicit_(exported|module_exported|third_party_exported)_mocks_mock_(impl|registry)(|__domain_.*)\\.hpp$")
+  if(NOT _installed_root_name MATCHES "${_installed_internal_header_regex}")
     message(FATAL_ERROR
       "Expected only internal support headers at the install include root, but found unexpected header "
       "'${_installed_root_header}'.")

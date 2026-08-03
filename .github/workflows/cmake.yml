@@ -5,6 +5,7 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,7 +18,48 @@ env:
   CTEST_OUTPUT_ON_FAILURE: 1
 
 jobs:
+  plan:
+    name: CMake • plan
+    runs-on: ubuntu-24.04
+    outputs:
+      run_cmake: ${{ steps.plan.outputs.run_cmake }}
+    steps:
+      - name: Checkout planner and history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute CI plan
+        id: plan
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_REF: ${{ github.ref }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          ci_plan_script="scripts/ci_plan.py"
+          if [ "${CI_EVENT_NAME}" = "pull_request" ]; then
+            ci_plan_script="${RUNNER_TEMP}/ci_plan.py"
+            if ! git show "${CI_BASE_SHA}:scripts/ci_plan.py" > "${ci_plan_script}"; then
+              ci_plan_script=""
+            fi
+          fi
+          if [ -z "${ci_plan_script}" ] || ! python3 "${ci_plan_script}" \
+            --event "${CI_EVENT_NAME}" \
+            --ref "${CI_REF}" \
+            --base "${CI_BASE_SHA}" \
+            --head "${CI_HEAD_SHA}" \
+            --github-output "${GITHUB_OUTPUT}"
+          then
+            echo "CI planner failed; enabling all lanes." >&2
+            for lane in cmake lint coverage cross_qemu bazel meson xmake; do
+              printf 'run_%s=true\n' "${lane}" >> "${GITHUB_OUTPUT}"
+            done
+          fi
+
   macos:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_cmake == 'true' }}
     name: macOS • ${{ matrix.compiler == 'appleclang' && 'AppleClang (Xcode 26)' || matrix.compiler == 'llvm' && 'Homebrew llvm (latest)' || format('Homebrew {0}', matrix.compiler) }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
     runs-on: ${{ matrix.compiler == 'appleclang' && 'macos-26' || 'macos-15' }}
     strategy:
@@ -35,6 +77,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Cache vcpkg binary artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/vcpkg
+            ~/Library/Caches/vcpkg
+          key: vcpkg-${{ runner.os }}-${{ matrix.compiler }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'scripts/setup-vcpkg.sh') }}
 
       - name: Select Xcode 26 toolchain
         if: matrix.compiler == 'appleclang'
@@ -141,6 +191,8 @@ jobs:
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure --parallel 4 -E '^(gentest_bazel_bzlmod_consumer)$'
 
   windows:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_cmake == 'true' }}
     name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }}
     runs-on: windows-2022
     strategy:
@@ -273,6 +325,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   linux:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_cmake == 'true' }}
     name: ${{ matrix.name }} • ${{ matrix.preset == 'debug-system-cxx23' && 'C++23 tests' || matrix.build_type }}
     runs-on: ubuntu-24.04
     container: ${{ matrix.container }}
@@ -910,11 +964,19 @@ jobs:
           ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }}
 
   package-workflow:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_cmake == 'true' }}
     name: Package Workflow
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Cache vcpkg binary artifacts
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/vcpkg
+          key: vcpkg-${{ runner.os }}-package-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'scripts/setup-vcpkg.sh') }}
 
       - name: Install dependencies
         run: |

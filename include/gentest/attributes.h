@@ -5,7 +5,7 @@
 // Use standard C++11 attributes with a vendor namespace to tag tests and
 // attach metadata:
 //
-//   [[using gentest : test("suite/case"), req("BUG-123"), slow, linux]]
+//   [[using gentest : test("suite/case"), req("BUG-123"), owner("team-runtime"), slow, linux]]
 //   void my_test();
 //
 // Benchmarks:
@@ -41,6 +41,8 @@
 // while attributes such as `req("BUG-123")` or `skip("reason")` attach
 // requirements or skipping instructions. All information is extracted by the
 // code generator—no macros or compiler-specific annotations required.
+// `owner("team-runtime")` also populates `Case::owner` while retaining the
+// legacy `owner=team-runtime` tag for existing metadata consumers.
 //
 // Death tests:
 //   [[using gentest : test("suite/crash_on_x"), death]]

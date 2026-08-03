@@ -1,8 +1,10 @@
 #include "gentest/runner.h"
 
+#include <algorithm>
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace integration {
@@ -65,6 +67,16 @@ namespace errors {
 
 [[using gentest: test("errors/recover"), req("BUG-123"), owner("team-runtime")]]
 void detect_and_recover_error() {
+    const auto cases = gentest::registered_cases();
+    const auto metadata =
+        std::ranges::find_if(cases, [](const gentest::Case &test_case) { return test_case.name.ends_with("errors/recover"); });
+    gentest::expect(metadata != cases.end(), "generated owner case is present in the Case snapshot");
+    if (metadata != cases.end()) {
+        gentest::expect_eq(metadata->owner, std::string_view{"team-runtime"}, "owner is available as structured Case metadata");
+        gentest::expect(std::ranges::find(metadata->tags, std::string_view{"owner=team-runtime"}) != metadata->tags.end(),
+                        "legacy owner tag remains available for tag selection");
+    }
+
     bool caught_invalid_argument = false;
     try {
         static_cast<void>(integration::math::fibonacci(-1));

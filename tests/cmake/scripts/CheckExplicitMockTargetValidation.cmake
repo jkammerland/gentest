@@ -20,6 +20,7 @@ if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${GENTEST_SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
 
 if(GENERATOR MATCHES "Ninja Multi-Config|Visual Studio|Xcode")
   gentest_skip_test("explicit mock target validation regression: explicit mock targets currently require a single-config generator")
@@ -348,8 +349,9 @@ _gentest_expect_file_excludes("${_third_party_public_header}" "#include \"gentes
 _gentest_expect_file_excludes("${_third_party_public_header}" "#undef GENTEST_NO_EXPECT_CALL_MACROS")
 _gentest_expect_file_excludes("${_third_party_public_header}" "#undef GENTEST_NO_AUTO_MOCK_INCLUDE")
 _gentest_expect_build_success("${_third_party_textual_backend_build_dir}" "explicit_validation_third_party_consumer")
+_gentest_make_codegen_target_id("explicit_validation_third_party_textual_backend" _third_party_textual_backend_id)
 set(_third_party_domain_header
-  "${_third_party_textual_backend_build_dir}/generated/explicit_validation_third_party_textual_backend_mock_registry__domain_0000_header.hpp")
+  "${_third_party_textual_backend_build_dir}/generated/${_third_party_textual_backend_id}_mock_registry__domain_0000_header.hpp")
 _gentest_expect_file_contains("${_third_party_domain_header}" "namespace fixture {\nnamespace validation {\nnamespace mocks {\n")
 _gentest_expect_file_contains("${_third_party_domain_header}"
   "struct ThirdPartyServiceMock final : public ::fixture::validation::ThirdPartyService")
@@ -359,8 +361,9 @@ _gentest_expect_file_excludes("${_third_party_domain_header}" "namespace gentest
 _gentest_expect_file_excludes("${_third_party_domain_header}" "struct mock<")
 _gentest_expect_configure_success("third_party_overload_order_surface" _third_party_overload_order_build_dir)
 _gentest_expect_build_success("${_third_party_overload_order_build_dir}" "explicit_validation_third_party_overload_order_consumer")
+_gentest_make_codegen_target_id("explicit_validation_third_party_overload_order" _third_party_overload_order_id)
 set(_third_party_overload_order_header
-  "${_third_party_overload_order_build_dir}/generated/explicit_validation_third_party_overload_order_mock_registry__domain_0000_header.hpp")
+  "${_third_party_overload_order_build_dir}/generated/${_third_party_overload_order_id}_mock_registry__domain_0000_header.hpp")
 _gentest_expect_file_ordered("${_third_party_overload_order_header}"
   "using MockArg0_0_ = double"
   "using MockArg1_0_ = float"
@@ -428,8 +431,9 @@ _gentest_expect_run_success("${_third_party_default_arg_type_context_build_dir}"
 _gentest_expect_configure_success("third_party_overload_hiding_surface" _third_party_overload_hiding_build_dir)
 _gentest_expect_build_success("${_third_party_overload_hiding_build_dir}" "explicit_validation_third_party_overload_hiding_consumer")
 _gentest_expect_run_success("${_third_party_overload_hiding_build_dir}" "explicit_validation_third_party_overload_hiding_consumer")
+_gentest_make_codegen_target_id("explicit_validation_third_party_overload_hiding" _third_party_overload_hiding_id)
 set(_third_party_overload_hiding_anchor
-  "${_third_party_overload_hiding_build_dir}/generated/explicit_validation_third_party_overload_hiding_anchor.cpp")
+  "${_third_party_overload_hiding_build_dir}/generated/${_third_party_overload_hiding_id}_anchor.cpp")
 _gentest_expect_file_excludes("${_third_party_overload_hiding_anchor}" "namespace gentest::detail")
 _gentest_expect_configure_success("third_party_ctor_default_args_surface" _third_party_ctor_default_args_build_dir)
 _gentest_expect_build_success("${_third_party_ctor_default_args_build_dir}" "explicit_validation_third_party_ctor_default_args_consumer")

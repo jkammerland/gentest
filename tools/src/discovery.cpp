@@ -530,6 +530,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.line                         = lnum;
         info.tags                         = summary.tags;
         info.requirements                 = summary.requirements;
+        info.owner                        = summary.owner.value_or(std::string{});
         info.should_skip                  = summary.should_skip;
         info.skip_reason                  = summary.skip_reason;
         info.is_benchmark                 = summary.is_benchmark;

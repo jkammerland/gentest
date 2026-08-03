@@ -197,6 +197,35 @@ function(_gentest_materialize_explicit_module_mock_defs output_dir out_defs out_
     set(${out_public_files} "${_gentest_public_files}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_map_explicit_mock_staged_files stage_dir output_dir out_files)
+    set(_gentest_mapped_files "")
+    foreach(_gentest_staged_file IN LISTS ARGN)
+        file(RELATIVE_PATH _gentest_staged_rel "${stage_dir}" "${_gentest_staged_file}")
+        list(APPEND _gentest_mapped_files "${output_dir}/${_gentest_staged_rel}")
+    endforeach()
+    set(${out_files} "${_gentest_mapped_files}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_publish_explicit_mock_files stage_dir output_dir out_files)
+    if(stage_dir STREQUAL output_dir)
+        set(${out_files} "${ARGN}" PARENT_SCOPE)
+        return()
+    endif()
+
+    _gentest_map_explicit_mock_staged_files("${stage_dir}" "${output_dir}" _gentest_published_files ${ARGN})
+    list(LENGTH ARGN _gentest_staged_count)
+    if(_gentest_staged_count GREATER 0)
+        math(EXPR _gentest_last_staged "${_gentest_staged_count} - 1")
+        foreach(_gentest_idx RANGE 0 ${_gentest_last_staged})
+            list(GET ARGN ${_gentest_idx} _gentest_staged_file)
+            list(GET _gentest_published_files ${_gentest_idx} _gentest_published_file)
+            file(GENERATE OUTPUT "${_gentest_published_file}" INPUT "${_gentest_staged_file}")
+        endforeach()
+        set_source_files_properties(${_gentest_published_files} PROPERTIES GENERATED TRUE)
+    endif()
+    set(${out_files} "${_gentest_published_files}" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_append_target_list_property target property)
     get_target_property(_gentest_existing_values ${target} ${property})
     if(NOT _gentest_existing_values OR _gentest_existing_values MATCHES "-NOTFOUND$")
@@ -310,13 +339,7 @@ function(gentest_add_mocks target)
     if(NOT GENTEST_DEFS)
         message(FATAL_ERROR "gentest_add_mocks(${target}): DEFS is required")
     endif()
-    if(CMAKE_CONFIGURATION_TYPES)
-        message(FATAL_ERROR
-            "gentest_add_mocks(${target}): explicit mock targets currently require a single-config generator. "
-            "Multi-config generators are not supported because gentest_attach_codegen() runs in TU-wrapper mode here.")
-    endif()
-
-    string(MAKE_C_IDENTIFIER "${target}" _gentest_target_id)
+    _gentest_make_codegen_target_id("${target}" _gentest_target_id)
     _gentest_normalize_mock_backend("${GENTEST_BACKEND}" "gentest_add_mocks(): BACKEND" _gentest_mock_backend)
     _gentest_is_third_party_mock_backend("${_gentest_mock_backend}" _gentest_uses_third_party_mock_backend)
 
@@ -330,15 +353,20 @@ function(gentest_add_mocks target)
             "gentest_add_mocks(${target}): OUTPUT_DIR contains generator expressions, which is not supported. "
             "Pass a concrete path instead.")
     endif()
-    _gentest_normalize_path_and_key("${_gentest_output_dir}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_output_dir_abs _gentest_output_dir_key)
+    _gentest_normalize_path_and_key("${_gentest_output_dir}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_output_root _gentest_output_dir_key)
     _gentest_reserve_unique_owner("GENTEST_EXPLICIT_MOCK_OUTDIR_OWNER" "${_gentest_output_dir_key}" "${target}" _gentest_prev_owner)
     if(_gentest_prev_owner AND NOT _gentest_prev_owner STREQUAL "${target}")
         message(FATAL_ERROR
-            "gentest_add_mocks(${target}): OUTPUT_DIR '${_gentest_output_dir_abs}' is already used by '${_gentest_prev_owner}'. "
+            "gentest_add_mocks(${target}): OUTPUT_DIR '${_gentest_output_root}' is already used by '${_gentest_prev_owner}'. "
             "Each explicit mock target must have a unique OUTPUT_DIR.")
     endif()
-    set(_gentest_output_dir "${_gentest_output_dir_abs}")
-    file(MAKE_DIRECTORY "${_gentest_output_dir}")
+    _gentest_configure_output_dir("${_gentest_output_root}" _gentest_output_dir)
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(_gentest_staging_dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/gentest_mocks/${_gentest_target_id}")
+    else()
+        set(_gentest_staging_dir "${_gentest_output_dir}")
+    endif()
+    file(MAKE_DIRECTORY "${_gentest_output_root}" "${_gentest_staging_dir}")
 
     set(_gentest_textual_defs "")
     set(_gentest_module_defs "")
@@ -396,22 +424,31 @@ function(gentest_add_mocks target)
         else()
             set(_gentest_public_header_name "${_gentest_target_id}.hpp")
         endif()
-        _gentest_normalize_path_and_key("${_gentest_public_header_name}" "${_gentest_output_dir}" _gentest_public_header _gentest_public_header_key)
-        file(RELATIVE_PATH _gentest_public_header_rel_from_output "${_gentest_output_dir}" "${_gentest_public_header}")
+        _gentest_normalize_path_and_key(
+            "${_gentest_public_header_name}"
+            "${_gentest_output_root}"
+            _gentest_public_header_at_root
+            _gentest_public_header_key)
+        file(RELATIVE_PATH _gentest_public_header_rel_from_output "${_gentest_output_root}" "${_gentest_public_header_at_root}")
         if(_gentest_public_header_rel_from_output MATCHES "^\\.\\.")
             message(FATAL_ERROR
-                "gentest_add_mocks(${target}): HEADER_NAME must stay within OUTPUT_DIR '${_gentest_output_dir}'. "
-                "Got '${_gentest_public_header}'.")
+                "gentest_add_mocks(${target}): HEADER_NAME must stay within OUTPUT_DIR '${_gentest_output_root}'. "
+                "Got '${_gentest_public_header_at_root}'.")
         endif()
+        set(_gentest_public_header "${_gentest_output_dir}/${_gentest_public_header_rel_from_output}")
         get_filename_component(_gentest_public_header_dir "${_gentest_public_header}" DIRECTORY)
         set(_gentest_reserved_output_paths
-            "${_gentest_output_dir}/${_gentest_target_id}_anchor.cpp"
-            "${_gentest_output_dir}/${_gentest_target_id}_defs.cpp"
-            "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp"
-            "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp"
-            "${_gentest_output_dir}/${_gentest_target_id}.cppm")
+            "${_gentest_output_root}/${_gentest_target_id}_anchor.cpp"
+            "${_gentest_output_root}/${_gentest_target_id}_defs.cpp"
+            "${_gentest_output_root}/${_gentest_target_id}_mock_registry.hpp"
+            "${_gentest_output_root}/${_gentest_target_id}_mock_impl.hpp"
+            "${_gentest_output_root}/${_gentest_target_id}.cppm")
         foreach(_gentest_reserved_output IN LISTS _gentest_reserved_output_paths)
-            _gentest_normalize_path_and_key("${_gentest_reserved_output}" "${_gentest_output_dir}" _gentest_reserved_output_abs _gentest_reserved_output_key)
+            _gentest_normalize_path_and_key(
+                "${_gentest_reserved_output}"
+                "${_gentest_output_root}"
+                _gentest_reserved_output_abs
+                _gentest_reserved_output_key)
             if(_gentest_public_header_key STREQUAL _gentest_reserved_output_key)
                 message(FATAL_ERROR
                     "gentest_add_mocks(${target}): HEADER_NAME '${_gentest_public_header_name}' collides with a reserved generated output "
@@ -445,25 +482,49 @@ function(gentest_add_mocks target)
         endforeach()
     endforeach()
     list(REMOVE_DUPLICATES _gentest_explicit_mock_search_roots)
-    string(MD5 _gentest_search_roots_key "${_gentest_output_dir}/defs")
+    string(MD5 _gentest_search_roots_key "${_gentest_staging_dir}/defs")
     set_property(GLOBAL PROPERTY "GENTEST_EXPLICIT_MOCK_SEARCH_ROOTS_${_gentest_search_roots_key}" "${_gentest_explicit_mock_search_roots}")
 
-    _gentest_materialize_explicit_mock_defs("${_gentest_output_dir}" _gentest_materialized_textual_defs _gentest_textual_public_files ${_gentest_textual_defs})
+    _gentest_materialize_explicit_mock_defs(
+        "${_gentest_staging_dir}"
+        _gentest_materialized_textual_defs
+        _gentest_staged_textual_public_files
+        ${_gentest_textual_defs})
     if(_gentest_uses_third_party_mock_backend)
-        _gentest_rewrite_third_party_mock_api_includes(${_gentest_textual_public_files})
+        _gentest_rewrite_third_party_mock_api_includes(${_gentest_staged_textual_public_files})
     endif()
-    set(_gentest_textual_dependency_public_files "")
-    foreach(_gentest_textual_public_file IN LISTS _gentest_textual_public_files)
+    set(_gentest_staged_textual_dependency_public_files "")
+    foreach(_gentest_textual_public_file IN LISTS _gentest_staged_textual_public_files)
         list(FIND _gentest_materialized_textual_defs "${_gentest_textual_public_file}" _gentest_textual_def_index)
         if(_gentest_textual_def_index EQUAL -1)
-            list(APPEND _gentest_textual_dependency_public_files "${_gentest_textual_public_file}")
+            list(APPEND _gentest_staged_textual_dependency_public_files "${_gentest_textual_public_file}")
         endif()
     endforeach()
     _gentest_materialize_explicit_module_mock_defs(
-        "${_gentest_output_dir}"
+        "${_gentest_staging_dir}"
         _gentest_materialized_module_defs
-        _gentest_module_public_files
+        _gentest_staged_module_public_files
         ${_gentest_module_defs})
+    _gentest_publish_explicit_mock_files(
+        "${_gentest_staging_dir}"
+        "${_gentest_output_dir}"
+        _gentest_textual_public_files
+        ${_gentest_staged_textual_public_files})
+    _gentest_map_explicit_mock_staged_files(
+        "${_gentest_staging_dir}"
+        "${_gentest_output_dir}"
+        _gentest_public_materialized_textual_defs
+        ${_gentest_materialized_textual_defs})
+    _gentest_map_explicit_mock_staged_files(
+        "${_gentest_staging_dir}"
+        "${_gentest_output_dir}"
+        _gentest_textual_dependency_public_files
+        ${_gentest_staged_textual_dependency_public_files})
+    _gentest_publish_explicit_mock_files(
+        "${_gentest_staging_dir}"
+        "${_gentest_output_dir}"
+        _gentest_module_public_files
+        ${_gentest_staged_module_public_files})
 
     set(_gentest_codegen_sources "${_gentest_materialized_module_defs}")
 
@@ -483,7 +544,7 @@ function(gentest_add_mocks target)
         if(NOT _gentest_uses_third_party_mock_backend)
             string(APPEND _gentest_public_header_content "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n")
             string(APPEND _gentest_public_header_content "#include \"${_gentest_mock_api_header}\"\n")
-            foreach(_gentest_def IN LISTS _gentest_materialized_textual_defs)
+            foreach(_gentest_def IN LISTS _gentest_public_materialized_textual_defs)
                 file(RELATIVE_PATH _gentest_public_def_include "${_gentest_public_header_dir}" "${_gentest_def}")
                 string(APPEND _gentest_public_header_content "#include \"${_gentest_public_def_include}\"\n")
             endforeach()
@@ -494,10 +555,15 @@ function(gentest_add_mocks target)
         file(RELATIVE_PATH _gentest_public_impl_include "${_gentest_public_header_dir}" "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
         string(APPEND _gentest_public_header_content "#include \"${_gentest_public_registry_include}\"\n")
         string(APPEND _gentest_public_header_content "#include \"${_gentest_public_impl_include}\"\n")
-        file(WRITE "${_gentest_public_header}" "${_gentest_public_header_content}")
+        if(CMAKE_CONFIGURATION_TYPES)
+            file(GENERATE OUTPUT "${_gentest_public_header}" CONTENT "${_gentest_public_header_content}")
+        else()
+            file(MAKE_DIRECTORY "${_gentest_public_header_dir}")
+            file(WRITE "${_gentest_public_header}" "${_gentest_public_header_content}")
+        endif()
     endif()
 
-    set(_gentest_textual_wrapper "${_gentest_output_dir}/${_gentest_target_id}_defs.cpp")
+    set(_gentest_textual_wrapper "${_gentest_staging_dir}/${_gentest_target_id}_defs.cpp")
     if(_gentest_textual_defs)
         set(_gentest_textual_wrapper_content
 "// This file is auto-generated by gentest (explicit mocks surface).\n\
@@ -508,9 +574,12 @@ function(gentest_add_mocks target)
             string(APPEND _gentest_textual_wrapper_content "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n")
             string(APPEND _gentest_textual_wrapper_content "#define GENTEST_NO_EXPECT_CALL_MACROS 1\n")
         endif()
-        foreach(_gentest_def IN LISTS _gentest_materialized_textual_defs)
+        foreach(_gentest_def IN LISTS _gentest_public_materialized_textual_defs)
             file(RELATIVE_PATH _gentest_textual_def_include "${_gentest_output_dir}" "${_gentest_def}")
-            string(APPEND _gentest_textual_wrapper_content "#include \"${_gentest_textual_def_include}\"\n")
+            # Use the target's configuration-specific generated include root.
+            # Angle brackets intentionally avoid resolving the private staging
+            # copy beside this scan-only wrapper.
+            string(APPEND _gentest_textual_wrapper_content "#include <${_gentest_textual_def_include}>\n")
         endforeach()
         if(_gentest_uses_third_party_mock_backend)
             string(APPEND _gentest_textual_wrapper_content "#undef GENTEST_NO_EXPECT_CALL_MACROS\n")
@@ -538,11 +607,19 @@ namespace {\n\
 [[maybe_unused]] int ${_gentest_target_id}_explicit_mock_anchor = 0;\n\
 }\n")
     endif()
-    file(WRITE "${_gentest_anchor_cpp}" "${_gentest_anchor_content}")
+    if(CMAKE_CONFIGURATION_TYPES)
+        file(GENERATE OUTPUT "${_gentest_anchor_cpp}" CONTENT "${_gentest_anchor_content}")
+        set_source_files_properties("${_gentest_anchor_cpp}" PROPERTIES GENERATED TRUE)
+    else()
+        file(WRITE "${_gentest_anchor_cpp}" "${_gentest_anchor_content}")
+    endif()
 
     add_library(${target} STATIC)
-    set_target_properties(${target} PROPERTIES GENTEST_EXPLICIT_MOCK_TARGET TRUE)
+    set_target_properties(${target} PROPERTIES
+        GENTEST_EXPLICIT_MOCK_TARGET TRUE
+        GENTEST_CODEGEN_TARGET_ID "${_gentest_target_id}")
     _gentest_append_target_export_property(${target} GENTEST_EXPLICIT_MOCK_TARGET)
+    _gentest_append_target_export_property(${target} GENTEST_CODEGEN_TARGET_ID)
     target_compile_features(${target} PUBLIC cxx_std_20)
     if(NOT _gentest_uses_third_party_mock_backend)
         target_link_libraries(${target} PUBLIC gentest::gentest)
@@ -564,20 +641,22 @@ namespace {\n\
             PUBLIC
                 FILE_SET gentest_explicit_mock_modules_private
                     TYPE CXX_MODULES
-                    BASE_DIRS "${_gentest_output_dir}"
+                    BASE_DIRS "${_gentest_staging_dir}"
                     FILES ${_gentest_materialized_module_defs})
     endif()
 
     set(_gentest_aggregate_module "")
+    set(_gentest_aggregate_module_output "")
     if(NOT "${GENTEST_MODULE_NAME}" STREQUAL "")
         set(_gentest_aggregate_module_rel "${GENTEST_MODULE_NAME}")
         string(REPLACE "." "/" _gentest_aggregate_module_rel "${_gentest_aggregate_module_rel}")
         string(REPLACE ":" "/" _gentest_aggregate_module_rel "${_gentest_aggregate_module_rel}")
-        set(_gentest_aggregate_module "${_gentest_output_dir}/${_gentest_aggregate_module_rel}.cppm")
+        set(_gentest_aggregate_module "${_gentest_output_root}/${_gentest_aggregate_module_rel}.cppm")
+        set(_gentest_aggregate_module_output "${_gentest_output_dir}/${_gentest_aggregate_module_rel}.cppm")
     endif()
 
     gentest_attach_codegen(${target}
-        OUTPUT_DIR "${_gentest_output_dir}"
+        OUTPUT_DIR "${_gentest_output_root}"
         SOURCES ${_gentest_codegen_sources}
         CLANG_ARGS ${GENTEST_CLANG_ARGS}
         DEPENDS ${GENTEST_DEPENDS}
@@ -628,17 +707,22 @@ namespace {\n\
         endif()
     endif()
 
-    set(_gentest_module_support_headers "")
-    foreach(_gentest_module_public_file IN LISTS _gentest_module_public_files)
+    set(_gentest_staged_module_support_headers "")
+    foreach(_gentest_module_public_file IN LISTS _gentest_staged_module_public_files)
         list(FIND _gentest_materialized_module_defs "${_gentest_module_public_file}" _gentest_module_public_file_index)
         if(_gentest_module_public_file_index EQUAL -1)
-            string(FIND "${_gentest_module_public_file}" "${_gentest_output_dir}/defs/deps/" _gentest_defs_deps_pos)
+            string(FIND "${_gentest_module_public_file}" "${_gentest_staging_dir}/defs/deps/" _gentest_defs_deps_pos)
             if(_gentest_defs_deps_pos EQUAL 0)
                 continue()
             endif()
-            list(APPEND _gentest_module_support_headers "${_gentest_module_public_file}")
+            list(APPEND _gentest_staged_module_support_headers "${_gentest_module_public_file}")
         endif()
     endforeach()
+    _gentest_map_explicit_mock_staged_files(
+        "${_gentest_staging_dir}"
+        "${_gentest_output_dir}"
+        _gentest_module_support_headers
+        ${_gentest_staged_module_support_headers})
     if(_gentest_materialized_module_defs)
         _gentest_make_mock_domain_output_path("${_gentest_mock_registry}" 0 "header" _gentest_mock_registry_header_domain)
         _gentest_make_mock_domain_output_path("${_gentest_mock_impl}" 0 "header" _gentest_mock_impl_header_domain)
@@ -659,18 +743,21 @@ namespace {\n\
     endif()
 
     if(NOT "${GENTEST_MODULE_NAME}" STREQUAL "")
-        set_source_files_properties("${_gentest_aggregate_module}" PROPERTIES GENERATED TRUE)
+        set_source_files_properties("${_gentest_aggregate_module_output}" PROPERTIES GENERATED TRUE)
         target_sources(${target}
             PUBLIC
                 FILE_SET gentest_explicit_mock_aggregate_module
                     TYPE CXX_MODULES
                     BASE_DIRS "${_gentest_output_dir}"
-                    FILES "${_gentest_aggregate_module}")
-        file(RELATIVE_PATH _gentest_aggregate_module_rel_from_output "${_gentest_output_dir}" "${_gentest_aggregate_module}")
+                    FILES "${_gentest_aggregate_module_output}")
+        file(RELATIVE_PATH
+            _gentest_aggregate_module_rel_from_output
+            "${_gentest_output_dir}"
+            "${_gentest_aggregate_module_output}")
         _gentest_append_target_list_property(
             ${target}
             GENTEST_EXPLICIT_MOCK_MODULE_BUILD_SOURCES
-            "${GENTEST_MODULE_NAME}=${_gentest_aggregate_module}")
+            "${GENTEST_MODULE_NAME}=${_gentest_aggregate_module_output}")
         _gentest_append_target_list_property(
             ${target}
             GENTEST_EXPLICIT_MOCK_MODULE_REL_SOURCES

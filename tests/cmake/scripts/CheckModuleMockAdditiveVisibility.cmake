@@ -24,6 +24,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${GENTEST_SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
 
 function(_gentest_find_mock_domain_artifact out_var generated_dir stem kind expected_text)
   file(GLOB _candidates "${generated_dir}/${stem}__domain_*")
@@ -156,8 +157,10 @@ foreach(_generated_file IN ITEMS
   endif()
 endforeach()
 
-_gentest_find_mock_domain_artifact(_header_registry "${_header_generated_dir}" "additive_header_mocks_mock_registry" "hpp" "shared::Service")
-_gentest_find_mock_domain_artifact(_provider_registry "${_provider_generated_dir}" "additive_provider_mocks_mock_registry" "hpp" "provider::Service")
+_gentest_make_codegen_target_id("additive_header_mocks" _additive_header_mocks_id)
+_gentest_make_codegen_target_id("additive_provider_mocks" _additive_provider_mocks_id)
+_gentest_find_mock_domain_artifact(_header_registry "${_header_generated_dir}" "${_additive_header_mocks_id}_mock_registry" "hpp" "shared::Service")
+_gentest_find_mock_domain_artifact(_provider_registry "${_provider_generated_dir}" "${_additive_provider_mocks_id}_mock_registry" "hpp" "provider::Service")
 
 set(_prog "${_build_dir}/additive_tests${CMAKE_EXECUTABLE_SUFFIX}")
 gentest_check_run_or_fail(

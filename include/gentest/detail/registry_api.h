@@ -7,6 +7,10 @@
 
 namespace gentest {
 
+// Runs a caller-owned case table through the standard Gentest CLI and runtime.
+// The table is copied for deterministic ordering and is not globally registered.
+GENTEST_RUNTIME_API auto run_cases(std::span<const Case> cases, std::span<const char *> args) -> int;
+
 // Unified test entry (argc/argv version). Consumed by generated code.
 GENTEST_RUNTIME_API auto run_all_tests(int argc, char **argv) -> int;
 // Unified test entry (span version). Consumed by generated code.

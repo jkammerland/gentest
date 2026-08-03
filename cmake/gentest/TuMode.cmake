@@ -1,5 +1,131 @@
 include_guard(GLOBAL)
 
+function(_gentest_configure_output_dir output_root out_dir)
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(${out_dir} "${output_root}/$<CONFIG>" PARENT_SCOPE)
+    else()
+        set(${out_dir} "${output_root}" PARENT_SCOPE)
+    endif()
+endfunction()
+
+function(_gentest_write_multi_config_compdb_filter_script target_id out_script)
+    set(_gentest_script_dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/gentest/${target_id}")
+    set(_gentest_script "${_gentest_script_dir}/FilterCompileCommands.cmake")
+    file(MAKE_DIRECTORY "${_gentest_script_dir}")
+    file(WRITE "${_gentest_script}" [=[
+if(NOT DEFINED INPUT OR NOT EXISTS "${INPUT}")
+    message(FATAL_ERROR "gentest: compilation database does not exist: '${INPUT}'")
+endif()
+if(NOT DEFINED OUTPUT OR "${OUTPUT}" STREQUAL "")
+    message(FATAL_ERROR "gentest: filtered compilation database OUTPUT is required")
+endif()
+if(NOT DEFINED CONFIG OR "${CONFIG}" STREQUAL "")
+    message(FATAL_ERROR "gentest: filtered compilation database CONFIG is required")
+endif()
+
+file(READ "${INPUT}" _gentest_compdb_json)
+string(JSON _gentest_entry_count ERROR_VARIABLE _gentest_json_error LENGTH "${_gentest_compdb_json}")
+if(_gentest_json_error)
+    message(FATAL_ERROR "gentest: failed to parse '${INPUT}': ${_gentest_json_error}")
+endif()
+
+set(_gentest_filtered_json "[\n")
+set(_gentest_filtered_count 0)
+if(_gentest_entry_count GREATER 0)
+    math(EXPR _gentest_last_entry "${_gentest_entry_count} - 1")
+    foreach(_gentest_idx RANGE 0 ${_gentest_last_entry})
+        string(JSON _gentest_entry GET "${_gentest_compdb_json}" ${_gentest_idx})
+        string(JSON _gentest_entry_output ERROR_VARIABLE _gentest_output_error GET "${_gentest_compdb_json}" ${_gentest_idx} output)
+        if(_gentest_output_error)
+            set(_gentest_entry_output "")
+        endif()
+        string(REPLACE "\\" "/" _gentest_entry_output "${_gentest_entry_output}")
+        string(FIND "${_gentest_entry_output}" "/${CONFIG}/" _gentest_config_pos)
+        if(_gentest_config_pos EQUAL -1)
+            continue()
+        endif()
+        if(_gentest_filtered_count GREATER 0)
+            string(APPEND _gentest_filtered_json ",\n")
+        endif()
+        string(APPEND _gentest_filtered_json "${_gentest_entry}")
+        math(EXPR _gentest_filtered_count "${_gentest_filtered_count} + 1")
+    endforeach()
+endif()
+string(APPEND _gentest_filtered_json "\n]\n")
+
+if(_gentest_filtered_count EQUAL 0)
+    message(FATAL_ERROR "gentest: '${INPUT}' has no compile commands for configuration '${CONFIG}'")
+endif()
+get_filename_component(_gentest_output_dir "${OUTPUT}" DIRECTORY)
+file(MAKE_DIRECTORY "${_gentest_output_dir}")
+file(WRITE "${OUTPUT}" "${_gentest_filtered_json}")
+]=])
+    set(${out_script} "${_gentest_script}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_resolve_synthetic_cxx_standard target out_standard out_extensions)
+    get_target_property(_gentest_standard ${target} CXX_STANDARD)
+    if(NOT _gentest_standard OR _gentest_standard MATCHES "-NOTFOUND$")
+        set(_gentest_standard 20)
+    endif()
+    if(NOT _gentest_standard MATCHES "^[0-9]+$" OR _gentest_standard LESS 20)
+        set(_gentest_standard 20)
+    endif()
+
+    get_target_property(_gentest_extensions ${target} CXX_EXTENSIONS)
+    if(NOT _gentest_extensions OR _gentest_extensions MATCHES "-NOTFOUND$")
+        if(DEFINED CMAKE_CXX_EXTENSIONS)
+            set(_gentest_extensions "${CMAKE_CXX_EXTENSIONS}")
+        else()
+            set(_gentest_extensions OFF)
+        endif()
+    endif()
+
+    set(${out_standard} "${_gentest_standard}" PARENT_SCOPE)
+    set(${out_extensions} "${_gentest_extensions}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_append_cxx_standard_context_arg args_var target)
+    set(_gentest_args "${${args_var}}")
+    _gentest_resolve_synthetic_cxx_standard(${target} _gentest_standard _gentest_extensions)
+    if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        set(_gentest_standard_prefix "/std:c++")
+    elseif(_gentest_extensions)
+        set(_gentest_standard_prefix "-std=gnu++")
+    else()
+        set(_gentest_standard_prefix "-std=c++")
+    endif()
+
+    set(_gentest_standard_arg "${_gentest_standard_prefix}${_gentest_standard}")
+    # COMPILE_FEATURES gains linked INTERFACE_COMPILE_FEATURES only during
+    # generator-expression evaluation, so defer dialect upgrades until then.
+    get_property(_gentest_known_features GLOBAL PROPERTY CMAKE_CXX_KNOWN_FEATURES)
+    set(_gentest_known_standards "")
+    foreach(_gentest_feature IN LISTS _gentest_known_features)
+        if(_gentest_feature MATCHES "^cxx_std_([0-9]+)$" AND CMAKE_MATCH_1 GREATER _gentest_standard)
+            list(APPEND _gentest_known_standards "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    list(REMOVE_DUPLICATES _gentest_known_standards)
+    list(SORT _gentest_known_standards COMPARE NATURAL ORDER ASCENDING)
+    foreach(_gentest_feature_standard IN LISTS _gentest_known_standards)
+        set(_gentest_standard_arg
+            "$<IF:$<IN_LIST:cxx_std_${_gentest_feature_standard},$<TARGET_PROPERTY:${target},COMPILE_FEATURES>>,${_gentest_standard_prefix}${_gentest_feature_standard},${_gentest_standard_arg}>")
+    endforeach()
+    list(APPEND _gentest_args "${_gentest_standard_arg}")
+    set(${args_var} "${_gentest_args}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_append_synthetic_compile_context_args args_var target)
+    set(_gentest_args "${${args_var}}")
+    _gentest_append_cxx_standard_context_arg(_gentest_args ${target})
+    list(APPEND _gentest_args
+        "$<$<BOOL:$<TARGET_PROPERTY:${target},INCLUDE_DIRECTORIES>>:$<LIST:TRANSFORM,$<TARGET_PROPERTY:${target},INCLUDE_DIRECTORIES>,PREPEND,-I>>"
+        "$<$<BOOL:$<TARGET_PROPERTY:${target},COMPILE_DEFINITIONS>>:$<LIST:TRANSFORM,$<TARGET_PROPERTY:${target},COMPILE_DEFINITIONS>,PREPEND,-D>>"
+        "$<$<BOOL:$<TARGET_PROPERTY:${target},COMPILE_OPTIONS>>:$<TARGET_PROPERTY:${target},COMPILE_OPTIONS>>")
+    set(${args_var} "${_gentest_args}" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_make_mock_domain_output_path input_path idx label out_path)
     get_filename_component(_gentest_domain_dir "${input_path}" DIRECTORY)
     get_filename_component(_gentest_domain_stem "${input_path}" NAME_WE)
@@ -166,7 +292,7 @@ endfunction()
 function(_gentest_prepare_tu_mode)
     set(one_value_args
         TARGET TARGET_ID OUTPUT_DIR
-        OUT_OUTPUT_DIR OUT_WRAPPER_CPP OUT_WRAPPER_HEADERS OUT_EXTRA_CPP
+        OUT_OUTPUT_ROOT OUT_OUTPUT_DIR OUT_WRAPPER_CPP OUT_WRAPPER_HEADERS OUT_EXTRA_CPP
         OUT_ARTIFACT_MANIFEST OUT_COMPILE_CONTEXT_IDS OUT_ARTIFACT_OWNER_SOURCES)
     set(multi_value_args TUS TU_SOURCE_ENTRIES MODULE_NAMES NEEDS_MODULE_SCAN)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
@@ -185,7 +311,7 @@ function(_gentest_prepare_tu_mode)
     endif()
 
     _gentest_normalize_path_and_key("${_gentest_output_dir}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_outdir_abs _gentest_outdir_key)
-    set(_gentest_output_dir "${_gentest_outdir_abs}")
+    set(_gentest_output_root "${_gentest_outdir_abs}")
 
     _gentest_reserve_unique_owner("GENTEST_CODEGEN_OUTDIR_OWNER" "${_gentest_outdir_key}" "${GENTEST_TARGET}" _gentest_prev_owner)
     if(_gentest_prev_owner AND NOT _gentest_prev_owner STREQUAL "${GENTEST_TARGET}")
@@ -193,6 +319,7 @@ function(_gentest_prepare_tu_mode)
             "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT_DIR '${_gentest_outdir_abs}' is already used by '${_gentest_prev_owner}'. "
             "Each target should have a unique OUTPUT_DIR to avoid generated file clobbering.")
     endif()
+    _gentest_configure_output_dir("${_gentest_output_root}" _gentest_output_dir)
 
     set(_gentest_wrapper_cpp "")
     set(_gentest_wrapper_headers "")
@@ -230,7 +357,7 @@ function(_gentest_prepare_tu_mode)
         list(APPEND _gentest_artifact_owner_sources "${_tu}")
     endforeach()
 
-    file(MAKE_DIRECTORY "${_gentest_output_dir}")
+    file(MAKE_DIRECTORY "${_gentest_output_root}")
 
     set(_gentest_module_generated_sources "")
     set(_gentest_extra_cpp "")
@@ -249,10 +376,41 @@ function(_gentest_prepare_tu_mode)
             file(RELATIVE_PATH _rel_src "${_gentest_output_dir}" "${_orig_abs}")
             string(REPLACE "\\" "/" _rel_src "${_rel_src}")
 
+            set(_gentest_shim_preamble "")
+            set(_gentest_registration_guard_begin "")
+            set(_gentest_registration_guard_end "")
+            if(_needs_module_scan)
+                set(_gentest_shim_preamble
+"// Keep registration support declarations before any import in the owner TU.
+// GCC rejects textual standard-library/runtime declarations after importing
+// the same declarations from a named module.
+#include <array>
+#include <chrono>
+#include <fmt/format.h>
+#include <span>
+#include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
+
+#include \"gentest/async.h\"
+#include \"gentest/detail/generated_runtime.h\"
+
+#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 3 || \\
+    !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
+#error \"gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime\"
+#endif
+
+")
+                set(_gentest_registration_guard_begin "#define GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE 1\n")
+                set(_gentest_registration_guard_end "#undef GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE\n")
+            endif()
+
             set(_shim_content
 "// This file is auto-generated by gentest (CMake shim).\n\
 // Do not edit manually.\n\
 \n\
+${_gentest_shim_preamble}\
 // Include the original translation unit so fixture types and test bodies are\n\
 // visible for wrappers.\n\
 // NOLINTNEXTLINE(bugprone-suspicious-include)\n\
@@ -261,7 +419,9 @@ function(_gentest_prepare_tu_mode)
 // Include generated registrations after the original TU is visible.\n\
 // During codegen or module-dependency scans, this header may not exist yet.\n\
 #if !defined(GENTEST_CODEGEN) && __has_include(\"${_wrap_header_name}\")\n\
+${_gentest_registration_guard_begin}\
 #include \"${_wrap_header_name}\"\n\
+${_gentest_registration_guard_end}\
 #endif\n")
 
             file(GENERATE OUTPUT "${_wrap_cpp}" CONTENT "${_shim_content}")
@@ -292,6 +452,7 @@ function(_gentest_prepare_tu_mode)
         WRAPPER_CPP ${_gentest_wrapper_cpp}
         EXTRA_CPP ${_gentest_registration_cpp})
 
+    set(${GENTEST_OUT_OUTPUT_ROOT} "${_gentest_output_root}" PARENT_SCOPE)
     set(${GENTEST_OUT_OUTPUT_DIR} "${_gentest_output_dir}" PARENT_SCOPE)
     set(${GENTEST_OUT_WRAPPER_CPP} "${_gentest_wrapper_cpp}" PARENT_SCOPE)
     set(${GENTEST_OUT_WRAPPER_HEADERS} "${_gentest_wrapper_headers}" PARENT_SCOPE)
@@ -302,7 +463,9 @@ function(_gentest_prepare_tu_mode)
 endfunction()
 
 function(_gentest_prepare_module_registration_mode)
-    set(one_value_args TARGET TARGET_ID OUTPUT_DIR OUT_OUTPUT_DIR OUT_REGISTRATION_CPP OUT_WRAPPER_HEADERS OUT_MANIFEST OUT_COMPILE_CONTEXT_IDS)
+    set(one_value_args
+        TARGET TARGET_ID OUTPUT_DIR OUT_OUTPUT_ROOT OUT_OUTPUT_DIR
+        OUT_REGISTRATION_CPP OUT_WRAPPER_HEADERS OUT_MANIFEST OUT_COMPILE_CONTEXT_IDS)
     set(multi_value_args TUS TU_SOURCE_ENTRIES NEEDS_MODULE_SCAN)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -319,7 +482,7 @@ function(_gentest_prepare_module_registration_mode)
     endif()
 
     _gentest_normalize_path_and_key("${_gentest_output_dir}" "${CMAKE_CURRENT_BINARY_DIR}" _gentest_outdir_abs _gentest_outdir_key)
-    set(_gentest_output_dir "${_gentest_outdir_abs}")
+    set(_gentest_output_root "${_gentest_outdir_abs}")
 
     _gentest_reserve_unique_owner("GENTEST_CODEGEN_OUTDIR_OWNER" "${_gentest_outdir_key}" "${GENTEST_TARGET}" _gentest_prev_owner)
     if(_gentest_prev_owner AND NOT _gentest_prev_owner STREQUAL "${GENTEST_TARGET}")
@@ -327,6 +490,7 @@ function(_gentest_prepare_module_registration_mode)
             "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT_DIR '${_gentest_outdir_abs}' is already used by '${_gentest_prev_owner}'. "
             "Each target should have a unique OUTPUT_DIR to avoid generated file clobbering.")
     endif()
+    _gentest_configure_output_dir("${_gentest_output_root}" _gentest_output_dir)
 
     set(_gentest_wrapper_headers "")
     set(_gentest_registration_cpp "")
@@ -354,7 +518,7 @@ function(_gentest_prepare_module_registration_mode)
         list(APPEND _gentest_compile_context_ids "${GENTEST_TARGET_ID}:${_tu}")
     endforeach()
 
-    file(MAKE_DIRECTORY "${_gentest_output_dir}")
+    file(MAKE_DIRECTORY "${_gentest_output_root}")
 
     set_source_files_properties(${_gentest_registration_cpp} PROPERTIES
         GENERATED TRUE
@@ -367,6 +531,7 @@ function(_gentest_prepare_module_registration_mode)
         WRAPPER_CPP ${_gentest_registration_cpp})
     set_source_files_properties(${_gentest_registration_cpp} PROPERTIES CXX_SCAN_FOR_MODULES ON)
 
+    set(${GENTEST_OUT_OUTPUT_ROOT} "${_gentest_output_root}" PARENT_SCOPE)
     set(${GENTEST_OUT_OUTPUT_DIR} "${_gentest_output_dir}" PARENT_SCOPE)
     set(${GENTEST_OUT_REGISTRATION_CPP} "${_gentest_registration_cpp}" PARENT_SCOPE)
     set(${GENTEST_OUT_WRAPPER_HEADERS} "${_gentest_wrapper_headers}" PARENT_SCOPE)
@@ -682,7 +847,12 @@ function(gentest_link_mocks target)
         endif()
         add_dependencies(${_gentest_consumer_codegen_dep} ${_gentest_mock_target_actual})
         get_target_property(_gentest_mock_codegen_outputs "${_gentest_mock_target_actual}" GENTEST_CODEGEN_OUTPUTS)
-        if(_gentest_mock_codegen_outputs AND NOT _gentest_mock_codegen_outputs MATCHES "-NOTFOUND$")
+        # Multi-config outputs deliberately carry $<CONFIG>.  Nested target
+        # properties in a custom-command DEPENDS list are not expanded a
+        # second time by CMake, so adding those paths would make Ninja look
+        # for a literal '$<CONFIG>' file.  The codegen dependency target above
+        # already owns every generated mock artifact and is configuration-aware.
+        if(NOT CMAKE_CONFIGURATION_TYPES AND _gentest_mock_codegen_outputs AND NOT _gentest_mock_codegen_outputs MATCHES "-NOTFOUND$")
             _gentest_append_target_list_property(${target} GENTEST_CODEGEN_EXTRA_DEPENDS ${_gentest_mock_codegen_outputs})
         endif()
         list(APPEND _gentest_explicit_mock_targets_for_codegen "${_gentest_mock_target_actual}")
@@ -718,7 +888,8 @@ function(gentest_attach_codegen target)
         set(GENTEST_ENTRY gentest::run_all_tests)
     endif()
 
-    string(MAKE_C_IDENTIFIER "${target}" _gentest_target_id)
+    _gentest_make_codegen_target_id("${target}" _gentest_target_id)
+    set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_TARGET_ID "${_gentest_target_id}")
     get_target_property(_gentest_attach_discovers_mocks ${target} GENTEST_EXPLICIT_MOCK_TARGET)
     if(NOT _gentest_attach_discovers_mocks OR _gentest_attach_discovers_mocks MATCHES "-NOTFOUND$")
         set(_gentest_attach_discovers_mocks FALSE)
@@ -894,6 +1065,7 @@ function(gentest_attach_codegen target)
             break()
         endif()
     endforeach()
+
     set(_gentest_needs_module_scan "")
     foreach(_gentest_module_name IN LISTS _gentest_module_names)
         if(_gentest_module_name STREQUAL "__gentest_no_module__")
@@ -912,12 +1084,6 @@ function(gentest_attach_codegen target)
         set(_gentest_mode "module_registration")
     endif()
 
-    if((_gentest_mode STREQUAL "tu" OR _gentest_mode STREQUAL "module_registration") AND CMAKE_CONFIGURATION_TYPES)
-        message(FATAL_ERROR
-            "gentest_attach_codegen(${target}): ${_gentest_mode} mode is not supported with multi-config generators. "
-            "Use a single-config generator/build directory for generated per-source outputs.")
-    endif()
-
     set(_gentest_has_module_sources FALSE)
     foreach(_gentest_module_name IN LISTS _gentest_module_names)
         if(NOT _gentest_module_name STREQUAL "__gentest_no_module__")
@@ -925,6 +1091,16 @@ function(gentest_attach_codegen target)
             break()
         endif()
     endforeach()
+
+    # Textual wrapper targets with no CMake module metadata cannot require
+    # module dependency discovery.  Avoid launching a separate
+    # clang-scan-deps process for those targets, while retaining AUTO for
+    # anything CMake identifies as module-aware and preserving explicit user
+    # overrides.
+    set(_gentest_effective_scan_deps_mode "${GENTEST_CODEGEN_SCAN_DEPS_MODE}")
+    if(_gentest_effective_scan_deps_mode STREQUAL "" AND NOT _gentest_target_module_context AND NOT _gentest_has_module_sources)
+        set(_gentest_effective_scan_deps_mode "OFF")
+    endif()
 
     set(_gentest_wrapper_cpp "")
     set(_gentest_wrapper_headers "")
@@ -941,6 +1117,7 @@ function(gentest_attach_codegen target)
             TUS ${_gentest_tus}
             TU_SOURCE_ENTRIES ${_gentest_tu_source_entries}
             NEEDS_MODULE_SCAN ${_gentest_needs_module_scan}
+            OUT_OUTPUT_ROOT _gentest_output_root
             OUT_OUTPUT_DIR _gentest_output_dir
             OUT_REGISTRATION_CPP _gentest_wrapper_cpp
             OUT_WRAPPER_HEADERS _gentest_wrapper_headers
@@ -955,6 +1132,7 @@ function(gentest_attach_codegen target)
             TU_SOURCE_ENTRIES ${_gentest_tu_source_entries}
             MODULE_NAMES ${_gentest_module_names}
             NEEDS_MODULE_SCAN ${_gentest_needs_module_scan}
+            OUT_OUTPUT_ROOT _gentest_output_root
             OUT_OUTPUT_DIR _gentest_output_dir
             OUT_WRAPPER_CPP _gentest_wrapper_cpp
             OUT_WRAPPER_HEADERS _gentest_wrapper_headers
@@ -965,6 +1143,25 @@ function(gentest_attach_codegen target)
         if(NOT _gentest_has_module_sources)
             set(_gentest_tu_manifest_enabled TRUE)
         endif()
+    endif()
+
+    if(CMAKE_CONFIGURATION_TYPES AND NOT "${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}" STREQUAL "")
+        _gentest_normalize_path_and_key(
+            "${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}"
+            "${CMAKE_CURRENT_BINARY_DIR}"
+            _gentest_mock_aggregate_output_abs
+            _gentest_mock_aggregate_output_key)
+        file(RELATIVE_PATH
+            _gentest_mock_aggregate_output_rel
+            "${_gentest_output_root}"
+            "${_gentest_mock_aggregate_output_abs}")
+        if(_gentest_mock_aggregate_output_rel MATCHES "^\\.\\.([/\\\\]|$)" OR IS_ABSOLUTE "${_gentest_mock_aggregate_output_rel}")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): MOCK_AGGREGATE_MODULE_OUTPUT must stay within OUTPUT_DIR for multi-config generators. "
+                "Got '${_gentest_mock_aggregate_output_abs}' outside '${_gentest_output_root}'.")
+        endif()
+        set(GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT
+            "${_gentest_output_dir}/${_gentest_mock_aggregate_output_rel}")
     endif()
 
     set(_gentest_module_wrapper_outputs "")
@@ -1029,6 +1226,35 @@ function(gentest_attach_codegen target)
         set(_gentest_mock_registration_manifest_depfile "${_gentest_output_dir}/${_gentest_target_id}.mock_manifest.d")
     endif()
 
+    set(_gentest_codegen_compdb_dir "")
+    set(_gentest_config_compdb "")
+    if(CMAKE_GENERATOR STREQUAL "Ninja Multi-Config")
+        _gentest_write_multi_config_compdb_filter_script("${_gentest_target_id}" _gentest_compdb_filter_script)
+        set(_gentest_config_compdb "${_gentest_output_dir}/compdb/compile_commands.json")
+        add_custom_command(
+            OUTPUT "${_gentest_config_compdb}"
+            COMMAND "${CMAKE_COMMAND}"
+                "-DINPUT=${CMAKE_BINARY_DIR}/compile_commands.json"
+                "-DOUTPUT=${_gentest_config_compdb}"
+                "-DCONFIG=$<CONFIG>"
+                -P "${_gentest_compdb_filter_script}"
+            DEPENDS
+                "${CMAKE_BINARY_DIR}/compile_commands.json"
+                "${_gentest_compdb_filter_script}"
+            COMMENT "Selecting $<CONFIG> compile commands for gentest target ${target}"
+            VERBATIM)
+        get_filename_component(_gentest_codegen_compdb_dir "${_gentest_config_compdb}" DIRECTORY)
+    elseif(CMAKE_GENERATOR MATCHES "Ninja|Makefiles" OR EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
+        set(_gentest_codegen_compdb_dir "${CMAKE_BINARY_DIR}")
+    else()
+        _gentest_append_synthetic_compile_context_args(_gentest_source_inspection_clang_args ${target})
+    endif()
+    if(NOT "${_gentest_codegen_compdb_dir}" STREQUAL "")
+        # Generated scan wrappers do not necessarily have their own compile
+        # database entry yet, so preserve the target dialect as a fallback.
+        _gentest_append_cxx_standard_context_arg(_gentest_source_inspection_clang_args ${target})
+    endif()
+
     set(_gentest_codegen_scan_inputs "")
     list(LENGTH _gentest_tus _gentest_tu_count)
     math(EXPR _gentest_last_tu "${_gentest_tu_count} - 1")
@@ -1068,6 +1294,9 @@ function(gentest_attach_codegen target)
     if(EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
         list(APPEND _gentest_codegen_deps "${CMAKE_BINARY_DIR}/compile_commands.json")
     endif()
+    if(_gentest_config_compdb)
+        list(APPEND _gentest_codegen_deps "${_gentest_config_compdb}")
+    endif()
 
     _gentest_make_codegen_command_launcher("${_gentest_codegen_executable}" _command_launcher)
     set(_gentest_codegen_tool_depends "")
@@ -1079,8 +1308,10 @@ function(gentest_attach_codegen target)
 
     set(_command ${_command_launcher}
         --depfile ${_gentest_depfile}
-        --compdb ${CMAKE_BINARY_DIR}
         --source-root ${CMAKE_SOURCE_DIR})
+    if(_gentest_codegen_compdb_dir)
+        list(APPEND _command --compdb ${_gentest_codegen_compdb_dir})
+    endif()
     list(APPEND _command --mock-backend ${_gentest_mock_backend})
     if(_gentest_mock_registry AND _gentest_mock_impl)
         list(APPEND _command
@@ -1143,7 +1374,7 @@ function(gentest_attach_codegen target)
         list(APPEND _command --discover-mocks)
     endif()
     _gentest_resolve_codegen_clang_scan_deps(_gentest_clang_scan_deps)
-    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}")
+    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}" "${_gentest_effective_scan_deps_mode}")
 
     if(_gentest_mode STREQUAL "tu")
         # Classic translation units are scanned via generated wrapper sources so
@@ -1169,12 +1400,15 @@ function(gentest_attach_codegen target)
             inspect-mocks
             --mock-manifest-output ${_gentest_mock_registration_manifest}
             --depfile ${_gentest_mock_registration_manifest_depfile}
-            --compdb ${CMAKE_BINARY_DIR}
             --source-root ${CMAKE_SOURCE_DIR})
+        if(_gentest_codegen_compdb_dir)
+            list(APPEND _gentest_mock_inspect_command --compdb ${_gentest_codegen_compdb_dir})
+        endif()
         if(GENTEST_QUIET_CLANG)
             list(APPEND _gentest_mock_inspect_command --quiet-clang)
         endif()
-        _gentest_append_codegen_module_context_args(_gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}")
+        _gentest_append_codegen_module_context_args(
+            _gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}" "${_gentest_effective_scan_deps_mode}")
         list(APPEND _gentest_mock_inspect_command ${_gentest_tus})
         list(APPEND _gentest_mock_inspect_command --)
         list(APPEND _gentest_mock_inspect_command ${_gentest_source_inspection_clang_args})
@@ -1182,6 +1416,7 @@ function(gentest_attach_codegen target)
 
         set(_gentest_mock_inspect_command_args
             OUTPUT ${_gentest_mock_registration_manifest}
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gentest_output_dir}"
             COMMAND ${_gentest_mock_inspect_command}
             COMMAND_EXPAND_LISTS
             DEPENDS
@@ -1231,6 +1466,7 @@ function(gentest_attach_codegen target)
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTRA_DEPENDS "")
     set(_gentest_custom_command_args
         OUTPUT ${_gentest_codegen_outputs}
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gentest_output_dir}"
         COMMAND ${_command}
         COMMAND_EXPAND_LISTS
         DEPENDS
@@ -1266,7 +1502,7 @@ function(gentest_attach_codegen target)
             ARTIFACT_ROLE "registration"
             COMPILE_AS "cxx-module-implementation"
             REQUIRES_MODULE_SCAN "ON"
-            COMPDB "${CMAKE_BINARY_DIR}"
+            COMPDB "${_gentest_codegen_compdb_dir}"
             SOURCES ${_gentest_tus}
             SOURCE_KINDS ${_gentest_manifest_source_kinds}
             REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}

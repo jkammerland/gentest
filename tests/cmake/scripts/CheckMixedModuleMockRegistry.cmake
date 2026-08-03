@@ -24,6 +24,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${GENTEST_SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
 
 function(_gentest_find_mock_domain_artifact out_var generated_dir stem kind expected_text)
   file(GLOB _candidates "${generated_dir}/${stem}__domain_*")
@@ -162,10 +163,12 @@ foreach(_wrapper IN LISTS _module_provider_wrappers)
   endif()
 endforeach()
 
-_gentest_find_mock_domain_artifact(_header_registry "${_header_generated_dir}" "mixed_header_mocks_mock_registry" "hpp" "legacy::Service")
-_gentest_find_mock_domain_artifact(_module_registry "${_module_generated_dir}" "mixed_module_mocks_mock_registry" "hpp" "mixmod::Service")
-_gentest_find_mock_domain_artifact(_extra_registry "${_module_generated_dir}" "mixed_module_mocks_mock_registry" "hpp" "extramod::Worker")
-_gentest_find_mock_domain_artifact(_same_block_registry "${_module_generated_dir}" "mixed_module_mocks_mock_registry" "hpp" "sameblock::Service")
+_gentest_make_codegen_target_id("mixed_header_mocks" _mixed_header_mocks_id)
+_gentest_make_codegen_target_id("mixed_module_mocks" _mixed_module_mocks_id)
+_gentest_find_mock_domain_artifact(_header_registry "${_header_generated_dir}" "${_mixed_header_mocks_id}_mock_registry" "hpp" "legacy::Service")
+_gentest_find_mock_domain_artifact(_module_registry "${_module_generated_dir}" "${_mixed_module_mocks_id}_mock_registry" "hpp" "mixmod::Service")
+_gentest_find_mock_domain_artifact(_extra_registry "${_module_generated_dir}" "${_mixed_module_mocks_id}_mock_registry" "hpp" "extramod::Worker")
+_gentest_find_mock_domain_artifact(_same_block_registry "${_module_generated_dir}" "${_mixed_module_mocks_id}_mock_registry" "hpp" "sameblock::Service")
 
 set(_prog "${_build_dir}/mixed_tests${CMAKE_EXECUTABLE_SUFFIX}")
 gentest_check_run_or_fail(

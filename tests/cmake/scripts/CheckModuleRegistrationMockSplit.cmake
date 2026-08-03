@@ -15,6 +15,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${GENTEST_SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
 
 if(NOT GENERATOR STREQUAL "Ninja")
   gentest_skip_test("module registration mock split regression: MODULE_REGISTRATION requires a single-config Ninja fixture")
@@ -103,7 +104,9 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 
 set(_generated_dir "${_build_dir}/generated")
-set(_mock_manifest "${_generated_dir}/module_registration_mock_split_tests.mock_manifest.json")
+_gentest_make_codegen_target_id("module_registration_mock_split_tests" _module_registration_target_id)
+set(_mock_manifest_name "${_module_registration_target_id}.mock_manifest.json")
+set(_mock_manifest "${_generated_dir}/${_mock_manifest_name}")
 if(NOT EXISTS "${_mock_manifest}")
   message(FATAL_ERROR "Expected mock registration manifest '${_mock_manifest}'")
 endif()
@@ -174,7 +177,7 @@ gentest_check_run_or_fail(
   COMMAND "${_supported_ninja}" -C "${_build_dir}" -t query "${_provider_registration_rel}"
   OUTPUT_VARIABLE _provider_registration_query
   STRIP_TRAILING_WHITESPACE)
-string(FIND "${_provider_registration_query}" "module_registration_mock_split_tests.mock_manifest.json" _query_manifest_pos)
+string(FIND "${_provider_registration_query}" "${_mock_manifest_name}" _query_manifest_pos)
 if(_query_manifest_pos EQUAL -1)
   message(FATAL_ERROR
     "Expected provider registration Ninja query to depend on the split mock manifest.\n${_provider_registration_query}")
@@ -187,7 +190,7 @@ gentest_check_run_or_fail(
 foreach(_token IN ITEMS
     "inspect-mocks"
     "--mock-manifest-output"
-    "module_registration_mock_split_tests.mock_manifest.json"
+    "${_mock_manifest_name}"
     "--mock-registration-manifest")
   string(FIND "${_ninja_commands}" "${_token}" _commands_token_pos)
   if(_commands_token_pos EQUAL -1)

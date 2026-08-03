@@ -143,7 +143,7 @@ Use `find_dependency(trompeloeil CONFIG REQUIRED)` for Trompeloeil packages.
 
 ## Limitations
 
-Third-party backends currently support CMake textual/header mock definitions only. `gentest_add_mocks()` requires a single-config generator such as Ninja.
+Third-party backends currently support CMake textual/header mock definitions only. `gentest_add_mocks()` supports single-config and multi-config generators; multi-config artifacts are emitted under a configuration subdirectory of `OUTPUT_DIR`.
 
 The Trompeloeil backend emits explicit-arity `MAKE_MOCKn` / `MAKE_CONST_MOCKn` macros for compatibility with older Trompeloeil packages.
 

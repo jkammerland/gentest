@@ -21,7 +21,7 @@
 //   wrapper_stateful: {w}, {fixture}, {method}
 //   case_entry:       {name}, {wrapper}, {file}, {line}, {tags}, {reqs},
 //                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite},
-//                     {async_wrapper}, {is_async}, {items_per_call}
+//                     {async_wrapper}, {is_async}, {items_per_call}, {owner}
 //   group_runner_*:   {gid}, {fixture}, {count}, {idxs}
 //   array_decl_*:     {name}; or {count}, {name}, {body}
 //   forward_decl_*:   {name}; or {scope}, {lines}
@@ -44,8 +44,9 @@ inline constexpr std::string_view registration_preamble_light = R"CPP(#include <
 #include "gentest/async.h"
 #include "gentest/detail/registration_runtime.h"
 
-#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 2
-#error "gentest_codegen output requires gentest headers with Case::items_per_call; use matching gentest headers/runtime"
+#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 3 || \
+    !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
+#error "gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime"
 #endif
 )CPP";
 ;
@@ -62,8 +63,9 @@ inline constexpr std::string_view registration_preamble_full = R"CPP(#include <a
 #include "gentest/async.h"
 #include "gentest/detail/generated_runtime.h"
 
-#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 2
-#error "gentest_codegen output requires gentest headers with Case::items_per_call; use matching gentest headers/runtime"
+#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 3 || \
+    !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
+#error "gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime"
 #endif
 )CPP";
 ;
@@ -459,7 +461,8 @@ inline constexpr std::string_view case_entry = R"FMT(    gentest::Case{{
         .suite = {suite},
         .async_fn = {async_wrapper},
         .is_async = {is_async},
-        .items_per_call = {items_per_call}
+        .items_per_call = {items_per_call},
+        .owner = {owner}
     }},
 
 )FMT";

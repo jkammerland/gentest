@@ -21,20 +21,34 @@ auto case_registry() -> CaseRegistry & {
     return reg;
 }
 
+void sort_cases(std::vector<gentest::Case> &cases) {
+    std::ranges::sort(cases, [](const gentest::Case &lhs, const gentest::Case &rhs) {
+        if (lhs.name != rhs.name)
+            return lhs.name < rhs.name;
+        if (lhs.file != rhs.file)
+            return lhs.file < rhs.file;
+        return lhs.line < rhs.line;
+    });
+}
+
+auto sorted_case_copy(std::span<const gentest::Case> cases) -> std::vector<gentest::Case> {
+    std::vector<gentest::Case> sorted(cases.begin(), cases.end());
+    sort_cases(sorted);
+    return sorted;
+}
+
 auto snapshot_cases() -> std::vector<gentest::Case> {
     auto                       &reg = case_registry();
     std::lock_guard<std::mutex> lk(reg.mtx);
     if (!reg.sorted) {
-        std::ranges::sort(reg.cases, [](const gentest::Case &lhs, const gentest::Case &rhs) {
-            if (lhs.name != rhs.name)
-                return lhs.name < rhs.name;
-            if (lhs.file != rhs.file)
-                return lhs.file < rhs.file;
-            return lhs.line < rhs.line;
-        });
+        sort_cases(reg.cases);
         reg.sorted = true;
     }
     return reg.cases;
+}
+
+auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runner::CliOptions &options) -> int {
+    return gentest::runner::run_from_options(cases, options);
 }
 } // namespace
 
@@ -52,14 +66,22 @@ auto snapshot_registered_cases() -> std::vector<Case> { return snapshot_cases();
 namespace gentest {
 auto registered_cases() -> std::vector<Case> { return snapshot_cases(); }
 
+auto run_cases(std::span<const Case> cases, std::span<const char *> args) -> int {
+    gentest::runner::CliOptions opt{};
+    if (!gentest::runner::parse_cli(args, opt))
+        return 1;
+
+    const auto sorted_cases = sorted_case_copy(cases);
+    return run_sorted_cases(sorted_cases, opt);
+}
+
 auto run_all_tests(std::span<const char *> args) -> int {
     gentest::runner::CliOptions opt{};
     if (!gentest::runner::parse_cli(args, opt))
         return 1;
 
-    const auto            cases = gentest::detail::snapshot_registered_cases();
-    std::span<const Case> kCases{cases};
-    return gentest::runner::run_from_options(kCases, opt);
+    const auto cases = gentest::detail::snapshot_registered_cases();
+    return run_sorted_cases(cases, opt);
 }
 
 auto run_all_tests(int argc, char **argv) -> int {

@@ -108,6 +108,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
     bool wants_help              = false;
     bool wants_list_tests        = false;
     bool wants_list_meta         = false;
+    bool wants_list_json         = false;
     bool wants_list_death        = false;
     bool wants_list_benches      = false;
     bool no_color_flag           = false;
@@ -293,6 +294,10 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         }
         if (s == "--list") {
             wants_list_meta = true;
+            continue;
+        }
+        if (s == "--list-json") {
+            wants_list_json = true;
             continue;
         }
         if (s == "--list-death") {
@@ -646,6 +651,8 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         opt.mode = Mode::ListTests;
     else if (wants_list_meta)
         opt.mode = Mode::ListMeta;
+    else if (wants_list_json)
+        opt.mode = Mode::ListJson;
     else if (wants_list_death)
         opt.mode = Mode::ListDeath;
     else if (wants_list_benches)
