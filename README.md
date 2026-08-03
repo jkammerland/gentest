@@ -801,6 +801,22 @@ Machine formats require a measured-only selection (`--kind=bench`, `--kind=jitte
 or a filter that selects only measured cases); human test output is not mixed into
 JSON or CSV stdout.
 
+Compare a current measured report against a saved JSON or CSV baseline with:
+
+```bash
+python3 scripts/compare_measured_reports.py \
+  --baseline baseline.json \
+  --current current.json \
+  --fail-regression-pct 10 \
+  --markdown-out measured-compare.md
+```
+
+The comparison matches bench/jitter rows by name, checks metrics such as
+`median_ns_per_item`, `p95_ns_per_item`, and `stddev_ns_per_item`, reports new
+or missing benchmarks, writes a Markdown summary, and exits non-zero only for
+regressions over the configured threshold unless `--fail-on-new` or
+`--fail-on-missing` is set.
+
 ### Reporting (JUnit / Allure / GitHub annotations)
 
 ```bash
