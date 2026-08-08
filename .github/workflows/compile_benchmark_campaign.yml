@@ -78,6 +78,7 @@ jobs:
             --samples "${{ inputs.samples }}" --warmups "${{ inputs.warmups }}" \
             --codegen-caps "${{ inputs.codegen_caps }}" \
             --lanes one-tu,eight-tu-one-binary,eight-tu-eight-binary,repo-e2e,runtime \
+            --include-surfaces legacy,narrow \
             --output-dir "${output_dir}" \
             --allow-unavailable
           if [ -f "${output_dir}/summary.md" ]; then

@@ -38,6 +38,7 @@ python3 scripts/bench_compile_campaign.py \
   --cc clang-22 --cxx clang++-22 \
   --samples 1 --warmups 0 \
   --lanes one-tu,eight-tu-one-binary,eight-tu-eight-binary \
+  --include-surfaces legacy,narrow \
   --output-dir build/compile-campaign-smoke
 ```
 
@@ -53,6 +54,20 @@ The default campaign runs two warmups then seven timed samples. It covers:
 A runtime-only campaign does not configure or build the host
 `gentest_codegen`; it therefore needs the selected C/C++ compiler but not LLVM
 or Clang tooling packages.
+
+Each synthetic consumer lane is measured for both public include surfaces while
+keeping its established lane name:
+
+- `legacy`: `#include <gentest/attributes.h>` plus
+  `#include <gentest/runner.h>`;
+- `narrow`: `#include <gentest/test.h>`.
+
+`--include-surfaces legacy,narrow` is the default. Its order alternates for
+each sample round, independently of the alternating codegen-cap order. This
+keeps the legacy umbrella versus recommended narrow-header comparison
+deterministic without changing existing `--lanes` values. Repository E2E and
+runtime lanes do not represent a synthetic consumer include and record `-` in
+the result table.
 
 For every codegen-cap sweep, sample rounds alternate forward/reverse order to
 reduce thermal and ordering bias. Synthetic fixture scenarios are cold build,
@@ -114,9 +129,11 @@ Each output directory contains `result.json` and `summary.md`.
   `GENTEST_`, cache, and CMake environment controls;
 - `cache`: selected mode, isolated directory, and before/after tool stats;
 - `configuration`: raw sample count, warmups, build jobs, requested codegen
-  caps, and the actual alternating execution order;
-- `lanes[]`: lane/cap identity, effective CLI caps found in `build.ninja`,
-  build/target paths, and per-scenario results;
+  caps, configured `consumer_includes` (including exact headers), and actual
+  alternating codegen-cap and consumer-include execution orders;
+- `lanes[]`: lane/cap identity, `consumer_include` and exact consumer headers
+  for synthetic lanes, effective CLI caps found in `build.ninja`, build/target
+  paths, and per-scenario results;
 - `lanes[].scenarios.<name>.samples_s`: every raw timed measurement;
 - `median_s` and `mad_s`: median and median absolute deviation of those raw
   values; use these to describe variability, not to erase the raw samples;

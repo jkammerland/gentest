@@ -11,7 +11,8 @@ codegen-cap order for every sample round.
 Examples:
   python3 scripts/bench_compile_campaign.py --cxx clang++-22 --cc clang-22
   python3 scripts/bench_compile_campaign.py --cxx g++-16 --cc gcc-16 \\
-      --lanes one-tu,eight-tu-one-binary,eight-tu-eight-binary
+      --lanes one-tu,eight-tu-one-binary,eight-tu-eight-binary \
+      --include-surfaces legacy,narrow
   python3 scripts/bench_compile_campaign.py --cxx clang++-22 --allow-unavailable
 
 This is a measurement harness, not a performance gate.  It writes ``result.json``
@@ -39,6 +40,7 @@ from compile_bench_common import alternating_order, codegen_job_values, median_m
 
 BASELINE_COMMIT = "9edd3c826eadb31714f6462b5264cc1793bb535b"
 DEFAULT_LANES = ("one-tu", "eight-tu-one-binary", "eight-tu-eight-binary", "repo-e2e", "runtime")
+DEFAULT_INCLUDE_SURFACES = ("legacy", "narrow")
 DEFAULT_SCENARIOS = (
     "cold-build",
     "no-op",
@@ -52,6 +54,15 @@ DEFAULT_SCENARIOS = (
 REPO_SCENARIOS = ("cold-build", "no-op", "reconfigure", "equivalent-compdb-rewrite", "unrelated-compdb-rewrite")
 RUNTIME_SCENARIOS = ("cold-build", "no-op", "reconfigure")
 REPO_TARGETS = ("gentest_unit_tests", "gentest_fixtures_tests", "gentest_mocking_tests")
+SYNTHETIC_LANES = ("one-tu", "eight-tu-one-binary", "eight-tu-eight-binary")
+INCLUDE_SURFACE_HEADERS = {
+    # Existing consumers normally need both headers: runner.h supplies the
+    # assertion/runtime surface while attributes.h supplies the annotations.
+    "legacy": ("gentest/attributes.h", "gentest/runner.h"),
+    # The narrow public surface intentionally bundles attributes with the
+    # synchronous assertion/context API.
+    "narrow": ("gentest/test.h",),
+}
 
 
 def log(message: str) -> None:
@@ -323,10 +334,22 @@ def configure_host_codegen(source: Path, output: Path, cc: str, cxx: str, jobs: 
     return codegen_executable(build)
 
 
-def write_fixture(source: Path, root: Path) -> dict[str, list[str]]:
+def include_surface_headers(surface: str) -> tuple[str, ...]:
+    try:
+        return INCLUDE_SURFACE_HEADERS[surface]
+    except KeyError as error:
+        raise ValueError(f"unknown synthetic include surface: {surface}") from error
+
+
+def include_surface_configuration(surfaces: list[str]) -> list[dict[str, object]]:
+    return [{"name": surface, "headers": list(include_surface_headers(surface))} for surface in surfaces]
+
+
+def write_fixture(source: Path, root: Path, include_surface: str) -> dict[str, list[str]]:
     source.mkdir(parents=True, exist_ok=True)
     (source / "private.hpp").write_text("#pragma once\ninline constexpr int campaign_private = 7;\n", encoding="utf-8")
     (source / "shared.hpp").write_text("#pragma once\ninline constexpr int campaign_shared = 11;\n", encoding="utf-8")
+    gentest_includes = "".join(f"#include <{header}>\n" for header in include_surface_headers(include_surface))
     for index in range(8):
         includes = '#include "shared.hpp"\n'
         if index == 0:
@@ -335,10 +358,12 @@ def write_fixture(source: Path, root: Path) -> dict[str, list[str]]:
         if index == 0:
             body += " + campaign_private"
         (source / f"case_{index:02d}.cpp").write_text(
-            "#include <gentest/attributes.h>\n"
-            f"{includes}\n"
-            f"[[using gentest: test(\"campaign/case/{index:02d}\")]]\n"
-            f"void campaign_case_{index:02d}() {{ (void)({body}); }}\n",
+            gentest_includes
+            + (
+                f"{includes}\n"
+                f"[[using gentest: test(\"campaign/case/{index:02d}\")]]\n"
+                f"void campaign_case_{index:02d}() {{ (void)({body}); }}\n"
+            ),
             encoding="utf-8",
         )
     cases = " ".join(f"case_{index:02d}.cpp" for index in range(8))
@@ -732,19 +757,42 @@ def markdown(result: dict[str, object]) -> str:
         if isinstance(git_info, dict):
             lines.append(f"Measured HEAD: `{git_info.get('head')}`; dirty: `{git_info.get('dirty')}`.")
             lines.append("")
-    lines.extend(["Raw samples are retained in `result.json`; median and MAD are descriptive, not pass/fail thresholds.", "", "| Lane | Cap | Scenario | Median (s) | MAD (s) |", "| --- | ---: | --- | ---: | ---: |"])
+    configuration = result.get("configuration", {})
+    if isinstance(configuration, dict):
+        surfaces = configuration.get("consumer_includes", [])
+        if isinstance(surfaces, list) and surfaces:
+            rendered_surfaces: list[str] = []
+            for surface in surfaces:
+                if not isinstance(surface, dict):
+                    continue
+                headers = surface.get("headers", [])
+                if isinstance(headers, list):
+                    rendered_surfaces.append(f"`{surface.get('name')}` ({', '.join(f'`{header}`' for header in headers)})")
+            if rendered_surfaces:
+                lines.append(f"Synthetic include surfaces: {'; '.join(rendered_surfaces)}.")
+                lines.append("")
+    lines.extend([
+        "Raw samples are retained in `result.json`; median and MAD are descriptive, not pass/fail thresholds.",
+        "",
+        "| Lane | Include surface | Cap | Scenario | Median (s) | MAD (s) |",
+        "| --- | --- | ---: | --- | ---: | ---: |",
+    ])
     lanes = result.get("lanes", [])
     if isinstance(lanes, list):
         for lane in lanes:
             if not isinstance(lane, dict):
                 continue
             cap = lane.get("codegen_cap", "-")
+            consumer_include = lane.get("consumer_include", "-")
             scenarios = lane.get("scenarios", {})
             if not isinstance(scenarios, dict):
                 continue
             for name, stats in scenarios.items():
                 if isinstance(stats, dict):
-                    lines.append(f"| {lane.get('lane')} | {cap} | {name} | {float(stats['median_s']):.3f} | {float(stats['mad_s']):.3f} |")
+                    lines.append(
+                        f"| {lane.get('lane')} | {consumer_include} | {cap} | {name} | "
+                        f"{float(stats['median_s']):.3f} | {float(stats['mad_s']):.3f} |"
+                    )
     lines.append("")
     return "\n".join(lines)
 
@@ -757,6 +805,13 @@ def parse_csv(value: str, allowed: tuple[str, ...], flag: str) -> list[str]:
     if len(set(entries)) != len(entries):
         raise ValueError(f"{flag} must not repeat an entry")
     return entries
+
+
+def parse_include_surfaces(value: str) -> list[str]:
+    surfaces = parse_csv(value, DEFAULT_INCLUDE_SURFACES, "--include-surfaces")
+    if len(set(surfaces)) != len(surfaces):
+        raise ValueError("--include-surfaces must not repeat a surface")
+    return surfaces
 
 
 def parse_codegen_caps(value: str) -> list[tuple[str, int]]:
@@ -782,6 +837,8 @@ def main() -> int:
     parser.add_argument("--warmups", type=int, default=2)
     parser.add_argument("--cache", choices=("off", "ccache", "sccache"), default="off")
     parser.add_argument("--lanes", default=",".join(DEFAULT_LANES))
+    parser.add_argument("--include-surfaces", default=",".join(DEFAULT_INCLUDE_SURFACES),
+                        help="Comma-separated synthetic consumer surfaces: legacy,narrow")
     parser.add_argument("--repo-targets", default=",".join(REPO_TARGETS))
     parser.add_argument("--output-dir", default="build/compile-campaign")
     parser.add_argument("--allow-unavailable", action="store_true", help="Write an unavailable-compiler JSON result and return success")
@@ -800,6 +857,7 @@ def main() -> int:
         return 2
     try:
         lanes = parse_csv(args.lanes, DEFAULT_LANES, "--lanes")
+        include_surfaces = parse_include_surfaces(args.include_surfaces)
         caps = parse_codegen_caps(args.codegen_caps)
         caps_raw = [label for label, _ in caps]
     except ValueError as error:
@@ -807,10 +865,25 @@ def main() -> int:
         return 2
     compiler_available = shutil.which(args.cc) and shutil.which(args.cxx)
     provenance = machine_provenance(root, args.cc, args.cxx, "Ninja", args.build_type, args.cache)
+    consumer_include_order = alternating_order(include_surfaces, args.samples)
+    configuration = {
+        "samples": args.samples,
+        "warmups": args.warmups,
+        "jobs": args.jobs,
+        "codegen_caps": caps_raw,
+        "execution_order": alternating_order(caps_raw, args.samples),
+        "consumer_includes": include_surface_configuration(include_surfaces),
+        "consumer_include_execution_order": consumer_include_order,
+    }
     output.mkdir(parents=True, exist_ok=True)
     result_path = output / "result.json"
     if not compiler_available:
-        result = {"status": "unavailable", "reason": f"requested compiler not found: cc={args.cc!r}, cxx={args.cxx!r}", "provenance": provenance}
+        result = {
+            "status": "unavailable",
+            "reason": f"requested compiler not found: cc={args.cc!r}, cxx={args.cxx!r}",
+            "provenance": provenance,
+            "configuration": configuration,
+        }
         result_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         if args.allow_unavailable:
             print(result["reason"])
@@ -846,8 +919,10 @@ def main() -> int:
         if requires_host_codegen(lanes):
             host_codegen = configure_host_codegen(source_input, output, args.cc, args.cxx, args.jobs, args.cache, env)
             configure.append(f"-DGENTEST_CODEGEN_EXECUTABLE={host_codegen}")
-        fixture_source = output / "fixture-source"
-        fixture_targets = write_fixture(fixture_source, source_input)
+        fixture_sources = {surface: output / "fixture-source" / surface for surface in include_surfaces}
+        fixture_targets = {
+            surface: write_fixture(fixture_sources[surface], source_input, surface) for surface in include_surfaces
+        }
         repository_build_root = fresh_repository_build_root(source_input) if "repo-e2e" in lanes else None
         entries: list[dict[str, object]] = []
         cap_labels = [raw for raw, _ in caps]
@@ -855,6 +930,7 @@ def main() -> int:
         for round_index, cap_order in enumerate(alternating_order(cap_labels, args.samples)):
             # Each round includes one timed sample for every cap in alternating
             # direction.  Warmups are performed inside its isolated build.
+            include_surface_order = consumer_include_order[round_index]
             for cap_label in cap_order:
                 cap = cap_by_label[cap_label]
                 for lane in lanes:
@@ -864,63 +940,72 @@ def main() -> int:
                             continue
                         entries.append(run_runtime_lane(source_input, output, configure, args.jobs, args.warmups if round_index == 0 else 0, 1, env))
                         continue
-                    source = fixture_source if lane in fixture_targets else source_input
-                    # Keep repository E2E build trees beneath their isolated
-                    # source worktree.  CMake's depfile transformer then keeps
-                    # absolute system-header dependencies valid; a sibling
-                    # /tmp build can otherwise turn /usr/include into /tmp/usr.
-                    build_root = output / "builds" if lane in fixture_targets else repository_build_root
-                    if build_root is None:
-                        raise RuntimeError("repository build root was not initialized")
-                    build = build_root / lane / f"cap-{cap_label}" / f"round-{len(entries):03d}"
-                    if lane in fixture_targets:
-                        run(["cmake", "-S", str(source), "-B", str(build), *configure, f"-DGENTEST_CODEGEN_JOBS={cap}"], cwd=source, env=env, capture=True)
-                        configured_codegen_caps(build, cap)
-                        target = fixture_targets[lane]
-                        scenarios = DEFAULT_SCENARIOS
-                        synthetic = True
-                        active_tus = 1 if lane == "one-tu" else 8
-                    else:
-                        repo_targets = [item.strip() for item in args.repo_targets.split(",") if item.strip()]
-                        run(["cmake", "-S", str(source), "-B", str(build), *configure, "-Dgentest_BUILD_TESTING=ON", "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF", f"-DGENTEST_CODEGEN_JOBS={cap}"], cwd=source, env=env, capture=True)
-                        configured_codegen_caps(build, cap)
-                        target = repo_targets
-                        scenarios = REPO_SCENARIOS
-                        synthetic = False
-                        active_tus = 0
-                    # Correctness gate happens only after the initial build,
-                    # outside all timing samples.
-                    build_target(source, build, target, args.jobs, env)
-                    run_correctness_gate(lane, build, target, env)
-                    entries.append({
-                        "lane": lane,
-                        "codegen_cap": cap_label,
-                        "effective_codegen_cap": cap,
-                        "effective_cli_values": configured_codegen_caps(build, cap),
-                        "build_dir": str(build),
-                        "targets": target,
-                        "scenarios": run_scenarios(
-                            source,
-                            build,
-                            configure,
-                            target,
-                            scenarios,
-                            args.jobs,
-                            args.warmups if round_index == 0 else 0,
-                            1,
-                            env,
-                            synthetic,
-                            active_tus,
-                            True,
-                            synthetic,
-                        ),
-                    })
+                    surfaces: tuple[str | None, ...] = tuple(include_surface_order) if lane in SYNTHETIC_LANES else (None,)
+                    for include_surface in surfaces:
+                        synthetic = include_surface is not None
+                        source = fixture_sources[include_surface] if synthetic else source_input
+                        # Keep repository E2E build trees beneath their isolated
+                        # source worktree.  CMake's depfile transformer then keeps
+                        # absolute system-header dependencies valid; a sibling
+                        # /tmp build can otherwise turn /usr/include into /tmp/usr.
+                        build_root = output / "builds" if synthetic else repository_build_root
+                        if build_root is None:
+                            raise RuntimeError("repository build root was not initialized")
+                        build_parts = [lane]
+                        if include_surface is not None:
+                            build_parts.append(f"surface-{include_surface}")
+                        build = build_root.joinpath(*build_parts, f"cap-{cap_label}", f"round-{len(entries):03d}")
+                        if synthetic:
+                            run(["cmake", "-S", str(source), "-B", str(build), *configure, f"-DGENTEST_CODEGEN_JOBS={cap}"], cwd=source, env=env, capture=True)
+                            configured_codegen_caps(build, cap)
+                            target = fixture_targets[include_surface][lane]
+                            scenarios = DEFAULT_SCENARIOS
+                            active_tus = 1 if lane == "one-tu" else 8
+                        else:
+                            repo_targets = [item.strip() for item in args.repo_targets.split(",") if item.strip()]
+                            run(["cmake", "-S", str(source), "-B", str(build), *configure, "-Dgentest_BUILD_TESTING=ON", "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF", f"-DGENTEST_CODEGEN_JOBS={cap}"], cwd=source, env=env, capture=True)
+                            configured_codegen_caps(build, cap)
+                            target = repo_targets
+                            scenarios = REPO_SCENARIOS
+                            active_tus = 0
+                        # Correctness gate happens only after the initial build,
+                        # outside all timing samples.
+                        build_target(source, build, target, args.jobs, env)
+                        run_correctness_gate(lane, build, target, env)
+                        entry: dict[str, object] = {
+                            "lane": lane,
+                            "codegen_cap": cap_label,
+                            "effective_codegen_cap": cap,
+                            "effective_cli_values": configured_codegen_caps(build, cap),
+                            "build_dir": str(build),
+                            "targets": target,
+                            "scenarios": run_scenarios(
+                                source,
+                                build,
+                                configure,
+                                target,
+                                scenarios,
+                                args.jobs,
+                                args.warmups if round_index == 0 else 0,
+                                1,
+                                env,
+                                synthetic,
+                                active_tus,
+                                True,
+                                synthetic,
+                            ),
+                        }
+                        if include_surface is not None:
+                            entry["consumer_include"] = include_surface
+                            entry["consumer_headers"] = list(include_surface_headers(include_surface))
+                        entries.append(entry)
         # Combine one-sample round entries into the advertised seven raw samples.
-        combined: dict[tuple[str, str], dict[str, object]] = {}
+        combined: dict[tuple[str, str, str], dict[str, object]] = {}
         for entry in entries:
             lane = str(entry["lane"])
             cap = str(entry.get("codegen_cap", "-"))
-            key = (lane, cap)
+            consumer_include = str(entry.get("consumer_include", "-"))
+            key = (lane, cap, consumer_include)
             destination = combined.setdefault(key, {k: v for k, v in entry.items() if k != "scenarios"})
             scenarios = entry.get("scenarios", {})
             assert isinstance(scenarios, dict)
@@ -970,7 +1055,7 @@ def main() -> int:
             "schema_version": 1,
             "provenance": provenance,
             "cache": cache_metadata,
-            "configuration": {"samples": args.samples, "warmups": args.warmups, "jobs": args.jobs, "codegen_caps": caps_raw, "execution_order": alternating_order(cap_labels, args.samples)},
+            "configuration": configuration,
             "lanes": final_lanes,
         }
         result_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

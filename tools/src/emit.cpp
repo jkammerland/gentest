@@ -1403,22 +1403,23 @@ struct RenderedRegistrationCore {
     };
 }
 
-[[nodiscard]] bool needs_full_registration_support(const std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures) {
-    if (!fixtures.empty()) {
+[[nodiscard]] bool needs_full_registration_support(const std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures,
+                                                   bool has_mocks) {
+    if (!fixtures.empty() || has_mocks) {
         return true;
     }
     return std::ranges::any_of(cases, [](const TestCaseInfo &test) {
         return test.is_benchmark || test.is_jitter || !test.fixture_qualified_name.empty() || !test.free_fixtures.empty() ||
-               test.is_function_template || !test.call_arguments.empty();
+               test.is_function_template || !test.call_arguments.empty() || test.returns_async;
     });
 }
 
 [[nodiscard]] RenderedRegistrationCore render_registration_core(const std::vector<TestCaseInfo>    &cases,
                                                                 const std::vector<FixtureDeclInfo> &fixtures,
-                                                                const RegistrationRenderTemplates  &templates) {
+                                                                const RegistrationRenderTemplates &templates, bool has_mocks) {
     RenderedRegistrationCore core;
     core.case_count                      = cases.size();
-    core.needs_full_registration_support = needs_full_registration_support(cases, fixtures);
+    core.needs_full_registration_support = needs_full_registration_support(cases, fixtures, has_mocks);
     core.forward_decls                   = render::render_forward_decls(cases, templates.forward_decl_line, templates.forward_decl_ns);
 
     auto traits      = render::render_trait_arrays(cases, templates.array_decl_empty, templates.array_decl_nonempty);
@@ -1552,12 +1553,14 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         const std::vector<FixtureDeclInfo>       empty_fixtures;
         const std::vector<const MockClassInfo *> empty_mocks;
         parallel_for(opts.sources.size(), jobs, [&](std::size_t idx) {
-            const fs::path           source_path = fs::path(opts.sources[idx]);
-            const std::string        key         = normalize_path_key(source_path);
-            const auto               source_it   = per_source.find(key);
-            const PerSourceEmitData *source_data = source_it != per_source.end() ? &source_it->second : nullptr;
-            const auto              &tu_cases    = source_data ? source_data->cases : empty_cases;
-            const auto              &tu_fixtures = source_data ? source_data->fixtures : empty_fixtures;
+            const fs::path           source_path                = fs::path(opts.sources[idx]);
+            const std::string        key                        = normalize_path_key(source_path);
+            const auto               source_it                  = per_source.find(key);
+            const PerSourceEmitData *source_data                = source_it != per_source.end() ? &source_it->second : nullptr;
+            const auto              &tu_cases                   = source_data ? source_data->cases : empty_cases;
+            const auto              &tu_fixtures                = source_data ? source_data->fixtures : empty_fixtures;
+            const auto              &source_mocks               = source_data ? source_data->direct_module_mocks : empty_mocks;
+            const bool               needs_mock_codegen_include = source_data && source_data->needs_mock_codegen_include;
 
             fs::path header_out = resolve_tu_header_output(opts, idx);
             if (!ensure_parent_dir(header_out)) {
@@ -1577,8 +1580,9 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
                                  "// No gentest registrations were discovered for this translation unit.\n";
             } else {
                 // Registration header (compiled via a CMake-generated shim TU).
-                header_content  = std::string(tpl::tu_registration_header);
-                const auto core = render_registration_core(tu_cases, tu_fixtures, templates);
+                header_content       = std::string(tpl::tu_registration_header);
+                const bool has_mocks = !source_mocks.empty() || needs_mock_codegen_include;
+                const auto core      = render_registration_core(tu_cases, tu_fixtures, templates, has_mocks);
                 apply_registration_core(header_content, core);
                 replace_all(header_content, "{{REGISTER_FN}}", register_fn);
             }
@@ -1614,8 +1618,6 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             }
 
             if (is_module_interface_source(opts, source_path)) {
-                const auto       &source_mocks               = source_data ? source_data->direct_module_mocks : empty_mocks;
-                const bool        needs_mock_codegen_include = source_data && source_data->needs_mock_codegen_include;
                 const std::string registration_header_name =
                     (!tu_cases.empty() || !tu_fixtures.empty()) ? header_out.filename().string() : "";
                 if (!opts.module_registration_outputs.empty()) {

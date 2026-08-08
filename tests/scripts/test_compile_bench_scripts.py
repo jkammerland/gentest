@@ -580,6 +580,65 @@ class CampaignContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_codegen_caps("")
 
+    def test_synthetic_consumer_include_surfaces_are_distinct_and_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            legacy_source = root / "legacy"
+            narrow_source = root / "narrow"
+            legacy_targets = campaign.write_fixture(legacy_source, Path("/gentest"), "legacy")
+            narrow_targets = campaign.write_fixture(narrow_source, Path("/gentest"), "narrow")
+
+            self.assertEqual(legacy_targets, narrow_targets)
+            self.assertEqual(legacy_targets["one-tu"], ["campaign_one_tu"])
+            self.assertEqual(campaign.include_surface_headers("legacy"), ("gentest/attributes.h", "gentest/runner.h"))
+            self.assertEqual(campaign.include_surface_headers("narrow"), ("gentest/test.h",))
+            self.assertIn("#include <gentest/attributes.h>\n#include <gentest/runner.h>\n", (legacy_source / "case_00.cpp").read_text())
+            self.assertIn("#include <gentest/test.h>\n", (narrow_source / "case_00.cpp").read_text())
+            self.assertNotIn("gentest/runner.h", (narrow_source / "case_00.cpp").read_text())
+
+        self.assertEqual(
+            campaign.include_surface_configuration(["legacy", "narrow"]),
+            [
+                {"name": "legacy", "headers": ["gentest/attributes.h", "gentest/runner.h"]},
+                {"name": "narrow", "headers": ["gentest/test.h"]},
+            ],
+        )
+        self.assertEqual(
+            alternating_order(list(campaign.DEFAULT_INCLUDE_SURFACES), 3),
+            [["legacy", "narrow"], ["narrow", "legacy"], ["legacy", "narrow"]],
+        )
+        with self.assertRaisesRegex(ValueError, "unknown synthetic include surface"):
+            campaign.include_surface_headers("runner")
+        with self.assertRaisesRegex(ValueError, "must not repeat a surface"):
+            campaign.parse_include_surfaces("legacy,legacy")
+
+    def test_markdown_reports_consumer_include_dimension(self) -> None:
+        result = {
+            "configuration": {
+                "consumer_includes": campaign.include_surface_configuration(["legacy", "narrow"]),
+                "consumer_include_execution_order": [["legacy", "narrow"], ["narrow", "legacy"]],
+            },
+            "lanes": [
+                {
+                    "lane": "one-tu",
+                    "consumer_include": "legacy",
+                    "codegen_cap": "1",
+                    "scenarios": {"cold-build": {"median_s": 1.0, "mad_s": 0.1}},
+                },
+                {
+                    "lane": "one-tu",
+                    "consumer_include": "narrow",
+                    "codegen_cap": "1",
+                    "scenarios": {"cold-build": {"median_s": 0.9, "mad_s": 0.05}},
+                },
+            ],
+        }
+        rendered = campaign.markdown(result)
+        self.assertIn("| Lane | Include surface | Cap | Scenario | Median (s) | MAD (s) |", rendered)
+        self.assertIn("Synthetic include surfaces: `legacy` (`gentest/attributes.h`, `gentest/runner.h`); `narrow` (`gentest/test.h`).", rendered)
+        self.assertIn("| one-tu | legacy | 1 | cold-build | 1.000 | 0.100 |", rendered)
+        self.assertIn("| one-tu | narrow | 1 | cold-build | 0.900 | 0.050 |", rendered)
+
     def test_output_directory_must_be_empty(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "result"
@@ -760,9 +819,13 @@ class CampaignContractTests(unittest.TestCase):
         self.assertNotIn("path: ${{ runner.temp }}/compile-campaign-${{ matrix.cc }}\n", workflow)
         self.assertIn("apt.llvm.org", workflow)
         self.assertIn("gcc-16", workflow)
+        self.assertIn("--include-surfaces legacy,narrow", workflow)
         self.assertIn("9edd3c826eadb31714f6462b5264cc1793bb535b", document)
         self.assertIn("samples_s", document)
+        self.assertIn("consumer_include", document)
         self.assertIn("--cache", script)
+        self.assertIn("--include-surfaces", script)
+        self.assertIn("DEFAULT_INCLUDE_SURFACES", script)
         self.assertIn("DEFAULT_SCENARIOS", script)
 
 
