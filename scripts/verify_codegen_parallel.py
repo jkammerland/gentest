@@ -25,6 +25,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from compile_bench_common import CodegenCommandError, codegen_argument, parse_codegen_jobs, rewrite_codegen_jobs
+
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -58,11 +60,7 @@ def parse_codegen_commands(build_ninja: Path) -> dict[str, str]:
 
 
 def extract_arg(command: str, name: str) -> str | None:
-    # Best-effort extraction for `--arg value` with non-space paths (our build dirs).
-    m = re.search(rf"(?:^|\s){re.escape(name)}\s+([^\s]+)", command)
-    if not m:
-        return None
-    return m.group(1)
+    return codegen_argument(command, name)
 
 
 def collect_outputs(command: str) -> list[Path]:
@@ -94,17 +92,17 @@ def hash_outputs(paths: list[Path]) -> dict[str, str]:
     return {str(p): sha256_file(p) for p in paths}
 
 
-def run_codegen(command: str, jobs: int) -> None:
-    env = os.environ.copy()
-    env["GENTEST_CODEGEN_JOBS"] = str(jobs)
-    proc = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, text=False)
+def run_codegen(command: str, jobs: str | int) -> dict[str, object]:
+    rewritten, cap = rewrite_codegen_jobs(command, jobs)
+    proc = subprocess.run(rewritten, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=os.environ.copy(), text=False)
     if proc.returncode != 0:
         sys.stderr.write("[verify] gentest_codegen invocation failed\n")
         if proc.stdout:
             sys.stderr.write(proc.stdout.decode(errors="replace"))
         if proc.stderr:
             sys.stderr.write(proc.stderr.decode(errors="replace"))
-        raise subprocess.CalledProcessError(proc.returncode, command, output=proc.stdout, stderr=proc.stderr)
+        raise subprocess.CalledProcessError(proc.returncode, rewritten, output=proc.stdout, stderr=proc.stderr)
+    return cap
 
 
 def diff_hashes(a: dict[str, str], b: dict[str, str]) -> list[str]:
@@ -126,10 +124,20 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--build-dir", required=True, help="CMake build dir containing build.ninja")
     ap.add_argument("--target", default="gentest_codegen_parallel_bench_obj", help="Target name used in build.ninja DESC")
-    ap.add_argument("--serial-jobs", type=int, default=1)
-    ap.add_argument("--parallel-jobs", type=int, default=0, help="0 means auto (hardware_concurrency)")
+    ap.add_argument("--serial-jobs", default="1", help="Non-negative worker cap or auto")
+    ap.add_argument("--parallel-jobs", default="auto", help="Non-negative worker cap or auto")
     ap.add_argument("--repeats", type=int, default=3, help="Number of parallel runs to compare against serial baseline")
     args = ap.parse_args()
+
+    if args.repeats < 1:
+        print("error: --repeats must be at least 1", file=sys.stderr)
+        return 2
+    try:
+        parse_codegen_jobs(args.serial_jobs)
+        parse_codegen_jobs(args.parallel_jobs)
+    except CodegenCommandError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
 
     build_dir = Path(args.build_dir)
     build_ninja = build_dir / "build.ninja"
@@ -148,17 +156,26 @@ def main() -> int:
     print(f"[verify] Parallel jobs: {args.parallel_jobs}")
     print(f"[verify] Repeats:       {args.repeats}")
 
-    print("[verify] Running serial baseline ...")
-    run_codegen(command, args.serial_jobs)
+    try:
+        print("[verify] Running serial baseline ...")
+        serial_cap = run_codegen(command, args.serial_jobs)
+    except CodegenCommandError as error:
+        print(f"error: cannot assert serial codegen cap: {error}", file=sys.stderr)
+        return 2
     outputs = collect_outputs(command)
     if not outputs:
         print("error: no output files found to compare (did codegen run?)", file=sys.stderr)
         return 2
     baseline = hash_outputs(outputs)
 
+    parallel_caps: list[dict[str, object]] = []
     for i in range(args.repeats):
         print(f"[verify] Running parallel (iteration {i + 1}/{args.repeats}) ...")
-        run_codegen(command, args.parallel_jobs)
+        try:
+            parallel_caps.append(run_codegen(command, args.parallel_jobs))
+        except CodegenCommandError as error:
+            print(f"error: cannot assert parallel codegen cap: {error}", file=sys.stderr)
+            return 2
         current = hash_outputs(outputs)
         diffs = diff_hashes(baseline, current)
         if diffs:
@@ -167,6 +184,8 @@ def main() -> int:
                 print(f"  {d}", file=sys.stderr)
             return 1
 
+    print(f"[verify] Effective serial cap: {serial_cap['effective']}")
+    print(f"[verify] Effective parallel cap: {parallel_caps[0]['effective'] if parallel_caps else 'n/a'}")
     print("[verify] PASS: parallel output matches serial baseline.")
     return 0
 

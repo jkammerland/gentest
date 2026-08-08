@@ -6,7 +6,8 @@ Branch: `perf/consumer-generated-tu-compile`
 
 Measured commit: `f7fbdaeea2166bed7ab93318f187484e3716b37e`
 
-Status caveat: these are local lab measurements for this branch, not a final release benchmark. Rerun the commands in this document on the target
+Status caveat: this is historical context for a branch that is not an ancestor of current master. It is not a valid current-master baseline. Use
+`docs/compile_benchmark_campaign.md` and baseline commit `9edd3c826eadb31714f6462b5264cc1793bb535b` for new measurements; rerun on the target
 machine and toolchain before publishing numbers externally.
 
 ## Goal

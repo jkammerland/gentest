@@ -1,0 +1,261 @@
+from __future__ import annotations
+
+import json
+import math
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+
+ROOT = Path(__file__).resolve().parents[2]
+import sys
+
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import bench_compile_campaign as campaign  # noqa: E402
+from compile_bench_common import (  # noqa: E402
+    CodegenCommandError,
+    alternating_order,
+    codegen_argument,
+    codegen_job_values,
+    median_mad,
+    parse_codegen_jobs,
+    rewrite_codegen_jobs,
+    rewrite_ninja_codegen_commands,
+    temporary_ninja_codegen_commands,
+)
+from bench_compile_campaign import (  # noqa: E402
+    checkout_state,
+    parse_codegen_caps,
+    require_clean_checkout,
+    require_fresh_output,
+    resolve_cache_tool,
+    rewrite_compdb,
+)
+
+
+class CodegenCommandRewriteTests(unittest.TestCase):
+    def test_rewrite_stays_inside_codegen_chain_segment_and_quotes_paths(self) -> None:
+        command = (
+            "cd '/tmp/build with spaces' && cmake -E make_directory out && "
+            "'/tmp/tool path/gentest_codegen' --jobs=1 --tu-out-dir '/tmp/out dir' && "
+            "cmake --build . --jobs=99"
+        )
+        rewritten, metadata = rewrite_codegen_jobs(command, "4")
+        self.assertEqual(metadata["effective"], 4)
+        self.assertEqual(metadata["rewritten_tokens"], 1)
+        self.assertEqual(codegen_job_values(rewritten), [4])
+        self.assertIn("--jobs=99", rewritten)
+        self.assertEqual(codegen_argument(rewritten, "--tu-out-dir"), "/tmp/out dir")
+
+    def test_rewrites_each_codegen_command_but_not_other_programs(self) -> None:
+        command = "gentest_codegen --jobs=1 input && gentest_codegen --jobs=auto input2 && tool --jobs=7"
+        rewritten, metadata = rewrite_codegen_jobs(command, "2")
+        self.assertEqual(codegen_job_values(rewritten), [2, 2])
+        self.assertEqual(metadata["rewritten_tokens"], 2)
+        self.assertTrue(rewritten.endswith("tool --jobs=7"))
+
+    def test_windows_command_rewrite_preserves_cmd_quoting_and_backslashes(self) -> None:
+        command = (
+            'cmd.exe /C "cd /D C:\\build && '
+            '"C:\\Program Files\\LLVM\\bin\\gentest_codegen.exe" --jobs=1 '
+            '--tu-out-dir "C:\\generated output" && cmake --build . --jobs=9"'
+        )
+        rewritten, metadata = rewrite_codegen_jobs(command, "auto")
+        self.assertEqual(metadata["effective"], 0)
+        self.assertEqual(codegen_job_values(rewritten), [0])
+        self.assertEqual(codegen_argument(rewritten, "--tu-out-dir"), r"C:\generated output")
+        self.assertIn('"C:\\Program Files\\LLVM\\bin\\gentest_codegen.exe"', rewritten)
+        self.assertIn("cmake --build . --jobs=9", rewritten)
+
+    def test_missing_or_malformed_cap_is_not_silently_accepted(self) -> None:
+        with self.assertRaisesRegex(CodegenCommandError, "no --jobs"):
+            rewrite_codegen_jobs("gentest_codegen --tu-out-dir output", 1)
+        with self.assertRaisesRegex(CodegenCommandError, "non-negative"):
+            rewrite_codegen_jobs("gentest_codegen --jobs=lots", 1)
+        with self.assertRaisesRegex(CodegenCommandError, "no gentest_codegen"):
+            rewrite_codegen_jobs("tool --jobs=1", 1)
+
+    def test_auto_and_bad_requested_values(self) -> None:
+        self.assertEqual(parse_codegen_jobs("auto"), 0)
+        self.assertEqual(parse_codegen_jobs("0"), 0)
+        with self.assertRaises(CodegenCommandError):
+            parse_codegen_jobs("-1")
+
+    def test_build_ninja_rewrite_requires_effective_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            build_ninja = Path(temporary_directory) / "build.ninja"
+            build_ninja.write_text(
+                "  COMMAND = gentest_codegen validate-artifact-manifest --manifest manifest.json\n"
+                "  COMMAND = cd /tmp && gentest_codegen --jobs=1 source && cmake --build . --jobs=9\n",
+                encoding="utf-8",
+            )
+            metadata = rewrite_ninja_codegen_commands(build_ninja, "auto")
+            self.assertEqual(metadata[0]["effective"], 0)
+            rewritten = build_ninja.read_text(encoding="utf-8")
+            self.assertEqual(codegen_job_values(rewritten.split("=", 1)[1]), [0])
+            self.assertIn("--jobs=9", rewritten)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            build_ninja = Path(temporary_directory) / "build.ninja"
+            build_ninja.write_text("COMMAND = gentest_codegen --tu-out-dir generated\n", encoding="utf-8")
+            with self.assertRaises(CodegenCommandError):
+                rewrite_ninja_codegen_commands(build_ninja, 1)
+
+    def test_temporary_ninja_rewrite_restores_bytes_and_timestamp_after_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            build_ninja = Path(temporary_directory) / "build.ninja"
+            original = b"  COMMAND = cd /tmp && gentest_codegen --jobs=1 source\n"
+            build_ninja.write_bytes(original)
+            original_mtime = build_ninja.stat().st_mtime_ns
+            with self.assertRaisesRegex(RuntimeError, "sentinel"):
+                with temporary_ninja_codegen_commands(build_ninja, 8):
+                    self.assertEqual(codegen_job_values(build_ninja.read_text().split("=", 1)[1]), [8])
+                    raise RuntimeError("sentinel")
+            self.assertEqual(build_ninja.read_bytes(), original)
+            self.assertEqual(build_ninja.stat().st_mtime_ns, original_mtime)
+
+
+class StatisticsAndOrderTests(unittest.TestCase):
+    def test_median_and_mad_retain_raw_seven_samples(self) -> None:
+        samples = [1.0, 1.1, 0.9, 1.0, 1.2, 0.8, 1.0]
+        stats = median_mad(samples)
+        self.assertEqual(stats["samples_s"], samples)
+        self.assertEqual(stats["median_s"], 1.0)
+        self.assertAlmostEqual(float(stats["mad_s"]), 0.1)
+        for invalid in ([math.nan], [math.inf], [-0.1]):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "finite non-negative"):
+                median_mad(invalid)
+
+    def test_order_alternates_for_comparison_and_cap_sweeps(self) -> None:
+        self.assertEqual(alternating_order(["A", "B"], 4), [["A", "B"], ["B", "A"], ["A", "B"], ["B", "A"]])
+        self.assertEqual(alternating_order(["1", "2", "auto"], 3)[1], ["auto", "2", "1"])
+        with self.assertRaises(ValueError):
+            alternating_order([], 1)
+
+
+class CampaignContractTests(unittest.TestCase):
+    def test_cache_mode_and_dirty_checkout_validation_are_explicit(self) -> None:
+        self.assertIsNone(resolve_cache_tool("off", lambda _: None))
+        self.assertEqual(resolve_cache_tool("ccache", lambda name: f"/tools/{name}"), "/tools/ccache")
+        with self.assertRaisesRegex(RuntimeError, "not on PATH"):
+            resolve_cache_tool("sccache", lambda _: None)
+        require_clean_checkout(False, False)
+        require_clean_checkout(True, True)
+        with self.assertRaisesRegex(RuntimeError, "checkout is dirty"):
+            require_clean_checkout(True, False)
+
+    def test_codegen_cap_validation_rejects_ambiguous_sweeps(self) -> None:
+        self.assertEqual(parse_codegen_caps("1,auto,4"), [("1", 1), ("auto", 0), ("4", 4)])
+        with self.assertRaisesRegex(ValueError, "repeat a cap label"):
+            parse_codegen_caps("1,1")
+        with self.assertRaisesRegex(ValueError, "repeat an effective cap"):
+            parse_codegen_caps("auto,0")
+        with self.assertRaises(ValueError):
+            parse_codegen_caps("")
+
+    def test_output_directory_must_be_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "result"
+            require_fresh_output(output)
+            output.mkdir()
+            require_fresh_output(output)
+            (output / "partial-build").mkdir()
+            with self.assertRaisesRegex(RuntimeError, "not empty"):
+                require_fresh_output(output)
+
+    def test_compdb_rewrites_distinguish_equivalent_and_unrelated_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            compdb = Path(temporary_directory) / "compile_commands.json"
+            original = [{"directory": temporary_directory, "file": "case.cpp", "command": "c++ -c case.cpp"}]
+            compdb.write_text(json.dumps(original), encoding="utf-8")
+            rewrite_compdb(compdb, add_unrelated=False)
+            self.assertEqual(json.loads(compdb.read_text()), original)
+            rewrite_compdb(compdb, add_unrelated=True)
+            rewritten = json.loads(compdb.read_text())
+            self.assertEqual(rewritten[:-1], original)
+            self.assertTrue(rewritten[-1]["file"].endswith("__gentest_unrelated_compdb_entry__.cpp"))
+
+    def test_mutation_scenarios_restore_identical_inputs_and_settle(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source"
+            build = root / "build"
+            source.mkdir()
+            build.mkdir()
+            originals = {
+                source / "case_00.cpp": b"void case_00() {}\n",
+                source / "private.hpp": b"#pragma once\n",
+                source / "shared.hpp": b"#pragma once\n",
+                build / "compile_commands.json": b'[{"directory":".","file":"case_00.cpp","command":"c++ -c case_00.cpp"}]\n',
+            }
+            for path, contents in originals.items():
+                path.write_bytes(contents)
+
+            def fake_build(*_args, **_kwargs):
+                if b"source-edit" in (source / "case_00.cpp").read_bytes():
+                    return 0.1, {"unique_edges": 2, "categories": {"codegen": 1, "generated_tu_compile": 1}}
+                if b"private-header-edit" in (source / "private.hpp").read_bytes():
+                    return 0.1, {"unique_edges": 2, "categories": {"codegen": 1, "generated_tu_compile": 1}}
+                if b"shared-header-edit" in (source / "shared.hpp").read_bytes():
+                    return 0.1, {"unique_edges": 9, "categories": {"codegen": 1, "generated_tu_compile": 8}}
+                compdb = json.loads((build / "compile_commands.json").read_text())
+                if len(compdb) > 1 or (build / "compile_commands.json").read_bytes() != originals[build / "compile_commands.json"]:
+                    return 0.1, {"unique_edges": 1, "categories": {"codegen": 1}}
+                return 0.01, {"unique_edges": 0, "categories": {}}
+
+            scenarios = (
+                "source-edit",
+                "private-header-edit",
+                "shared-header-edit",
+                "equivalent-compdb-rewrite",
+                "unrelated-compdb-rewrite",
+            )
+            with mock.patch.object(campaign, "build_target", side_effect=fake_build):
+                results = campaign.run_scenarios(
+                    source, build, [], ["fixture"], scenarios, 1, 0, 1, {}, True, 8, True, True
+                )
+            for path, contents in originals.items():
+                self.assertEqual(path.read_bytes(), contents)
+            for scenario in scenarios:
+                self.assertEqual(results[scenario]["settling_profiles"], [{"unique_edges": 0, "categories": {}}])
+
+    def test_untracked_noise_is_recorded_but_does_not_block_worktree_isolation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            repo = Path(temporary_directory)
+            subprocess.run(["git", "init", "--initial-branch=master"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(["git", "config", "user.name", "Benchmark Test"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "benchmark@example.invalid"], cwd=repo, check=True)
+            (repo / "tracked.txt").write_text("base\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            (repo / "untracked.txt").write_text("noise\n", encoding="utf-8")
+            state = checkout_state(repo)
+            self.assertTrue(state["dirty"])
+            self.assertFalse(state["tracked_dirty"])
+            require_clean_checkout(bool(state["tracked_dirty"]), False)
+            (repo / "tracked.txt").write_text("changed\n", encoding="utf-8")
+            state = checkout_state(repo)
+            self.assertTrue(state["tracked_dirty"])
+            with self.assertRaises(RuntimeError):
+                require_clean_checkout(bool(state["tracked_dirty"]), False)
+
+    def test_manual_workflow_and_documentation_keep_campaign_contract(self) -> None:
+        workflow = (ROOT / ".github/workflows/compile_benchmark_campaign.yml").read_text(encoding="utf-8")
+        document = (ROOT / "docs/compile_benchmark_campaign.md").read_text(encoding="utf-8")
+        script = (ROOT / "scripts/bench_compile_campaign.py").read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch", workflow)
+        self.assertIn("clang++-22", workflow)
+        self.assertIn("g++-16", workflow)
+        self.assertIn("upload-artifact", workflow)
+        self.assertIn("apt.llvm.org", workflow)
+        self.assertIn("gcc-16", workflow)
+        self.assertIn("9edd3c826eadb31714f6462b5264cc1793bb535b", document)
+        self.assertIn("samples_s", document)
+        self.assertIn("--cache", script)
+        self.assertIn("DEFAULT_SCENARIOS", script)
+
+
+if __name__ == "__main__":
+    unittest.main()

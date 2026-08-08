@@ -32,6 +32,11 @@ add_test(
             $<TARGET_FILE:gentest_run_cases_api_tests>)
 set_property(TEST run_cases_list_json_utf8 APPEND PROPERTY LABELS "public-api;runner")
 
+add_test(
+    NAME compile_benchmark_scripts
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_compile_bench_scripts.py)
+set_property(TEST compile_benchmark_scripts APPEND PROPERTY LABELS "scripts;benchmark")
+
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
 target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)
