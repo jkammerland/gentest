@@ -37,11 +37,9 @@
 namespace gentest::codegen::tpl {
 
 inline constexpr std::string_view registration_preamble_light = R"CPP(#include <array>
-#include <chrono>
 #include <span>
 #include <string_view>
 
-#include "gentest/async.h"
 #include "gentest/detail/registration_runtime.h"
 
 #if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 3 || \

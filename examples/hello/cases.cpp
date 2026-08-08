@@ -1,5 +1,4 @@
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
+#include "gentest/test.h"
 
 #include <string>
 

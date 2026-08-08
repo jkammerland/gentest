@@ -2,6 +2,7 @@
 
 // Umbrella include for existing consumers. New code can include narrower
 // surfaces directly:
+// - gentest/test.h (recommended for ordinary synchronous cases)
 // - gentest/assertions.h
 // - gentest/context.h
 // - gentest/format_value.h
