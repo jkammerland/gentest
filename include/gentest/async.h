@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gentest/detail/async_api.h"
 #include "gentest/detail/runtime_base.h"
 
 #include <any>
@@ -250,9 +251,6 @@ class AsyncTask {
     virtual void               set_scheduler(AsyncScheduler *scheduler) noexcept  = 0;
     [[nodiscard]] virtual auto exception() const noexcept -> std::exception_ptr   = 0;
 };
-
-using AsyncTaskPtr = std::unique_ptr<AsyncTask>;
-using AsyncCaseFn  = AsyncTaskPtr (*)(void *);
 
 template <typename T>
 concept EventDefaultSetPayload = std::default_initializable<T> && std::assignable_from<T &, T &&>;
