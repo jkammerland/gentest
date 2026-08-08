@@ -58,7 +58,19 @@ if(_gentest_filtered_count EQUAL 0)
 endif()
 get_filename_component(_gentest_output_dir "${OUTPUT}" DIRECTORY)
 file(MAKE_DIRECTORY "${_gentest_output_dir}")
-file(WRITE "${OUTPUT}" "${_gentest_filtered_json}")
+if(EXISTS "${OUTPUT}")
+    file(READ "${OUTPUT}" _gentest_existing_filtered_json)
+    if("${_gentest_existing_filtered_json}" STREQUAL "${_gentest_filtered_json}")
+        return()
+    endif()
+endif()
+set(_gentest_tmp_output "${OUTPUT}.tmp")
+file(WRITE "${_gentest_tmp_output}" "${_gentest_filtered_json}")
+file(RENAME "${_gentest_tmp_output}" "${OUTPUT}" RESULT _gentest_rename_result)
+if(NOT _gentest_rename_result STREQUAL "0")
+    file(REMOVE "${_gentest_tmp_output}")
+    message(FATAL_ERROR "gentest: failed to atomically update filtered compilation database '${OUTPUT}': ${_gentest_rename_result}")
+endif()
 ]=])
     set(${out_script} "${_gentest_script}" PARENT_SCOPE)
 endfunction()
@@ -374,6 +386,12 @@ function(_gentest_prepare_tu_mode)
 
         if(_module_name STREQUAL "__gentest_no_module__")
             file(RELATIVE_PATH _rel_src "${_gentest_output_dir}" "${_orig_abs}")
+            if(IS_ABSOLUTE "${_rel_src}" OR _rel_src MATCHES "^[A-Za-z]:[/\\\\]")
+                # CMake cannot relativize paths across Windows drive roots.
+                # Preserve a usable include rather than emitting a malformed
+                # drive-qualified relative path.
+                set(_rel_src "${_orig_abs}")
+            endif()
             string(REPLACE "\\" "/" _rel_src "${_rel_src}")
 
             set(_gentest_shim_preamble "")
@@ -1244,7 +1262,25 @@ function(gentest_attach_codegen target)
             COMMENT "Selecting $<CONFIG> compile commands for gentest target ${target}"
             VERBATIM)
         get_filename_component(_gentest_codegen_compdb_dir "${_gentest_config_compdb}" DIRECTORY)
-    elseif(CMAKE_GENERATOR MATCHES "Ninja|Makefiles" OR EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
+    elseif((CMAKE_GENERATOR MATCHES "Ninja|Makefiles" AND CMAKE_EXPORT_COMPILE_COMMANDS) OR
+           EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
+        # CMake rewrites compile_commands.json on every configure. Stage it as
+        # a content-stable dependency so a no-op reconfigure does not make
+        # every gentest_codegen output appear stale.
+        set(_gentest_config_compdb "${_gentest_output_dir}/compdb/compile_commands.json")
+        get_filename_component(_gentest_codegen_compdb_dir "${_gentest_config_compdb}" DIRECTORY)
+        add_custom_command(
+            OUTPUT "${_gentest_config_compdb}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gentest_codegen_compdb_dir}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${CMAKE_BINARY_DIR}/compile_commands.json"
+                "${_gentest_config_compdb}"
+            DEPENDS "${CMAKE_BINARY_DIR}/compile_commands.json"
+            COMMENT "Staging compile commands for gentest target ${target}"
+            VERBATIM)
+    elseif(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
+        # Preserve the historic compiler-database lookup/fallback behavior for
+        # consumers that intentionally leave CMAKE_EXPORT_COMPILE_COMMANDS off.
         set(_gentest_codegen_compdb_dir "${CMAKE_BINARY_DIR}")
     else()
         _gentest_append_synthetic_compile_context_args(_gentest_source_inspection_clang_args ${target})
@@ -1291,9 +1327,6 @@ function(gentest_attach_codegen target)
     _gentest_collect_external_module_source_mappings(_gentest_external_module_source_mappings ${_gentest_linked_codegen_dep_targets})
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS "")
     _gentest_append_external_module_source_args_property(${target} ${_gentest_external_module_source_mappings})
-    if(EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
-        list(APPEND _gentest_codegen_deps "${CMAKE_BINARY_DIR}/compile_commands.json")
-    endif()
     if(_gentest_config_compdb)
         list(APPEND _gentest_codegen_deps "${_gentest_config_compdb}")
     endif()

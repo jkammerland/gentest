@@ -99,6 +99,71 @@ if(_case_name_pos EQUAL -1)
   message(FATAL_ERROR "Generated direct textual header is missing the discovered case.\n${_header_text}")
 endif()
 
+# Textual wrappers must include their owner source relative to the generated
+# wrapper whenever both paths share a root, so copied build trees remain valid.
+set(_relocated_wrapper "${_generated_dir}/wrappers with spaces/tu_0000_cases.gentest.cpp")
+set(_relocated_header "${_generated_dir}/headers/tu_0000_cases.gentest.h")
+gentest_check_run_or_fail(
+  COMMAND "${PROG}"
+    --discover-mocks
+    --tu-out-dir "${_generated_dir}"
+    --tu-header-output "${_relocated_header}"
+    --textual-wrapper-output "${_relocated_wrapper}"
+    "${_owner_source}"
+    --
+    ${_clang_args}
+  STRIP_TRAILING_WHITESPACE)
+file(RELATIVE_PATH _relocated_source_include "${_generated_dir}/wrappers with spaces" "${_owner_source}")
+string(REPLACE "\\" "/" _relocated_source_include "${_relocated_source_include}")
+file(TO_CMAKE_PATH "${_owner_source}" _owner_source_include)
+file(READ "${_relocated_wrapper}" _relocated_wrapper_text)
+string(FIND "${_relocated_wrapper_text}" "#include \"${_relocated_source_include}\"" _relative_source_include_pos)
+if(_relative_source_include_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Generated textual wrapper must include its owner source relatively as '${_relocated_source_include}'.\n${_relocated_wrapper_text}")
+endif()
+string(FIND "${_relocated_wrapper_text}" "#include \"${_owner_source_include}\"" _absolute_source_include_pos)
+if(NOT _absolute_source_include_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Generated textual wrapper unexpectedly retained an absolute owner-source include.\n${_relocated_wrapper_text}")
+endif()
+
+# Canonicalize before relativizing when the generated path and source use
+# different spellings of the same tree. A lexical-only path can escape the
+# symlink target and include the wrong file after `..` traversal.
+set(_symlink_parent "${_work_dir}/views/deep")
+set(_symlink_view "${_symlink_parent}/source-view")
+file(MAKE_DIRECTORY "${_symlink_parent}" "${_source_dir}/symlink-generated")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E create_symlink "${_source_dir}" "${_symlink_view}"
+  RESULT_VARIABLE _symlink_create_rc
+  ERROR_VARIABLE _symlink_create_err)
+if(_symlink_create_rc EQUAL 0)
+  set(_symlink_wrapper "${_symlink_view}/symlink-generated/tu_0000_cases.gentest.cpp")
+  set(_symlink_header "${_source_dir}/symlink-generated/tu_0000_cases.gentest.h")
+  gentest_check_run_or_fail(
+    COMMAND "${PROG}"
+      --discover-mocks
+      --tu-out-dir "${_source_dir}/symlink-generated"
+      --tu-header-output "${_symlink_header}"
+      --textual-wrapper-output "${_symlink_wrapper}"
+      "${_owner_source}"
+      --
+      ${_clang_args}
+    STRIP_TRAILING_WHITESPACE)
+  file(READ "${_symlink_wrapper}" _symlink_wrapper_text)
+  string(FIND "${_symlink_wrapper_text}" "#include \"../cases.cpp\"" _symlink_relative_include_pos)
+  if(_symlink_relative_include_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Generated wrapper must resolve a real source relative to the canonical symlink target.\n${_symlink_wrapper_text}")
+  endif()
+  gentest_check_run_or_fail(
+    COMMAND "${_codegen_host_compiler}" -fsyntax-only "${_symlink_wrapper}" ${_clang_args}
+    STRIP_TRAILING_WHITESPACE)
+else()
+  message(STATUS "Skipping generated-wrapper symlink subcase: ${_symlink_create_err}")
+endif()
+
 file(READ "${_manifest}" _manifest_json)
 string(JSON _manifest_schema GET "${_manifest_json}" schema)
 string(JSON _source_count LENGTH "${_manifest_json}" sources)
