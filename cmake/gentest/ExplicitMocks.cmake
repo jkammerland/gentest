@@ -1,5 +1,33 @@
 include_guard(GLOBAL)
 
+function(_gentest_write_file_atomic_if_changed path content)
+    if(EXISTS "${path}")
+        file(READ "${path}" _gentest_existing_content)
+        if("${_gentest_existing_content}" STREQUAL "${content}")
+            return()
+        endif()
+    endif()
+
+    get_filename_component(_gentest_output_dir "${path}" DIRECTORY)
+    if(NOT _gentest_output_dir STREQUAL "")
+        file(MAKE_DIRECTORY "${_gentest_output_dir}")
+    endif()
+
+    string(RANDOM LENGTH 12 ALPHABET "0123456789abcdef" _gentest_tmp_suffix)
+    set(_gentest_tmp_path "${path}.tmp.${_gentest_tmp_suffix}")
+    file(WRITE "${_gentest_tmp_path}" "${content}")
+    file(RENAME "${_gentest_tmp_path}" "${path}" RESULT _gentest_rename_result)
+    if(NOT _gentest_rename_result STREQUAL "0")
+        file(REMOVE "${_gentest_tmp_path}")
+        message(FATAL_ERROR "gentest: failed to atomically replace '${path}': ${_gentest_rename_result}")
+    endif()
+endfunction()
+
+function(_gentest_copy_file_atomic_if_changed source_file destination_file)
+    file(READ "${source_file}" _gentest_copy_content)
+    _gentest_write_file_atomic_if_changed("${destination_file}" "${_gentest_copy_content}")
+endfunction()
+
 function(_gentest_reserve_unique_owner property_prefix path_key owner out_prev_owner)
     string(MD5 _gentest_path_md5 "${path_key}")
     set(_gentest_owner_property "${property_prefix}_${_gentest_path_md5}")
@@ -63,6 +91,8 @@ function(_gentest_stage_explicit_mock_file stage_dir source_file staged_rel out_
 
     string(MD5 _gentest_search_roots_key "${stage_dir}")
     get_property(_gentest_search_roots GLOBAL PROPERTY "GENTEST_EXPLICIT_MOCK_SEARCH_ROOTS_${_gentest_search_roots_key}")
+    get_property(_gentest_rewrite_third_party_api GLOBAL PROPERTY
+        "GENTEST_EXPLICIT_MOCK_REWRITE_THIRD_PARTY_API_${_gentest_search_roots_key}")
 
     string(REGEX MATCHALL "#[ \t]*include[ \t]*([<][^>]+[>]|\"[^\"]+\")" _gentest_include_matches "${_gentest_rewritten_content}")
     foreach(_gentest_include_match IN LISTS _gentest_include_matches)
@@ -115,9 +145,16 @@ function(_gentest_stage_explicit_mock_file stage_dir source_file staged_rel out_
         string(REPLACE "${_gentest_include_match}" "${_gentest_include_replacement}"
             _gentest_rewritten_content "${_gentest_rewritten_content}")
     endforeach()
+    if(_gentest_rewrite_third_party_api)
+        string(REGEX REPLACE
+            "(#[ \t]*include[ \t]*)[<\"]gentest/mock\\.h[>\"]"
+            "\\1\"gentest/mock_fwd.h\""
+            _gentest_rewritten_content
+            "${_gentest_rewritten_content}")
+    endif()
     get_filename_component(_gentest_staged_abs_dir "${stage_dir}/${staged_rel}" DIRECTORY)
     file(MAKE_DIRECTORY "${_gentest_staged_abs_dir}")
-    file(WRITE "${stage_dir}/${staged_rel}" "${_gentest_rewritten_content}\n")
+    _gentest_write_file_atomic_if_changed("${stage_dir}/${staged_rel}" "${_gentest_rewritten_content}\n")
     list(APPEND _gentest_staged_files "${stage_dir}/${staged_rel}")
     list(REMOVE_DUPLICATES _gentest_staged_files)
     set(${out_staged_files} "${_gentest_staged_files}" PARENT_SCOPE)
@@ -142,24 +179,6 @@ function(_gentest_materialize_explicit_mock_defs output_dir out_defs out_public_
     list(REMOVE_DUPLICATES _gentest_public_files)
     set(${out_defs} "${_gentest_materialized_defs}" PARENT_SCOPE)
     set(${out_public_files} "${_gentest_public_files}" PARENT_SCOPE)
-endfunction()
-
-function(_gentest_rewrite_third_party_mock_api_includes)
-    foreach(_gentest_file IN LISTS ARGN)
-        if(NOT EXISTS "${_gentest_file}" OR IS_DIRECTORY "${_gentest_file}")
-            continue()
-        endif()
-        file(READ "${_gentest_file}" _gentest_content)
-        set(_gentest_rewritten "${_gentest_content}")
-        string(REGEX REPLACE
-            "(#[ \t]*include[ \t]*)[<\"]gentest/mock\\.h[>\"]"
-            "\\1\"gentest/mock_fwd.h\""
-            _gentest_rewritten
-            "${_gentest_rewritten}")
-        if(NOT _gentest_rewritten STREQUAL _gentest_content)
-            file(WRITE "${_gentest_file}" "${_gentest_rewritten}")
-        endif()
-    endforeach()
 endfunction()
 
 function(_gentest_materialize_explicit_module_mock_defs output_dir out_defs out_public_files)
@@ -187,7 +206,7 @@ function(_gentest_materialize_explicit_module_mock_defs output_dir out_defs out_
             get_filename_component(_gentest_support_name "${_gentest_staged_file}" NAME)
             set(_gentest_root_support_file "${_gentest_root_support_dir}/${_gentest_support_name}")
             file(MAKE_DIRECTORY "${_gentest_root_support_dir}")
-            file(COPY_FILE "${_gentest_staged_file}" "${_gentest_root_support_file}" ONLY_IF_DIFFERENT)
+            _gentest_copy_file_atomic_if_changed("${_gentest_staged_file}" "${_gentest_root_support_file}")
             list(APPEND _gentest_public_files "${_gentest_root_support_file}")
         endforeach()
     endforeach()
@@ -484,15 +503,17 @@ function(gentest_add_mocks target)
     list(REMOVE_DUPLICATES _gentest_explicit_mock_search_roots)
     string(MD5 _gentest_search_roots_key "${_gentest_staging_dir}/defs")
     set_property(GLOBAL PROPERTY "GENTEST_EXPLICIT_MOCK_SEARCH_ROOTS_${_gentest_search_roots_key}" "${_gentest_explicit_mock_search_roots}")
+    set_property(GLOBAL PROPERTY "GENTEST_EXPLICIT_MOCK_REWRITE_THIRD_PARTY_API_${_gentest_search_roots_key}"
+        "${_gentest_uses_third_party_mock_backend}")
 
     _gentest_materialize_explicit_mock_defs(
         "${_gentest_staging_dir}"
         _gentest_materialized_textual_defs
         _gentest_staged_textual_public_files
         ${_gentest_textual_defs})
-    if(_gentest_uses_third_party_mock_backend)
-        _gentest_rewrite_third_party_mock_api_includes(${_gentest_staged_textual_public_files})
-    endif()
+    # Module defs use a different source surface and were never passed through
+    # the textual third-party rewrite path.
+    set_property(GLOBAL PROPERTY "GENTEST_EXPLICIT_MOCK_REWRITE_THIRD_PARTY_API_${_gentest_search_roots_key}" FALSE)
     set(_gentest_staged_textual_dependency_public_files "")
     foreach(_gentest_textual_public_file IN LISTS _gentest_staged_textual_public_files)
         list(FIND _gentest_materialized_textual_defs "${_gentest_textual_public_file}" _gentest_textual_def_index)
@@ -559,7 +580,7 @@ function(gentest_add_mocks target)
             file(GENERATE OUTPUT "${_gentest_public_header}" CONTENT "${_gentest_public_header_content}")
         else()
             file(MAKE_DIRECTORY "${_gentest_public_header_dir}")
-            file(WRITE "${_gentest_public_header}" "${_gentest_public_header_content}")
+            _gentest_write_file_atomic_if_changed("${_gentest_public_header}" "${_gentest_public_header_content}")
         endif()
     endif()
 
@@ -585,7 +606,7 @@ function(gentest_add_mocks target)
             string(APPEND _gentest_textual_wrapper_content "#undef GENTEST_NO_EXPECT_CALL_MACROS\n")
             string(APPEND _gentest_textual_wrapper_content "#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n")
         endif()
-        file(WRITE "${_gentest_textual_wrapper}" "${_gentest_textual_wrapper_content}")
+        _gentest_write_file_atomic_if_changed("${_gentest_textual_wrapper}" "${_gentest_textual_wrapper_content}")
         list(APPEND _gentest_codegen_sources "${_gentest_textual_wrapper}")
     endif()
 
@@ -611,7 +632,7 @@ namespace {\n\
         file(GENERATE OUTPUT "${_gentest_anchor_cpp}" CONTENT "${_gentest_anchor_content}")
         set_source_files_properties("${_gentest_anchor_cpp}" PROPERTIES GENERATED TRUE)
     else()
-        file(WRITE "${_gentest_anchor_cpp}" "${_gentest_anchor_content}")
+        _gentest_write_file_atomic_if_changed("${_gentest_anchor_cpp}" "${_gentest_anchor_content}")
     endif()
 
     add_library(${target} STATIC)

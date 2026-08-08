@@ -747,6 +747,41 @@ foreach(_token IN ITEMS
   endif()
 endforeach()
 
+# Repeat module aggregate emission after a deliberate timestamp gap. The
+# aggregate is consumed by downstream module compilation, so equal content
+# must not make it look newer than its dependents.
+file(TIMESTAMP "${_module_aggregate}" _module_aggregate_timestamp "%s.%f" UTC)
+execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 1)
+execute_process(
+  COMMAND "${PROG}"
+    emit-mocks
+    --mock-manifest-input "${_module_manifest}"
+    --mock-registry "${_module_registry}"
+    --mock-impl "${_module_impl}"
+    --mock-domain-registry-output "${_module_header_domain_registry}"
+    --mock-domain-registry-output "${_module_service_domain_registry}"
+    --mock-domain-impl-output "${_module_header_domain_impl}"
+    --mock-domain-impl-output "${_module_service_domain_impl}"
+    --mock-aggregate-module-output "${_module_aggregate}"
+    --mock-aggregate-module-name mock_manifest_split.aggregate_mocks
+    --depfile "${_module_aggregate_depfile}"
+  RESULT_VARIABLE _module_reemit_rc
+  OUTPUT_VARIABLE _module_reemit_out
+  ERROR_VARIABLE _module_reemit_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _module_reemit_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Repeated named-module manifest emission failed.\n"
+    "--- stdout ---\n${_module_reemit_out}\n--- stderr ---\n${_module_reemit_err}")
+endif()
+file(TIMESTAMP "${_module_aggregate}" _module_aggregate_repeat_timestamp "%s.%f" UTC)
+if(NOT "${_module_aggregate_repeat_timestamp}" STREQUAL "${_module_aggregate_timestamp}")
+  message(FATAL_ERROR
+    "Unchanged mock aggregate module unexpectedly changed timestamp from '${_module_aggregate_timestamp}' to "
+    "'${_module_aggregate_repeat_timestamp}': ${_module_aggregate}")
+endif()
+
 file(READ "${_module_aggregate_depfile}" _module_aggregate_depfile_text)
 get_filename_component(_module_aggregate_depfile_name "${_module_aggregate}" NAME)
 string(FIND "${_module_aggregate_depfile_text}" "${_module_aggregate_depfile_name}" _module_aggregate_depfile_pos)

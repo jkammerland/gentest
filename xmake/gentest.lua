@@ -287,6 +287,37 @@ local function registered_target_metadata()
     return metadata
 end
 
+local function invalidate_xmake_module_scanner_cache(generated_target, project, localcache)
+    local generated_fullname = generated_target:fullname()
+    local function depends_on_generated(candidate, seen)
+        local candidate_fullname = candidate:fullname()
+        if candidate_fullname == generated_fullname then
+            return true
+        end
+        if seen[candidate_fullname] then
+            return false
+        end
+        seen[candidate_fullname] = true
+        for _, dep in pairs(candidate:deps() or {}) do
+            if depends_on_generated(dep, seen) then
+                return true
+            end
+        end
+        return false
+    end
+
+    local cache = localcache.cache("cxxmodules")
+    for _, candidate in pairs(project.targets()) do
+        if depends_on_generated(candidate, {}) then
+            local affected_fullname = candidate:fullname()
+            cache:set2(affected_fullname, "sourcebatch_sum", nil)
+            cache:set2(affected_fullname, "c++.build.sourcebatch", nil)
+            cache:set2(affected_fullname, "c++.modules", nil)
+            cache:set2(affected_fullname, "c++.modules.built_artifacts", nil)
+        end
+    end
+end
+
 local function append_codegen_define_args(args, defines, seen_defines)
     for _, define in ipairs(defines or {}) do
         local define_arg = tostring(define or "")
@@ -1400,6 +1431,19 @@ function gentest_add_mocks(opts)
             append_unique(include_dirs, seen_registered_includes, include_dir)
         end
     end)
+    after_load(function (target)
+        if kind == "modules" then
+            -- Xmake 3.0.6 can retain a c++.build source-batch shape across
+            -- separate dependency/consumer builds even after generated module
+            -- sources change. Invalidate this target and its actual downstream
+            -- dependency graph, using canonical Xmake full target names, so
+            -- their scans are recomputed before graph construction and
+            -- independently of generated-file timestamp resolution.
+            local project = import("core.project.project")
+            local localcache = import("core.cache.localcache")
+            invalidate_xmake_module_scanner_cache(target, project, localcache)
+        end
+    end)
     before_preparecmd(function (target, batchcmds)
         if kind == "modules" then
             require_clang_module_toolchain(target, "gentest_add_mocks")
@@ -1585,6 +1629,7 @@ function gentest_attach_codegen(opts)
         end
         run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     end)
+
 end
 
 function gentest_add_public_modules(opts)

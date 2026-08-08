@@ -37,7 +37,7 @@ function(_gentest_resolve_xmake_test_tool out_var raw_value label)
   set(${out_var} "${_resolved_tool}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_prepare_windows_xmake_workspace out_var source_dir workspace_root)
+function(_gentest_prepare_xmake_workspace out_var source_dir workspace_root)
   set(_project_dir "${workspace_root}/xw")
   file(REMOVE_RECURSE "${_project_dir}")
   file(MAKE_DIRECTORY "${_project_dir}")
@@ -61,10 +61,7 @@ if(DEFINED BUILD_ROOT AND NOT "${BUILD_ROOT}" STREQUAL "")
   set(_gentest_xmake_root "${BUILD_ROOT}")
 endif()
 
-set(_project_dir "${SOURCE_DIR}")
-if(WIN32)
-  _gentest_prepare_windows_xmake_workspace(_project_dir "${SOURCE_DIR}" "${_gentest_xmake_root}")
-endif()
+_gentest_prepare_xmake_workspace(_project_dir "${SOURCE_DIR}" "${_gentest_xmake_root}")
 
 set(_configured_target_cc "$ENV{GENTEST_XMAKE_TEST_TARGET_CC}")
 set(_configured_target_cxx "$ENV{GENTEST_XMAKE_TEST_TARGET_CXX}")
@@ -403,6 +400,128 @@ foreach(_expected_glob IN ITEMS
   endif()
 endforeach()
 
+file(GLOB _aggregate_module_matches
+  LIST_DIRECTORIES FALSE
+  "${_generated_glob_root}/consumer_module_mocks/gentest/consumer_mocks.cppm")
+list(LENGTH _aggregate_module_matches _aggregate_module_count)
+if(NOT _aggregate_module_count EQUAL 1)
+  message(FATAL_ERROR
+    "Expected exactly one Xmake aggregate module, found ${_aggregate_module_count}: ${_aggregate_module_matches}")
+endif()
+list(GET _aggregate_module_matches 0 _aggregate_module)
+file(TIMESTAMP "${_aggregate_module}" _aggregate_mtime_before "%s.%f" UTC)
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_clang_build_args}
+          gentest_consumer_module_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _repeat_build_rc
+  OUTPUT_VARIABLE _repeat_build_out
+  ERROR_VARIABLE _repeat_build_err)
+if(NOT _repeat_build_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Immediate repeated Xmake module consumer build failed.\n"
+    "stdout:\n${_repeat_build_out}\n"
+    "stderr:\n${_repeat_build_err}")
+endif()
+file(TIMESTAMP "${_aggregate_module}" _aggregate_mtime_after "%s.%f" UTC)
+if(NOT _aggregate_mtime_after STREQUAL _aggregate_mtime_before)
+  message(FATAL_ERROR
+    "Immediate repeated Xmake module build rewrote an unchanged aggregate.\n"
+    "Before: ${_aggregate_mtime_before}\n"
+    "After:  ${_aggregate_mtime_after}")
+endif()
+
+set(_extra_defs "${_project_dir}/tests/consumer/module_mock_extra_defs.cppm")
+file(WRITE "${_extra_defs}" [=[export module gentest.consumer_mock_extra_defs;
+
+export import gentest.mock;
+export import gentest.consumer_service;
+
+export namespace consumer::mocks {
+
+using ExtraServiceMock = gentest::mock<consumer::Service>;
+
+} // namespace consumer::mocks
+]=])
+file(READ "${_project_dir}/xmake.lua" _xmake_project_content)
+set(_defs_before
+  [[defs = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"}]])
+set(_defs_after
+  [[defs = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm", "tests/consumer/module_mock_extra_defs.cppm"}]])
+set(_modules_before
+  [[defs_modules = {"gentest.consumer_service", "gentest.consumer_mock_defs"}]])
+set(_modules_after
+  [[defs_modules = {"gentest.consumer_service", "gentest.consumer_mock_defs", "gentest.consumer_mock_extra_defs"}]])
+set(_headers_before
+  [[headerfiles = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm"}]])
+set(_headers_after
+  [[headerfiles = {"tests/consumer/service_module.cppm", "tests/consumer/module_mock_defs.cppm", "tests/consumer/module_mock_extra_defs.cppm"}]])
+set(_mock_target_before [[target("gentest_consumer_module_mocks_xmake")]])
+set(_mock_target_after [[target("regression::gentest_consumer_module_mocks_xmake")]])
+set(_consumer_target_before [[target("gentest_consumer_module_xmake")]])
+set(_consumer_target_after [[target("regression::gentest_consumer_module_xmake")]])
+foreach(_replacement IN ITEMS defs modules headers mock_target consumer_target)
+  string(FIND "${_xmake_project_content}" "${_${_replacement}_before}" _replacement_pos)
+  if(_replacement_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Failed to locate ${_replacement} list while preparing the changed Xmake module-input regression.")
+  endif()
+  string(REPLACE "${_${_replacement}_before}" "${_${_replacement}_after}"
+    _xmake_project_content "${_xmake_project_content}")
+endforeach()
+file(WRITE "${_project_dir}/xmake.lua" "${_xmake_project_content}")
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_clang_config_args}
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _changed_cfg_rc
+  OUTPUT_VARIABLE _changed_cfg_out
+  ERROR_VARIABLE _changed_cfg_err)
+if(NOT _changed_cfg_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Xmake reconfigure failed for the changed module-input regression.\n"
+    "stdout:\n${_changed_cfg_out}\n"
+    "stderr:\n${_changed_cfg_err}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_clang_build_args}
+          regression::gentest_consumer_module_mocks_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _changed_mock_build_rc
+  OUTPUT_VARIABLE _changed_mock_build_out
+  ERROR_VARIABLE _changed_mock_build_err)
+if(NOT _changed_mock_build_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Xmake mock build failed after changing the module mock input set.\n"
+    "stdout:\n${_changed_mock_build_out}\n"
+    "stderr:\n${_changed_mock_build_err}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_clang_build_args}
+          regression::gentest_consumer_module_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _changed_consumer_build_rc
+  OUTPUT_VARIABLE _changed_consumer_build_out
+  ERROR_VARIABLE _changed_consumer_build_err)
+if(NOT _changed_consumer_build_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Xmake consumer build failed after changing the module mock input set.\n"
+    "stdout:\n${_changed_consumer_build_out}\n"
+    "stderr:\n${_changed_consumer_build_err}")
+endif()
+file(READ "${_aggregate_module}" _changed_aggregate_content)
+string(FIND "${_changed_aggregate_content}"
+  "export import gentest.consumer_mock_extra_defs;" _extra_import_pos)
+if(_extra_import_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Changed Xmake module mock input did not update the aggregate module.\n"
+    "Aggregate:\n${_changed_aggregate_content}")
+endif()
+
 file(GLOB _module_manifest_matches
   LIST_DIRECTORIES FALSE
   "${_generated_glob_root}/consumer_module/gentest_consumer_module_xmake.artifact_manifest.json")
@@ -424,13 +543,20 @@ file(GLOB_RECURSE _consumer_bins
   LIST_DIRECTORIES FALSE
   "${_out_dir}/gentest_consumer_module_xmake"
   "${_out_dir}/gentest_consumer_module_xmake.exe")
-list(LENGTH _consumer_bins _consumer_bin_count)
+set(_namespaced_consumer_bins "")
+foreach(_candidate IN LISTS _consumer_bins)
+  file(TO_CMAKE_PATH "${_candidate}" _candidate_normalized)
+  if(_candidate_normalized MATCHES "/regression/gentest_consumer_module_xmake(\\.exe)?$")
+    list(APPEND _namespaced_consumer_bins "${_candidate}")
+  endif()
+endforeach()
+list(LENGTH _namespaced_consumer_bins _consumer_bin_count)
 if(NOT _consumer_bin_count EQUAL 1)
   message(FATAL_ERROR
-    "Expected exactly one built Xmake module consumer binary, found ${_consumer_bin_count}.\n"
+    "Expected exactly one built namespaced Xmake module consumer binary, found ${_consumer_bin_count}.\n"
     "Candidates:\n${_consumer_bins}")
 endif()
-list(GET _consumer_bins 0 _consumer_bin)
+list(GET _namespaced_consumer_bins 0 _consumer_bin)
 
 execute_process(
   COMMAND "${_consumer_bin}" --list

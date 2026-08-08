@@ -3938,6 +3938,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_explicit_mock_target_staging APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_explicit_mock_timestamp_preservation
+    ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_timestamp_preservation
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExplicitMockTimestampPreservation.cmake
+    cmake)
+set_property(TEST gentest_explicit_mock_timestamp_preservation APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_explicit_mock_target_install_export
     ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_install_export
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExplicitMockTargetInstallExport.cmake
