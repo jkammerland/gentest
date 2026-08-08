@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import subprocess
 import tempfile
 import unittest
@@ -146,6 +147,25 @@ class CampaignContractTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "checkout is dirty"):
             require_clean_checkout(True, False)
 
+    def test_selected_cache_clears_its_inherited_disable_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with (
+                mock.patch.dict(os.environ, {"CCACHE_DISABLE": "1", "SCCACHE_DISABLE": "1"}),
+                mock.patch.object(campaign, "resolve_cache_tool", return_value="/bin/true"),
+                mock.patch.object(campaign, "run_output", return_value="empty stats"),
+                mock.patch.object(campaign, "version", return_value={"path": "/bin/true"}),
+            ):
+                ccache_env, _ = campaign.cache_environment("ccache", Path(temporary_directory) / "ccache")
+                sccache_env, _ = campaign.cache_environment("sccache", Path(temporary_directory) / "sccache")
+        self.assertNotIn("CCACHE_DISABLE", ccache_env)
+        self.assertEqual(ccache_env["SCCACHE_DISABLE"], "1")
+        self.assertNotIn("SCCACHE_DISABLE", sccache_env)
+        self.assertEqual(sccache_env["CCACHE_DISABLE"], "1")
+
+    def test_extensionless_repository_executable_is_a_link_edge(self) -> None:
+        self.assertEqual(campaign.classify(["tests/gentest_unit_tests"], ("gentest_unit_tests",)), "link_or_archive")
+        self.assertEqual(campaign.classify(["tests/gentest_unit_tests"]), "other")
+
     def test_codegen_cap_validation_rejects_ambiguous_sweeps(self) -> None:
         self.assertEqual(parse_codegen_caps("1,auto,4"), [("1", 1), ("auto", 0), ("4", 4)])
         with self.assertRaisesRegex(ValueError, "repeat a cap label"):
@@ -220,6 +240,32 @@ class CampaignContractTests(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), contents)
             for scenario in scenarios:
                 self.assertEqual(results[scenario]["settling_profiles"], [{"unique_edges": 0, "categories": {}}])
+
+    def test_repository_mutation_settles_to_codegen_only_and_rejects_relink(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source"
+            build = root / "build"
+            source.mkdir()
+            build.mkdir()
+            (build / "compile_commands.json").write_text(
+                '[{"directory":".","file":"case.cpp","command":"c++ -c case.cpp"}]\n', encoding="utf-8"
+            )
+            codegen_only = (0.1, {"unique_edges": 1, "categories": {"codegen": 1}})
+            with mock.patch.object(campaign, "build_target", side_effect=[codegen_only, codegen_only]):
+                result = campaign.run_scenarios(
+                    source, build, [], ["gentest_unit_tests"], ("equivalent-compdb-rewrite",), 1, 0, 1, {}, False, 0, True, False
+                )
+            self.assertEqual(result["equivalent-compdb-rewrite"]["settling_profiles"], [codegen_only[1]])
+
+            relink = (0.1, {"unique_edges": 2, "categories": {"codegen": 1, "link_or_archive": 1}})
+            with (
+                mock.patch.object(campaign, "build_target", side_effect=[codegen_only, relink]),
+                self.assertRaisesRegex(RuntimeError, "persistent codegen-only edge"),
+            ):
+                campaign.run_scenarios(
+                    source, build, [], ["gentest_unit_tests"], ("equivalent-compdb-rewrite",), 1, 0, 1, {}, False, 0, True, False
+                )
 
     def test_untracked_noise_is_recorded_but_does_not_block_worktree_isolation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

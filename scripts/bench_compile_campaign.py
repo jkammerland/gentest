@@ -175,11 +175,15 @@ def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, 
     assert tool is not None
     cache_dir.mkdir(parents=True, exist_ok=True)
     if mode == "ccache":
+        env.pop("CCACHE_DISABLE", None)
+        env["SCCACHE_DISABLE"] = "1"
         env["CCACHE_DIR"] = str(cache_dir)
         # Do not read or change a user's global cache settings.
         env["CCACHE_CONFIGPATH"] = os.devnull
         metadata["before"] = run_output([tool, "--show-stats"], cwd=root, env=env)
     else:
+        env.pop("SCCACHE_DISABLE", None)
+        env["CCACHE_DISABLE"] = "1"
         env["SCCACHE_DIR"] = str(cache_dir)
         metadata["before"] = run_output([tool, "--show-stats"], cwd=root, env=env)
     metadata["tool"] = version(tool)
@@ -290,19 +294,25 @@ def ninja_log_lines(build: Path) -> int:
     return len(path.read_text(encoding="utf-8", errors="replace").splitlines()) if path.exists() else 0
 
 
-def classify(outputs: list[str]) -> str:
+def classify(outputs: list[str], executable_targets: tuple[str, ...] = ()) -> str:
     if any(".gentest.h" in output or "_mock_" in output for output in outputs):
         return "codegen"
     if any(output.endswith(".gentest.cpp.o") or output.endswith(".gentest.cpp.obj") for output in outputs):
         return "generated_tu_compile"
     if any(output.endswith((".o", ".obj")) for output in outputs):
         return "compile"
-    if any(output.endswith((".a", ".lib", ".exe")) or "/campaign_" in output for output in outputs):
+    target_names = {Path(target).name.removesuffix(".exe") for target in executable_targets}
+    if any(
+        output.endswith((".a", ".lib", ".exe"))
+        or "/campaign_" in output
+        or Path(output).name.removesuffix(".exe") in target_names
+        for output in outputs
+    ):
         return "link_or_archive"
     return "other"
 
 
-def summarize_new_ninja_edges(build: Path, start_line: int) -> dict[str, object]:
+def summarize_new_ninja_edges(build: Path, start_line: int, executable_targets: tuple[str, ...] = ()) -> dict[str, object]:
     path = build / ".ninja_log"
     categories: dict[str, int] = {}
     edges: dict[tuple[str, str, str], list[str]] = {}
@@ -315,7 +325,7 @@ def summarize_new_ninja_edges(build: Path, start_line: int) -> dict[str, object]
         key = (fields[0], fields[1], fields[4])
         edges.setdefault(key, []).append(fields[3])
     for outputs in edges.values():
-        category = classify(outputs)
+        category = classify(outputs, executable_targets)
         categories[category] = categories.get(category, 0) + 1
     return {"unique_edges": len(edges), "categories": categories}
 
@@ -325,7 +335,7 @@ def build_target(source: Path, build: Path, targets: list[str], jobs: int, env: 
     command = ["cmake", "--build", str(build), "--target", *targets, "-j", str(jobs)]
     start = time.perf_counter()
     run(command, cwd=source, env=env, capture=True)
-    return time.perf_counter() - start, summarize_new_ninja_edges(build, start_line)
+    return time.perf_counter() - start, summarize_new_ninja_edges(build, start_line, tuple(targets))
 
 
 def reconfigure(source: Path, build: Path, configure: list[str], env: dict[str, str]) -> float:
@@ -488,8 +498,17 @@ def run_scenarios(
                 finally:
                     restore_file(changed_path, original, original_stat)
                 _, settling_profile = build_target(source, build, targets, jobs, env)
-                if int(settling_profile["unique_edges"]) != 0:
+                if strict_downstream_noop and int(settling_profile["unique_edges"]) != 0:
                     raise RuntimeError(f"{scenario} did not settle to a zero-edge build after input restoration: {settling_profile}")
+                if not strict_downstream_noop and (
+                    int(settling_profile["categories"].get("codegen", 0)) < 1  # type: ignore[index]
+                    or int(settling_profile["categories"].get("generated_tu_compile", 0))  # type: ignore[index]
+                    or int(settling_profile["categories"].get("compile", 0))  # type: ignore[index]
+                    or int(settling_profile["categories"].get("link_or_archive", 0))  # type: ignore[index]
+                ):
+                    raise RuntimeError(
+                        f"{scenario} did not settle to the repository's persistent codegen-only edge: {settling_profile}"
+                    )
             if scenario not in {"reconfigure", "source-edit", "private-header-edit", "shared-header-edit", "equivalent-compdb-rewrite", "unrelated-compdb-rewrite"}:
                 validate_contract(scenario, profile, active_tus, expects_codegen, strict_downstream_noop)
             if repetition >= warmups:

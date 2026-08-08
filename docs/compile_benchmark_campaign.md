@@ -55,9 +55,11 @@ edit, and an equivalent `compile_commands.json` rewrite. The harness captures
 new Ninja edges for each scenario and asserts its invalidation contract. It
 also measures a rewrite that adds only an unrelated compilation-database
 entry. Mutated files are restored byte-for-byte (including timestamps) and a
-zero-edge settling build is required after every sample, so later caps and
-lanes receive identical fixture inputs. The built binaries are run once only
-as a correctness gate, never as part of a timed build sample.
+zero-edge settling build is required after every synthetic-fixture sample, so
+later caps and lanes receive identical fixture inputs. Repository E2E settling
+is constrained to its documented persistent codegen-only edge. The built
+binaries are run once only as a correctness gate, never as part of a timed
+build sample.
 
 The generated fixtures require a true zero-edge no-op and reconfigure follow-up
 build. The repository E2E lane separately records the current persistent
@@ -74,7 +76,9 @@ python3 scripts/bench_compile_campaign.py --cc clang-22 --cxx clang++-22 \
 
 `--cache` accepts `off` (the default), `ccache`, and `sccache`. Selecting a
 missing cache program fails clearly; no user-level cache directory or config
-is changed.
+is changed. An inherited disable flag for the selected cache is cleared, while
+the unselected cache remains disabled, so the recorded mode is the mode that
+actually executes.
 
 ## Result schema and interpretation
 
