@@ -20,8 +20,12 @@ struct ModuleMockRenderSummary {
     std::string           module_name;
 };
 
-inline ModuleMockRenderSummary summarize_module_mock_renders(std::chrono::steady_clock::time_point   started,
-                                                             std::chrono::steady_clock::time_point   finished,
+struct ModuleMockRenderWindow {
+    std::chrono::steady_clock::time_point started;
+    std::chrono::steady_clock::time_point finished;
+};
+
+inline ModuleMockRenderSummary summarize_module_mock_renders(ModuleMockRenderWindow                  window,
                                                              std::span<const ModuleMockRenderTiming> mock_renders) {
     using TimePoint = std::chrono::steady_clock::time_point;
     std::vector<std::pair<TimePoint, TimePoint>> spans;
@@ -34,8 +38,8 @@ inline ModuleMockRenderSummary summarize_module_mock_renders(std::chrono::steady
             if (!recorded) {
                 return;
             }
-            span_started  = std::max(started, span_started);
-            span_finished = std::min(finished, span_finished);
+            span_started  = std::max(window.started, span_started);
+            span_finished = std::min(window.finished, span_finished);
             if (span_finished <= span_started) {
                 return;
             }

@@ -5986,9 +5986,10 @@ int main(int argc, const char **argv) {
     if (emit_status != 0) {
         return emit_status;
     }
-    const auto emit_finished       = TimingRecorder::Clock::now();
-    const auto module_mock_summary = summarize_module_mock_renders(emit_started, emit_finished, module_mock_renders);
-    const auto emit_duration       = std::chrono::duration_cast<std::chrono::microseconds>(emit_finished - emit_started).count();
+    const auto emit_finished = TimingRecorder::Clock::now();
+    const auto module_mock_summary =
+        summarize_module_mock_renders({.started = emit_started, .finished = emit_finished}, module_mock_renders);
+    const auto emit_duration = std::chrono::duration_cast<std::chrono::microseconds>(emit_finished - emit_started).count();
     timing.record_duration("emit", std::max<std::int64_t>(0, emit_duration - module_mock_summary.duration_us));
     if (module_mock_summary.duration_us > 0) {
         timing.record_duration("mock", module_mock_summary.duration_us, std::nullopt, {},
