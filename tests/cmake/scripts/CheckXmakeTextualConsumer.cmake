@@ -634,6 +634,25 @@ if(_private_header_codegen_pos EQUAL -1)
   message(FATAL_ERROR "A private mock header edit did not rerun gentest_codegen.\n${_private_header_log}")
 endif()
 
+file(APPEND "${_project_dir}/tests/consumer/additional_header_mock_defs.hpp"
+  "\n// xmake additional mock defs dependency regression\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_mocks_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _additional_defs_rc
+  OUTPUT_VARIABLE _additional_defs_out
+  ERROR_VARIABLE _additional_defs_err)
+if(NOT _additional_defs_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake build failed after the additional mock defs edit.\n${_additional_defs_out}\n${_additional_defs_err}")
+endif()
+set(_additional_defs_log "${_additional_defs_out}\n${_additional_defs_err}")
+string(FIND "${_additional_defs_log}" "--source-root" _additional_defs_codegen_pos)
+if(_additional_defs_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "An additional mock defs edit did not rerun gentest_codegen.\n${_additional_defs_log}")
+endif()
+
 file(APPEND "${_project_dir}/tests/consumer/service.hpp" "\n// xmake shared header dependency regression\n")
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
