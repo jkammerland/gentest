@@ -75,7 +75,9 @@ schema-versioned and written after successful generation; unreadable or corrupt
 state is treated as a miss.
 Snapshot publication is serialized by a build-local file lock, uses a unique
 same-directory temporary leaf, and atomically renames the immutable result, so
-two Xmake processes cannot delete or publish each other's temporary state.
+the cache recheck, codegen process, and snapshot publication have one owner.
+Two Xmake processes with different effective identities therefore cannot
+snapshot each other's generated outputs or delete each other's temporary state.
 Depfile parsing decodes only Make's defined escapes; literal backslashes and
 Windows drive paths are preserved.
 
@@ -83,8 +85,9 @@ The sidecar identity includes ambient settings that can change parsing or
 cache behavior: `GENTEST_CODEGEN_RESOURCE_DIR`,
 `GENTEST_CODEGEN_SCAN_DEPS_MODE`, parse/PCM cache enablement, directories and
 salts, `CPATH`, the language-specific include-path variables, `INCLUDE`, and
-`SDKROOT`. Changing one schedules codegen once; the next unchanged build is a
-no-op.
+`SDKROOT`, plus `GENTEST_STRICT_FIXTURE` and
+`GENTEST_NO_INCLUDE_SOURCES`. Changing one schedules codegen once (or surfaces
+the newly requested validation failure); the next unchanged build is a no-op.
 
 Enable the optional textual parse cache with Xmake configuration:
 
@@ -131,8 +134,9 @@ consumer needs:
 - `bin/gentest_codegen`
 - `include/gentest/...`
 - the complete `share/gentest/xmake/` helper tree, including
-  `gentest.lua`, `scripts/update_codegen_dep_cache.lua`, and
-  `scripts/codegen_dep_cache_common.lua`
+  `gentest.lua`, `scripts/update_codegen_dep_cache.lua`,
+  `scripts/codegen_dep_cache_common.lua`, and
+  `scripts/run_codegen_with_dep_cache.lua`
 
 The checked-in downstream proof copies the helper payload into a project-local
 directory and loads it like this:
@@ -157,6 +161,8 @@ your_project/
     gentest.lua
     scripts/
       update_codegen_dep_cache.lua
+      codegen_dep_cache_common.lua
+      run_codegen_with_dep_cache.lua
   tests/
     main.cpp
     cases.cpp
@@ -220,8 +226,8 @@ target("gentest_xrepo_module")
 ## Configure and build
 
 These commands assume the downstream project already has an installed/staged
-gentest prefix in `GENTEST_XREPO_PREFIX` and has copied
-`share/gentest/xmake/gentest.lua` into `.gentest_support/`. The checked-in CTest
+gentest prefix in `GENTEST_XREPO_PREFIX` and has copied the complete
+`share/gentest/xmake/` tree into `.gentest_support/`. The checked-in CTest
 proof creates that staged prefix and support copy automatically.
 
 ```bash

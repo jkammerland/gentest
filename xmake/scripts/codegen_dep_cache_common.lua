@@ -17,6 +17,40 @@ local function is_make_escape(character)
     return character == " " or character == "\t" or character == "#" or character == "$" or character == ":" or character == "\\"
 end
 
+local function collapse_continuations(contents)
+    local result = {}
+    local index = 1
+    while index <= #contents do
+        if contents:sub(index, index) ~= "\\" then
+            table.insert(result, contents:sub(index, index))
+            index = index + 1
+        else
+            local run_end = index
+            while run_end <= #contents and contents:sub(run_end, run_end) == "\\" do
+                run_end = run_end + 1
+            end
+            local count = run_end - index
+            local newline_width = 0
+            if contents:sub(run_end, run_end + 1) == "\r\n" then
+                newline_width = 2
+            elseif contents:sub(run_end, run_end) == "\n" then
+                newline_width = 1
+            end
+            if newline_width > 0 and count % 2 == 1 then
+                -- Only an odd final backslash escapes the newline. Preserve
+                -- every preceding pair for the Make-token decoder below.
+                table.insert(result, string.rep("\\", count - 1))
+                table.insert(result, " ")
+                index = run_end + newline_width
+            else
+                table.insert(result, string.rep("\\", count))
+                index = run_end
+            end
+        end
+    end
+    return table.concat(result)
+end
+
 function dependencies(depfile, project_root)
     if not depfile or depfile == "" or not os.isfile(depfile) then
         return {}
@@ -25,7 +59,7 @@ function dependencies(depfile, project_root)
     if not contents then
         return {}
     end
-    contents = contents:gsub("\\\r\n", " "):gsub("\\\n", " ")
+    contents = collapse_continuations(contents)
 
     -- A drive-letter colon is not the make-rule separator. The generator
     -- writes a separator followed by whitespace, which is portable for both

@@ -19,16 +19,30 @@ local function run_parser_check(helper, work_dir)
     local depfile = path.join(work_dir, "synthetic.d")
     local escaped_path = path.join(work_dir, "escaped path.hpp")
     local literal_path = is_host("windows") and "Z:\\gentest\\literal\\private.hpp" or "literal\\private.hpp"
-    io.writefile(depfile, "output: " .. make_escape(escaped_path) .. " " .. literal_path .. "\n")
+    local trailing_backslash_path = "trailing\\"
+    local drive_space_path = "Z:\\gentest\\escaped path.hpp"
+    local continued_path = path.join(work_dir, "continued path.hpp")
+    io.writefile(
+        depfile,
+        "output: " .. make_escape(escaped_path) .. " " .. literal_path .. " " .. make_escape(trailing_backslash_path) ..
+            " \\\r\n " .. make_escape(continued_path) .. " " .. make_escape(drive_space_path) .. "\r\n"
+    )
 
     local dependencies = codegen_dep_cache_common.dependencies(depfile, work_dir)
-    require_equal(#dependencies, 2, "dependency count")
+    require_equal(#dependencies, 5, "dependency count")
     require_equal(dependencies[1], path.absolute(escaped_path), "recognized Make escapes")
     local expected_literal = literal_path
     if not path.is_absolute(expected_literal) then
         expected_literal = path.join(work_dir, expected_literal)
     end
     require_equal(dependencies[2], path.absolute(expected_literal), "literal backslash and drive spelling")
+    require_equal(dependencies[3], path.absolute(path.join(work_dir, trailing_backslash_path)), "trailing literal backslash")
+    require_equal(dependencies[4], path.absolute(continued_path), "CRLF continuation")
+    local expected_drive_space = drive_space_path
+    if not path.is_absolute(expected_drive_space) then
+        expected_drive_space = path.join(work_dir, expected_drive_space)
+    end
+    require_equal(dependencies[5], path.absolute(expected_drive_space), "Make-escaped Windows path with spaces")
 end
 
 local function validate_snapshot(cache_path, identity)
@@ -48,11 +62,23 @@ local function validate_snapshot(cache_path, identity)
     end
 end
 
+local function validate_snapshot_output(cache_path, output_path)
+    local candidates = os.files(cache_path .. ".v.*") or {}
+    require_equal(#candidates, 1, "published divergent snapshot count")
+    local loaded = io.load(candidates[1])
+    local output_identity = io.readfile(output_path)
+    if type(loaded) ~= "table" or loaded.identity ~= output_identity then
+        fail("snapshot identity does not own the generated output")
+    end
+end
+
 function main(mode, ...)
     if mode == "parser" then
         run_parser_check(...)
     elseif mode == "validate" then
         validate_snapshot(...)
+    elseif mode == "validate-output" then
+        validate_snapshot_output(...)
     else
         fail("unknown mode " .. tostring(mode))
     end

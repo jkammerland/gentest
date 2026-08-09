@@ -1180,7 +1180,7 @@ local function ensure_codegen(batchcmds, target)
     return codegen, compdb_dir, host_clang, resolve_codegen_scan_deps(host_clang)
 end
 
-local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+local function mock_codegen_args(compdb_dir, host_clang, scan_deps, config)
     local args = {
         "--source-root", project_root(),
         "--tu-out-dir", config.out_dir_abs,
@@ -1247,10 +1247,10 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
     end
     append_parse_cache_args(args)
     append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args, config.forced_includes)
-    run_command(batchcmds, codegen, args)
+    return args
 end
 
-local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+local function suite_codegen_args(compdb_dir, host_clang, scan_deps, config)
     local args = {
         "--source-root", project_root(),
         "--tu-out-dir", config.out_dir_abs,
@@ -1301,7 +1301,7 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
     end
     append_parse_cache_args(args)
     append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args)
-    run_command(batchcmds, codegen, args)
+    return args
 end
 
 local function append_path_unique(paths, seen, filepath)
@@ -1350,6 +1350,8 @@ local codegen_environment_identity_names = {
     "GENTEST_CODEGEN_PCM_CACHE",
     "GENTEST_CODEGEN_PCM_CACHE_DIR",
     "GENTEST_CODEGEN_PCM_CACHE_SALT",
+    "GENTEST_STRICT_FIXTURE",
+    "GENTEST_NO_INCLUDE_SOURCES",
     "CPATH",
     "C_INCLUDE_PATH",
     "CPLUS_INCLUDE_PATH",
@@ -1370,7 +1372,7 @@ end
 local function target_codegen_identity(target, config, codegen, compdb_dir, host_clang, scan_deps)
     local cxx_program, cxx_name = target:tool("cxx")
     local target_values = {
-        "gentest-xmake-codegen-v2",
+        "gentest-xmake-codegen-v3",
         config.operation or "",
         config.codegen_kind or "",
         config.kind,
@@ -1472,6 +1474,8 @@ local function codegen_static_dependencies(target, config, codegen, compdb_dir, 
     append_path_unique(files, seen, path.join(helper_script_dir(), "gentest.lua"))
     append_path_unique(files, seen, path.join(helper_script_dir(), "scripts", "update_codegen_dep_cache.lua"))
     append_path_unique(files, seen, path.join(helper_script_dir(), "scripts", "codegen_dep_cache_common.lua"))
+    append_path_unique(files, seen, path.join(helper_script_dir(), "scripts", "run_codegen_with_dep_cache.lua"))
+    append_path_unique(files, seen, os.programfile())
     local cxx_program = target:tool("cxx")
     append_path_unique(files, seen, cxx_program)
     if compdb_dir and compdb_dir ~= "" then
@@ -1573,16 +1577,34 @@ local function run_cached_codegen(target, batchcmds, config)
     -- No sidecar closure means no trustworthy native dependency cache. Leave
     -- this batch uncached so missing/corrupt/read-only sidecar state always
     -- regenerates instead of being skipped by a prior static-only depcache.
+    local codegen_args = nil
     if config.codegen_kind == "mocks" then
-        run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+        codegen_args = mock_codegen_args(compdb_dir, host_clang, scan_deps, config)
     else
-        run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+        codegen_args = suite_codegen_args(compdb_dir, host_clang, scan_deps, config)
     end
-    local cache_args = {cache_path, config.depfile, identity, project_root()}
+    local cache_args = {
+        cache_path,
+        config.depfile,
+        identity,
+        project_root(),
+        tostring(#static_dependencies),
+        codegen,
+    }
     for _, filepath in ipairs(static_dependencies) do
         table.insert(cache_args, filepath)
     end
-    batchcmds:vlua(path.join(helper_script_dir(), "scripts", "update_codegen_dep_cache.lua"), cache_args)
+    for _, argument in ipairs(codegen_args) do
+        table.insert(cache_args, argument)
+    end
+    local runner_args = {"lua", path.join(helper_script_dir(), "scripts", "run_codegen_with_dep_cache.lua")}
+    for _, argument in ipairs(cache_args) do
+        table.insert(runner_args, argument)
+    end
+    -- Run the cache owner as a real child process. Xmake's in-process `vlua`
+    -- helper logs script failures without reliably failing the enclosing
+    -- build, which would hide codegen validation errors.
+    batchcmds:vrunv(os.programfile(), runner_args)
 end
 
 local function generation_configs()

@@ -78,10 +78,14 @@ Minimal assets:
   - `bin/gentest_codegen`
   - `include/gentest/...`
   - the complete `share/gentest/xmake/` helper tree, including
-    `gentest.lua` and `scripts/update_codegen_dep_cache.lua`
+    `gentest.lua`, `scripts/update_codegen_dep_cache.lua`,
+    `scripts/codegen_dep_cache_common.lua`, and
+    `scripts/run_codegen_with_dep_cache.lua`
 - project-local helper copy, usually:
   - `.gentest_support/gentest.lua` plus
-    `.gentest_support/scripts/update_codegen_dep_cache.lua`
+    `.gentest_support/scripts/update_codegen_dep_cache.lua`,
+    `.gentest_support/scripts/codegen_dep_cache_common.lua`, and
+    `.gentest_support/scripts/run_codegen_with_dep_cache.lua`
 - `xmake.lua`
 - your `tests/...` sources
 

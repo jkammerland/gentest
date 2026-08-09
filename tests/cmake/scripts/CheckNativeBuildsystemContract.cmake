@@ -10,6 +10,8 @@ endif()
 set(_meson_file "${SOURCE_DIR}/meson.build")
 set(_xmake_file "${SOURCE_DIR}/xmake.lua")
 set(_xmake_helper_file "${SOURCE_DIR}/xmake/gentest.lua")
+set(_xmake_cache_common_file "${SOURCE_DIR}/xmake/scripts/codegen_dep_cache_common.lua")
+set(_xmake_cache_runner_file "${SOURCE_DIR}/xmake/scripts/run_codegen_with_dep_cache.lua")
 set(_bazel_rules_file "${SOURCE_DIR}/build_defs/gentest.bzl")
 set(_bazel_root_file "${SOURCE_DIR}/BUILD.bazel")
 
@@ -17,6 +19,8 @@ foreach(_required IN ITEMS
     "${_meson_file}"
     "${_xmake_file}"
     "${_xmake_helper_file}"
+    "${_xmake_cache_common_file}"
+    "${_xmake_cache_runner_file}"
     "${_bazel_rules_file}"
     "${_bazel_root_file}")
   if(NOT EXISTS "${_required}")
@@ -66,7 +70,9 @@ endforeach()
 foreach(_expected IN ITEMS
     "function gentest_add_mocks(opts)"
     "function gentest_attach_codegen(opts)"
-    "run_command(batchcmds, codegen, args)"
+    "batchcmds:vrunv(os.programfile(), runner_args)"
+    "GENTEST_STRICT_FIXTURE"
+    "GENTEST_NO_INCLUDE_SOURCES"
     "registered_target_metadata()"
     "collect_mock_metadata_inputs"
     "module_public_output_rel"
