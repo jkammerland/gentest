@@ -4,6 +4,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
+#include <llvm/ADT/StringRef.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/SHA256.h>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -15,6 +19,37 @@ bool write_file(const fs::path &path, std::string_view content) {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
     output.write(content.data(), static_cast<std::streamsize>(content.size()));
     return static_cast<bool>(output);
+}
+
+gentest::codegen::ParseInputSnapshot snapshot_for(const fs::path &path) {
+    std::ifstream     input(path, std::ios::binary);
+    const std::string content{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+    llvm::SHA256      hasher;
+    hasher.update(llvm::StringRef{content});
+    const auto            digest = hasher.final();
+    static constexpr char hex[]  = "0123456789abcdef";
+    std::string           hash(digest.size() * 2, '\0');
+    for (std::size_t index = 0; index < digest.size(); ++index) {
+        hash[index * 2]     = hex[(digest[index] >> 4) & 0x0f];
+        hash[index * 2 + 1] = hex[digest[index] & 0x0f];
+    }
+    llvm::sys::fs::file_status status;
+    if (input.bad() || llvm::sys::fs::status(path.string(), status)) {
+        return {};
+    }
+    const auto unique_id = status.getUniqueID();
+    return gentest::codegen::ParseInputSnapshot{
+        .path      = fs::absolute(path).lexically_normal().generic_string(),
+        .hash      = std::move(hash),
+        .unique_id = std::to_string(unique_id.getDevice()) + ":" + std::to_string(unique_id.getFile()),
+    };
+}
+
+void snapshot_inputs(gentest::codegen::TextualParseResult &result, const fs::path &source) {
+    result.parse_input_snapshots.push_back(snapshot_for(source));
+    for (const auto &dependency : result.dependencies) {
+        result.parse_input_snapshots.push_back(snapshot_for(dependency));
+    }
 }
 
 gentest::codegen::ParseCacheContext context_for(const fs::path &source, std::string salt) {
@@ -62,6 +97,7 @@ int main(int argc, char **argv) {
 
     gentest::codegen::TextualParseResult dependency_result;
     dependency_result.dependencies.push_back(dependency.string());
+    snapshot_inputs(dependency_result, source);
     const auto                          dependency_a = context_for(source, "dependency-a");
     const auto                          dependency_b = context_for(source, "dependency-b");
     gentest::codegen::TextualParseCache dependency_writer(root / "dependency-cache");
@@ -76,9 +112,35 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    gentest::codegen::TextualParseResult store_race_result;
+    store_race_result.dependencies.push_back(dependency.string());
+    snapshot_inputs(store_race_result, source);
+    if (!require(write_file(dependency, "inline constexpr int value = 3;\n"), "mutate dependency after parse snapshot")) {
+        return 1;
+    }
+    const auto                          store_race_context = context_for(source, "store-race");
+    gentest::codegen::TextualParseCache store_race_cache(root / "store-race-cache");
+    store_race_cache.store(store_race_context, store_race_result);
+    if (!require(!store_race_cache.load(store_race_context, loaded), "reject input mutation between parse and store")) {
+        return 1;
+    }
+
+    gentest::codegen::TextualParseResult source_race_result;
+    snapshot_inputs(source_race_result, source);
+    if (!require(write_file(source, "void changed_after_parse() {}\n"), "mutate source after parse snapshot")) {
+        return 1;
+    }
+    const auto                          source_race_context = context_for(source, "source-store-race");
+    gentest::codegen::TextualParseCache source_race_cache(root / "source-store-race-cache");
+    source_race_cache.store(source_race_context, source_race_result);
+    if (!require(!source_race_cache.load(source_race_context, loaded), "reject source mutation between parse and store")) {
+        return 1;
+    }
+
     const fs::path                       shadow = root / "previously_missing.hpp";
     gentest::codegen::TextualParseResult shadow_result;
     shadow_result.shadow_guards.push_back(shadow.string());
+    snapshot_inputs(shadow_result, source);
     const auto                          shadow_a = context_for(source, "shadow-a");
     const auto                          shadow_b = context_for(source, "shadow-b");
     gentest::codegen::TextualParseCache shadow_writer(root / "shadow-cache");
@@ -102,6 +164,7 @@ int main(int argc, char **argv) {
     }
     gentest::codegen::TextualParseResult oversized_result;
     oversized_result.dependencies.push_back(oversized_input.string());
+    oversized_result.parse_input_snapshots.push_back(snapshot_for(source));
     const auto                          oversized_context = context_for(source, "oversized-input");
     gentest::codegen::TextualParseCache oversized_cache(root / "oversized-cache");
     oversized_cache.store(oversized_context, oversized_result);
