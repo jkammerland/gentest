@@ -175,6 +175,30 @@ _write_compdb("${_volatile_source}")
 _run("${_volatile_source}" volatile_cold miss)
 _run("${_volatile_source}" volatile_again miss)
 
+# Clang 22 exposes dedicated embed callbacks. Supported older Clang releases
+# do not, so Gentest conservatively scans entered source buffers and bypasses
+# caching whenever #embed or __has_embed appears.
+execute_process(COMMAND "${_clang_norm}" --version OUTPUT_VARIABLE _clang_version_text ERROR_QUIET)
+string(REGEX MATCH "clang version ([0-9]+)" _clang_version_match "${_clang_version_text}")
+if(NOT "${_clang_version_match}" STREQUAL "" AND CMAKE_MATCH_1 GREATER_EQUAL 20)
+  set(_embed_source "${_work_dir}/embed_cases.cpp")
+  set(_embed_payload "${_work_dir}/embed_payload.bin")
+  gentest_fixture_write_file("${_embed_payload}" "a")
+  gentest_fixture_write_file("${_embed_source}" [=[
+#if __has_embed("embed_payload.bin")
+inline constexpr bool cache_embed_present = true;
+#else
+inline constexpr bool cache_embed_present = false;
+#endif
+[[using gentest: test("cache/embed")]] void cache_embed() {}
+]=])
+  _write_compdb("${_embed_source}")
+  _run("${_embed_source}" embed_cold miss)
+  _run("${_embed_source}" embed_again miss)
+  gentest_fixture_write_file("${_embed_payload}" "b")
+  _run("${_embed_source}" embed_changed miss)
+endif()
+
 set(_overlay "${_work_dir}/empty-overlay.yaml")
 gentest_fixture_write_file("${_overlay}" "{ 'version': 0, 'roots': [] }\n")
 _write_compdb("${_forced_source}" "-ivfsoverlay" "${_overlay}")

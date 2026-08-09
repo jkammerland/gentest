@@ -72,7 +72,7 @@ class TextualParseCache {
     [[nodiscard]] static std::string executable_identity(const std::filesystem::path &path);
 
   private:
-    [[nodiscard]] std::optional<FileFingerprint> fingerprint_file(const std::string &path);
+    [[nodiscard]] std::optional<FileFingerprint> fingerprint_file(const std::string &path, bool allow_memoization = true);
     [[nodiscard]] std::string                    slot_for(const ParseCacheContext &context) const;
     [[nodiscard]] bool                           fingerprint_matches(const FileFingerprint &expected);
 
