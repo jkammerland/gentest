@@ -849,7 +849,11 @@ void TextualParseCache::store(const ParseCacheContext &context, const TextualPar
         })) {
         return;
     }
-    const auto source = fingerprint_file(context.source);
+    // Re-read every publication input instead of using the invocation memo.
+    // The result was produced from the buffers in parse_input_snapshots; a
+    // concurrent edit between parsing and publication must make this store a
+    // safe miss rather than associate the old result with new input bytes.
+    const auto source = fingerprint_file(context.source, false);
     if (!source.has_value() || !source->exists || !source->regular) {
         return;
     }
@@ -857,7 +861,7 @@ void TextualParseCache::store(const ParseCacheContext &context, const TextualPar
         std::vector<FileFingerprint> fingerprints;
         fingerprints.reserve(paths.size());
         for (const auto &path : paths) {
-            const auto fingerprint = fingerprint_file(path);
+            const auto fingerprint = fingerprint_file(path, false);
             if (!fingerprint.has_value() || (require_regular && (!fingerprint->exists || !fingerprint->regular))) {
                 return std::optional<std::vector<FileFingerprint>>{};
             }
@@ -871,6 +875,28 @@ void TextualParseCache::store(const ParseCacheContext &context, const TextualPar
     const auto shadows        = collect(result.shadow_guards, false);
     const auto command_inputs = collect(result.command_input_guards, true);
     if (!dependencies.has_value() || !shadows.has_value() || !command_inputs.has_value()) {
+        return;
+    }
+
+    std::unordered_map<std::string, ParseInputSnapshot> parse_inputs;
+    parse_inputs.reserve(result.parse_input_snapshots.size());
+    for (const auto &snapshot : result.parse_input_snapshots) {
+        ParseInputSnapshot normalized = snapshot;
+        normalized.path               = normalize_path(snapshot.path);
+        if (normalized.path.empty() || normalized.hash.empty() || normalized.unique_id.empty()) {
+            return;
+        }
+        const auto [it, inserted] = parse_inputs.emplace(normalized.path, std::move(normalized));
+        if (!inserted && (it->second.hash != snapshot.hash || it->second.unique_id != snapshot.unique_id)) {
+            return;
+        }
+    }
+    const auto matches_parse_input = [&](const FileFingerprint &fingerprint) {
+        const auto it = parse_inputs.find(fingerprint.path);
+        return it != parse_inputs.end() && it->second.hash == fingerprint.hash && it->second.unique_id == fingerprint.unique_id;
+    };
+    if (!matches_parse_input(*source) ||
+        !std::ranges::all_of(*dependencies, [&](const FileFingerprint &fingerprint) { return matches_parse_input(fingerprint); })) {
         return;
     }
 
