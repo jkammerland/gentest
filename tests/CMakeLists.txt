@@ -71,7 +71,8 @@ add_executable(gentest_pcm_cache_tests
     ${PROJECT_SOURCE_DIR}/tools/src/pcm_cache.cpp)
 target_compile_features(gentest_pcm_cache_tests PRIVATE cxx_std_20)
 target_include_directories(gentest_pcm_cache_tests PRIVATE ${PROJECT_SOURCE_DIR}/tools/src)
-target_link_libraries(gentest_pcm_cache_tests PRIVATE gentest_codegen_support)
+find_package(Threads REQUIRED)
+target_link_libraries(gentest_pcm_cache_tests PRIVATE gentest_codegen_support Threads::Threads)
 add_dependencies(gentest_test_suites gentest_pcm_cache_tests)
 add_test(
     NAME gentest_codegen_pcm_cache_unit

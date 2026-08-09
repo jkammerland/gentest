@@ -4,11 +4,17 @@
 #include <filesystem>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 namespace gentest::codegen {
+
+// Semantic command inputs that are not proven by scan-deps' ordinary
+// file-deps closure force a conservative PCM-cache bypass.
+[[nodiscard]] std::optional<std::string_view> pcm_cache_unsupported_semantic_input(std::span<const std::string> command_line);
 
 // The context intentionally contains the complete current scan-deps closure.
 // A caller must leave file_dependencies empty when it cannot prove that
@@ -20,6 +26,10 @@ struct PcmCacheContext {
     std::string              working_directory;
     std::vector<std::string> include_roots;
     std::vector<std::string> file_dependencies;
+    // Imported PCMs that do not have a validated cache key of their own.
+    // These are re-fingerprinted with the full PCM size bound on every
+    // prepare/load/store validation pass.
+    std::vector<std::string> external_pcm_dependencies;
     std::vector<std::string> transitive_module_keys;
     std::string              compiler_identity;
     std::string              compiler_version;
@@ -42,14 +52,9 @@ class PcmArtifactCache {
 
     [[nodiscard]] bool enabled() const { return !directory_.empty(); }
 
-    // A bounded content identity for an already-materialized external PCM.
-    // Callers use this only when the artifact has no validated-cache key of
-    // its own (for example an imported public/package module).
-    [[nodiscard]] static std::optional<std::string> content_identity(const std::filesystem::path &path);
-
     // Resolves a tool symlink to its regular-file target and returns a bounded
-    // streaming content identity. Cache artifacts intentionally remain strict
-    // and use content_identity() instead.
+    // streaming content identity. Cache artifacts remain strict and are
+    // fingerprinted through the validated input-bundle path instead.
     [[nodiscard]] static std::optional<std::string> executable_identity(const std::filesystem::path &path);
 
     // Hashes the current complete closure once and retains its context for a

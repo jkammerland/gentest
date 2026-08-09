@@ -6290,6 +6290,14 @@ int main(int argc, const char **argv) {
                 }
                 return bypass("a prebuilt module search path is active");
             }
+            if (const auto unsupported = gentest::codegen::pcm_cache_unsupported_semantic_input(precompile_command);
+                unsupported.has_value()) {
+                return bypass(*unsupported);
+            }
+            if (const auto unsupported = gentest::codegen::pcm_cache_unsupported_semantic_input(scan_deps_command);
+                unsupported.has_value()) {
+                return bypass(*unsupported);
+            }
             const std::string source_key = normalize_compdb_lookup_path(source_path.string(), working_directory);
             if (source_key.empty() || !std::ranges::any_of(file_dependencies, [&](const std::string &dependency) {
                     return normalize_compdb_lookup_path(dependency, working_directory) == source_key;
@@ -6315,6 +6323,7 @@ int main(int argc, const char **argv) {
                 return bypass("a bounded compiler, resource-dir, or clang-scan-deps identity is unavailable");
             }
             std::vector<std::string> transitive_keys;
+            std::vector<std::string> external_pcm_dependencies;
             for (const auto &arg : precompile_command) {
                 if (!llvm::StringRef{arg}.starts_with("-fmodule-file=")) {
                     continue;
@@ -6330,30 +6339,26 @@ int main(int argc, const char **argv) {
                     continue;
                 }
                 // Imported public/package modules may be materialized by this
-                // invocation but intentionally bypass this local cache. Their
-                // PCM bytes still participate in the consumer key; otherwise
-                // a rebuilt external BMI could be mistaken for a compatible
-                // transitive artifact.
-                const auto external_pcm_hash = gentest::codegen::PcmArtifactCache::content_identity(local_path);
-                if (!external_pcm_hash.has_value()) {
-                    return bypass("an imported external PCM has no bounded regular-file identity");
-                }
-                transitive_keys.push_back("external-pcm:" + *external_pcm_hash);
+                // invocation but intentionally have no validated cache key.
+                // Keep their paths typed so every prepare/load/store pass
+                // re-fingerprints the current PCM bytes and physical identity.
+                external_pcm_dependencies.push_back(local_path);
             }
             attempt.context.emplace(gentest::codegen::PcmCacheContext{
                 .module_name = std::string(module_name),
                 .source      = source_path.string(),
                 .normalized_command =
                     normalize_module_precompile_command_for_cache(precompile_command, working_directory, source_path.string()),
-                .working_directory      = std::string(working_directory),
-                .include_roots          = module_cache_include_roots(scan_deps_command),
-                .file_dependencies      = std::vector<std::string>(file_dependencies.begin(), file_dependencies.end()),
-                .transitive_module_keys = std::move(transitive_keys),
-                .compiler_identity      = compiler_hash,
-                .compiler_version       = compiler_version,
-                .resource_dir           = *resource_dir,
-                .sysroot                = effective_sysroot,
-                .scan_deps_identity     = fmt::format("path={};sha256={};version={}", scan_deps, scan_deps_hash, scan_deps_version),
+                .working_directory         = std::string(working_directory),
+                .include_roots             = module_cache_include_roots(scan_deps_command),
+                .file_dependencies         = std::vector<std::string>(file_dependencies.begin(), file_dependencies.end()),
+                .external_pcm_dependencies = std::move(external_pcm_dependencies),
+                .transitive_module_keys    = std::move(transitive_keys),
+                .compiler_identity         = compiler_hash,
+                .compiler_version          = compiler_version,
+                .resource_dir              = *resource_dir,
+                .sysroot                   = effective_sysroot,
+                .scan_deps_identity        = fmt::format("path={};sha256={};version={}", scan_deps, scan_deps_hash, scan_deps_version),
                 .scan_deps_artifact =
                     fmt::format("{};cc1={}", scan_deps_artifact,
                                 normalize_module_precompile_command_for_cache(scan_deps_command, working_directory, source_path.string())),

@@ -740,6 +740,28 @@ _gentest_run_codegen_fixture(
     "${_src_dir}/alpha_dot_consumer.cppm")
 _gentest_expect_dot_module_cache_state("${_prebuilt_timing}" "bypass")
 
+# VFS overlays, PCH inputs, and compiler plugins can alter the module AST
+# without appearing in scan-deps' ordinary file-deps closure. Exercise one
+# representative semantic side input and require a conservative bypass.
+set(_vfs_overlay "${_work_dir}/empty-vfs-overlay.json")
+file(WRITE "${_vfs_overlay}" "{\"version\":0,\"roots\":[]}\n")
+set(_vfs_timing "${_generated_dir}/dot_vfs_timing.json")
+_gentest_run_codegen_fixture(
+  "pcm_cache_dot_generated"
+  PCM_CACHE ON
+  LOG_SCAN_DEPS
+  TIMING_JSON "${_vfs_timing}"
+  OUTPUT_VARIABLE _vfs_codegen_output
+  EXTRA_ARGS "-ivfsoverlay" "${_vfs_overlay}"
+  SOURCES
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+_gentest_expect_dot_module_cache_state("${_vfs_timing}" "bypass")
+string(FIND "${_vfs_codegen_output}" "a VFS overlay or source remap is active" _vfs_bypass_diagnostic_pos)
+if(_vfs_bypass_diagnostic_pos EQUAL -1)
+  message(FATAL_ERROR "VFS-overlay PCM cache bypass did not report the expected reason.\n${_vfs_codegen_output}")
+endif()
+
 if(NOT CMAKE_HOST_WIN32)
   find_program(_gentest_sh NAMES sh)
   if(_gentest_sh)

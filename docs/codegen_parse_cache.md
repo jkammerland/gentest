@@ -109,13 +109,16 @@ effective precompile command, ordered scanner command/include metadata, source
 and dependency content hashes, scan-deps identity/result, codegen schema and
 options, and ordered transitive module cache keys. An imported artifact named
 by an explicit `-fmodule-file=name=path` mapping without a validated-cache key
-contributes a bounded content identity instead; its compiler context is still
-covered by the importing precompile command. A `-fprebuilt-module-path` search
-directory does not identify the selected artifact and is never enumerated as
-an external input.
+is retained as a typed external PCM dependency and receives a fresh bounded
+content/physical-identity check during every prepare, load, and store pass; its
+compiler context is still covered by the importing precompile command. A
+`-fprebuilt-module-path` search directory does not identify the selected
+artifact and is never enumerated as an external input.
 If scan-deps is unavailable, ambiguous, incomplete, or falls back to source
-scanning, or an effective command contains `-fprebuilt-module-path`, PCM
-caching is a `bypass` and normal local precompilation continues. A prebuilt
+scanning, or an effective command contains `-fprebuilt-module-path`, a VFS
+overlay, a PCH input, or a compiler/plugin-loading option, PCM caching is a
+`bypass` and normal local precompilation continues. These semantic side inputs
+are not assumed to be represented by ordinary `file-deps`. A prebuilt
 module search directory does not identify the exact selected PCM mapping, so
 it is never assumed cache-safe. Scanner output varies by platform and release;
 for example, Clang 21 on Windows can report distinct command records for one
