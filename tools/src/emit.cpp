@@ -573,8 +573,33 @@ std::string include_literal_for_path(fs::path path) {
 
 std::string include_literal_relative_to(const fs::path &including_file, const fs::path &included_file) {
     if (including_file.has_parent_path()) {
+        const fs::path including_parent = including_file.parent_path().lexically_normal();
+        const fs::path included         = included_file.lexically_normal();
+        const fs::path lexical_relative = included.lexically_relative(including_parent);
+        if (!lexical_relative.empty() && !lexical_relative.is_absolute()) {
+            if (including_file.is_relative() && included_file.is_relative()) {
+                return include_literal_for_path(lexical_relative);
+            }
+
+            // Preserve the caller's source spelling (including a source-side
+            // symlink) whenever that lexical include still resolves to the
+            // requested file from the wrapper's physical directory.  A
+            // wrapper path that itself crosses a symlink can make `..`
+            // traversal escape the symlink target, so retain the canonical
+            // fallback for that direction.
+            std::error_code parent_ec;
+            std::error_code candidate_ec;
+            std::error_code included_ec;
+            const fs::path  physical_parent    = fs::weakly_canonical(including_parent, parent_ec);
+            const fs::path  physical_candidate = fs::weakly_canonical(physical_parent / lexical_relative, candidate_ec);
+            const fs::path  physical_included  = fs::weakly_canonical(included, included_ec);
+            if (!parent_ec && !candidate_ec && !included_ec && physical_candidate == physical_included) {
+                return include_literal_for_path(lexical_relative);
+            }
+        }
+
         std::error_code ec;
-        fs::path        relative = fs::relative(included_file, including_file.parent_path(), ec);
+        fs::path        relative = fs::relative(included, including_parent, ec);
         if (!ec && !relative.empty()) {
             return include_literal_for_path(relative);
         }
