@@ -1225,7 +1225,7 @@ bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::stri
         for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
             const bool        explicit_header = idx < opts.tu_output_headers.size() && !opts.tu_output_headers[idx].empty();
             const std::string owner           = fmt::format("source slot {} '{}' ({})", idx, opts.sources[idx],
-                                                            explicit_header ? "--tu-header-output" : "derived from --tu-out-dir");
+                                                  explicit_header ? "--tu-header-output" : "derived from --tu-out-dir");
             if (!add_artifact(resolve_tu_header_output(opts, idx), "TU registration header", owner)) {
                 return false;
             }
