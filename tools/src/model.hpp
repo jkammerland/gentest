@@ -152,6 +152,10 @@ struct CollectorOptions {
     std::filesystem::path                mock_aggregate_module_path;
     std::string                          mock_aggregate_module_name;
     std::optional<std::filesystem::path> depfile_path;
+    // Optional build-system sidecar containing the exact include lookup paths
+    // whose appearance/disappearance can change preprocessing. Unlike a
+    // depfile, this may intentionally name paths that do not exist yet.
+    std::optional<std::filesystem::path> lookup_guard_output_path;
     // Optional build-observability output. This is intentionally separate
     // from generated artifact outputs so timing never affects their content.
     std::optional<std::filesystem::path> timing_json_path;

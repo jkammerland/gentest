@@ -120,12 +120,12 @@ if(NOT WIN32)
     file(MAKE_DIRECTORY "${_owner_dir}")
     gentest_fixture_join_posix_shell_command(_owner_writer_a
       "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/run_codegen_with_dep_cache.lua"
-      "${_owner_cache}" "${_owner_depfile}" identity-a "${_owner_dir}" 1 0 "${_xmake}"
+      "${_owner_cache}" "${_owner_depfile}" "" identity-a "${_owner_dir}" 1 0 "${_xmake}"
       "${_owner_output}" lua "${SOURCE_DIR}/tests/xmake/fake_codegen_cache_writer.lua"
       "${_owner_output}" "${_owner_depfile}" identity-a 50)
     gentest_fixture_join_posix_shell_command(_owner_writer_b
       "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/run_codegen_with_dep_cache.lua"
-      "${_owner_cache}" "${_owner_depfile}" identity-b "${_owner_dir}" 1 0 "${_xmake}"
+      "${_owner_cache}" "${_owner_depfile}" "" identity-b "${_owner_dir}" 1 0 "${_xmake}"
       "${_owner_output}" lua "${SOURCE_DIR}/tests/xmake/fake_codegen_cache_writer.lua"
       "${_owner_output}" "${_owner_depfile}" identity-b 0)
     execute_process(
@@ -162,7 +162,8 @@ _gentest_prepare_windows_xmake_workspace(_project_dir "${SOURCE_DIR}" "${_gentes
 # previously discovered file. The sidecar must observe the include-directory
 # membership change itself.
 file(WRITE "${_project_dir}/third_party/include/xmake_shadow.hpp" "#pragma once\n")
-file(APPEND "${_project_dir}/tests/consumer/cases.cpp" "\n#include <xmake_shadow.hpp>\n")
+file(APPEND "${_project_dir}/tests/consumer/cases.cpp"
+  "\n#include <xmake_shadow.hpp>\n#if __has_include(<xmake_optional_probe.hpp>)\n#include <xmake_optional_probe.hpp>\n#endif\n")
 
 # `target:name()` strips Xmake namespaces while public helper callers pass the
 # full target name. Keep a small namespaced target in this private workspace to
@@ -494,6 +495,40 @@ set(_shadow_noop_log "${_shadow_noop_out}\n${_shadow_noop_err}")
 string(FIND "${_shadow_noop_log}" "--source-root" _shadow_noop_codegen_pos)
 if(NOT _shadow_noop_rc EQUAL 0 OR NOT _shadow_noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Stable shadow-header membership did not produce an Xmake no-op.\n${_shadow_noop_log}")
+endif()
+
+# A wholly missing __has_include candidate has no ordinary depfile entry. The
+# lookup-guard sidecar must retain that negative probe so creating the header
+# schedules one regeneration, followed by a stable no-op.
+file(WRITE "${_project_dir}/tests/xmake_optional_probe.hpp" "#pragma once\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          ${_xmake_env}
+          "${_xmake}" ${_xmake_build_args}
+          gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _optional_probe_rc
+  OUTPUT_VARIABLE _optional_probe_out
+  ERROR_VARIABLE _optional_probe_err)
+set(_optional_probe_log "${_optional_probe_out}\n${_optional_probe_err}")
+string(FIND "${_optional_probe_log}" "--source-root" _optional_probe_codegen_pos)
+if(NOT _optional_probe_rc EQUAL 0 OR _optional_probe_codegen_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Creating a previously missing __has_include candidate did not rerun Xmake codegen.\n${_optional_probe_log}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          ${_xmake_env}
+          "${_xmake}" ${_xmake_build_args}
+          gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _optional_probe_noop_rc
+  OUTPUT_VARIABLE _optional_probe_noop_out
+  ERROR_VARIABLE _optional_probe_noop_err)
+set(_optional_probe_noop_log "${_optional_probe_noop_out}\n${_optional_probe_noop_err}")
+string(FIND "${_optional_probe_noop_log}" "--source-root" _optional_probe_noop_codegen_pos)
+if(NOT _optional_probe_noop_rc EQUAL 0 OR NOT _optional_probe_noop_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Stable __has_include membership did not produce an Xmake no-op.\n${_optional_probe_noop_log}")
 endif()
 
 # Configured include roots participate in the sidecar identity even when every

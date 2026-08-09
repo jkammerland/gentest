@@ -50,6 +50,9 @@ struct TextualParseResult {
     // guard. These are likewise publication-only and are not serialized.
     std::vector<ParseLookupSnapshot> parse_lookup_snapshots;
     bool                             cacheable = true;
+    // Separate from parse-cache eligibility: volatile macros can make a TU
+    // uncacheable while its include lookup guard set remains complete.
+    bool lookup_guards_complete = true;
 };
 
 struct ParseCacheContext {
