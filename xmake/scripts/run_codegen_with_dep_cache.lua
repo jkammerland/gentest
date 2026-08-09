@@ -20,13 +20,14 @@ local function append_unique(result, seen, filepath, project_root)
     end
 end
 
-function main(cache_path, depfile, identity, project_root, static_count_text, program, ...)
+function main(cache_path, depfile, identity, project_root, static_count_text, directory_count_text, program, ...)
     local static_count = tonumber(static_count_text)
-    if not static_count or static_count < 0 then
-        raise("invalid Gentest codegen static dependency count")
+    local directory_count = tonumber(directory_count_text)
+    if not static_count or static_count < 0 or not directory_count or directory_count < 0 then
+        raise("invalid Gentest codegen dependency count")
     end
     local values = {...}
-    if #values < static_count then
+    if #values < static_count + directory_count then
         raise("incomplete Gentest codegen cache invocation")
     end
 
@@ -34,8 +35,12 @@ function main(cache_path, depfile, identity, project_root, static_count_text, pr
     for index = 1, static_count do
         table.insert(static_dependencies, values[index])
     end
+    local include_roots = {}
+    for index = static_count + 1, static_count + directory_count do
+        table.insert(include_roots, values[index])
+    end
     local codegen_args = {}
-    for index = static_count + 1, #values do
+    for index = static_count + directory_count + 1, #values do
         table.insert(codegen_args, values[index])
     end
 
@@ -54,6 +59,6 @@ function main(cache_path, depfile, identity, project_root, static_count_text, pr
         for _, filepath in ipairs(static_dependencies) do
             append_unique(files, seen, filepath, project_root)
         end
-        return update_codegen_dep_cache.save_snapshot_locked(cache_path, identity, files)
+        return update_codegen_dep_cache.save_snapshot_locked(cache_path, identity, files, include_roots)
     end)
 end
