@@ -8,7 +8,8 @@ For host Clang, sysroot, and cross-build guidance, see
 
 ## Supported contract
 
-Meson support is textual-only. The downstream contract is:
+Meson support is textual-only and requires the Ninja backend, because its
+codegen header invalidation relies on depfiles. The downstream contract is:
 
 - consume gentest as a subproject / wrap
 - pass explicit host-tool paths:
@@ -158,7 +159,9 @@ workspace first.
 meson setup build/meson-downstream . \
   -Dgentest_codegen_path=/abs/path/to/gentest_codegen \
   -Dgentest_codegen_host_clang=/opt/llvm/bin/clang++ \
-  -Dgentest_codegen_clang_scan_deps=/opt/llvm/bin/clang-scan-deps
+  -Dgentest_codegen_clang_scan_deps=/opt/llvm/bin/clang-scan-deps \
+  -Dgentest_codegen_parse_cache=true \
+  -Dgentest_codegen_parse_cache_dir=build/.gentest_codegen_parse_cache
 
 meson compile -C build/meson-downstream
 meson test -C build/meson-downstream --print-errorlogs
@@ -167,6 +170,23 @@ build/meson-downstream/subprojects/gentest/meson/textual/gentest_downstream_text
 
 The final Meson compiler can remain non-Clang. The explicit host Clang contract
 only applies to `gentest_codegen`.
+
+The textual parse cache is opt-in. For direct Gentest subprojects use
+`codegen_parse_cache` / `codegen_parse_cache_dir`; the downstream fixture
+prefixes those options with `gentest_`. With no directory, Gentest uses its
+build directory's `.gentest_codegen_parse_cache`. Relative directories are
+also build-directory-relative. The false/default Meson option emits no cache
+CLI setting, so an ambient `GENTEST_CODEGEN_PARSE_CACHE=ON` policy can still
+opt in; a Meson-emitted `--parse-cache-dir` takes precedence over both cache
+environment settings. Header invalidation comes from the codegen depfile, so
+a used header triggers regeneration while an unrelated known header does not.
+
+Meson/Ninja cannot represent a dependency on an include candidate that does
+not exist yet without making every no-op build dirty. If a new header appears
+earlier in an include search path and shadows an existing header, use a normal
+regeneration trigger first (for example, edit the source, a used dependency,
+or codegen flags; alternatively clean rebuild). The codegen parse cache itself
+still validates negative include lookup guards when it is invoked.
 
 To run the checked-in proof instead of a prepared downstream project:
 
@@ -197,7 +217,7 @@ checked-in wrap proof intentionally skips Windows today.
   user-defined functions.
 - Set `kind` to `textual` or omit it. `kind = 'modules'` intentionally fails
   at configure time.
+- Textual codegen requires the Ninja backend; VS and Xcode backends do not
+  consume its depfiles.
 - Windows is currently skipped for the downstream wrap proof.
 - Named-module support remains intentionally unsupported.
-- Support headers/fragments are snapshotted at configure time, so adding new
-  included support files requires `meson setup --reconfigure`.

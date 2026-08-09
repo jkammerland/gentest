@@ -20,6 +20,20 @@ option(
 )
 
 option(
+  'codegen_parse_cache',
+  type: 'boolean',
+  value: false,
+  description: 'Opt in to the gentest_codegen textual parse cache',
+)
+
+option(
+  'codegen_parse_cache_dir',
+  type: 'string',
+  value: '',
+  description: 'Directory for the opt-in gentest_codegen textual parse cache (relative paths are build-directory-relative)',
+)
+
+option(
   'build_self_tests',
   type: 'boolean',
   value: true,
