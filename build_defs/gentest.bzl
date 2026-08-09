@@ -27,6 +27,7 @@ _GENTEST_RUNTIME_LABEL = Label("//:gentest_runtime")
 _GENTEST_MAIN_LABEL = Label("//:gentest_main")
 _GENTEST_MODULE_LABEL = Label("//:gentest")
 _GENTEST_MOCK_MODULE_LABEL = Label("//:gentest_mock")
+_GENTEST_CODEGEN_TOOLCHAIN_TYPE = Label("//bazel:gentest_codegen_toolchain_type")
 
 def _gentest_unique(items):
     seen = {}
@@ -57,24 +58,68 @@ def _gentest_driver_args(defines = [], clang_args = [], extra_include_dirs = [])
         "-Wno-unknown-attributes",
         "-Wno-attributes",
         "-Wno-unknown-warning-option",
-        "-Iinclude",
-        "-Itests",
-        "-Ithird_party/include",
     ]
     args.extend(["-D{}".format(define) for define in defines])
     args.extend(["-I{}".format(include_dir) for include_dir in extra_include_dirs])
     args.extend(clang_args)
     return _gentest_unique(args)
 
-def _gentest_maybe_add_host_clang(args, codegen_host_clang):
-    if codegen_host_clang:
-        args.add("--host-clang")
-        args.add(codegen_host_clang)
+def _gentest_exec_tools(ctx):
+    if ctx.attr.codegen_host_clang:
+        fail((
+            "{}: codegen_host_clang no longer accepts an absolute host path. " +
+            "Register a gentest_codegen_toolchain for the exec platform with declared codegen and clang executable labels; " +
+            "see docs/buildsystems/bazel.md#exec-toolchain-contract."
+        ).format(ctx.label))
 
-def _gentest_codegen_driver(codegen_host_clang):
-    if codegen_host_clang:
-        return codegen_host_clang
-    return "clang++"
+    tools = ctx.toolchains[_GENTEST_CODEGEN_TOOLCHAIN_TYPE]
+    if tools == None:
+        fail((
+            "{}: missing Gentest exec codegen toolchain. Register a toolchain of type {} with " +
+            "gentest_codegen_toolchain(codegen = ..., clang = ...). The executable labels must package " +
+            "their complete runtime closure."
+        ).format(ctx.label, _GENTEST_CODEGEN_TOOLCHAIN_TYPE))
+    if hasattr(tools, "error"):
+        fail("{}: {}".format(ctx.label, tools.error))
+    if not hasattr(tools, "codegen") or not hasattr(tools, "clang") or not hasattr(tools, "files"):
+        fail((
+            "{}: registered {} is not a gentest_codegen_toolchain. " +
+            "Use gentest_codegen_toolchain(codegen = ..., clang = ...)."
+        ).format(ctx.label, _GENTEST_CODEGEN_TOOLCHAIN_TYPE))
+    return tools
+
+def _gentest_add_exec_tool_args(args, tools):
+    args.add("--host-clang")
+    args.add(tools.clang.executable.path)
+    if tools.clang_scan_deps:
+        args.add("--clang-scan-deps")
+        args.add(tools.clang_scan_deps.executable.path)
+    else:
+        # Do not let the generator discover clang-scan-deps through PATH. The
+        # source scanner is the deterministic fallback for this toolchain.
+        args.add("--scan-deps-mode=OFF")
+
+def _gentest_run_codegen(ctx, tools, inputs, outputs, args, mnemonic):
+    action_tools = [tools.codegen, tools.clang]
+    if tools.clang_scan_deps:
+        action_tools.append(tools.clang_scan_deps)
+    execution_requirements = {}
+    if tools.local_only:
+        # The source-package fallback can point at an absolute host Clang and
+        # CMake bootstrap closure. Do not let that local lane poison a remote
+        # executor/cache; packaged executable labels stay remotely cacheable.
+        execution_requirements = {"no-remote": "1"}
+    ctx.actions.run(
+        executable = tools.codegen,
+        tools = action_tools,
+        inputs = depset(inputs, transitive = [tools.files]),
+        outputs = outputs,
+        arguments = [args],
+        mnemonic = mnemonic,
+        env = {},
+        use_default_shell_env = False,
+        execution_requirements = execution_requirements,
+    )
 
 def _gentest_codegen_support_info(targets):
     include_dirs = []
@@ -95,15 +140,15 @@ def _gentest_public_include_roots(files):
     include_dirs = []
     for file in files:
         path = file.path
-        include_marker = "/include/gentest/"
+        include_marker = "include/gentest/"
         include_pos = path.find(include_marker)
         if include_pos != -1:
-            include_dirs.append(path[:include_pos + len("/include")])
+            include_dirs.append(path[:include_pos + len("include")])
             continue
-        third_party_marker = "/third_party/include/"
+        third_party_marker = "third_party/include/"
         third_party_pos = path.find(third_party_marker)
         if third_party_pos != -1:
-            include_dirs.append(path[:third_party_pos + len("/third_party/include")])
+            include_dirs.append(path[:third_party_pos + len("third_party/include")])
     return _gentest_unique(include_dirs)
 
 def _gentest_default_module_mappings(files):
@@ -231,6 +276,7 @@ def _gentest_compile_db_entry(file_path, include_dirs, defines, clang_args, comp
 def _gentest_textual_codegen_impl(ctx):
     out_dir = ctx.attr.out_dir
     target_id = ctx.attr.target_id
+    exec_tools = _gentest_exec_tools(ctx)
     codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps)
     public_include_roots = _gentest_public_include_roots(ctx.files._public_headers)
     wrapper_cpp = ctx.actions.declare_file("{}/{}_defs.cpp".format(out_dir, target_id))
@@ -243,6 +289,9 @@ def _gentest_textual_codegen_impl(ctx):
     textual_inputs = [ctx.file.defs] + ctx.files.support_hdrs
 
     args = ctx.actions.args()
+    # Bazel executes a spawn from its declared execroot. This is not the host
+    # checkout cwd: it makes generated source references portable execroot
+    # paths instead of absolute host paths.
     args.add("--source-root", ".")
     args.add("--tu-out-dir", wrapper_cpp.dirname)
     args.add("--tu-header-output", header_h.path)
@@ -254,7 +303,7 @@ def _gentest_textual_codegen_impl(ctx):
     args.add("--mock-public-header", public_header.path)
     args.add("--discover-mocks")
     args.add(ctx.file.defs.path)
-    _gentest_maybe_add_host_clang(args, ctx.attr.codegen_host_clang)
+    _gentest_add_exec_tool_args(args, exec_tools)
     args.add("--")
     args.add_all(_gentest_driver_args(
         ctx.attr.defines,
@@ -264,13 +313,13 @@ def _gentest_textual_codegen_impl(ctx):
 
     generated_headers = [header_h, registry_h, impl_h, domain_registry_h, domain_impl_h]
     codegen_outputs = [wrapper_cpp, public_header] + generated_headers
-    ctx.actions.run(
-        executable = ctx.file._codegen,
-        inputs = depset(textual_inputs + ctx.files._public_headers + codegen_support.headers),
-        outputs = codegen_outputs,
-        arguments = [args],
-        mnemonic = "GentestTextualMocksCodegen",
-        use_default_shell_env = True,
+    _gentest_run_codegen(
+        ctx,
+        exec_tools,
+        textual_inputs + ctx.files._public_headers + codegen_support.headers,
+        codegen_outputs,
+        args,
+        "GentestTextualMocksCodegen",
     )
 
     return [
@@ -282,7 +331,7 @@ def _gentest_textual_codegen_impl(ctx):
             artifact_manifests = depset([]),
         ),
         GentestGeneratedInfo(
-            include_dirs = public_include_roots + [wrapper_cpp.dirname, "."],
+            include_dirs = public_include_roots + [wrapper_cpp.dirname],
             module_mappings = [],
             codegen_inputs = depset(
                 [public_header] + generated_headers + textual_inputs + ctx.files._public_headers + codegen_support.headers,
@@ -308,12 +357,13 @@ _gentest_textual_codegen = rule(
             allow_files = True,
             default = [Label("//:gentest_public_headers")],
         ),
-        "_codegen": attr.label(default = Label("//:gentest_codegen"), allow_single_file = True, cfg = "exec"),
     },
+    toolchains = [config_common.toolchain_type(_GENTEST_CODEGEN_TOOLCHAIN_TYPE, mandatory = False)],
 )
 
 def _gentest_textual_suite_codegen_impl(ctx):
     out_dir = ctx.attr.out_dir
+    exec_tools = _gentest_exec_tools(ctx)
     codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps)
     public_include_roots = _gentest_public_include_roots(ctx.files._public_headers)
     source_stem = _gentest_sanitize_identifier(_gentest_basename_stem(ctx.file.src.basename))
@@ -322,7 +372,7 @@ def _gentest_textual_suite_codegen_impl(ctx):
     artifact_manifest = ctx.actions.declare_file("{}/{}.artifact_manifest.json".format(out_dir, ctx.attr.target_id))
 
     dep_include_dirs = list(ctx.attr.extra_include_dirs) + codegen_support.include_dirs + public_include_roots
-    source_parent = _gentest_parent_dir(ctx.file.src.short_path)
+    source_parent = ctx.file.src.dirname
     if source_parent:
         dep_include_dirs.append(source_parent)
     codegen_inputs = [ctx.file.src] + list(ctx.files._public_headers) + codegen_support.headers
@@ -340,17 +390,17 @@ def _gentest_textual_suite_codegen_impl(ctx):
     args.add("--artifact-owner-source", ctx.file.src.path)
     args.add("--compile-context-id", "{}:{}".format(ctx.attr.target_id, ctx.file.src.path))
     args.add(ctx.file.src.path)
-    _gentest_maybe_add_host_clang(args, ctx.attr.codegen_host_clang)
+    _gentest_add_exec_tool_args(args, exec_tools)
     args.add("--")
     args.add_all(_gentest_driver_args(ctx.attr.defines, ctx.attr.clang_args, dep_include_dirs))
 
-    ctx.actions.run(
-        executable = ctx.file._codegen,
-        inputs = depset(codegen_inputs),
-        outputs = [wrapper_cpp, wrapper_h, artifact_manifest],
-        arguments = [args],
-        mnemonic = "GentestTextualSuiteCodegen",
-        use_default_shell_env = True,
+    _gentest_run_codegen(
+        ctx,
+        exec_tools,
+        codegen_inputs,
+        [wrapper_cpp, wrapper_h, artifact_manifest],
+        args,
+        "GentestTextualSuiteCodegen",
     )
 
     return [
@@ -380,13 +430,14 @@ _gentest_textual_suite_codegen = rule(
             allow_files = True,
             default = [Label("//:gentest_public_headers")],
         ),
-        "_codegen": attr.label(default = Label("//:gentest_codegen"), allow_single_file = True, cfg = "exec"),
     },
+    toolchains = [config_common.toolchain_type(_GENTEST_CODEGEN_TOOLCHAIN_TYPE, mandatory = False)],
 )
 
 def _gentest_module_mocks_codegen_impl(ctx):
     out_dir = ctx.attr.out_dir
     target_id = ctx.attr.target_id
+    exec_tools = _gentest_exec_tools(ctx)
     codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps)
     public_include_roots = _gentest_public_include_roots(ctx.files._public_headers + ctx.files._default_module_inputs)
     default_module_mappings = _gentest_default_module_mappings(ctx.files._default_module_inputs)
@@ -435,7 +486,7 @@ def _gentest_module_mocks_codegen_impl(ctx):
         args.add("--external-module-source", module_mapping)
     for staged_output in staged_defs:
         args.add(staged_output.path)
-    _gentest_maybe_add_host_clang(args, ctx.attr.codegen_host_clang)
+    _gentest_add_exec_tool_args(args, exec_tools)
     args.add("--")
     args.add_all(_gentest_driver_args(
         ctx.attr.defines,
@@ -444,13 +495,13 @@ def _gentest_module_mocks_codegen_impl(ctx):
     ))
 
     codegen_outputs = wrapper_outputs + header_outputs + [registry_h, impl_h, public_module] + domain_outputs
-    ctx.actions.run(
-        executable = ctx.file._codegen,
-        inputs = depset(codegen_inputs),
-        outputs = codegen_outputs,
-        arguments = [args],
-        mnemonic = "GentestModuleMocksCodegen",
-        use_default_shell_env = True,
+    _gentest_run_codegen(
+        ctx,
+        exec_tools,
+        codegen_inputs,
+        codegen_outputs,
+        args,
+        "GentestModuleMocksCodegen",
     )
 
     module_mappings = []
@@ -497,12 +548,11 @@ _gentest_module_mocks_codegen = rule(
             allow_files = True,
             default = [Label("//:gentest_public_headers")],
         ),
-        "_codegen": attr.label(default = Label("//:gentest_codegen"), allow_single_file = True, cfg = "exec"),
     },
+    toolchains = [config_common.toolchain_type(_GENTEST_CODEGEN_TOOLCHAIN_TYPE, mandatory = False)],
 )
 
-def _gentest_module_compile_db(public_module, staged_source, module_mappings, include_dirs, defines, clang_args, codegen_host_clang):
-    compiler_path = _gentest_codegen_driver(codegen_host_clang)
+def _gentest_module_compile_db(public_module, staged_source, module_mappings, include_dirs, defines, clang_args, compiler_path):
     entries = []
     entries.append(_gentest_compile_db_entry(staged_source.path, include_dirs, defines, clang_args, compiler_path))
     for module_mapping in module_mappings:
@@ -518,6 +568,7 @@ def _gentest_module_compile_db(public_module, staged_source, module_mappings, in
 
 def _gentest_module_suite_codegen_impl(ctx):
     out_dir = ctx.attr.out_dir
+    exec_tools = _gentest_exec_tools(ctx)
     codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps)
     public_include_roots = _gentest_public_include_roots(ctx.files._public_headers + ctx.files._default_module_inputs)
     default_module_mappings = _gentest_default_module_mappings(ctx.files._default_module_inputs)
@@ -564,7 +615,7 @@ def _gentest_module_suite_codegen_impl(ctx):
             dep_include_dirs,
             ctx.attr.defines,
             ctx.attr.clang_args,
-            ctx.attr.codegen_host_clang,
+            exec_tools.clang.executable.path,
         ),
     )
 
@@ -579,17 +630,17 @@ def _gentest_module_suite_codegen_impl(ctx):
     for module_mapping in module_mappings:
         args.add("--external-module-source", module_mapping)
     args.add(staged_source.path)
-    _gentest_maybe_add_host_clang(args, ctx.attr.codegen_host_clang)
+    _gentest_add_exec_tool_args(args, exec_tools)
     args.add("--")
     args.add_all(_gentest_driver_args(ctx.attr.defines, ctx.attr.clang_args, dep_include_dirs))
 
-    ctx.actions.run(
-        executable = ctx.file._codegen,
-        inputs = depset(codegen_inputs + [compdb_json]),
-        outputs = [registration_cpp, wrapper_h, artifact_manifest],
-        arguments = [args],
-        mnemonic = "GentestModuleSuiteCodegen",
-        use_default_shell_env = True,
+    _gentest_run_codegen(
+        ctx,
+        exec_tools,
+        codegen_inputs + [compdb_json],
+        [registration_cpp, wrapper_h, artifact_manifest],
+        args,
+        "GentestModuleSuiteCodegen",
     )
 
     return [
@@ -626,8 +677,8 @@ _gentest_module_suite_codegen = rule(
             allow_files = True,
             default = [Label("//:gentest_public_headers")],
         ),
-        "_codegen": attr.label(default = Label("//:gentest_codegen"), allow_single_file = True, cfg = "exec"),
     },
+    toolchains = [config_common.toolchain_type(_GENTEST_CODEGEN_TOOLCHAIN_TYPE, mandatory = False)],
 )
 
 def _gentest_output_groups(name):

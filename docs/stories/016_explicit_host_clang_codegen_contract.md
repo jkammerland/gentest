@@ -1,5 +1,12 @@
 # Story: explicit host-Clang contract for `gentest_codegen`
 
+> Historical design note: the Bazel-specific path described below has been
+> superseded by the registered exec-platform `gentest_codegen_toolchain` in
+> [the Bazel guide](../buildsystems/bazel.md#exec-toolchain-contract). Bazel no
+> longer accepts ambient `GENTEST_CODEGEN_HOST_CLANG` or per-target absolute
+> `codegen_host_clang` values; the CMake, Xmake, and Meson portions remain
+> historical context for their respective integrations.
+
 ## Goal
 
 Make `gentest_codegen` officially usable when the consumer toolchain is not

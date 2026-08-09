@@ -6,7 +6,6 @@ if(NOT DEFINED BUILD_ROOT)
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
-set(_bazel "")
 if(DEFINED BAZEL_EXECUTABLE AND NOT BAZEL_EXECUTABLE STREQUAL "")
   if(NOT EXISTS "${BAZEL_EXECUTABLE}")
     message(FATAL_ERROR "BAZEL_EXECUTABLE points to a missing bazel/bazelisk executable: ${BAZEL_EXECUTABLE}")
@@ -215,10 +214,10 @@ if(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
     set(_use_explicit_c_compiler TRUE)
   endif()
 endif()
-if(_codegen_host_clang STREQUAL "" AND NOT "$ENV{GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
-  set(_codegen_host_clang "$ENV{GENTEST_CODEGEN_HOST_CLANG}")
+if(_codegen_host_clang STREQUAL "" AND NOT "$ENV{GENTEST_BAZEL_LOCAL_CLANG}" STREQUAL "")
+  set(_codegen_host_clang "$ENV{GENTEST_BAZEL_LOCAL_CLANG}")
   if(NOT EXISTS "${_codegen_host_clang}")
-    message(FATAL_ERROR "GENTEST_CODEGEN_HOST_CLANG points to a missing clang++ executable: ${_codegen_host_clang}")
+    message(FATAL_ERROR "GENTEST_BAZEL_LOCAL_CLANG points to a missing clang++ executable: ${_codegen_host_clang}")
   endif()
   _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 endif()
@@ -317,8 +316,7 @@ set(_bazel_env
   "LLVM_BIN=${_clang_bin_dir}"
   "LLVM_DIR=${_llvm_dir}"
   "Clang_DIR=${_clang_dir}"
-  "GENTEST_CODEGEN_HOST_CLANG=${_codegen_host_clang}"
-  "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
+  "GENTEST_BAZEL_LOCAL_CLANG=${_codegen_host_clang}"
   "HOME=$ENV{HOME}")
 
 set(_build_args
@@ -333,8 +331,6 @@ set(_build_args
   --action_env=LLVM_BIN
   --action_env=LLVM_DIR
   --action_env=Clang_DIR
-  --action_env=GENTEST_CODEGEN_HOST_CLANG
-  --action_env=GENTEST_CODEGEN_RESOURCE_DIR
   --host_action_env=CCACHE_DISABLE
   --host_action_env=PATH
   --host_action_env=CC
@@ -342,8 +338,6 @@ set(_build_args
   --host_action_env=LLVM_BIN
   --host_action_env=LLVM_DIR
   --host_action_env=Clang_DIR
-  --host_action_env=GENTEST_CODEGEN_HOST_CLANG
-  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR
   --host_action_env=HOME
   --repo_env=PATH
   --repo_env=CC
@@ -351,8 +345,7 @@ set(_build_args
   --repo_env=LLVM_BIN
   --repo_env=LLVM_DIR
   --repo_env=Clang_DIR
-  --repo_env=GENTEST_CODEGEN_HOST_CLANG
-  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
+  --repo_env=GENTEST_BAZEL_LOCAL_CLANG
   --repo_env=HOME
   //:gentest_downstream_textual_mocks
   //:gentest_downstream_textual
