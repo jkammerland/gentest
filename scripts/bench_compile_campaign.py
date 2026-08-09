@@ -339,19 +339,17 @@ def build_target(source: Path, build: Path, targets: list[str], jobs: int, env: 
 
 
 def reconfigure(source: Path, build: Path, configure: list[str], env: dict[str, str]) -> float:
-    compdb = build / "compile_commands.json"
-    before_contents = compdb.read_bytes() if compdb.exists() else None
-    before_stat = compdb.stat() if compdb.exists() else None
     start = time.perf_counter()
     run(["cmake", "-S", str(source), "-B", str(build), *configure], cwd=source, env=env, capture=True)
-    elapsed = time.perf_counter() - start
-    # A CMake reconfigure can rewrite an identical compilation database solely
-    # because its writer touched the file.  Preserve its previous timestamp in
-    # that case so this scenario measures CMake's own no-op invalidation
-    # contract.  A deliberate equivalent compdb rewrite is measured separately.
-    if before_contents is not None and before_stat is not None and compdb.exists() and compdb.read_bytes() == before_contents:
-        os.utime(compdb, ns=(before_stat.st_atime_ns, before_stat.st_mtime_ns))
-    return elapsed
+    return time.perf_counter() - start
+
+
+def uses_content_stable_compdb_stage(build: Path) -> bool:
+    build_ninja = build / "build.ninja"
+    if not build_ninja.exists():
+        return False
+    contents = build_ninja.read_text(encoding="utf-8", errors="replace")
+    return "Staging compile commands for gentest target" in contents and "copy_if_different" in contents
 
 
 def append_change(path: Path, tag: str) -> None:
@@ -457,20 +455,22 @@ def run_scenarios(
             elif scenario == "reconfigure":
                 elapsed = reconfigure(source, build, configure, env)
                 _, profile = build_target(source, build, targets, jobs, env)
-                if strict_downstream_noop and int(profile["unique_edges"]) != 0:
-                    raise RuntimeError(f"reconfigure invalidation contract failed: expected downstream no-op build, got {profile}")
-                if not strict_downstream_noop and (
-                    int(profile["categories"].get("codegen", 0)) < 1  # type: ignore[index]
-                    or int(profile["categories"].get("generated_tu_compile", 0))  # type: ignore[index]
-                    or int(profile["categories"].get("compile", 0))  # type: ignore[index]
-                    or int(profile["categories"].get("link_or_archive", 0))  # type: ignore[index]
-                ):
-                    raise RuntimeError(f"repository reconfigure contract failed: expected only persistent codegen edge, got {profile}")
-                profile["contract"] = (
-                    "cmake-reconfigure-followed-by-no-op-build"
-                    if strict_downstream_noop
-                    else "cmake-reconfigure-followed-by-persistent-codegen-only-build"
-                )
+                categories = profile["categories"]
+                assert isinstance(categories, dict)
+                generated = int(categories.get("generated_tu_compile", 0))
+                compiled = int(categories.get("compile", 0))
+                linked = int(categories.get("link_or_archive", 0))
+                codegen = int(categories.get("codegen", 0))
+                if generated or compiled or linked:
+                    raise RuntimeError(f"reconfigure invalidation contract failed: downstream compile/link work ran, got {profile}")
+                if uses_content_stable_compdb_stage(build):
+                    if codegen:
+                        raise RuntimeError(f"reconfigure invalidation contract failed: stable compdb staging reran codegen, got {profile}")
+                    profile["contract"] = "cmake-reconfigure-followed-by-compdb-staging-only-build"
+                else:
+                    if codegen < 1:
+                        raise RuntimeError(f"reconfigure baseline contract failed: expected the unstaged compdb codegen edge, got {profile}")
+                    profile["contract"] = "cmake-reconfigure-followed-by-codegen-only-build"
             else:
                 changed_path: Path
                 if scenario in {"equivalent-compdb-rewrite", "unrelated-compdb-rewrite"}:

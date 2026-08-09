@@ -197,6 +197,31 @@ class CampaignContractTests(unittest.TestCase):
             self.assertEqual(rewritten[:-1], original)
             self.assertTrue(rewritten[-1]["file"].endswith("__gentest_unrelated_compdb_entry__.cpp"))
 
+    def test_reconfigure_preserves_cmake_compdb_timestamp_and_detects_staging(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source"
+            build = root / "build"
+            source.mkdir()
+            build.mkdir()
+            compdb = build / "compile_commands.json"
+            compdb.write_text("[]\n", encoding="utf-8")
+            before = compdb.stat().st_mtime_ns
+
+            def fake_run(*_args, **_kwargs):
+                os.utime(compdb, ns=(before + 1_000_000, before + 1_000_000))
+
+            with mock.patch.object(campaign, "run", side_effect=fake_run):
+                campaign.reconfigure(source, build, [], {})
+            self.assertGreater(compdb.stat().st_mtime_ns, before)
+
+            (build / "build.ninja").write_text(
+                "DESC = Staging compile commands for gentest target fixture\n"
+                "COMMAND = cmake -E copy_if_different compile_commands.json generated/compdb/compile_commands.json\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(campaign.uses_content_stable_compdb_stage(build))
+
     def test_mutation_scenarios_restore_identical_inputs_and_settle(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

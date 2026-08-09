@@ -61,11 +61,13 @@ is constrained to its documented persistent codegen-only edge. The built
 binaries are run once only as a correctness gate, never as part of a timed
 build sample.
 
-The generated fixtures require a true zero-edge no-op and reconfigure follow-up
-build. The repository E2E lane separately records the current persistent
-codegen-only depfile edge (and rejects any compile or link edge) so the
-campaign reports that real invalidation behavior instead of mislabelling it as
-a clean no-op.
+The reconfigure scenario preserves CMake's newly written
+`compile_commands.json` timestamp. Before content-stable compdb staging exists,
+the harness records the real codegen-only baseline. With staging present it
+permits the staging edge itself but rejects codegen, compile, and link work.
+The repository E2E lane separately records its current persistent codegen-only
+depfile edge (and rejects any compile or link edge) so the campaign reports
+real invalidation behavior instead of mislabelling it as a clean no-op.
 
 Compiler cache modes are isolated per result directory:
 
