@@ -2,7 +2,6 @@
 #pragma once
 
 #include <filesystem>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -53,8 +52,8 @@ class PcmArtifactCache {
     // and use content_identity() instead.
     [[nodiscard]] static std::optional<std::string> executable_identity(const std::filesystem::path &path);
 
-    // Hashes the current complete closure once and retains the prepared input
-    // bundle for a matching load. An empty result means the input is not safe
+    // Hashes the current complete closure once and retains its context for a
+    // matching load. An empty result means the input is not safe
     // to cache (for example, scan-deps did not provide file-deps).
     [[nodiscard]] std::optional<std::string> prepare(const PcmCacheContext &context) const;
 
@@ -72,9 +71,9 @@ class PcmArtifactCache {
 
     [[nodiscard]] std::optional<InputBundle> input_bundle(const PcmCacheContext &context, bool allow_fingerprint_memo) const;
 
-    std::filesystem::path                                                       directory_;
-    mutable std::mutex                                                          prepared_mutex_;
-    mutable std::unordered_map<std::string, std::shared_ptr<const InputBundle>> prepared_inputs_;
+    std::filesystem::path                                    directory_;
+    mutable std::mutex                                       prepared_mutex_;
+    mutable std::unordered_map<std::string, PcmCacheContext> prepared_inputs_;
 };
 
 } // namespace gentest::codegen

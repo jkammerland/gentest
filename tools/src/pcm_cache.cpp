@@ -221,7 +221,9 @@ struct MaterializationPaths {
     fs::path destination;
 };
 
-bool materialize_file(const MaterializationPaths &paths, std::string_view expected_hash, std::uintmax_t expected_size) {
+template <typename Validate>
+bool materialize_file(const MaterializationPaths &paths, std::string_view expected_hash, std::uintmax_t expected_size,
+                      Validate &&validate_before_publish) {
     if (!make_destination_parent(paths.destination)) {
         return false;
     }
@@ -248,7 +250,7 @@ bool materialize_file(const MaterializationPaths &paths, std::string_view expect
     }
     std::uintmax_t copied_size = 0;
     const auto     copied_hash = sha256_file(temporary, kMaxPcmBytes, &copied_size);
-    if (!copied_hash.has_value() || copied_size != expected_size || *copied_hash != expected_hash ||
+    if (!copied_hash.has_value() || copied_size != expected_size || *copied_hash != expected_hash || !validate_before_publish() ||
         !publish_local_file(temporary, paths.destination)) {
         std::error_code ignored;
         fs::remove(temporary, ignored);
@@ -509,21 +511,25 @@ std::optional<std::string> PcmArtifactCache::prepare(const PcmCacheContext &cont
     }
     std::string     key = bundle->key;
     std::lock_guard lock(prepared_mutex_);
-    prepared_inputs_.insert_or_assign(key, std::make_shared<InputBundle>(std::move(*bundle)));
+    prepared_inputs_.insert_or_assign(key, context);
     return key;
 }
 
 bool PcmArtifactCache::load_prepared(std::string_view key, const fs::path &destination) const {
-    std::shared_ptr<const InputBundle> bundle;
+    std::optional<PcmCacheContext> context;
     {
         std::lock_guard lock(prepared_mutex_);
         const auto      prepared = prepared_inputs_.find(std::string(key));
         if (prepared == prepared_inputs_.end()) {
             return false;
         }
-        bundle = prepared->second;
+        context = prepared->second;
     }
-    if (!bundle || !regular_non_symlink_directory(directory_)) {
+    // The prepared bundle is only a provisional lookup key. Re-fingerprint
+    // the complete current closure without the invocation memo immediately
+    // before reading or materializing a shared PCM.
+    const auto bundle = input_bundle(*context, false);
+    if (!bundle.has_value() || bundle->key != key || !regular_non_symlink_directory(directory_)) {
         return false;
     }
     const fs::path entry = directory_ / bundle->key;
@@ -572,7 +578,14 @@ bool PcmArtifactCache::load_prepared(std::string_view key, const fs::path &desti
     if (!actual_hash.has_value() || actual_size != pcm_size || *actual_hash != *pcm_hash) {
         return false;
     }
-    return materialize_file(MaterializationPaths{.source = entry / kPcmFilename, .destination = destination}, *pcm_hash, pcm_size);
+    return materialize_file(MaterializationPaths{.source = entry / kPcmFilename, .destination = destination}, *pcm_hash, pcm_size, [&] {
+        // Revalidate after the potentially long shared-PCM copy and hash,
+        // immediately before the atomic local publish. This closes the
+        // practical prepare/materialize window; callers still must not
+        // mutate compiler inputs concurrently with a build.
+        const auto final_bundle = input_bundle(*context, false);
+        return final_bundle.has_value() && final_bundle->key == key;
+    });
 }
 
 void PcmArtifactCache::store(const PcmCacheContext &context, const fs::path &pcm, std::string_view expected_key) const {
