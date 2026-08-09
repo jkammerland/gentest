@@ -1655,9 +1655,9 @@ class DependencyRecorder final : public clang::PPCallbacks {
   public:
     DependencyRecorder(clang::SourceManager &source_manager, clang::HeaderSearch &header_search, std::vector<std::string> &dependencies,
                        std::vector<std::string> *shadow_guards, std::vector<gentest::codegen::ParseInputSnapshot> *parse_input_snapshots,
-                       bool *cacheable)
+                       std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots, bool *cacheable)
         : source_manager_(source_manager), header_search_(header_search), dependencies_(dependencies), shadow_guards_(shadow_guards),
-          parse_input_snapshots_(parse_input_snapshots), cacheable_(cacheable) {}
+          parse_input_snapshots_(parse_input_snapshots), parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable) {}
 
     void FileChanged(clang::SourceLocation loc, clang::PPCallbacks::FileChangeReason reason, clang::SrcMgr::CharacteristicKind,
                      clang::FileID) override {
@@ -1738,13 +1738,16 @@ class DependencyRecorder final : public clang::PPCallbacks {
         }
     }
 
-    void add_guard(const std::filesystem::path &path) {
+    void add_guard(const std::filesystem::path &path, bool exists) {
         if (shadow_guards_ == nullptr || path.empty()) {
             return;
         }
         const std::string normalized = normalize_dependency_path(path.generic_string());
         if (!normalized.empty()) {
             shadow_guards_->push_back(normalized);
+            if (parse_lookup_snapshots_ != nullptr) {
+                parse_lookup_snapshots_->push_back(gentest::codegen::ParseLookupSnapshot{.path = normalized, .exists = exists});
+            }
         }
     }
 
@@ -1755,7 +1758,7 @@ class DependencyRecorder final : public clang::PPCallbacks {
         }
         const std::filesystem::path requested{file_name.str()};
         if (requested.is_absolute()) {
-            add_guard(requested);
+            add_guard(requested, file.has_value());
             return;
         }
 
@@ -1790,14 +1793,14 @@ class DependencyRecorder final : public clang::PPCallbacks {
                 found = true;
                 break;
             }
-            add_guard(candidate);
+            add_guard(candidate, false);
         }
         if (!found) {
             mark_uncacheable();
             return;
         }
         if (file.has_value()) {
-            add_guard(std::filesystem::path{actual_path});
+            add_guard(std::filesystem::path{actual_path}, true);
         }
     }
 
@@ -1822,12 +1825,13 @@ class DependencyRecorder final : public clang::PPCallbacks {
         }
     }
 
-    clang::SourceManager                              &source_manager_;
-    clang::HeaderSearch                               &header_search_;
-    std::vector<std::string>                          &dependencies_;
-    std::vector<std::string>                          *shadow_guards_;
-    std::vector<gentest::codegen::ParseInputSnapshot> *parse_input_snapshots_;
-    bool                                              *cacheable_;
+    clang::SourceManager                               &source_manager_;
+    clang::HeaderSearch                                &header_search_;
+    std::vector<std::string>                           &dependencies_;
+    std::vector<std::string>                           *shadow_guards_;
+    std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_;
+    std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_;
+    bool                                               *cacheable_;
 };
 
 class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
@@ -1864,19 +1868,20 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
   public:
     MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
                       bool allow_mock_includes, bool skip_function_bodies, std::vector<std::string> *shadow_guards = nullptr,
-                      std::vector<gentest::codegen::ParseInputSnapshot> *parse_input_snapshots = nullptr, bool *cacheable = nullptr)
+                      std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots  = nullptr,
+                      std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots = nullptr, bool *cacheable = nullptr)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
           skip_function_bodies_(skip_function_bodies), shadow_guards_(shadow_guards), parse_input_snapshots_(parse_input_snapshots),
-          cacheable_(cacheable) {}
+          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
         const bool is_named_module_input = named_module_name_from_source_file(std::filesystem::path{input_file.str()}).has_value();
         if (skip_function_bodies_ && !is_named_module_input) {
             compiler.getFrontendOpts().SkipFunctionBodies = true;
         }
-        compiler.getPreprocessor().addPPCallbacks(
-            std::make_unique<DependencyRecorder>(compiler.getSourceManager(), compiler.getPreprocessor().getHeaderSearchInfo(),
-                                                 dependencies_, shadow_guards_, parse_input_snapshots_, cacheable_));
+        compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(
+            compiler.getSourceManager(), compiler.getPreprocessor().getHeaderSearchInfo(), dependencies_, shadow_guards_,
+            parse_input_snapshots_, parse_lookup_snapshots_, cacheable_));
         if (!record_parse_input_snapshot(compiler.getSourceManager(), compiler.getSourceManager().getMainFileID(),
                                          parse_input_snapshots_) &&
             cacheable_ != nullptr) {
@@ -1891,39 +1896,43 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
     }
 
   private:
-    clang::ast_matchers::MatchFinder                  &finder_;
-    std::vector<std::string>                          &dependencies_;
-    bool                                               allow_includes_        = false;
-    bool                                               allow_mock_includes_   = false;
-    bool                                               skip_function_bodies_  = false;
-    std::vector<std::string>                          *shadow_guards_         = nullptr;
-    std::vector<gentest::codegen::ParseInputSnapshot> *parse_input_snapshots_ = nullptr;
-    bool                                              *cacheable_             = nullptr;
+    clang::ast_matchers::MatchFinder                   &finder_;
+    std::vector<std::string>                           &dependencies_;
+    bool                                                allow_includes_         = false;
+    bool                                                allow_mock_includes_    = false;
+    bool                                                skip_function_bodies_   = false;
+    std::vector<std::string>                           *shadow_guards_          = nullptr;
+    std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_  = nullptr;
+    std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_ = nullptr;
+    bool                                               *cacheable_              = nullptr;
 };
 
 class MatchFinderActionFactory final : public clang::tooling::FrontendActionFactory {
   public:
     MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
                              bool allow_mock_includes, bool skip_function_bodies, std::vector<std::string> *shadow_guards = nullptr,
-                             std::vector<gentest::codegen::ParseInputSnapshot> *parse_input_snapshots = nullptr, bool *cacheable = nullptr)
+                             std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots  = nullptr,
+                             std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots = nullptr,
+                             bool                                               *cacheable              = nullptr)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
           skip_function_bodies_(skip_function_bodies), shadow_guards_(shadow_guards), parse_input_snapshots_(parse_input_snapshots),
-          cacheable_(cacheable) {}
+          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
         return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, skip_function_bodies_,
-                                                   shadow_guards_, parse_input_snapshots_, cacheable_);
+                                                   shadow_guards_, parse_input_snapshots_, parse_lookup_snapshots_, cacheable_);
     }
 
   private:
-    clang::ast_matchers::MatchFinder                  &finder_;
-    std::vector<std::string>                          &dependencies_;
-    bool                                               allow_includes_        = false;
-    bool                                               allow_mock_includes_   = false;
-    bool                                               skip_function_bodies_  = false;
-    std::vector<std::string>                          *shadow_guards_         = nullptr;
-    std::vector<gentest::codegen::ParseInputSnapshot> *parse_input_snapshots_ = nullptr;
-    bool                                              *cacheable_             = nullptr;
+    clang::ast_matchers::MatchFinder                   &finder_;
+    std::vector<std::string>                           &dependencies_;
+    bool                                                allow_includes_         = false;
+    bool                                                allow_mock_includes_    = false;
+    bool                                                skip_function_bodies_   = false;
+    std::vector<std::string>                           *shadow_guards_          = nullptr;
+    std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_  = nullptr;
+    std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_ = nullptr;
+    bool                                               *cacheable_              = nullptr;
 };
 
 bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_args = false) {
@@ -6532,10 +6541,11 @@ int main(int argc, const char **argv) {
             if (options.discover_mocks) {
                 mock_collector.emplace(local_mocks);
             }
-            std::vector<std::string>                          local_dependencies;
-            std::vector<std::string>                          local_shadow_guards;
-            std::vector<gentest::codegen::ParseInputSnapshot> local_parse_input_snapshots;
-            bool                                              local_cacheable = true;
+            std::vector<std::string>                           local_dependencies;
+            std::vector<std::string>                           local_shadow_guards;
+            std::vector<gentest::codegen::ParseInputSnapshot>  local_parse_input_snapshots;
+            std::vector<gentest::codegen::ParseLookupSnapshot> local_parse_lookup_snapshots;
+            bool                                               local_cacheable = true;
 
             MatchFinder finder;
             register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
@@ -6547,6 +6557,7 @@ int main(int argc, const char **argv) {
                                                     skip_function_bodies,
                                                     use_parse_cache ? &local_shadow_guards : nullptr,
                                                     use_parse_cache ? &local_parse_input_snapshots : nullptr,
+                                                    use_parse_cache ? &local_parse_lookup_snapshots : nullptr,
                                                     use_parse_cache ? &local_cacheable : nullptr};
 
             ParseResult result;
@@ -6566,8 +6577,9 @@ int main(int argc, const char **argv) {
                 result.command_input_guards =
                     command_input_guards(std::span<const std::string>(cache_effective_command.data(), cache_effective_command.size()),
                                          tool_compile_commands[idx].front().Directory);
-                result.cacheable             = local_cacheable;
-                result.parse_input_snapshots = std::move(local_parse_input_snapshots);
+                result.cacheable              = local_cacheable;
+                result.parse_input_snapshots  = std::move(local_parse_input_snapshots);
+                result.parse_lookup_snapshots = std::move(local_parse_lookup_snapshots);
                 textual_parse_cache->store(*cache_context, result);
             }
             diag_texts[idx] = result.diagnostics;

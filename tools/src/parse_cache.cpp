@@ -837,7 +837,8 @@ void TextualParseCache::store(const ParseCacheContext &context, const TextualPar
     }
     if (result.cases.size() > kMaxCacheItems || result.fixtures.size() > kMaxCacheItems || result.mocks.size() > kMaxCacheItems ||
         result.dependencies.size() > kMaxCacheItems || result.shadow_guards.size() > kMaxCacheItems ||
-        result.command_input_guards.size() > kMaxCacheItems) {
+        result.command_input_guards.size() > kMaxCacheItems || result.parse_input_snapshots.size() > kMaxCacheItems ||
+        result.parse_lookup_snapshots.size() > kMaxCacheItems) {
         return;
     }
     if (std::ranges::any_of(result.cases, [](const TestCaseInfo &test) {
@@ -897,6 +898,24 @@ void TextualParseCache::store(const ParseCacheContext &context, const TextualPar
     };
     if (!matches_parse_input(*source) ||
         !std::ranges::all_of(*dependencies, [&](const FileFingerprint &fingerprint) { return matches_parse_input(fingerprint); })) {
+        return;
+    }
+    std::unordered_map<std::string, bool> lookup_states;
+    lookup_states.reserve(result.parse_lookup_snapshots.size());
+    for (const auto &snapshot : result.parse_lookup_snapshots) {
+        const std::string path = normalize_path(snapshot.path);
+        if (path.empty()) {
+            return;
+        }
+        const auto [it, inserted] = lookup_states.emplace(path, snapshot.exists);
+        if (!inserted && it->second != snapshot.exists) {
+            return;
+        }
+    }
+    if (!std::ranges::all_of(*shadows, [&](const FileFingerprint &fingerprint) {
+            const auto it = lookup_states.find(fingerprint.path);
+            return it != lookup_states.end() && it->second == fingerprint.exists && (!fingerprint.exists || fingerprint.regular);
+        })) {
         return;
     }
 
