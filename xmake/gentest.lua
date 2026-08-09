@@ -1048,7 +1048,31 @@ local function resolve_codegen_host_clang(target)
     if cxx_tool ~= "" and is_clang_tool(cxx_tool) then
         return resolve_program_candidate(cxx_tool) or cxx_tool
     end
-    return nil
+    for _, environment_name in ipairs({"CXX", "CC"}) do
+        local environment_tool = os.getenv(environment_name) or ""
+        if environment_tool ~= "" and is_clang_tool(environment_tool) then
+            local resolved = resolve_program_candidate(environment_tool)
+            if resolved then
+                return resolved
+            end
+        end
+    end
+    local candidates = is_host("windows") and {
+        "clang++.exe", "clang.exe", "clang++", "clang",
+    } or {
+        "clang++", "clang", "clang++-23", "clang++-22", "clang++-21", "clang++-20", "clang-23", "clang-22",
+        "clang-21", "clang-20",
+    }
+    for _, candidate in ipairs(candidates) do
+        local resolved = resolve_program_candidate(candidate)
+        if resolved then
+            return resolved
+        end
+    end
+    fail(
+        "Gentest code generation requires a resolvable host Clang executable. Configure "
+            .. "gentest_configure({ codegen = { clang = ... }}) or GENTEST_CODEGEN_HOST_CLANG."
+    )
 end
 
 local function resolve_codegen_scan_deps(host_clang)
@@ -1192,6 +1216,10 @@ local function mock_codegen_args(compdb_dir, host_clang, scan_deps, config)
         table.insert(args, "--depfile")
         table.insert(args, config.depfile)
     end
+    if config.lookup_guard_output and config.lookup_guard_output ~= "" then
+        table.insert(args, "--lookup-guard-output")
+        table.insert(args, config.lookup_guard_output)
+    end
     for _, domain_output in ipairs(config.mock_domain_registry_outputs or {}) do
         table.insert(args, "--mock-domain-registry-output")
         table.insert(args, domain_output)
@@ -1259,6 +1287,10 @@ local function suite_codegen_args(compdb_dir, host_clang, scan_deps, config)
     if config.depfile and config.depfile ~= "" then
         table.insert(args, "--depfile")
         table.insert(args, config.depfile)
+    end
+    if config.lookup_guard_output and config.lookup_guard_output ~= "" then
+        table.insert(args, "--lookup-guard-output")
+        table.insert(args, config.lookup_guard_output)
     end
     if compdb_dir then
         table.insert(args, "--compdb")
@@ -1607,6 +1639,7 @@ local function run_cached_codegen(target, batchcmds, config)
     local cache_args = {
         cache_path,
         config.depfile,
+        config.lookup_guard_output or "",
         identity,
         project_root(),
         tostring(#static_dependencies),
@@ -1806,6 +1839,10 @@ function gentest_add_mocks(opts)
         table.insert(config.outputs, output)
     end
     config.depcache_anchor = config.header_output or config.module_header_outputs[1]
+    if kind == "textual" then
+        config.lookup_guard_output = config.depcache_anchor .. ".lookup_guards.json"
+        table.insert(config.outputs, config.lookup_guard_output)
+    end
     config.prepare_inputs = prepare_mock_codegen_inputs
     local dep_targets = collect_dep_targets(opts.deps)
 
@@ -2010,6 +2047,10 @@ function gentest_attach_codegen(opts)
     end
     config.prepare_inputs = prepare_suite_codegen_inputs
     config.depcache_anchor = config.header_output
+    if kind == "textual" then
+        config.lookup_guard_output = config.depcache_anchor .. ".lookup_guards.json"
+        table.insert(config.outputs, config.lookup_guard_output)
+    end
     set_configdir(project_root())
     local fmt_link = gentest_fmt_link_name()
     if not fmt_link then

@@ -79,6 +79,9 @@ foreach(_expected IN ITEMS
     "module_registration_output_rel"
     "\"--module-registration-output\""
     "\"--artifact-manifest\""
+    "\"--lookup-guard-output\""
+    "for _, environment_name in ipairs({\"CXX\", \"CC\"})"
+    "Gentest code generation requires a resolvable host Clang executable"
     "requires `defs_modules` with one explicit module name per defs file"
     "kind == \"modules\"")
   string(FIND "${_xmake_helper_content}" "${_expected}" _expected_pos)

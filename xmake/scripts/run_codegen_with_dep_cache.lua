@@ -4,6 +4,7 @@
 
 import("codegen_dep_cache_common", {rootdir = os.scriptdir()})
 import("update_codegen_dep_cache", {rootdir = os.scriptdir()})
+import("core.base.json")
 
 local function append_unique(result, seen, filepath, project_root)
     if not filepath or filepath == "" then
@@ -20,7 +21,30 @@ local function append_unique(result, seen, filepath, project_root)
     end
 end
 
-function main(cache_path, depfile, identity, project_root, static_count_text, directory_count_text, program, ...)
+local function load_lookup_guards(sidecar)
+    if not sidecar or sidecar == "" then
+        return {}
+    end
+    local loaded, report = utils.trycall(function()
+        return json.loadfile(sidecar)
+    end)
+    if not loaded or type(report) ~= "table" or report.schema ~= "gentest.lookup_guards.v1" or report.complete ~= true or
+        type(report.guards) ~= "table" then
+        cprint("${yellow}warning: Gentest lookup guards are incomplete; codegen will run again on the next build")
+        return nil
+    end
+    local guards = {}
+    for _, guard in ipairs(report.guards) do
+        if type(guard) ~= "string" or guard == "" then
+            cprint("${yellow}warning: Gentest lookup guard sidecar is invalid; codegen will run again on the next build")
+            return nil
+        end
+        table.insert(guards, guard)
+    end
+    return guards
+end
+
+function main(cache_path, depfile, lookup_guard_output, identity, project_root, static_count_text, directory_count_text, program, ...)
     local static_count = tonumber(static_count_text)
     local directory_count = tonumber(directory_count_text)
     if not static_count or static_count < 0 or not directory_count or directory_count < 0 then
@@ -51,6 +75,11 @@ function main(cache_path, depfile, identity, project_root, static_count_text, di
 
         os.vrunv(program, codegen_args)
 
+        local lookup_guards = load_lookup_guards(lookup_guard_output)
+        if lookup_guards == nil then
+            return false
+        end
+
         local files = {}
         local seen = {}
         for _, filepath in ipairs(codegen_dep_cache_common.dependencies(depfile, project_root)) do
@@ -59,6 +88,6 @@ function main(cache_path, depfile, identity, project_root, static_count_text, di
         for _, filepath in ipairs(static_dependencies) do
             append_unique(files, seen, filepath, project_root)
         end
-        return update_codegen_dep_cache.save_snapshot_locked(cache_path, identity, files, include_roots)
+        return update_codegen_dep_cache.save_snapshot_locked(cache_path, identity, files, include_roots, lookup_guards)
     end)
 end

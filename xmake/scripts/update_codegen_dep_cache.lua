@@ -83,8 +83,11 @@ local function append_absent_guard(entries, seen, candidate)
     end
 end
 
-local function append_lookup_guards(entries, files, include_roots)
+local function append_lookup_guards(entries, files, include_roots, exact_guards)
     local seen = {}
+    for _, entry in ipairs(entries) do
+        seen[entry.path] = true
+    end
     for _, root in ipairs(include_roots or {}) do
         if not os.isdir(root) then
             append_absent_guard(entries, seen, root)
@@ -104,15 +107,30 @@ local function append_lookup_guards(entries, files, include_roots)
             end
         end
     end
+    for _, guard in ipairs(exact_guards or {}) do
+        local normalized = path.absolute(guard)
+        if not seen[normalized] then
+            seen[normalized] = true
+            if os.isfile(normalized) then
+                table.insert(entries, {kind = "file", path = normalized, mtime = os.mtime(normalized)})
+            elseif not os.exists(normalized) then
+                table.insert(entries, {kind = "absent", path = normalized})
+            else
+                cprint("${yellow}warning: Gentest lookup guard is not a regular file or missing path: %s", normalized)
+                return false
+            end
+        end
+    end
     table.sort(entries, function(left, right)
         if left.kind ~= right.kind then
             return left.kind < right.kind
         end
         return left.path < right.path
     end)
+    return true
 end
 
-function save_snapshot_locked(cache_path, identity, files, include_roots)
+function save_snapshot_locked(cache_path, identity, files, include_roots, exact_guards)
     local entries = {}
     for _, filepath in ipairs(files) do
         if not os.isfile(filepath) then
@@ -121,7 +139,9 @@ function save_snapshot_locked(cache_path, identity, files, include_roots)
         end
         table.insert(entries, {kind = "file", path = filepath, mtime = os.mtime(filepath)})
     end
-    append_lookup_guards(entries, files, include_roots)
+    if not append_lookup_guards(entries, files, include_roots, exact_guards) then
+        return false
+    end
     local snapshot = snapshot_name(cache_path, identity, entries)
     if matching_snapshot(snapshot, identity, entries) then
         return

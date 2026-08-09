@@ -254,6 +254,38 @@ class TimingRecorder {
     std::vector<Record>                  records_;
 };
 
+[[nodiscard]] bool write_lookup_guard_output(const CollectorOptions &options, std::vector<std::string> guards, bool complete) {
+    if (!options.lookup_guard_output_path.has_value() || options.lookup_guard_output_path->empty()) {
+        return true;
+    }
+    std::ranges::sort(guards);
+    guards.erase(std::unique(guards.begin(), guards.end()), guards.end());
+
+    llvm::json::Array guard_values;
+    guard_values.reserve(guards.size());
+    for (auto &guard : guards) {
+        guard_values.push_back(std::move(guard));
+    }
+    llvm::json::Object report;
+    report["schema"]   = "gentest.lookup_guards.v1";
+    report["complete"] = complete;
+    report["guards"]   = std::move(guard_values);
+    std::string              json;
+    llvm::raw_string_ostream json_stream(json);
+    json_stream << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(report)));
+    json_stream.flush();
+
+    const auto     &output_path = *options.lookup_guard_output_path;
+    std::error_code parent_error;
+    if (output_path.has_parent_path()) {
+        std::filesystem::create_directories(output_path.parent_path(), parent_error);
+    }
+    if (parent_error || !gentest::codegen::write_file_atomic_if_changed(output_path, json)) {
+        gentest::codegen::log_err("gentest_codegen: failed to publish lookup guard sidecar '{}'\n", output_path.string());
+        return false;
+    }
+    return true;
+}
 struct ModuleSourceShape {
     std::optional<std::string> module_name;
     bool                       exported_module_declaration = false;
@@ -1729,10 +1761,10 @@ class DependencyRecorder final : public clang::PPCallbacks {
     DependencyRecorder(clang::SourceManager &source_manager, clang::HeaderSearch &header_search, std::vector<std::string> &dependencies,
                        std::vector<std::string> *shadow_guards, std::vector<gentest::codegen::ParseInputSnapshot> *parse_input_snapshots,
                        std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots, bool *cacheable,
-                       bool *needs_opened_preprocessor_inputs)
+                       bool *lookup_guards_complete, bool *needs_opened_preprocessor_inputs)
         : source_manager_(source_manager), header_search_(header_search), dependencies_(dependencies), shadow_guards_(shadow_guards),
           parse_input_snapshots_(parse_input_snapshots), parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable),
-          needs_opened_preprocessor_inputs_(needs_opened_preprocessor_inputs) {}
+          lookup_guards_complete_(lookup_guards_complete), needs_opened_preprocessor_inputs_(needs_opened_preprocessor_inputs) {}
 
     void FileChanged(clang::SourceLocation loc, clang::PPCallbacks::FileChangeReason reason, clang::SrcMgr::CharacteristicKind,
                      clang::FileID) override {
@@ -1763,19 +1795,21 @@ class DependencyRecorder final : public clang::PPCallbacks {
                             llvm::StringRef relative_path, const clang::Module *suggested_module, bool,
                             clang::SrcMgr::CharacteristicKind) override {
         if (suggested_module != nullptr) {
-            mark_uncacheable();
+            mark_lookup_guards_incomplete();
             return;
         }
         if (const auto *identifier = include_token.getIdentifierInfo(); identifier != nullptr && identifier->getName() == "include_next") {
+            // Textual parse-cache replay cannot reproduce include_next's
+            // starting iterator exactly, but guarding the full search list is
+            // conservative for build invalidation (it may only over-trigger).
             mark_uncacheable();
-            return;
         }
         record_lookup_guards(hash_loc, file_name, is_angled, file, search_path, relative_path);
     }
 
-    void EnteredSubmodule(clang::Module *, clang::SourceLocation, bool) override { mark_uncacheable(); }
+    void EnteredSubmodule(clang::Module *, clang::SourceLocation, bool) override { mark_lookup_guards_incomplete(); }
 
-    void moduleImport(clang::SourceLocation, clang::ModuleIdPath, const clang::Module *) override { mark_uncacheable(); }
+    void moduleImport(clang::SourceLocation, clang::ModuleIdPath, const clang::Module *) override { mark_lookup_guards_incomplete(); }
 
     void HasInclude(clang::SourceLocation loc, llvm::StringRef file_name, bool is_angled, clang::OptionalFileEntryRef file,
                     clang::SrcMgr::CharacteristicKind) override {
@@ -1787,7 +1821,6 @@ class DependencyRecorder final : public clang::PPCallbacks {
         if (!invalid && source_manager_.getFileOffset(spelling_loc) <= buffer.size() &&
             buffer.drop_front(source_manager_.getFileOffset(spelling_loc)).starts_with("__has_include_next")) {
             mark_uncacheable();
-            return;
         }
         record_lookup_guards(loc, file_name, is_angled, file, {}, file_name);
     }
@@ -1831,6 +1864,13 @@ class DependencyRecorder final : public clang::PPCallbacks {
         }
     }
 
+    void mark_lookup_guards_incomplete() {
+        mark_uncacheable();
+        if (lookup_guards_complete_ != nullptr) {
+            *lookup_guards_complete_ = false;
+        }
+    }
+
     void add_guard(const std::filesystem::path &path, bool exists) {
         if (shadow_guards_ == nullptr || path.empty()) {
             return;
@@ -1846,7 +1886,8 @@ class DependencyRecorder final : public clang::PPCallbacks {
 
     void record_lookup_guards(clang::SourceLocation include_loc, llvm::StringRef file_name, bool is_angled,
                               clang::OptionalFileEntryRef file, llvm::StringRef search_path, llvm::StringRef relative_path) {
-        if (shadow_guards_ == nullptr || cacheable_ == nullptr || !*cacheable_) {
+        if (shadow_guards_ == nullptr ||
+            (lookup_guards_complete_ != nullptr ? !*lookup_guards_complete_ : cacheable_ == nullptr || !*cacheable_)) {
             return;
         }
         const std::filesystem::path requested{file_name.str()};
@@ -1866,7 +1907,7 @@ class DependencyRecorder final : public clang::PPCallbacks {
         }
         for (const auto &lookup : header_search_.search_dir_range()) {
             if (!lookup.isNormalDir()) {
-                mark_uncacheable();
+                mark_lookup_guards_incomplete();
                 return;
             }
             roots.emplace_back(lookup.getName().str());
@@ -1889,7 +1930,7 @@ class DependencyRecorder final : public clang::PPCallbacks {
             add_guard(candidate, false);
         }
         if (!found) {
-            mark_uncacheable();
+            mark_lookup_guards_incomplete();
             return;
         }
         if (file.has_value()) {
@@ -1925,6 +1966,7 @@ class DependencyRecorder final : public clang::PPCallbacks {
     std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_;
     std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_;
     bool                                               *cacheable_;
+    bool                                               *lookup_guards_complete_;
     bool                                               *needs_opened_preprocessor_inputs_;
 };
 
@@ -1964,10 +2006,10 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
                       bool allow_mock_includes, bool skip_function_bodies, std::vector<std::string> *shadow_guards = nullptr,
                       std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots  = nullptr,
                       std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots = nullptr, bool *cacheable = nullptr,
-                      bool *needs_opened_preprocessor_inputs = nullptr)
+                      bool *lookup_guards_complete = nullptr, bool *needs_opened_preprocessor_inputs = nullptr)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
           skip_function_bodies_(skip_function_bodies), shadow_guards_(shadow_guards), parse_input_snapshots_(parse_input_snapshots),
-          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable),
+          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable), lookup_guards_complete_(lookup_guards_complete),
           needs_opened_preprocessor_inputs_(needs_opened_preprocessor_inputs) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
@@ -1977,7 +2019,7 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
         }
         compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(
             compiler.getSourceManager(), compiler.getPreprocessor().getHeaderSearchInfo(), dependencies_, shadow_guards_,
-            parse_input_snapshots_, parse_lookup_snapshots_, cacheable_, needs_opened_preprocessor_inputs_));
+            parse_input_snapshots_, parse_lookup_snapshots_, cacheable_, lookup_guards_complete_, needs_opened_preprocessor_inputs_));
         if (!record_parse_input_snapshot(compiler.getSourceManager(), compiler.getSourceManager().getMainFileID(),
                                          parse_input_snapshots_) &&
             cacheable_ != nullptr) {
@@ -2001,6 +2043,7 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
     std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_            = nullptr;
     std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_           = nullptr;
     bool                                               *cacheable_                        = nullptr;
+    bool                                               *lookup_guards_complete_           = nullptr;
     bool                                               *needs_opened_preprocessor_inputs_ = nullptr;
 };
 
@@ -2010,16 +2053,17 @@ class MatchFinderActionFactory final : public clang::tooling::FrontendActionFact
                              bool allow_mock_includes, bool skip_function_bodies, std::vector<std::string> *shadow_guards = nullptr,
                              std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots  = nullptr,
                              std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots = nullptr,
-                             bool *cacheable = nullptr, bool *needs_opened_preprocessor_inputs = nullptr)
+                             bool *cacheable = nullptr, bool *lookup_guards_complete = nullptr,
+                             bool *needs_opened_preprocessor_inputs = nullptr)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
           skip_function_bodies_(skip_function_bodies), shadow_guards_(shadow_guards), parse_input_snapshots_(parse_input_snapshots),
-          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable),
+          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable), lookup_guards_complete_(lookup_guards_complete),
           needs_opened_preprocessor_inputs_(needs_opened_preprocessor_inputs) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
         return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, skip_function_bodies_,
                                                    shadow_guards_, parse_input_snapshots_, parse_lookup_snapshots_, cacheable_,
-                                                   needs_opened_preprocessor_inputs_);
+                                                   lookup_guards_complete_, needs_opened_preprocessor_inputs_);
     }
 
   private:
@@ -2032,6 +2076,7 @@ class MatchFinderActionFactory final : public clang::tooling::FrontendActionFact
     std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_            = nullptr;
     std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_           = nullptr;
     bool                                               *cacheable_                        = nullptr;
+    bool                                               *lookup_guards_complete_           = nullptr;
     bool                                               *needs_opened_preprocessor_inputs_ = nullptr;
 };
 
@@ -4344,6 +4389,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> depfile_option{"depfile", llvm::cl::desc("Path to the generated depfile"), llvm::cl::init(""),
                                                      llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string> lookup_guard_output_option{
+        "lookup-guard-output", llvm::cl::desc("Write a changed-only JSON sidecar of existing and missing include lookup candidates"),
+        llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> timing_json_option{
         "timing-json", llvm::cl::desc("Write a changed-only JSON timing sidecar after successful code generation"), llvm::cl::init(""),
         llvm::cl::cat(category)};
@@ -4503,6 +4551,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     opts.mock_domain_impl_outputs.assign(mock_domain_impl_output_option.begin(), mock_domain_impl_output_option.end());
     if (!depfile_option.getValue().empty()) {
         opts.depfile_path = std::filesystem::path{depfile_option.getValue()};
+    }
+    if (!lookup_guard_output_option.getValue().empty()) {
+        opts.lookup_guard_output_path = std::filesystem::path{lookup_guard_output_option.getValue()};
     }
     if (!timing_json_option.getValue().empty()) {
         opts.timing_json_path = std::filesystem::path{timing_json_option.getValue()};
@@ -6455,13 +6506,16 @@ int main(int argc, const char **argv) {
 
     using ParseResult = gentest::codegen::TextualParseResult;
 
-    const bool        multi_tu                     = allow_includes && options.sources.size() > 1;
-    const bool        cache_tu_mode                = allow_includes && textual_parse_cache != nullptr && textual_parse_cache->enabled();
-    const bool        has_cacheable_textual_source = cache_tu_mode && std::ranges::any_of(options.sources, [&](const std::string &source) {
+    const bool collect_lookup_guards = options.lookup_guard_output_path.has_value() && !options.lookup_guard_output_path->empty();
+    std::vector<std::string> lookup_guards;
+    bool                     lookup_guards_complete = true;
+    const bool               multi_tu               = allow_includes && options.sources.size() > 1;
+    const bool               cache_tu_mode          = allow_includes && textual_parse_cache != nullptr && textual_parse_cache->enabled();
+    const bool        has_cacheable_textual_source  = cache_tu_mode && std::ranges::any_of(options.sources, [&](const std::string &source) {
                                                   return !module_interface_sources.contains(source);
-                                                     });
-    const bool        per_tu_parse                 = multi_tu || has_cacheable_textual_source;
-    const std::string parse_cache_policy           = fmt::format(
+                                                      });
+    const bool        per_tu_parse                  = multi_tu || has_cacheable_textual_source;
+    const std::string parse_cache_policy            = fmt::format(
         "strict_fixture={};discover_mocks={};quiet_clang={};mock_manifest_discovery_only={};skip_function_bodies={};allow_includes={};"
         "mock_backend={};check_only={};normalized_module_source_overlay={}",
         options.strict_fixture, options.discover_mocks, options.quiet_clang, mock_manifest_discovery_only, skip_function_bodies,
@@ -6732,7 +6786,9 @@ int main(int argc, const char **argv) {
             std::vector<std::string>                           local_shadow_guards;
             std::vector<gentest::codegen::ParseInputSnapshot>  local_parse_input_snapshots;
             std::vector<gentest::codegen::ParseLookupSnapshot> local_parse_lookup_snapshots;
-            bool                                               local_cacheable = true;
+            bool                                               local_cacheable              = true;
+            bool                                               local_lookup_guards_complete = true;
+            const bool                                         track_lookup_state           = use_parse_cache || collect_lookup_guards;
             bool                                               needs_opened_preprocessor_inputs =
                 command_uses_trigraphs(options.clang_args) || command_uses_trigraphs(tool_compile_commands[idx].front().CommandLine);
 
@@ -6744,10 +6800,11 @@ int main(int argc, const char **argv) {
                                                     allow_includes,
                                                     options.discover_mocks,
                                                     skip_function_bodies,
-                                                    use_parse_cache ? &local_shadow_guards : nullptr,
+                                                    track_lookup_state ? &local_shadow_guards : nullptr,
                                                     use_parse_cache ? &local_parse_input_snapshots : nullptr,
                                                     use_parse_cache ? &local_parse_lookup_snapshots : nullptr,
-                                                    use_parse_cache ? &local_cacheable : nullptr,
+                                                    track_lookup_state ? &local_cacheable : nullptr,
+                                                    collect_lookup_guards ? &local_lookup_guards_complete : nullptr,
                                                     &needs_opened_preprocessor_inputs};
 
             ParseResult result;
@@ -6773,12 +6830,13 @@ int main(int argc, const char **argv) {
             diag_stream.flush();
             result.diagnostics = std::move(diag_buffer);
             result.diagnostics += gentest_diag_buffer;
-            result.shadow_guards = std::move(local_shadow_guards);
+            result.shadow_guards          = std::move(local_shadow_guards);
+            result.cacheable              = local_cacheable;
+            result.lookup_guards_complete = local_lookup_guards_complete;
             if (use_parse_cache) {
                 result.command_input_guards =
                     command_input_guards(std::span<const std::string>(cache_effective_command.data(), cache_effective_command.size()),
                                          tool_compile_commands[idx].front().Directory);
-                result.cacheable              = local_cacheable;
                 result.parse_input_snapshots  = std::move(local_parse_input_snapshots);
                 result.parse_lookup_snapshots = std::move(local_parse_lookup_snapshots);
                 if (local_cacheable) {
@@ -6821,6 +6879,11 @@ int main(int argc, const char **argv) {
             mocks.insert(mocks.end(), std::make_move_iterator(r.mocks.begin()), std::make_move_iterator(r.mocks.end()));
             depfile_dependencies.insert(depfile_dependencies.end(), std::make_move_iterator(r.dependencies.begin()),
                                         std::make_move_iterator(r.dependencies.end()));
+            if (collect_lookup_guards) {
+                lookup_guards.insert(lookup_guards.end(), std::make_move_iterator(r.shadow_guards.begin()),
+                                     std::make_move_iterator(r.shadow_guards.end()));
+                lookup_guards_complete = lookup_guards_complete && r.lookup_guards_complete;
+            }
         }
         if (status != 0) {
             return status;
@@ -6881,20 +6944,24 @@ int main(int argc, const char **argv) {
                 break;
             }
         }
+        bool lookup_state_complete = true;
 
         MatchFinder finder;
         register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
                                   !mock_manifest_discovery_only);
-        MatchFinderActionFactory action_factory{finder,
-                                                depfile_dependencies_local,
-                                                allow_includes,
-                                                options.discover_mocks,
-                                                skip_function_bodies,
-                                                nullptr,
-                                                nullptr,
-                                                nullptr,
-                                                nullptr,
-                                                &needs_opened_preprocessor_inputs};
+        MatchFinderActionFactory action_factory{
+            finder,
+            depfile_dependencies_local,
+            allow_includes,
+            options.discover_mocks,
+            skip_function_bodies,
+            collect_lookup_guards ? &lookup_guards : nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            collect_lookup_guards ? &lookup_state_complete : nullptr,
+            &needs_opened_preprocessor_inputs,
+        };
 
         const int status = tool.run(&action_factory);
 #if CLANG_VERSION_MAJOR < 22
@@ -6917,7 +6984,8 @@ int main(int argc, const char **argv) {
             (mock_collector.has_value() && mock_collector->has_errors())) {
             return 1;
         }
-        depfile_dependencies = std::move(depfile_dependencies_local);
+        depfile_dependencies   = std::move(depfile_dependencies_local);
+        lookup_guards_complete = lookup_state_complete;
     }
 
     const auto merge_started = TimingRecorder::Clock::now();
@@ -7049,6 +7117,9 @@ int main(int argc, const char **argv) {
         return 1;
     }
     if (options.check_only) {
+        if (!write_lookup_guard_output(final_options, lookup_guards, lookup_guards_complete)) {
+            return 1;
+        }
         return finish_success();
     }
     const auto mock_started               = TimingRecorder::Clock::now();
@@ -7067,6 +7138,9 @@ int main(int argc, const char **argv) {
             }
             timing.record("depfile", depfile_started, std::nullopt, {},
                           final_options.depfile_path.has_value() ? final_options.depfile_path->generic_string() : std::string{});
+            if (!write_lookup_guard_output(final_options, lookup_guards, lookup_guards_complete)) {
+                return 1;
+            }
             return finish_success();
         }
     }
@@ -7107,5 +7181,8 @@ int main(int argc, const char **argv) {
     }
     timing.record("depfile", depfile_started, std::nullopt, {},
                   final_options.depfile_path.has_value() ? final_options.depfile_path->generic_string() : std::string{});
+    if (!write_lookup_guard_output(final_options, lookup_guards, lookup_guards_complete)) {
+        return 1;
+    }
     return finish_success();
 }
