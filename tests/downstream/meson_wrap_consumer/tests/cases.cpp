@@ -2,6 +2,7 @@
 #include "gentest/bench_util.h"
 #include "gentest/context.h"
 #include "gentest_downstream_mocks.hpp"
+#include "private_case_value.hpp"
 
 #include <sstream>
 #include <string>
@@ -37,6 +38,7 @@ struct [[using gentest: fixture(global)]] GlobalFixture : gentest::FixtureSetup 
 void module_test(SuiteFixture &suite_fx, GlobalFixture &global_fx) {
     EXPECT_EQ(suite_fx.value, 7);
     EXPECT_EQ(global_fx.value, 11);
+    EXPECT_EQ(private_case_value, 17);
 }
 
 [[using gentest: test("textual_mock")]]
@@ -72,5 +74,13 @@ void module_bench(SuiteFixture &suite_fx) {
 void module_jitter(GlobalFixture &global_fx) {
     gentest::doNotOptimizeAway(global_fx.value);
 }
+
+#if defined(DOWNSTREAM_MESON_CODEGEN_FLAG)
+[[using gentest: test("compile_flag")]]
+void meson_compile_flag() {}
+#else
+[[using gentest: test("compile_flag_off")]]
+void meson_compile_flag() {}
+#endif
 
 } // namespace downstream

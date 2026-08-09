@@ -5,6 +5,8 @@ fs = import('fs')
 gentest_codegen_path = get_option('gentest_codegen_path')
 gentest_codegen_host_clang = get_option('gentest_codegen_host_clang')
 gentest_codegen_clang_scan_deps = get_option('gentest_codegen_clang_scan_deps')
+gentest_codegen_parse_cache = get_option('gentest_codegen_parse_cache')
+gentest_codegen_parse_cache_dir = get_option('gentest_codegen_parse_cache_dir')
 if gentest_codegen_path == '' or gentest_codegen_host_clang == ''
   error('gentest downstream Meson wrap consumer requires gentest_codegen_path and gentest_codegen_host_clang')
 endif
@@ -24,6 +26,8 @@ gentest_sp = subproject(
     'build_self_tests=false',
     'codegen_path=' + gentest_codegen_path,
     'codegen_host_clang=' + gentest_codegen_host_clang,
+    'codegen_parse_cache=' + (gentest_codegen_parse_cache ? 'true' : 'false'),
+    'codegen_parse_cache_dir=' + gentest_codegen_parse_cache_dir,
   ] + (gentest_codegen_clang_scan_deps != '' ? ['codegen_clang_scan_deps=' + gentest_codegen_clang_scan_deps] : []),
 )
 
@@ -46,6 +50,14 @@ gentest_textual_suites = [
     'source_includes': ['tests'],
     'mocks': ['gentest_downstream_textual_mocks'],
     'test_name': 'meson_downstream_textual',
+  },
+  {
+    'name': 'gentest_downstream_cache_textual',
+    'id': 'downstream_cache_textual',
+    'source': 'tests/cache_cases.cpp',
+    'main': files('tests/main.cpp'),
+    'source_includes': ['tests'],
+    'test_name': 'meson_downstream_cache_textual',
   },
 ]
 

@@ -18,3 +18,17 @@ option(
   value: '',
   description: 'Path to clang-scan-deps for the downstream Meson consumer',
 )
+
+option(
+  'gentest_codegen_parse_cache',
+  type: 'boolean',
+  value: false,
+  description: 'Opt in to the gentest_codegen textual parse cache',
+)
+
+option(
+  'gentest_codegen_parse_cache_dir',
+  type: 'string',
+  value: '',
+  description: 'Directory for the opt-in gentest_codegen textual parse cache',
+)

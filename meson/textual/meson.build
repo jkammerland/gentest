@@ -1,10 +1,12 @@
 if not is_variable('gentest_sp')
   error('gentest Meson textual helper requires gentest_sp = subproject(\'gentest\', ...) before subdir(\'subprojects/gentest/meson/textual\')')
 endif
+if meson.backend() != 'ninja'
+  error('gentest Meson textual helper requires the Ninja backend because header invalidation relies on depfiles')
+endif
 
 cpp = meson.get_compiler('cpp')
 fs = import('fs')
-py = import('python').find_installation('python3')
 
 gentest_codegen = gentest_sp.get_variable('gentest_codegen')
 gentest_codegen_tool_args = gentest_sp.get_variable('gentest_codegen_tool_args')
@@ -45,58 +47,20 @@ gentest_textual_base_cpp_args = [
   '-I@0@'.format(meson.current_build_dir()),
 ] + cpp.get_supported_arguments(['-Wno-attributes'])
 
-gentest_textual_support_seed_paths = []
 foreach mock_decl : gentest_textual_mocks
   if mock_decl.get('kind', 'textual') != 'textual'
     error('gentest Meson helper is textual-only; named modules are intentionally unsupported')
   endif
-  gentest_textual_support_seed_paths += [mock_decl['defs']]
-  gentest_textual_support_seed_paths += mock_decl.get('source_includes', [])
 endforeach
 foreach suite_decl : gentest_textual_suites
   if suite_decl.get('kind', 'textual') != 'textual'
     error('gentest Meson helper is textual-only; named modules are intentionally unsupported')
   endif
-  gentest_textual_support_seed_paths += [suite_decl['source']]
-  gentest_textual_support_seed_paths += suite_decl.get('source_includes', [])
 endforeach
 
-gentest_textual_support_inputs_cmd = run_command(
-  py,
-  '-c',
-  '''import glob
-import os
-import sys
-
-root = os.path.abspath(sys.argv[1])
-seeds = sys.argv[2].split("\\n") if len(sys.argv) > 2 and sys.argv[2] else []
-roots = set()
-headers = set()
-suffixes = ('.h', '.hh', '.hpp', '.hxx', '.inc')
-for seed in seeds:
-    path = seed if os.path.isabs(seed) else os.path.join(root, seed)
-    path = os.path.normpath(path)
-    if os.path.isfile(path):
-        if path.endswith(suffixes):
-            headers.add(path)
-        roots.add(os.path.dirname(path))
-    else:
-        roots.add(path)
-for directory in sorted(roots):
-    if not os.path.isdir(directory):
-        continue
-    for suffix in suffixes:
-        headers.update(glob.glob(os.path.join(directory, '**', '*' + suffix), recursive=True))
-print("\\n".join(sorted(os.path.normpath(path) for path in headers)))
-''',
-  meson.project_source_root(),
-  '\n'.join(gentest_textual_support_seed_paths),
-  check: true
-)
-gentest_textual_support_inputs = []
-if gentest_textual_support_inputs_cmd.stdout().strip() != ''
-  gentest_textual_support_inputs = gentest_textual_support_inputs_cmd.stdout().strip().split('\n')
-endif
+# Header invalidation is supplied by gentest_codegen's depfiles. Do not glob
+# source_includes into custom-target inputs: only mock/suite sources and
+# generated mock targets are direct graph edges.
 
 gentest_textual_mock_targets = {}
 gentest_textual_mock_codegen_targets = {}
@@ -144,7 +108,7 @@ foreach mock_decl : gentest_textual_mocks
       mock_domain_impl_h,
       mock_public_h,
     ],
-    input: [mock_defs_abs] + gentest_textual_support_inputs,
+    input: [mock_defs_abs],
     command: [
       gentest_codegen,
       '--source-root', meson.project_source_root(),
@@ -222,7 +186,7 @@ foreach suite_decl : gentest_textual_suites
   suite_codegen = custom_target(
     'gen_@0@'.format(suite_id),
     output: [suite_wrapper_cpp, suite_wrapper_h, suite_manifest],
-    input: [suite_source_abs] + suite_mock_codegen_inputs + gentest_textual_support_inputs,
+    input: [suite_source_abs] + suite_mock_codegen_inputs,
     command: [
       gentest_codegen,
       '--source-root', meson.project_source_root(),

@@ -25,6 +25,17 @@ the same CLI precedence. With no CMake directory it uses the deterministic
 `<build>/.gentest_codegen_parse_cache` path. An ambient environment setting
 continues to apply when CMake has not emitted a cache CLI option.
 
+Meson users can opt in with `-Dcodegen_parse_cache=true`; its optional
+`-Dcodegen_parse_cache_dir=...` is emitted as `--parse-cache-dir`. An empty
+directory uses the Gentest project's build directory and a
+`.gentest_codegen_parse_cache` child. Relative directories are resolved from
+that build directory. The checked-in downstream wrap fixture exposes the same
+policy as `-Dgentest_codegen_parse_cache=true` and
+`-Dgentest_codegen_parse_cache_dir=...`. When
+`codegen_parse_cache=false`, Meson emits no cache CLI option, so the ambient
+`GENTEST_CODEGEN_PARSE_CACHE` policy can still opt in. A Meson-emitted
+`--parse-cache-dir` wins over both environment settings.
+
 Entries contain the complete textual parse result (cases, fixtures, mocks and
 successful diagnostics) plus the dependency set. Reuse verifies SHA-256
 content hashes and physical file identity, adjusted compile command, Clang and
