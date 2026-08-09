@@ -76,7 +76,8 @@ enum class FreeCallArgKind {
 
 struct FreeCallArg {
     FreeCallArgKind kind = FreeCallArgKind::Fixture;
-    // Index into TestCaseInfo::free_fixtures when kind == Fixture.
+    // Index into TestCaseInfo::free_fixture_types before fixture resolution;
+    // the same slot indexes free_fixtures after resolution.
     std::size_t fixture_index = 0;
     // C++ expression string when kind == Value.
     std::string value_expression;
@@ -153,7 +154,11 @@ struct CollectorOptions {
     std::optional<std::filesystem::path> depfile_path;
     // Optional build-observability output. This is intentionally separate
     // from generated artifact outputs so timing never affects their content.
-    std::optional<std::filesystem::path>                                timing_json_path;
+    std::optional<std::filesystem::path> timing_json_path;
+    // Opt-in persistent cache for successful textual TU parse results. Named
+    // module inputs intentionally bypass this cache.
+    std::optional<std::filesystem::path>                                parse_cache_dir;
+    std::string                                                         parse_cache_salt;
     std::vector<std::string>                                            sources;
     std::unordered_map<std::string, std::string>                        module_interface_names_by_source;
     std::unordered_set<std::string>                                     module_interface_sources;
