@@ -227,6 +227,28 @@ class CampaignContractTests(unittest.TestCase):
             self.assertEqual(call_env["SCCACHE_SERVER_UDS"], endpoint)
             self.assertEqual(call_env["SCCACHE_CONF"], cache_env["SCCACHE_CONF"])
 
+    @unittest.skipIf(os.name == "nt", "isolated sccache UDS is a POSIX campaign contract")
+    def test_sccache_long_endpoint_fallback_is_fresh_and_cleaned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / ("deep" * 30)
+            with (
+                mock.patch.object(campaign, "resolve_cache_tool", return_value="/tools/sccache"),
+                mock.patch.object(campaign, "run_output", return_value="stats"),
+                mock.patch.object(campaign, "version", return_value={"path": "/tools/sccache"}),
+                mock.patch.object(campaign.shutil, "which", return_value="/tools/sccache"),
+            ):
+                first_env, first_metadata = campaign.cache_environment("sccache", root)
+                second_env, second_metadata = campaign.cache_environment("sccache", root)
+                first_temporary_directory = Path(first_metadata["_server_temporary_directory"])
+                second_temporary_directory = Path(second_metadata["_server_temporary_directory"])
+                self.assertNotEqual(first_env["SCCACHE_SERVER_UDS"], second_env["SCCACHE_SERVER_UDS"])
+                self.assertTrue(first_temporary_directory.is_dir())
+                self.assertTrue(second_temporary_directory.is_dir())
+                campaign.finish_cache_metadata("sccache", first_env, root, first_metadata)
+                campaign.finish_cache_metadata("sccache", second_env, root, second_metadata)
+            self.assertFalse(first_temporary_directory.exists())
+            self.assertFalse(second_temporary_directory.exists())
+
     def test_extensionless_repository_executable_is_a_link_edge(self) -> None:
         self.assertEqual(campaign.classify(["tests/gentest_unit_tests"], ("gentest_unit_tests",)), "link_or_archive")
         self.assertEqual(campaign.classify(["tests/gentest_unit_tests"]), "other")

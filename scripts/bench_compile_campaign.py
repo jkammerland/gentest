@@ -18,7 +18,6 @@ and ``summary.md`` and never invents results for an unavailable compiler.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import platform
@@ -181,6 +180,12 @@ def stop_sccache_server(env: dict[str, str], root: Path, tool: str | None = None
     )
 
 
+def cleanup_sccache_endpoint(metadata: dict[str, object]) -> None:
+    temporary_directory = metadata.pop("_server_temporary_directory", None)
+    if isinstance(temporary_directory, str):
+        shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
 def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, object]]:
     env = os.environ.copy()
     env.pop("CMAKE_C_COMPILER_LAUNCHER", None)
@@ -215,7 +220,9 @@ def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, 
             raise RuntimeError("isolated sccache campaigns are not yet supported on Windows")
         socket_path = cache_dir / "server.sock"
         if len(os.fsencode(socket_path)) >= 100:
-            socket_path = Path(tempfile.gettempdir()) / f"gentest-sccache-{hashlib.sha256(str(root).encode()).hexdigest()[:16]}.sock"
+            temporary_directory = tempfile.mkdtemp(prefix="gentest-sccache-")
+            metadata["_server_temporary_directory"] = temporary_directory
+            socket_path = Path(temporary_directory) / "server.sock"
         env["SCCACHE_SERVER_UDS"] = str(socket_path)
         metadata["server_endpoint"] = {"kind": "uds", "path": str(socket_path)}
         try:
@@ -223,6 +230,7 @@ def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, 
             metadata["before"] = run_output([tool, "--show-stats"], cwd=root, env=env)
         except (OSError, subprocess.CalledProcessError):
             stop_sccache_server(env, root, tool, check=False)
+            cleanup_sccache_endpoint(metadata)
             raise
     metadata["tool"] = version(tool)
     return env, metadata
@@ -237,7 +245,10 @@ def finish_cache_metadata(mode: str, env: dict[str, str], root: Path, metadata: 
             metadata["after"] = run_output([tool, "--show-stats"], cwd=root, env=env)
         finally:
             if mode == "sccache":
-                stop_sccache_server(env, root, tool, check=True)
+                try:
+                    stop_sccache_server(env, root, tool, check=True)
+                finally:
+                    cleanup_sccache_endpoint(metadata)
 
 
 def cmake_arguments(cc: str, cxx: str, build_type: str, cache: str) -> list[str]:
