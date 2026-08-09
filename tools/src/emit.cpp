@@ -577,10 +577,6 @@ std::string include_literal_relative_to(const fs::path &including_file, const fs
         const fs::path included         = included_file.lexically_normal();
         const fs::path lexical_relative = included.lexically_relative(including_parent);
         if (!lexical_relative.empty() && !lexical_relative.is_absolute()) {
-            if (including_file.is_relative() && included_file.is_relative()) {
-                return include_literal_for_path(lexical_relative);
-            }
-
             // Preserve the caller's source spelling (including a source-side
             // symlink) whenever that lexical include still resolves to the
             // requested file from the wrapper's physical directory.  A
