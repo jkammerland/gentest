@@ -406,6 +406,10 @@ if(NOT GENTEST_BAZEL_HELPER_CONTRACT)
 endif()
 
 function(_gentest_assert_codegen_header_invalidation header label)
+  set(_expected_mnemonics ${ARGN})
+  if(NOT _expected_mnemonics)
+    set(_expected_mnemonics GentestTextualSuiteCodegen GentestModuleSuiteCodegen)
+  endif()
   file(APPEND "${header}" "\n// ${label} invalidation\n")
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
@@ -422,7 +426,7 @@ function(_gentest_assert_codegen_header_invalidation header label)
       "stdout:\n${_incremental_out}\nstderr:\n${_incremental_err}")
   endif()
   set(_incremental_log "${_incremental_out}\n${_incremental_err}")
-  foreach(_mnemonic IN ITEMS GentestTextualSuiteCodegen GentestModuleSuiteCodegen)
+  foreach(_mnemonic IN LISTS _expected_mnemonics)
     string(FIND "${_incremental_log}" "${_mnemonic}" _mnemonic_pos)
     if(_mnemonic_pos EQUAL -1)
       message(FATAL_ERROR
@@ -439,6 +443,13 @@ if(NOT GENTEST_BAZEL_HELPER_CONTRACT)
   _gentest_assert_codegen_header_invalidation(
     "${_workspace_dir}/tests/dep_case_value.hpp"
     "a transitive CcInfo dependency header")
+  _gentest_assert_codegen_header_invalidation(
+    "${_workspace_dir}/tests/mock_codegen_dep/mock_dep.hpp"
+    "a cross-package mock-only CcInfo dependency header"
+    GentestTextualMocksCodegen
+    GentestTextualSuiteCodegen
+    GentestModuleMocksCodegen
+    GentestModuleSuiteCodegen)
 endif()
 
 execute_process(

@@ -110,9 +110,10 @@ GENTEST_BAZEL_LOCAL_SDKROOT="$(xcrun --show-sdk-path)" \
 That fallback declares a label pointing at the local executable so it is useful
 for local correctness checks, but it is deliberately **not** a remotely
 executable LLVM package. Gentest marks actions using this local fallback
-`no-remote`, disabling remote execution and remote action-cache use; ordinary
-local and disk-cache reuse remains available. Release and remote-cache
-consumers must register a prepackaged toolchain. If neither is available,
+`no-remote`, disabling remote execution and remote action-cache use, and
+`no-cache`, disabling local and disk action-cache reuse as well. Release and
+cache-enabled consumers must register a prepackaged toolchain. If neither is
+available,
 analysis reports a missing Gentest exec codegen toolchain instead of attempting
 ambient compiler lookup.
 
@@ -160,6 +161,7 @@ gentest_add_mocks_textual(
     name = "gentest_downstream_textual_mocks",
     defs = ["tests/header_mock_defs.hpp"],
     public_header = "gentest_downstream_mocks.hpp",
+    deps = [":codegen_headers"],
 )
 
 gentest_attach_codegen_textual(
@@ -183,6 +185,7 @@ gentest_add_mocks_modules(
         "downstream.bazel.mock_defs",
     ],
     module_name = "downstream.bazel.consumer_mocks",
+    deps = [":codegen_headers"],
 )
 
 gentest_attach_codegen_modules(
@@ -249,7 +252,7 @@ bazelisk run --repo_env=GENTEST_BAZEL_LOCAL_CLANG \
 ```
 
 This is a local correctness flow: its generated actions are marked
-`no-remote`. For remote execution or remote action-cache use, register a real
+`no-remote` and `no-cache`. For cache reuse or remote execution, register a real
 packaged `gentest_codegen_toolchain` instead, following the
 [exec toolchain contract](#exec-toolchain-contract); do not combine that
 production flow with `GENTEST_BAZEL_LOCAL_CLANG`.
@@ -313,8 +316,10 @@ Do not use elapsed time as the gate.
 - `source_hdrs` declares same-package private file paths read directly by the
   authored suite. Cross-package headers belong in `deps`, whose transitive
   `CcInfo` headers, propagated defines, and distinct
-  quote/system/include/framework roots reach codegen as well as the final
-  target. `source_includes` only adds search flags; it does not declare files.
+  quote/system/include/framework roots reach mock and suite codegen as well as
+  the final target. Generated mock providers preserve those categories for the
+  consuming suite. `source_includes` only adds search flags; it does not declare
+  files.
   Every header codegen can read must be reachable through `source_hdrs`,
   `deps`, a mock provider, or Gentest's fixed support inputs. Module-name
   mappings from arbitrary dependencies are still not inferred.

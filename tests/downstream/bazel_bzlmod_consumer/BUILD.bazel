@@ -21,10 +21,18 @@ categorized_headers(
     quote_includes = ["tests/quote_include"],
 )
 
+categorized_headers(
+    name = "mock_codegen_headers",
+    hdrs = ["//tests/mock_codegen_dep:mock_dep.hpp"],
+    defines = ["GENTEST_BAZEL_MOCK_DEP=1"],
+    quote_includes = ["tests/mock_codegen_dep"],
+)
+
 gentest_add_mocks_textual(
     name = "gentest_downstream_textual_mocks",
     defs = ["tests/header_mock_defs.hpp"],
     public_header = "gentest_downstream_mocks.hpp",
+    deps = [":mock_codegen_headers"],
 )
 
 gentest_attach_codegen_textual(
@@ -48,6 +56,7 @@ gentest_add_mocks_modules(
         "downstream.bazel.mock_defs",
     ],
     module_name = "downstream.bazel.consumer_mocks",
+    deps = [":mock_codegen_headers"],
 )
 
 gentest_attach_codegen_modules(
