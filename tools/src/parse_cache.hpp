@@ -12,6 +12,12 @@
 
 namespace gentest::codegen {
 
+struct ParseInputSnapshot {
+    std::string path;
+    std::string hash;
+    std::string unique_id;
+};
+
 struct TextualParseResult {
     int                          status             = 0;
     bool                         had_test_errors    = false;
@@ -31,7 +37,11 @@ struct TextualParseResult {
     // PCH and command-line forced-input paths do not necessarily pass through
     // normal textual include callbacks, so keep them in the input fingerprint.
     std::vector<std::string> command_input_guards;
-    bool                     cacheable = true;
+    // Exact buffers and file identities observed by Clang during the cold
+    // parse. These are intentionally not serialized; store() uses them to
+    // prove inputs did not change between parsing and cache publication.
+    std::vector<ParseInputSnapshot> parse_input_snapshots;
+    bool                            cacheable = true;
 };
 
 struct ParseCacheContext {
