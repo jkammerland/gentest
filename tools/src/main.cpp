@@ -5026,7 +5026,8 @@ int main(int argc, const char **argv) {
     const bool has_any_named_module_imports =
         std::ranges::any_of(imported_named_modules_by_source, [](const auto &imports) { return !imports.empty(); });
 
-    const auto pcm_started = TimingRecorder::Clock::now();
+    const auto  pcm_started             = TimingRecorder::Clock::now();
+    std::size_t pcm_timing_record_count = 0;
     if (!named_module_sources.empty() || has_any_named_module_imports) {
         const std::filesystem::path module_cache_dir =
             resolve_codegen_module_cache_dir(options, default_compiler_path, default_resource_dir, default_sysroot);
@@ -5408,6 +5409,7 @@ int main(int argc, const char **argv) {
                 source_commands.empty() ? compdb_dir : source_commands.front().Directory, options);
             timing.record("pcm", pcm_record_started, std::nullopt, module_source.source_path.generic_string(),
                           module_source.pcm_path.generic_string(), module_source.module_name);
+            ++pcm_timing_record_count;
             if (!precompiled) {
                 state = ModuleBuildState::Failed;
                 return false;
@@ -5482,6 +5484,7 @@ int main(int argc, const char **argv) {
                                                                       module_source->pcm_path, external_working_directory, options);
             timing.record("pcm", pcm_record_started, std::nullopt, module_source->source_path.generic_string(),
                           module_source->pcm_path.generic_string(), std::string{module_name});
+            ++pcm_timing_record_count;
             if (!precompiled) {
                 state = ModuleBuildState::Failed;
                 return false;
@@ -5589,7 +5592,9 @@ int main(int argc, const char **argv) {
         }
     }
 
-    timing.record("pcm", pcm_started);
+    if (pcm_timing_record_count == 0) {
+        timing.record("pcm", pcm_started);
+    }
 
     const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
         const std::string compdb_dir =
