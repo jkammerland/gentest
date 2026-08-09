@@ -6,7 +6,12 @@ def _gentest_local_exec_tools_impl(repository_ctx):
         "MODULE.bazel",
         "module(name = \"gentest_local_exec_tools\")\n",
     )
-    if not clang:
+    # A Windows gentest_codegen/Clang pair generally depends on adjacent LLVM
+    # DLLs. A repository-rule symlink to clang plus a separately built codegen
+    # executable cannot declare that runtime closure safely, so the automatic
+    # local fallback is deliberately unavailable there. Users can still
+    # register a packaged exec toolchain with explicit runtime_files.
+    if repository_ctx.os.name.lower().find("windows") != -1 or not clang:
         repository_ctx.file("missing_codegen", "", executable = True)
         repository_ctx.file("missing_clang", "", executable = True)
         repository_ctx.file("BUILD.bazel", """

@@ -296,6 +296,12 @@ sh_test(
     ],
 )
 
+cc_library(
+    name = 'gentest_consumer_codegen_headers',
+    hdrs = ['tests/consumer/bazel_dep_case_value.hpp'],
+    includes = ['tests/consumer'],
+)
+
 gentest_add_mocks_textual(
     name = 'gentest_consumer_textual_mocks',
     defs = ['tests/consumer/header_mock_defs.hpp'],
@@ -307,7 +313,9 @@ gentest_attach_codegen_textual(
     name = 'gentest_consumer_textual_bazel',
     src = 'tests/consumer/cases.cpp',
     main = 'tests/consumer/main.cpp',
+    source_hdrs = ['tests/consumer/bazel_private_case_value.hpp'],
     mock_targets = [':gentest_consumer_textual_mocks'],
+    deps = [':gentest_consumer_codegen_headers'],
     linkopts = _gentest_linkopts,
     source_includes = ['tests', 'tests/consumer'],
 )
@@ -330,8 +338,10 @@ gentest_attach_codegen_modules(
     name = 'gentest_consumer_module_bazel',
     src = 'tests/consumer/cases.cppm',
     main = 'tests/consumer/main.cpp',
+    source_hdrs = ['tests/consumer/bazel_private_case_value.hpp'],
     mock_targets = [':gentest_consumer_module_mocks'],
     deps = [
+        ':gentest_consumer_codegen_headers',
         ':gentest',
         ':gentest_bench_util',
     ],

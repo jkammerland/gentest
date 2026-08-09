@@ -82,8 +82,9 @@ The legacy `codegen_host_clang` parameter remains syntactically accepted for
 source compatibility, but a nonempty value fails analysis with this migration
 path. `GENTEST_CODEGEN_HOST_CLANG` is no longer read by codegen actions.
 
-For local source-package development only, Gentest registers a fallback when
-`GENTEST_BAZEL_LOCAL_CLANG` names a local `clang++` executable:
+For local source-package development on non-Windows hosts only, Gentest
+registers a fallback when `GENTEST_BAZEL_LOCAL_CLANG` names a local `clang++`
+executable:
 
 ```bash
 GENTEST_BAZEL_LOCAL_CLANG=/opt/llvm/bin/clang++ \
@@ -99,6 +100,12 @@ consumers must register a prepackaged toolchain. If neither is available,
 analysis reports a missing Gentest exec codegen toolchain instead of attempting
 ambient compiler lookup.
 
+The automatic fallback is intentionally unavailable on Windows. A typical
+Windows `clang++.exe` and `gentest_codegen.exe` need adjacent LLVM/Clang DLLs,
+which a repository-rule symlink cannot declare as a complete execution closure.
+Windows consumers must register a packaged toolchain whose `runtime_files`
+contain those DLLs and Clang's resource headers.
+
 ## Downstream Bzlmod example
 
 `MODULE.bazel`:
@@ -107,6 +114,7 @@ ambient compiler lookup.
 module(name = "gentest_downstream_fixture")
 
 bazel_dep(name = "gentest", version = "1.0.0")
+bazel_dep(name = "rules_cc", version = "0.2.17")
 
 local_path_override(
     module_name = "gentest",
@@ -117,12 +125,19 @@ local_path_override(
 `BUILD.bazel`:
 
 ```python
+load("@rules_cc//cc:defs.bzl", "cc_library")
 load(
     "@gentest//bazel:defs.bzl",
     "gentest_add_mocks_modules",
     "gentest_add_mocks_textual",
     "gentest_attach_codegen_modules",
     "gentest_attach_codegen_textual",
+)
+
+cc_library(
+    name = "codegen_headers",
+    hdrs = ["tests/dep_case_value.hpp"],
+    includes = ["tests"],
 )
 
 gentest_add_mocks_textual(
@@ -135,7 +150,9 @@ gentest_attach_codegen_textual(
     name = "gentest_downstream_textual",
     src = "tests/cases.cpp",
     main = "tests/main.cpp",
+    source_hdrs = ["tests/private_case_value.hpp"],
     mock_targets = [":gentest_downstream_textual_mocks"],
+    deps = [":codegen_headers"],
     source_includes = ["tests"],
 )
 
@@ -156,8 +173,10 @@ gentest_attach_codegen_modules(
     name = "gentest_downstream_module",
     src = "tests/cases.cppm",
     main = "tests/main.cpp",
+    source_hdrs = ["tests/private_case_value.hpp"],
     mock_targets = [":gentest_downstream_module_mocks"],
     deps = [
+        ":codegen_headers",
         "@gentest//:gentest",
         "@gentest//:gentest_bench_util",
     ],
@@ -181,9 +200,11 @@ your_project/
     main.cpp
     cases.cpp
     cases.cppm
+    dep_case_value.hpp
     header_mock_defs.hpp
     module_mock_defs.cppm
     service.cppm
+    private_case_value.hpp
 ```
 
 ## Build and run
@@ -193,6 +214,10 @@ These commands assume a prepared downstream Bzlmod project with a concrete
 Clang path must be available to the repository rule as well as the client
 environment. The checked-in fixture stores `MODULE.bazel.in`; the CTest proof
 configures and stages it before invoking Bazel.
+
+The local fallback commands below are for non-Windows hosts. On Windows,
+register the packaged exec toolchain described above and omit
+`GENTEST_BAZEL_LOCAL_CLANG`.
 
 ```bash
 export GENTEST_BAZEL_LOCAL_CLANG=/opt/llvm/bin/clang++
@@ -267,9 +292,13 @@ Do not use elapsed time as the gate.
 - This is source-package / Bzlmod support, not a prebuilt binary package.
 - `gentest_add_mocks_textual(...)` currently accepts exactly one defs file.
 - `gentest_attach_codegen_*` currently require same-package `mock_targets`.
-- `deps` are final target dependencies. Codegen consumes explicit
-  `mock_targets`, `source_includes`, gentest metadata providers, and fixed
-  support inputs; arbitrary dependency include/module metadata is not inferred.
+- `source_hdrs` declares private headers read directly by the authored suite.
+  `deps` contribute their transitive `CcInfo` headers, propagated defines, and
+  quote/system/include/framework roots to codegen as well as to the final target. `source_includes` only adds
+  search flags; it does not declare files. Every header codegen can read must be
+  reachable through `source_hdrs`, `deps`, a mock provider, or Gentest's fixed
+  support inputs. Module-name mappings from arbitrary dependencies are still
+  not inferred.
 - The repo-local CMake bootstrap for `@gentest//:gentest_codegen` is a local
   source-package convenience and is not remote-execution portable. A packaged
   `codegen` executable label is required for portable consumers.
