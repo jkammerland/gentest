@@ -24,8 +24,8 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
-if(NOT "${GENERATOR}" STREQUAL "Ninja")
-  gentest_skip_test("explicit mock timestamp regression requires a single-config Ninja build")
+if(NOT "${GENERATOR}" MATCHES "Ninja|Makefiles")
+  gentest_skip_test("explicit mock timestamp regression requires Ninja or Makefiles")
   return()
 endif()
 
@@ -120,6 +120,7 @@ set(_consumer_output_dir "${_generated_root}/consumer artifacts")
 file(GLOB_RECURSE _generated_outputs LIST_DIRECTORIES false
   "${_mock_output_dir}/*"
   "${_consumer_output_dir}/*")
+list(FILTER _generated_outputs EXCLUDE REGEX "/compdb/compile_commands\\.staged$")
 if(NOT _generated_outputs)
   message(FATAL_ERROR "Expected generated outputs below '${_generated_root}'")
 endif()
@@ -174,10 +175,10 @@ if(NOT _noop_build_rc EQUAL 0)
     "No-op explicit mock build failed.\n--- stdout ---\n${_noop_build_out}\n--- stderr ---\n${_noop_build_err}")
 endif()
 set(_noop_build_text "${_noop_build_out}\n${_noop_build_err}")
-# CMake regenerates its raw compile database during configure.  The
-# copy_if_different staging edge may therefore run once after a reconfigure,
-# but it must not propagate to codegen, compilation, or linking.
-foreach(_forbidden_edge IN ITEMS "gentest_codegen" "Building CXX object" "Linking CXX")
+# CMake regenerates its raw compile database during configure. The staging
+# edge may therefore run once, but it must not propagate to codegen,
+# compilation, or linking.
+foreach(_forbidden_edge IN ITEMS "${PROG}" "Building CXX object" "Linking CXX")
   string(FIND "${_noop_build_text}" "${_forbidden_edge}" _forbidden_edge_pos)
   if(NOT _forbidden_edge_pos EQUAL -1)
     message(FATAL_ERROR
@@ -199,12 +200,7 @@ if(NOT _settled_build_rc EQUAL 0)
     "Settled no-op explicit mock build failed.\n--- stdout ---\n${_settled_build_out}\n--- stderr ---\n${_settled_build_err}")
 endif()
 set(_settled_build_text "${_settled_build_out}\n${_settled_build_err}")
-string(FIND "${_settled_build_text}" "no work to do" _settled_noop_message_pos)
-if(_settled_noop_message_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected a settled no-op build after unchanged reconfigure.\n${_settled_build_text}")
-endif()
-foreach(_forbidden_edge IN ITEMS "gentest_codegen" "Building CXX object" "Linking CXX")
+foreach(_forbidden_edge IN ITEMS "Staging compile commands" "${PROG}" "Building CXX object" "Linking CXX")
   string(FIND "${_settled_build_text}" "${_forbidden_edge}" _forbidden_edge_pos)
   if(NOT _forbidden_edge_pos EQUAL -1)
     message(FATAL_ERROR
