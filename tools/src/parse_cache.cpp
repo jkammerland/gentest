@@ -39,6 +39,12 @@ constexpr std::uintmax_t   kMaxInputBytes      = std::uintmax_t{256} * 1024U * 1
 constexpr std::uintmax_t   kMaxExecutableBytes = std::uintmax_t{1024} * 1024U * 1024U;
 constexpr std::size_t      kMaxCacheItems      = 200000;
 
+bool path_is_missing(const fs::path &path) {
+    std::error_code exists_ec;
+    const bool      exists = fs::exists(path, exists_ec);
+    return !exists_ec && !exists;
+}
+
 std::string normalize_path(std::string_view raw) {
     if (raw.empty()) {
         return {};
@@ -569,7 +575,7 @@ bool write_atomic_best_effort(const fs::path &path, std::string_view content) {
             fs::remove(temporary, ignored);
             return false;
         }
-    } else if (ec && ec != std::make_error_code(std::errc::no_such_file_or_directory)) {
+    } else if (ec && !path_is_missing(path)) {
         std::error_code ignored;
         fs::remove(temporary, ignored);
         return false;
@@ -634,7 +640,7 @@ std::optional<TextualParseCache::FileFingerprint> TextualParseCache::fingerprint
     std::error_code ec;
     const auto      status = fs::status(path, ec);
     if (ec || !fs::exists(status)) {
-        if (ec && ec != std::make_error_code(std::errc::no_such_file_or_directory)) {
+        if (ec && !path_is_missing(path)) {
             return std::nullopt;
         }
     } else {
