@@ -6428,9 +6428,9 @@ int main(int argc, const char **argv) {
             const std::string source_key             = normalize_compdb_lookup_path(options.sources[idx]);
             const bool        has_module_inputs =
                 !imported_named_modules_by_source[idx].empty() || extra_module_args_by_source.contains(source_key);
-            bool                                 use_parse_cache = cache_tu_mode && !source_is_named_module && !has_module_inputs;
-            clang::tooling::CommandLineArguments cache_adjusted_command;
-            clang::tooling::CommandLineArguments cache_effective_command;
+            bool use_parse_cache = cache_tu_mode && !source_is_named_module && !has_module_inputs && tool_compile_commands[idx].size() == 1;
+            clang::tooling::CommandLineArguments               cache_adjusted_command;
+            clang::tooling::CommandLineArguments               cache_effective_command;
             std::optional<gentest::codegen::ParseCacheContext> cache_context;
             if (use_parse_cache) {
                 cache_adjusted_command =
@@ -6561,7 +6561,11 @@ int main(int argc, const char **argv) {
                                                     use_parse_cache ? &local_cacheable : nullptr};
 
             ParseResult result;
-            result.status             = tool.run(&action_factory);
+            std::string gentest_diag_buffer;
+            {
+                gentest::codegen::ScopedLogCapture gentest_diag_capture{gentest_diag_buffer};
+                result.status = tool.run(&action_factory);
+            }
             result.had_test_errors    = !mock_manifest_discovery_only && collector.has_errors();
             result.had_fixture_errors = !mock_manifest_discovery_only && fixture_collector.has_errors();
             result.had_mock_errors    = mock_collector.has_value() && mock_collector->has_errors();
@@ -6571,7 +6575,8 @@ int main(int argc, const char **argv) {
             result.dependencies       = std::move(local_dependencies);
 
             diag_stream.flush();
-            result.diagnostics   = std::move(diag_buffer);
+            result.diagnostics = std::move(diag_buffer);
+            result.diagnostics += gentest_diag_buffer;
             result.shadow_guards = std::move(local_shadow_guards);
             if (use_parse_cache) {
                 result.command_input_guards =

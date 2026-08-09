@@ -148,6 +148,23 @@ int main() {
     }
 
     {
+        std::string       outer;
+        std::string       inner;
+        const std::string output = capture_stderr([&] {
+            gentest::codegen::ScopedLogCapture outer_capture{outer};
+            gentest::codegen::log_err("outer {}\n", 1);
+            {
+                gentest::codegen::ScopedLogCapture inner_capture{inner};
+                gentest::codegen::log_err_raw("inner\n");
+            }
+            gentest::codegen::log_err_raw("outer 2\n");
+        });
+        t.expect(output.empty(), "scoped logging capture suppresses stderr");
+        t.expect(outer == "outer 1\nouter 2\n", "nested logging capture restores the outer sink");
+        t.expect(inner == "inner\n", "nested logging capture receives its own payload");
+    }
+
+    {
         const std::string output = capture_stderr([&] { gentest::codegen::log_err("{}\n", ThrowingFormatValue{}); });
         t.expect(output == "formatted\n", "custom formatter success path");
 

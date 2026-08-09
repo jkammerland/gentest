@@ -242,6 +242,85 @@ endfunction()
 _run_quiet_warning(miss)
 _run_quiet_warning(hit)
 
+# ClangTool runs every compilation-database command registered for a source.
+# Cache entries are deliberately bypassed for that uncommon shape until every
+# command participates in the key and can be replayed independently.
+set(_multi_command_source "${_work_dir}/multi_command_cases.cpp")
+gentest_fixture_write_file("${_multi_command_source}" [=[
+#if MULTI_COMMAND_VALUE == 1
+[[using gentest: test("cache/multi_one")]] void cache_multi_one() {}
+#elif MULTI_COMMAND_VALUE == 2
+[[using gentest: test("cache/multi_two")]] void cache_multi_two() {}
+#endif
+]=])
+set(_multi_command_common "${_clang_norm}")
+if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+  list(APPEND _multi_command_common "${TARGET_ARG}")
+endif()
+gentest_normalize_std_flag_for_compiler(_multi_command_std "${_clang_norm}" "${CODEGEN_STD}")
+list(APPEND _multi_command_common "${_multi_command_std}" "-I${_work_dir_norm}" "-c" "${_multi_command_source}")
+set(_multi_command_zero ${_multi_command_common})
+list(INSERT _multi_command_zero 2 "-DMULTI_COMMAND_VALUE=0")
+set(_multi_command_one ${_multi_command_common})
+list(INSERT _multi_command_one 2 "-DMULTI_COMMAND_VALUE=1")
+gentest_fixture_make_compdb_entry(_multi_command_zero_entry DIRECTORY "${_work_dir_norm}" FILE "${_multi_command_source}"
+  ARGUMENTS ${_multi_command_zero})
+gentest_fixture_make_compdb_entry(_multi_command_one_entry DIRECTORY "${_work_dir_norm}" FILE "${_multi_command_source}"
+  ARGUMENTS ${_multi_command_one})
+gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_multi_command_zero_entry}" "${_multi_command_one_entry}")
+_run("${_multi_command_source}" multi_command_one bypass)
+
+set(_multi_command_two ${_multi_command_common})
+list(INSERT _multi_command_two 2 "-DMULTI_COMMAND_VALUE=2")
+gentest_fixture_make_compdb_entry(_multi_command_two_entry DIRECTORY "${_work_dir_norm}" FILE "${_multi_command_source}"
+  ARGUMENTS ${_multi_command_two})
+gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_multi_command_zero_entry}" "${_multi_command_two_entry}")
+_run("${_multi_command_source}" multi_command_two bypass)
+file(READ "${_work_dir}/generated/multi_command_two/cases.gentest.h" _multi_command_header)
+string(FIND "${_multi_command_header}" "cache/multi_two" _multi_two_pos)
+string(FIND "${_multi_command_header}" "cache/multi_one" _multi_one_pos)
+if(_multi_two_pos EQUAL -1 OR NOT _multi_one_pos EQUAL -1)
+  message(FATAL_ERROR "A later compilation-database command change did not reach a fresh parse.\n${_multi_command_header}")
+endif()
+
+# Gentest's own nonfatal diagnostics are captured with Clang diagnostics so a
+# cache hit reports exactly the warning emitted by a cold parse.
+set(_gentest_diag_source "${_work_dir}/gentest_diag_cases.cpp")
+gentest_fixture_write_file("${_gentest_diag_source}" [=[
+[[using foreign: test("ignored")]] void cache_foreign_attribute() {}
+[[using gentest: test("cache/gentest_diagnostic")]] void cache_gentest_diagnostic() {}
+]=])
+_write_compdb("${_gentest_diag_source}")
+function(_run_gentest_diagnostic label expected_cache)
+  set(_output_dir "${_work_dir}/generated/${label}")
+  file(MAKE_DIRECTORY "${_output_dir}")
+  execute_process(
+    COMMAND "${PROG}"
+      --jobs=1
+      --parse-cache-dir "${_cache_dir}"
+      --timing-json "${_output_dir}/timing.json"
+      --tu-out-dir "${_output_dir}"
+      --tu-header-output "${_output_dir}/cases.gentest.h"
+      --compdb "${_work_dir}"
+      "${_gentest_diag_source}"
+    RESULT_VARIABLE _rc
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err)
+  if(NOT _rc EQUAL 0)
+    message(FATAL_ERROR "Gentest diagnostic cache invocation failed.\n${_out}\n${_err}")
+  endif()
+  file(READ "${_output_dir}/timing.json" _timing_text)
+  string(REGEX MATCH "\"cache\"[ \t]*:[ \t]*\"${expected_cache}\"" _cache_match "${_timing_text}")
+  string(REGEX MATCHALL "unsupported attribute namespace" _diagnostic_matches "${_err}")
+  list(LENGTH _diagnostic_matches _diagnostic_count)
+  if("${_cache_match}" STREQUAL "" OR NOT _diagnostic_count EQUAL 1)
+    message(FATAL_ERROR
+      "Expected one Gentest diagnostic with cache=${expected_cache}; got ${_diagnostic_count}.\n${_timing_text}\n${_err}")
+  endif()
+endfunction()
+_run_gentest_diagnostic(gentest_diag_cold miss)
+_run_gentest_diagnostic(gentest_diag_hit hit)
+
 # Default driver config files are expanded before the cc1 command is keyed.
 # Point the driver's default config search at a temporary system directory;
 # this avoids depending on the host's installed configuration path.
