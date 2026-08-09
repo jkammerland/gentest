@@ -46,8 +46,10 @@ The stable rule is:
 
 ### Bazel / Bzlmod
 
-Use Bazel when you want a source-package integration and are comfortable
-threading the host Clang toolchain into Bazel actions.
+Use Bazel when you want a source-package integration and can register an
+exec-platform `gentest_codegen_toolchain` with declared packaged Gentest and
+Clang executable labels. The target C++ toolchain remains independent; see the
+[Bazel exec-toolchain contract](bazel.md#exec-toolchain-contract).
 
 Minimal files:
 
