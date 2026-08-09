@@ -100,6 +100,27 @@ class PathClassificationTests(unittest.TestCase):
 
 
 class EventTests(unittest.TestCase):
+    def test_required_workflows_run_for_stacked_pull_requests(self) -> None:
+        stacked_pr_workflows = (
+            ROOT / ".github" / "workflows" / "cmake.yml",
+            ROOT / ".github" / "workflows" / "buildsystems_linux.yml",
+            ROOT / ".github" / "workflows" / "lint.yml",
+        )
+        for workflow in stacked_pr_workflows:
+            with self.subTest(workflow=workflow.name):
+                contents = workflow.read_text(encoding="utf-8")
+                self.assertIn("  pull_request:\n  workflow_dispatch:\n", contents)
+
+        master_only_workflows = (
+            ROOT / ".github" / "workflows" / "coverage.yml",
+            ROOT / ".github" / "workflows" / "cross_qemu.yml",
+            ROOT / ".github" / "workflows" / "measured_reports.yml",
+        )
+        for workflow in master_only_workflows:
+            with self.subTest(workflow=workflow.name):
+                contents = workflow.read_text(encoding="utf-8")
+                self.assertIn("  pull_request:\n    branches: [ master ]\n", contents)
+
     def test_push_to_master_and_dispatch_enable_every_lane(self) -> None:
         docs = ["docs/index.md"]
         self.assertEqual(
