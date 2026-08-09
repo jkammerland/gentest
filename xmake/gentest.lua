@@ -1341,6 +1341,32 @@ local function value_identity(value)
     return "[" .. table.concat(values, "\31") .. "]"
 end
 
+local codegen_environment_identity_names = {
+    "GENTEST_CODEGEN_RESOURCE_DIR",
+    "GENTEST_CODEGEN_SCAN_DEPS_MODE",
+    "GENTEST_CODEGEN_PARSE_CACHE",
+    "GENTEST_CODEGEN_PARSE_CACHE_DIR",
+    "GENTEST_CODEGEN_PARSE_CACHE_SALT",
+    "GENTEST_CODEGEN_PCM_CACHE",
+    "GENTEST_CODEGEN_PCM_CACHE_DIR",
+    "GENTEST_CODEGEN_PCM_CACHE_SALT",
+    "CPATH",
+    "C_INCLUDE_PATH",
+    "CPLUS_INCLUDE_PATH",
+    "OBJC_INCLUDE_PATH",
+    "OBJCPLUS_INCLUDE_PATH",
+    "INCLUDE",
+    "SDKROOT",
+}
+
+local function codegen_environment_identity()
+    local values = {}
+    for _, name in ipairs(codegen_environment_identity_names) do
+        table.insert(values, name .. "=" .. tostring(os.getenv(name) or ""))
+    end
+    return table.concat(values, "\31")
+end
+
 local function target_codegen_identity(target, config, codegen, compdb_dir, host_clang, scan_deps)
     local cxx_program, cxx_name = target:tool("cxx")
     local target_values = {
@@ -1356,9 +1382,7 @@ local function target_codegen_identity(target, config, codegen, compdb_dir, host
         scan_deps or "",
         resolved_parse_cache_dir() or "",
         tostring(configured_codegen_settings()["parse_cache"] or ""),
-        tostring(os.getenv("GENTEST_CODEGEN_PARSE_CACHE") or ""),
-        tostring(os.getenv("GENTEST_CODEGEN_PARSE_CACHE_DIR") or ""),
-        tostring(os.getenv("GENTEST_CODEGEN_PARSE_CACHE_READONLY") or ""),
+        codegen_environment_identity(),
         value_identity(config.inputs),
         value_identity(config.defines),
         value_identity(config.clang_args),
@@ -1447,6 +1471,7 @@ local function codegen_static_dependencies(target, config, codegen, compdb_dir, 
     append_path_unique(files, seen, scan_deps)
     append_path_unique(files, seen, path.join(helper_script_dir(), "gentest.lua"))
     append_path_unique(files, seen, path.join(helper_script_dir(), "scripts", "update_codegen_dep_cache.lua"))
+    append_path_unique(files, seen, path.join(helper_script_dir(), "scripts", "codegen_dep_cache_common.lua"))
     local cxx_program = target:tool("cxx")
     append_path_unique(files, seen, cxx_program)
     if compdb_dir and compdb_dir ~= "" then

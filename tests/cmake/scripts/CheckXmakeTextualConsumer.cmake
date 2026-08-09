@@ -5,6 +5,8 @@ if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
   message(FATAL_ERROR "CheckXmakeTextualConsumer.cmake: PROG not set")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
+
 set(_codegen "${PROG}")
 if(NOT IS_ABSOLUTE "${_codegen}")
   get_filename_component(_codegen "${_codegen}" REALPATH BASE_DIR "${CMAKE_BINARY_DIR}")
@@ -58,6 +60,59 @@ endif()
 set(_gentest_xmake_root "${CMAKE_CURRENT_BINARY_DIR}")
 if(DEFINED BUILD_ROOT AND NOT "${BUILD_ROOT}" STREQUAL "")
   set(_gentest_xmake_root "${BUILD_ROOT}")
+endif()
+
+set(_dep_cache_unit_dir "${_gentest_xmake_root}/xmake_dep_cache_unit")
+file(REMOVE_RECURSE "${_dep_cache_unit_dir}")
+execute_process(
+  COMMAND "${_xmake}" lua "${SOURCE_DIR}/tests/xmake/check_codegen_dep_cache.lua"
+          parser "${SOURCE_DIR}/xmake/scripts/update_codegen_dep_cache.lua" "${_dep_cache_unit_dir}/parser"
+  RESULT_VARIABLE _dep_parser_rc
+  OUTPUT_VARIABLE _dep_parser_out
+  ERROR_VARIABLE _dep_parser_err)
+if(NOT _dep_parser_rc EQUAL 0)
+  message(FATAL_ERROR
+    "The Xmake codegen depfile parser did not preserve Make escapes/literal backslashes.\n"
+    "stdout:\n${_dep_parser_out}\nstderr:\n${_dep_parser_err}")
+endif()
+
+if(NOT WIN32)
+  find_program(_sh NAMES sh)
+  if(_sh)
+    set(_race_dir "${_dep_cache_unit_dir}/race")
+    set(_race_cache "${_race_dir}/snapshot")
+    file(MAKE_DIRECTORY "${_race_dir}")
+    file(WRITE "${_race_dir}/dependency.hpp" "#pragma once\n")
+    file(WRITE "${_race_dir}/generated.d" "output: dependency.hpp\n")
+    gentest_fixture_join_posix_shell_command(_race_writer_a
+      "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/update_codegen_dep_cache.lua"
+      "${_race_cache}" "${_race_dir}/generated.d" race-identity "${_race_dir}")
+    gentest_fixture_join_posix_shell_command(_race_writer_b
+      "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/update_codegen_dep_cache.lua"
+      "${_race_cache}" "${_race_dir}/generated.d" race-identity "${_race_dir}")
+    execute_process(
+      COMMAND "${_sh}" -c
+        "${_race_writer_a} & p1=$!; ${_race_writer_b} & p2=$!; wait \"$p1\"; a=$?; wait \"$p2\"; b=$?; test \"$a\" -eq 0 && test \"$b\" -eq 0"
+      RESULT_VARIABLE _dep_race_rc
+      OUTPUT_VARIABLE _dep_race_out
+      ERROR_VARIABLE _dep_race_err)
+    if(NOT _dep_race_rc EQUAL 0)
+      message(FATAL_ERROR
+        "Concurrent Xmake dependency-cache writers failed.\n"
+        "stdout:\n${_dep_race_out}\nstderr:\n${_dep_race_err}")
+    endif()
+    execute_process(
+      COMMAND "${_xmake}" lua "${SOURCE_DIR}/tests/xmake/check_codegen_dep_cache.lua"
+              validate "${_race_cache}" race-identity
+      RESULT_VARIABLE _dep_race_validate_rc
+      OUTPUT_VARIABLE _dep_race_validate_out
+      ERROR_VARIABLE _dep_race_validate_err)
+    if(NOT _dep_race_validate_rc EQUAL 0)
+      message(FATAL_ERROR
+        "Concurrent Xmake dependency-cache publication was not atomic.\n"
+        "stdout:\n${_dep_race_validate_out}\nstderr:\n${_dep_race_validate_err}")
+    endif()
+  endif()
 endif()
 
 # The incremental cases edit fixture inputs and Xmake configuration. Keep
@@ -181,6 +236,10 @@ file(REMOVE_RECURSE "${_xmake_global_dir}")
 file(MAKE_DIRECTORY "${_out_dir}/tmp")
 
 set(_xmake_env
+  "--unset=GENTEST_CODEGEN_RESOURCE_DIR"
+  "--unset=GENTEST_CODEGEN_SCAN_DEPS_MODE"
+  "--unset=GENTEST_CODEGEN_PARSE_CACHE"
+  "--unset=GENTEST_CODEGEN_PARSE_CACHE_DIR"
   "GENTEST_CODEGEN=${_codegen}"
   "GENTEST_CODEGEN_HOST_CLANG=${_clang_cxx}"
   "GENTEST_XMAKE_SKIP_MODULE_TARGETS=1"
@@ -365,6 +424,85 @@ foreach(_incremental_marker IN ITEMS "compiling." "linking.")
       "stdout/stderr:\n${_noop_log}")
   endif()
 endforeach()
+
+# Output-affecting ambient codegen settings are part of the sidecar identity.
+# Changing either one must schedule generation once; repeating it must be a
+# true no-op. Keep each setting in the base environment after its probe so
+# later incremental checks do not accidentally switch the identity back.
+set(_scan_mode_env "GENTEST_CODEGEN_SCAN_DEPS_MODE=OFF")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_scan_mode_env}"
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _scan_mode_rc
+  OUTPUT_VARIABLE _scan_mode_out
+  ERROR_VARIABLE _scan_mode_err)
+if(NOT _scan_mode_rc EQUAL 0)
+  message(FATAL_ERROR "xmake build failed after changing GENTEST_CODEGEN_SCAN_DEPS_MODE.\n${_scan_mode_out}\n${_scan_mode_err}")
+endif()
+set(_scan_mode_log "${_scan_mode_out}\n${_scan_mode_err}")
+string(FIND "${_scan_mode_log}" "--source-root" _scan_mode_codegen_pos)
+if(_scan_mode_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Changing GENTEST_CODEGEN_SCAN_DEPS_MODE did not rerun gentest_codegen.\n${_scan_mode_log}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_scan_mode_env}"
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _scan_mode_noop_rc
+  OUTPUT_VARIABLE _scan_mode_noop_out
+  ERROR_VARIABLE _scan_mode_noop_err)
+if(NOT _scan_mode_noop_rc EQUAL 0)
+  message(FATAL_ERROR "xmake no-op failed with stable GENTEST_CODEGEN_SCAN_DEPS_MODE.\n${_scan_mode_noop_out}\n${_scan_mode_noop_err}")
+endif()
+set(_scan_mode_noop_log "${_scan_mode_noop_out}\n${_scan_mode_noop_err}")
+string(FIND "${_scan_mode_noop_log}" "--source-root" _scan_mode_noop_codegen_pos)
+if(NOT _scan_mode_noop_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Stable GENTEST_CODEGEN_SCAN_DEPS_MODE did not produce a no-op build.\n${_scan_mode_noop_log}")
+endif()
+list(APPEND _xmake_env "${_scan_mode_env}")
+
+execute_process(
+  COMMAND "${_clang_cxx}" -print-resource-dir
+  RESULT_VARIABLE _resource_dir_rc
+  OUTPUT_VARIABLE _resource_dir
+  ERROR_VARIABLE _resource_dir_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT _resource_dir_rc EQUAL 0 OR NOT IS_DIRECTORY "${_resource_dir}")
+  message(FATAL_ERROR "Could not resolve Clang's resource directory for the Xmake identity regression.\n${_resource_dir_err}")
+endif()
+set(_resource_dir_env "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_resource_dir_env}"
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _resource_dir_build_rc
+  OUTPUT_VARIABLE _resource_dir_build_out
+  ERROR_VARIABLE _resource_dir_build_err)
+if(NOT _resource_dir_build_rc EQUAL 0)
+  message(FATAL_ERROR "xmake build failed after changing GENTEST_CODEGEN_RESOURCE_DIR.\n${_resource_dir_build_out}\n${_resource_dir_build_err}")
+endif()
+set(_resource_dir_build_log "${_resource_dir_build_out}\n${_resource_dir_build_err}")
+string(FIND "${_resource_dir_build_log}" "--source-root" _resource_dir_codegen_pos)
+if(_resource_dir_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Changing GENTEST_CODEGEN_RESOURCE_DIR did not rerun gentest_codegen.\n${_resource_dir_build_log}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_resource_dir_env}"
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _resource_dir_noop_rc
+  OUTPUT_VARIABLE _resource_dir_noop_out
+  ERROR_VARIABLE _resource_dir_noop_err)
+if(NOT _resource_dir_noop_rc EQUAL 0)
+  message(FATAL_ERROR "xmake no-op failed with stable GENTEST_CODEGEN_RESOURCE_DIR.\n${_resource_dir_noop_out}\n${_resource_dir_noop_err}")
+endif()
+set(_resource_dir_noop_log "${_resource_dir_noop_out}\n${_resource_dir_noop_err}")
+string(FIND "${_resource_dir_noop_log}" "--source-root" _resource_dir_noop_codegen_pos)
+if(NOT _resource_dir_noop_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Stable GENTEST_CODEGEN_RESOURCE_DIR did not produce a no-op build.\n${_resource_dir_noop_log}")
+endif()
+list(APPEND _xmake_env "${_resource_dir_env}")
 
 # An unrelated file must leave the discovered closure untouched.
 file(WRITE "${_project_dir}/tests/consumer/xmake_incremental_unrelated.hpp" "#pragma once\n")
