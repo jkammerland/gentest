@@ -164,6 +164,52 @@ else()
   message(STATUS "Skipping generated-wrapper symlink subcase: ${_symlink_create_err}")
 endif()
 
+# Preserve the opposite spelling direction too: a real generated wrapper
+# including a source through a symlink must keep that source spelling so a
+# nested quoted include resolves beside the symlink rather than its target.
+set(_symlink_input_root "${_work_dir}/symlink-input")
+set(_symlink_input_real "${_symlink_input_root}/real")
+set(_symlink_input_view "${_symlink_input_root}/view")
+set(_symlink_input_generated "${_symlink_input_root}/generated")
+file(MAKE_DIRECTORY "${_symlink_input_real}" "${_symlink_input_view}" "${_symlink_input_generated}")
+set(_symlink_input_real_source "${_symlink_input_real}/cases.cpp")
+set(_symlink_input_source "${_symlink_input_view}/cases.cpp")
+file(WRITE "${_symlink_input_real_source}"
+  "#include \"owner_only.hpp\"\nstatic_assert(gentest_symlink_owner_value == 17);\n")
+file(WRITE "${_symlink_input_view}/owner_only.hpp"
+  "#pragma once\ninline constexpr int gentest_symlink_owner_value = 17;\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E create_symlink "${_symlink_input_real_source}" "${_symlink_input_source}"
+  RESULT_VARIABLE _symlink_input_create_rc
+  ERROR_VARIABLE _symlink_input_create_err)
+if(_symlink_input_create_rc EQUAL 0)
+  set(_symlink_input_wrapper "${_symlink_input_generated}/tu_0000_cases.gentest.cpp")
+  set(_symlink_input_header "${_symlink_input_generated}/tu_0000_cases.gentest.h")
+  gentest_check_run_or_fail(
+    COMMAND "${PROG}"
+      --tu-out-dir "${_symlink_input_generated}"
+      --tu-header-output "${_symlink_input_header}"
+      --textual-wrapper-output "${_symlink_input_wrapper}"
+      "${_symlink_input_source}"
+      --
+      ${_clang_args}
+    STRIP_TRAILING_WHITESPACE)
+  file(RELATIVE_PATH _symlink_input_expected "${_symlink_input_generated}" "${_symlink_input_source}")
+  string(REPLACE "\\" "/" _symlink_input_expected "${_symlink_input_expected}")
+  file(READ "${_symlink_input_wrapper}" _symlink_input_wrapper_text)
+  string(FIND "${_symlink_input_wrapper_text}" "#include \"${_symlink_input_expected}\"" _symlink_input_include_pos)
+  if(_symlink_input_include_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Generated wrapper did not preserve the symlinked owner-source spelling '${_symlink_input_expected}'.\n"
+      "${_symlink_input_wrapper_text}")
+  endif()
+  gentest_check_run_or_fail(
+    COMMAND "${_codegen_host_compiler}" -fsyntax-only "${_symlink_input_wrapper}" ${_clang_args}
+    STRIP_TRAILING_WHITESPACE)
+else()
+  message(STATUS "Skipping symlinked owner-source subcase: ${_symlink_input_create_err}")
+endif()
+
 file(READ "${_manifest}" _manifest_json)
 string(JSON _manifest_schema GET "${_manifest_json}" schema)
 string(JSON _source_count LENGTH "${_manifest_json}" sources)
