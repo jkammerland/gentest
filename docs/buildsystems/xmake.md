@@ -310,10 +310,11 @@ not yet separate non-CMake CI lanes.
   Xmake target public include/module settings are not inferred for codegen.
 - The current package shape is validated through the checked-in fixture-local
   xrepo repository, not a published external xrepo registry entry yet.
-- Codegen writes an exact lookup-guard sidecar in addition to its ordinary
-  depfile. It includes wholly missing `__has_include` candidates as well as
-  earlier shadows for resolved headers, so creating either kind invalidates
-  the Xmake snapshot while unrelated files remain outside the discovered
-  closure. If Clang reports a lookup mechanism that cannot be represented
-  safely, the snapshot is not published and the next build regenerates
-  conservatively.
+- Textual and module codegen write an exact lookup-guard sidecar in addition to
+  the ordinary depfile. It includes wholly missing `__has_include` candidates
+  as well as earlier shadows for resolved headers. Their absent/present state
+  participates in Xmake's native dependency value, so creating either kind
+  invalidates the snapshot once while unrelated files remain outside the
+  discovered closure. If Clang reports a lookup mechanism that cannot be
+  represented safely, the snapshot is not published and the next build
+  regenerates conservatively.

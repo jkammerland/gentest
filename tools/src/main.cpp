@@ -1801,7 +1801,11 @@ class DependencyRecorder final : public clang::PPCallbacks {
                             llvm::StringRef relative_path, const clang::Module *suggested_module, bool,
                             clang::SrcMgr::CharacteristicKind) override {
         if (suggested_module != nullptr) {
-            mark_lookup_guards_incomplete();
+            // Module-backed inclusions are not eligible for textual parse
+            // caching. Their module artifacts are explicit build inputs,
+            // however, so they do not make the independent header lookup
+            // guard sidecar incomplete.
+            mark_uncacheable();
             return;
         }
         if (const auto *identifier = include_token.getIdentifierInfo(); identifier != nullptr && identifier->getName() == "include_next") {
@@ -1813,9 +1817,9 @@ class DependencyRecorder final : public clang::PPCallbacks {
         record_lookup_guards(hash_loc, file_name, is_angled, file, search_path, relative_path);
     }
 
-    void EnteredSubmodule(clang::Module *, clang::SourceLocation, bool) override { mark_lookup_guards_incomplete(); }
+    void EnteredSubmodule(clang::Module *, clang::SourceLocation, bool) override { mark_uncacheable(); }
 
-    void moduleImport(clang::SourceLocation, clang::ModuleIdPath, const clang::Module *) override { mark_lookup_guards_incomplete(); }
+    void moduleImport(clang::SourceLocation, clang::ModuleIdPath, const clang::Module *) override { mark_uncacheable(); }
 
     void HasInclude(clang::SourceLocation loc, llvm::StringRef file_name, bool is_angled, clang::OptionalFileEntryRef file,
                     clang::SrcMgr::CharacteristicKind) override {
