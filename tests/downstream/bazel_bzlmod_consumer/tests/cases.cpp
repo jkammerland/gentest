@@ -1,8 +1,8 @@
+#include "dep_case_value.hpp"
 #include "gentest/attributes.h"
 #include "gentest/bench_util.h"
 #include "gentest/context.h"
 #include "gentest_downstream_mocks.hpp"
-#include "dep_case_value.hpp"
 #include "include_semantics.hpp"
 #include "private_case_value.hpp"
 
