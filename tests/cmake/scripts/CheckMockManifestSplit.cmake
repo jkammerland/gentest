@@ -782,6 +782,41 @@ if(NOT "${_module_aggregate_repeat_timestamp}" STREQUAL "${_module_aggregate_tim
     "'${_module_aggregate_repeat_timestamp}': ${_module_aggregate}")
 endif()
 
+# Updating an existing output exercises the atomic replacement path (not only
+# initial creation and changed-only early return). On Windows this specifically
+# guards the supported ReplaceFileW flag contract.
+execute_process(
+  COMMAND "${PROG}"
+    emit-mocks
+    --mock-manifest-input "${_module_manifest}"
+    --mock-registry "${_module_registry}"
+    --mock-impl "${_module_impl}"
+    --mock-domain-registry-output "${_module_header_domain_registry}"
+    --mock-domain-registry-output "${_module_service_domain_registry}"
+    --mock-domain-impl-output "${_module_header_domain_impl}"
+    --mock-domain-impl-output "${_module_service_domain_impl}"
+    --mock-aggregate-module-output "${_module_aggregate}"
+    --mock-aggregate-module-name mock_manifest_split.updated_aggregate_mocks
+    --depfile "${_module_aggregate_depfile}"
+  RESULT_VARIABLE _module_update_rc
+  OUTPUT_VARIABLE _module_update_out
+  ERROR_VARIABLE _module_update_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _module_update_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Updating an existing named-module manifest output failed.\n"
+    "--- stdout ---\n${_module_update_out}\n--- stderr ---\n${_module_update_err}")
+endif()
+file(READ "${_module_aggregate}" _module_updated_aggregate_text)
+string(FIND
+  "${_module_updated_aggregate_text}"
+  "export module mock_manifest_split.updated_aggregate_mocks;"
+  _module_updated_name_pos)
+if(_module_updated_name_pos EQUAL -1)
+  message(FATAL_ERROR "Changed existing aggregate module output did not contain its updated module name.\n${_module_updated_aggregate_text}")
+endif()
+
 file(READ "${_module_aggregate_depfile}" _module_aggregate_depfile_text)
 get_filename_component(_module_aggregate_depfile_name "${_module_aggregate}" NAME)
 string(FIND "${_module_aggregate_depfile_text}" "${_module_aggregate_depfile_name}" _module_aggregate_depfile_pos)
