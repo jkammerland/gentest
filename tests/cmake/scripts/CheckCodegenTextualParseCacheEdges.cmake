@@ -65,6 +65,19 @@ function(_run source label expected_cache)
   endif()
 endfunction()
 
+function(_run_uncacheable_twice source label)
+  file(GLOB _entries_before "${_cache_dir}/*.json")
+  list(LENGTH _entries_before _entry_count_before)
+  _run("${source}" "${label}_first" bypass ${ARGN})
+  _run("${source}" "${label}_second" bypass ${ARGN})
+  file(GLOB _entries_after "${_cache_dir}/*.json")
+  list(LENGTH _entries_after _entry_count_after)
+  if(NOT _entry_count_after EQUAL _entry_count_before)
+    message(FATAL_ERROR
+      "Uncacheable edge '${label}' persisted a parse-cache entry (${_entry_count_before} -> ${_entry_count_after})")
+  endif()
+endfunction()
+
 # Physical identity participates in a fingerprint even when the header bytes
 # are unchanged: a symlink target or inode/hard-link replacement can change
 # Clang FileEntry / pragma-once behavior.
@@ -123,15 +136,13 @@ gentest_fixture_write_file("${_work_dir}/early/optional_probe.hpp" "#pragma once
 _run("${_probe_source}" probe_shadow miss)
 
 # include_next and __has_include_next do not have a complete generic lookup
-# callback. They deliberately never store a cache result, so a later run is a
-# miss rather than a hit.
+# callback. They deliberately bypass and never store a cache result.
 gentest_fixture_write_file("${_work_dir}/early/next.hpp" "#pragma once\n#include_next <next.hpp>\n")
 gentest_fixture_write_file("${_work_dir}/late/next.hpp" "#pragma once\ninline constexpr int next = 1;\n")
 set(_next_source "${_work_dir}/next_cases.cpp")
 gentest_fixture_write_file("${_next_source}" "#include <next.hpp>\n[[using gentest: test(\"cache/next\")]] void cache_next() {}\n")
 _write_compdb("${_next_source}")
-_run("${_next_source}" next_cold miss)
-_run("${_next_source}" next_again miss)
+_run_uncacheable_twice("${_next_source}" next)
 
 gentest_fixture_write_file("${_work_dir}/early/has_next.hpp" [=[
 #pragma once
@@ -142,8 +153,7 @@ gentest_fixture_write_file("${_work_dir}/early/has_next.hpp" [=[
 set(_has_next_source "${_work_dir}/has_next_cases.cpp")
 gentest_fixture_write_file("${_has_next_source}" "#include <has_next.hpp>\n[[using gentest: test(\"cache/has_next\")]] void cache_has_next() {}\n")
 _write_compdb("${_has_next_source}")
-_run("${_has_next_source}" has_next_cold miss)
-_run("${_has_next_source}" has_next_again miss)
+_run_uncacheable_twice("${_has_next_source}" has_next)
 
 # Absolute forced headers are direct fingerprints; relative forced-input and
 # module-bearing command lines are intentionally marked bypass before lookup.
@@ -172,8 +182,7 @@ constexpr const char *cache_timestamp = __TIMESTAMP__;
 void cache_volatile() {}
 ]=])
 _write_compdb("${_volatile_source}")
-_run("${_volatile_source}" volatile_cold miss)
-_run("${_volatile_source}" volatile_again miss)
+_run_uncacheable_twice("${_volatile_source}" volatile)
 
 # Clang 22 exposes dedicated embed callbacks. Supported older Clang releases
 # do not, so Gentest conservatively scans entered source buffers and bypasses
@@ -193,16 +202,46 @@ inline constexpr bool cache_embed_present = false;
 [[using gentest: test("cache/embed")]] void cache_embed() {}
 ]=])
   _write_compdb("${_embed_source}")
-  _run("${_embed_source}" embed_cold miss)
-  _run("${_embed_source}" embed_again miss)
+  _run_uncacheable_twice("${_embed_source}" embed)
   gentest_fixture_write_file("${_embed_payload}" "b")
-  _run("${_embed_source}" embed_changed miss)
+  _run("${_embed_source}" embed_changed bypass)
 endif()
 
 set(_overlay "${_work_dir}/empty-overlay.yaml")
 gentest_fixture_write_file("${_overlay}" "{ 'version': 0, 'roots': [] }\n")
 _write_compdb("${_forced_source}" "-ivfsoverlay" "${_overlay}")
 _run("${_forced_source}" overlay_bypass bypass)
+
+# Serialized AST merge inputs are outside preprocessing dependency callbacks.
+# Even a valid AST must therefore bypass rather than become a stale cache hit
+# when the serialized input is replaced in place.
+set(_ast_input_source "${_work_dir}/ast_input.cpp")
+set(_ast_input "${_work_dir}/ast_input.ast")
+set(_ast_merge_source "${_work_dir}/ast_merge_cases.cpp")
+gentest_fixture_write_file("${_ast_input_source}" "struct AstMergeInput { int value; };\n")
+gentest_fixture_write_file("${_ast_merge_source}"
+  "[[using gentest: test(\"cache/ast_merge\")]] void cache_ast_merge() {}\n")
+gentest_normalize_std_flag_for_compiler(_ast_std "${_clang_norm}" "${CODEGEN_STD}")
+execute_process(
+  COMMAND "${_clang_norm}" "${_ast_std}" -emit-ast "${_ast_input_source}" -o "${_ast_input}"
+  RESULT_VARIABLE _ast_rc
+  OUTPUT_VARIABLE _ast_out
+  ERROR_VARIABLE _ast_err)
+if(NOT _ast_rc EQUAL 0)
+  message(FATAL_ERROR "Could not create serialized AST cache fixture.\n${_ast_out}\n${_ast_err}")
+endif()
+_write_compdb("${_ast_merge_source}" "-Xclang" "-ast-merge" "-Xclang" "${_ast_input}")
+_run_uncacheable_twice("${_ast_merge_source}" ast_merge)
+gentest_fixture_write_file("${_ast_input_source}" "struct AstMergeInput { long value; };\n")
+execute_process(
+  COMMAND "${_clang_norm}" "${_ast_std}" -emit-ast "${_ast_input_source}" -o "${_ast_input}"
+  RESULT_VARIABLE _ast_replace_rc
+  OUTPUT_VARIABLE _ast_replace_out
+  ERROR_VARIABLE _ast_replace_err)
+if(NOT _ast_replace_rc EQUAL 0)
+  message(FATAL_ERROR "Could not replace serialized AST cache fixture.\n${_ast_replace_out}\n${_ast_replace_err}")
+endif()
+_run("${_ast_merge_source}" ast_merge_replaced bypass)
 
 # quiet-clang affects captured diagnostics and is part of the parse policy.
 # A normal warning cache must neither be accepted nor replayed in quiet mode.
