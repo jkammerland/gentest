@@ -77,7 +77,7 @@ std::optional<BoundedFileIdentity> bounded_file_identity(const fs::path &path, s
     if (!file) {
         return std::nullopt;
     }
-    int file_descriptor = *file;
+    llvm::sys::fs::file_t file_descriptor = *file;
 
     llvm::sys::fs::file_status initial_status;
     if (llvm::sys::fs::status(file_descriptor, initial_status) || !llvm::sys::fs::is_regular_file(initial_status) ||
