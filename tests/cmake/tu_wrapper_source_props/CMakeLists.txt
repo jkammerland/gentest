@@ -1,6 +1,16 @@
 cmake_minimum_required(VERSION 3.31)
 project(gentest_tu_wrapper_source_props LANGUAGES CXX)
 
+# Let the pool regression seed either documented CMake pool source before the
+# helper is included. A `|` separator keeps command-line list values intact.
+if(DEFINED GENTEST_TEST_GLOBAL_JOB_POOLS)
+    string(REPLACE "|" ";" _gentest_test_global_job_pools "${GENTEST_TEST_GLOBAL_JOB_POOLS}")
+    set_property(GLOBAL PROPERTY JOB_POOLS "${_gentest_test_global_job_pools}")
+endif()
+if(DEFINED GENTEST_TEST_CMAKE_JOB_POOLS)
+    string(REPLACE "|" ";" CMAKE_JOB_POOLS "${GENTEST_TEST_CMAKE_JOB_POOLS}")
+endif()
+
 # Include the in-tree helper under test.
 include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/GentestCodegen.cmake")
 

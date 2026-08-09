@@ -16,6 +16,8 @@ Parallelism is controlled by:
 
 - `gentest_codegen --jobs=<N>` (0 = auto)
 - `GENTEST_CODEGEN_JOBS=<N>` (same semantics; convenient for benchmarks/scripts)
+- `GENTEST_CODEGEN_BUILD_POOL=<N>` (Ninja-only cap on concurrent codegen
+  **processes**; `0` disables it)
 
 Precedence:
 
@@ -25,6 +27,25 @@ Precedence:
 Auto mode (`0`) uses `std::thread::hardware_concurrency()` (clamped to the number of wrapper TUs, with a fallback to 1 if the runtime reports 0).
 
 `GENTEST_CODEGEN_JOBS` also accepts `auto` (case-insensitive) as a synonym for `0`.
+
+When CMake invokes codegen, `GENTEST_CODEGEN_JOBS` defaults to **1**. This is
+the per-process thread cap; direct CLI invocations still retain their `0`
+(auto) default. CMake's `GENTEST_CODEGEN_BUILD_POOL` defaults to **0**, so
+process pooling is opt-in and non-Ninja generators retain their existing
+scheduling behavior.
+
+For a Ninja build with both controls enabled, the upper concurrency budget is:
+
+```
+concurrent parse workers <= GENTEST_CODEGEN_BUILD_POOL × GENTEST_CODEGEN_JOBS
+```
+
+For example, `-DGENTEST_CODEGEN_BUILD_POOL=2 -DGENTEST_CODEGEN_JOBS=3` permits
+at most two expensive codegen processes, each with up to three internal parse
+workers (a budget of six). `GENTEST_CODEGEN_JOBS=0` requests each admitted
+process's auto thread count, so choose that combination only deliberately.
+The pool also covers explicit-mock inspection/emission codegen commands; it
+does not constrain lightweight manifest validation commands.
 
 ## When parallelism is used
 
@@ -141,4 +162,5 @@ python3 scripts/bench_compile.py \
 - Internal codegen job parallelism can interact with build-system parallelism:
   - `cmake --build -j X` can run multiple `gentest_codegen` processes in parallel;
   - each process can itself use up to `--jobs` threads.
-  - Use `--jobs` / `GENTEST_CODEGEN_JOBS` to avoid oversubscription on big builds.
+  - Use `--jobs` / `GENTEST_CODEGEN_JOBS`, and optionally the Ninja-only
+    `GENTEST_CODEGEN_BUILD_POOL`, to avoid oversubscription on big builds.

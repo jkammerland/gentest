@@ -7,11 +7,17 @@ protocols. The schema identifiers are part of the contract:
   ([schema](schemas/gentest.artifact_manifest.v1.schema.json))
 - Mock manifest: `gentest.mock_manifest.v1`
   ([schema](schemas/gentest.mock_manifest.v1.schema.json))
+- Timing sidecar: `gentest.codegen.timing.v1`
+  ([schema](schemas/gentest.codegen.timing.v1.schema.json))
 
 Build systems should predeclare concrete outputs, pass those paths to
 `gentest_codegen`, and treat generated manifests as validation/product files.
 They should not parse C++ sources to classify modules, discover mocks, or infer
 registration semantics.
+
+`--timing-json` is a diagnostic sidecar rather than a generated product; see
+[Codegen timing sidecar](codegen_timing.md). It is deliberately excluded from
+artifact manifests and depfiles.
 
 ## Textual Wrapper Registration
 

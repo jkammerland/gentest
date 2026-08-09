@@ -102,6 +102,176 @@ using gentest::codegen::scan::split_scan_statements;
 using gentest::codegen::scan::strip_comments_for_line_scan;
 using gentest::codegen::scan::trim_ascii_copy;
 
+// The timing file is deliberately an observation sidecar: it is never an
+// input to rendering, so enabling it cannot perturb generated artifacts. Its
+// records can originate on the parallel TU worker threads.
+class TimingRecorder {
+  public:
+    using Clock     = std::chrono::steady_clock;
+    using TimePoint = Clock::time_point;
+
+    explicit TimingRecorder(const std::optional<std::filesystem::path> &path) : path_(path) {}
+
+    [[nodiscard]] bool enabled() const { return path_.has_value() && !path_->empty(); }
+
+    void record(std::string name, TimePoint started, std::optional<std::size_t> tu_index = std::nullopt, std::string source = {},
+                std::string path = {}, std::string module = {}) {
+        if (!enabled()) {
+            return;
+        }
+        const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started).count();
+        record_duration(std::move(name), elapsed, tu_index, std::move(source), std::move(path), std::move(module));
+    }
+
+    void record_duration(std::string name, std::int64_t duration_us, std::optional<std::size_t> tu_index = std::nullopt,
+                         std::string source = {}, std::string path = {}, std::string module = {}) {
+        if (!enabled()) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        records_.push_back(Record{
+            .name        = std::move(name),
+            .duration_us = std::max<std::int64_t>(0, duration_us),
+            .tu_index    = tu_index,
+            .source      = std::move(source),
+            .path        = std::move(path),
+            .module      = std::move(module),
+        });
+    }
+
+    [[nodiscard]] bool publish() const {
+        if (!path_.has_value()) {
+            return true;
+        }
+        const auto &output_path = *path_;
+        if (output_path.empty()) {
+            return true;
+        }
+
+        std::vector<Record> records;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            records = records_;
+        }
+        // Parallel parse records do not have a useful wall-clock order. Keep
+        // the JSON layout stable enough for consumers by sorting identity
+        // fields while leaving the measured values untouched.
+        std::ranges::sort(records, [](const Record &lhs, const Record &rhs) {
+            return std::tie(lhs.name, lhs.tu_index, lhs.source, lhs.path, lhs.module) <
+                   std::tie(rhs.name, rhs.tu_index, rhs.source, rhs.path, rhs.module);
+        });
+
+        llvm::json::Array phase_values;
+        phase_values.reserve(records.size());
+        for (const auto &record : records) {
+            llvm::json::Object phase;
+            phase["name"]        = record.name;
+            phase["duration_us"] = record.duration_us;
+            if (record.tu_index.has_value()) {
+                phase["tu_index"] = static_cast<std::int64_t>(*record.tu_index);
+            }
+            if (!record.source.empty()) {
+                phase["source"] = record.source;
+            }
+            if (!record.path.empty()) {
+                phase["path"] = record.path;
+            }
+            if (!record.module.empty()) {
+                phase["module"] = record.module;
+            }
+            phase_values.push_back(std::move(phase));
+        }
+
+        llvm::json::Object report;
+        report["schema"]        = "gentest.codegen.timing.v1";
+        report["duration_unit"] = "microseconds";
+        report["phases"]        = std::move(phase_values);
+        std::string              json;
+        llvm::raw_string_ostream json_stream(json);
+        json_stream << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(report)));
+        json_stream.flush();
+
+        std::error_code ec;
+        const auto      parent = output_path.parent_path();
+        if (!parent.empty()) {
+            std::filesystem::create_directories(parent, ec);
+        }
+        if (ec) {
+            gentest::codegen::log_err("gentest_codegen: failed to create timing JSON directory '{}': {}\n", parent.string(), ec.message());
+            return false;
+        }
+        const auto link_status = std::filesystem::symlink_status(output_path, ec);
+        if (ec && ec != std::make_error_code(std::errc::no_such_file_or_directory)) {
+            gentest::codegen::log_err("gentest_codegen: failed to inspect timing JSON '{}': {}\n", output_path.string(), ec.message());
+            return false;
+        }
+        if (!ec && std::filesystem::exists(link_status)) {
+            const auto output_status = std::filesystem::status(output_path, ec);
+            if (ec || !std::filesystem::is_regular_file(output_status)) {
+                const std::string detail =
+                    std::filesystem::is_directory(link_status) ? "output path is a directory" : "output path is not a regular file";
+                gentest::codegen::log_err("gentest_codegen: failed to publish timing JSON '{}': {}\n", output_path.string(), detail);
+                return false;
+            }
+        }
+        if (!gentest::codegen::write_file_atomic_if_changed(output_path, json)) {
+            gentest::codegen::log_err("gentest_codegen: failed to publish timing JSON '{}'\n", output_path.string());
+            return false;
+        }
+        return true;
+    }
+
+  private:
+    struct Record {
+        std::string                name;
+        std::int64_t               duration_us = 0;
+        std::optional<std::size_t> tu_index;
+        std::string                source;
+        std::string                path;
+        std::string                module;
+    };
+
+    std::optional<std::filesystem::path> path_;
+    mutable std::mutex                   mutex_;
+    std::vector<Record>                  records_;
+};
+
+std::int64_t duration_excluding_module_mock_renders(TimingRecorder::TimePoint started, TimingRecorder::TimePoint finished,
+                                                    const std::vector<gentest::codegen::ModuleMockRenderTiming> &mock_renders) {
+    using TimePoint = TimingRecorder::TimePoint;
+    std::vector<std::pair<TimePoint, TimePoint>> spans;
+    spans.reserve(mock_renders.size() * 2);
+    for (const auto &render : mock_renders) {
+        const auto add_span = [&](TimingRecorder::TimePoint span_started, TimingRecorder::TimePoint span_finished, bool recorded) {
+            if (!recorded) {
+                return;
+            }
+            span_started  = std::max(started, span_started);
+            span_finished = std::min(finished, span_finished);
+            if (span_finished > span_started) {
+                spans.emplace_back(span_started, span_finished);
+            }
+        };
+        add_span(render.api_include_started, render.api_include_finished, render.recorded_api_include);
+        add_span(render.attachment_started, render.attachment_finished, render.recorded_attachments);
+    }
+    std::ranges::sort(spans);
+
+    std::int64_t excluded_us = 0;
+    for (std::size_t idx = 0; idx < spans.size();) {
+        TimePoint  group_finished = spans[idx].second;
+        const auto group_started  = spans[idx].first;
+        ++idx;
+        while (idx < spans.size() && spans[idx].first <= group_finished) {
+            group_finished = std::max(group_finished, spans[idx].second);
+            ++idx;
+        }
+        excluded_us += std::chrono::duration_cast<std::chrono::microseconds>(group_finished - group_started).count();
+    }
+    const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(finished - started).count();
+    return std::max<std::int64_t>(0, total_us - excluded_us);
+}
+
 struct ModuleSourceShape {
     std::optional<std::string> module_name;
     bool                       exported_module_declaration = false;
@@ -2124,6 +2294,26 @@ std::string resolve_program_invocation_path(std::string_view program) {
     return std::string(program);
 }
 
+std::string timing_protected_path_key(const std::filesystem::path &path) {
+    std::string key = normalize_compdb_lookup_path(path.generic_string(), {});
+    std::ranges::transform(key, key.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return key;
+}
+
+void add_timing_protected_path(std::vector<gentest::codegen::TimingJsonProtectedPath> &protected_paths, std::filesystem::path path,
+                               std::string description) {
+    if (path.empty()) {
+        return;
+    }
+    const std::string key = timing_protected_path_key(path);
+    if (std::ranges::any_of(protected_paths, [&key](const gentest::codegen::TimingJsonProtectedPath &existing) {
+            return timing_protected_path_key(existing.path) == key;
+        })) {
+        return;
+    }
+    protected_paths.push_back({.path = std::move(path), .description = std::move(description)});
+}
+
 std::optional<ModuleDependencyScanMode> parse_module_dependency_scan_mode(std::string_view raw_value) {
     const std::string value = gentest::codegen::scan::to_lower_ascii_copy(gentest::codegen::scan::trim_ascii_view(raw_value));
     if (value.empty()) {
@@ -2415,8 +2605,10 @@ std::vector<std::string> normalize_module_file_args(std::vector<std::string> arg
     return normalized_args;
 }
 
-std::optional<ScanDepsInfoBySource> run_clang_scan_deps(std::span<const ScanDepsPreparedCommand> prepared_commands,
-                                                        std::string_view explicit_scan_deps_path, std::string &error_message) {
+std::optional<ScanDepsInfoBySource>
+run_clang_scan_deps(std::span<const ScanDepsPreparedCommand> prepared_commands, std::string_view explicit_scan_deps_path,
+                    std::string                                            &error_message,
+                    std::vector<gentest::codegen::TimingJsonProtectedPath> *resolved_timing_protected_paths = nullptr) {
     error_message.clear();
     if (prepared_commands.empty()) {
         return ScanDepsInfoBySource{};
@@ -2428,6 +2620,9 @@ std::optional<ScanDepsInfoBySource> run_clang_scan_deps(std::span<const ScanDeps
     if (scan_deps_executable.empty()) {
         error_message = fmt::format("unable to locate clang-scan-deps for compiler '{}'", compiler_path);
         return std::nullopt;
+    }
+    if (resolved_timing_protected_paths != nullptr) {
+        add_timing_protected_path(*resolved_timing_protected_paths, scan_deps_executable, "resolved clang-scan-deps executable");
     }
 
     llvm::json::Array compdb_entries;
@@ -2967,7 +3162,8 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
 }
 
 bool execute_module_precompile(const clang::tooling::CommandLineArguments &command_line, std::string_view module_name,
-                               std::string_view source_file, const std::filesystem::path &pcm_path, std::string_view working_directory) {
+                               std::string_view source_file, const std::filesystem::path &pcm_path, std::string_view working_directory,
+                               const CollectorOptions &timing_options) {
     if (command_line.empty()) {
         gentest::codegen::log_err("gentest_codegen: failed to precompile '{}' from '{}': empty compiler command\n", module_name,
                                   source_file);
@@ -3023,7 +3219,27 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
     }
 
     const std::filesystem::path temp_pcm_path = std::filesystem::path{pcm_path.string() + ".tmp"};
-    std::error_code             remove_ec;
+    const std::filesystem::path launch_cwd  = working_directory.empty() ? saved_cwd : std::filesystem::path{std::string(working_directory)};
+    const std::string           source_stem = std::filesystem::path{std::string(source_file)}.stem().string();
+    std::vector<gentest::codegen::TimingJsonProtectedPath> precompile_timing_protected_paths;
+    precompile_timing_protected_paths.reserve(5);
+    add_timing_protected_path(precompile_timing_protected_paths, resolved_path, "module precompile compiler executable");
+    add_timing_protected_path(precompile_timing_protected_paths, pcm_path, "module precompile PCM output");
+    add_timing_protected_path(precompile_timing_protected_paths, temp_pcm_path, "module precompile temporary PCM output");
+    if (!source_stem.empty()) {
+        add_timing_protected_path(precompile_timing_protected_paths, launch_cwd / (source_stem + ".pcm"),
+                                  "module precompile fallback PCM output");
+        add_timing_protected_path(precompile_timing_protected_paths, launch_cwd / (source_stem + ".ifc"),
+                                  "module precompile fallback IFC output");
+    }
+    std::string precompile_timing_collision_error;
+    if (!gentest::codegen::validate_timing_json_dependency_collision(timing_options, {}, precompile_timing_protected_paths,
+                                                                     precompile_timing_collision_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", precompile_timing_collision_error);
+        return false;
+    }
+
+    std::error_code remove_ec;
     std::filesystem::remove(pcm_path, remove_ec);
     remove_ec.clear();
     std::filesystem::remove(temp_pcm_path, remove_ec);
@@ -3039,8 +3255,6 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
     for (const auto &arg : launch_args) {
         llvm_args.emplace_back(arg);
     }
-
-    const std::filesystem::path launch_cwd = working_directory.empty() ? saved_cwd : std::filesystem::path{std::string(working_directory)};
 
     struct AlternatePcmCandidateState {
         std::filesystem::path           path;
@@ -3068,7 +3282,6 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
         return state;
     };
     std::vector<AlternatePcmCandidateState> alternate_pcm_candidates;
-    const std::string                       source_stem = std::filesystem::path{std::string(source_file)}.stem().string();
     if (!source_stem.empty()) {
         alternate_pcm_candidates.reserve(2);
         alternate_pcm_candidates.push_back(capture_candidate_state(launch_cwd / (source_stem + ".pcm")));
@@ -3620,6 +3833,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> depfile_option{"depfile", llvm::cl::desc("Path to the generated depfile"), llvm::cl::init(""),
                                                      llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string> timing_json_option{
+        "timing-json", llvm::cl::desc("Write a changed-only JSON timing sidecar after successful code generation"), llvm::cl::init(""),
+        llvm::cl::cat(category)};
     static llvm::cl::opt<bool> check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"), llvm::cl::init(false),
                                             llvm::cl::cat(category)};
     static llvm::cl::opt<bool> inspect_source_option{"inspect-source", llvm::cl::desc("Inspect one source and print source-shape facts"),
@@ -3774,6 +3990,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     if (!depfile_option.getValue().empty()) {
         opts.depfile_path = std::filesystem::path{depfile_option.getValue()};
     }
+    if (!timing_json_option.getValue().empty()) {
+        opts.timing_json_path = std::filesystem::path{timing_json_option.getValue()};
+    }
     if (!compdb_option.getValue().empty()) {
         opts.compilation_database = std::filesystem::path{compdb_option.getValue()};
     }
@@ -3875,6 +4094,7 @@ void diagnose_missing_mock_phase_manifest(MockPhaseCommand mock_phase, const Col
 } // namespace
 
 int main(int argc, const char **argv) {
+    const auto     startup_started = TimingRecorder::Clock::now();
     llvm::InitLLVM llvm_init(argc, argv);
 
     if (argc >= 2 && argv[1] != nullptr && std::string_view{argv[1]} == "validate-artifact-manifest") {
@@ -3883,6 +4103,33 @@ int main(int argc, const char **argv) {
 
     const auto  parsed_arguments = parse_arguments(argc, argv);
     const auto &options          = parsed_arguments.options;
+    TimingRecorder timing{options.timing_json_path};
+    timing.record("startup", startup_started);
+    const auto                                             finish_success = [&timing]() -> int { return timing.publish() ? 0 : 1; };
+    std::vector<gentest::codegen::TimingJsonProtectedPath> immediate_timing_protected_paths;
+    if (argv[0] != nullptr) {
+        if (const std::string resolved_codegen_executable = resolve_program_invocation_path(argv[0]);
+            !resolved_codegen_executable.empty()) {
+            add_timing_protected_path(immediate_timing_protected_paths, resolved_codegen_executable, "gentest_codegen executable");
+        }
+    }
+    if (parsed_arguments.explicit_host_clang_path.has_value() && !parsed_arguments.explicit_host_clang_path->empty()) {
+        add_timing_protected_path(immediate_timing_protected_paths, *parsed_arguments.explicit_host_clang_path, "resolved host compiler");
+    }
+    if (timing.enabled() && options.clang_scan_deps_executable.has_value() && !options.clang_scan_deps_executable->empty()) {
+        const std::string compiler_for_scan_deps = parsed_arguments.explicit_host_clang_path.value_or(std::string{"clang++"});
+        const std::string resolved_scan_deps =
+            resolve_clang_scan_deps_executable(options.clang_scan_deps_executable->string(), compiler_for_scan_deps);
+        if (!resolved_scan_deps.empty()) {
+            add_timing_protected_path(immediate_timing_protected_paths, resolved_scan_deps, "resolved clang-scan-deps executable");
+        }
+    }
+    std::string immediate_timing_collision_error;
+    if (!gentest::codegen::validate_timing_json_dependency_collision(options, {}, immediate_timing_protected_paths,
+                                                                     immediate_timing_collision_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", immediate_timing_collision_error);
+        return 1;
+    }
     if (parsed_arguments.invalid_arguments) {
         return 1;
     }
@@ -3917,13 +4164,30 @@ int main(int argc, const char **argv) {
             return 1;
         }
 
+        std::string generated_artifact_error;
+        if (!gentest::codegen::validate_generated_artifact_outputs(options, generated_artifact_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", generated_artifact_error);
+            return 1;
+        }
+
+        std::vector<gentest::codegen::TimingJsonProtectedPath> inspect_timing_protected_paths;
+        for (const auto &include_dir : parsed_arguments.inspect_include_dirs) {
+            add_timing_protected_path(inspect_timing_protected_paths, include_dir, "inspect include directory");
+        }
+        std::string inspect_timing_collision_error;
+        if (!gentest::codegen::validate_timing_json_dependency_collision(options, {}, inspect_timing_protected_paths,
+                                                                         inspect_timing_collision_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", inspect_timing_collision_error);
+            return 1;
+        }
+
         const auto inspection = gentest::codegen::inspect_source(source_path, parsed_arguments.inspect_include_dirs, options.clang_args);
         llvm::outs() << "module_name=";
         if (inspection.module_name.has_value()) {
             llvm::outs() << *inspection.module_name;
         }
         llvm::outs() << "\nimports_gentest_mock=" << (inspection.imports_gentest_mock ? "1" : "0") << "\n";
-        return 0;
+        return finish_success();
     }
 
     if (!validate_mock_phase_command(parsed_arguments.mock_phase, options)) {
@@ -3992,27 +4256,32 @@ int main(int argc, const char **argv) {
             return 1;
         }
         if (options.check_only) {
-            return 0;
+            return finish_success();
         }
         if (!emit_options.mock_aggregate_module_path.empty() && !has_named_module_mock(manifest.mocks)) {
             gentest::codegen::log_err("gentest_codegen: mock aggregate module '{}' has no named-module mocks to re-export\n",
                                       emit_options.mock_aggregate_module_name);
             return 1;
         }
+        const auto mock_started = TimingRecorder::Clock::now();
         if (!write_mock_aggregate_module(emit_options, emit_options.mock_output_domain_modules)) {
             return 1;
         }
-        const std::vector<TestCaseInfo>    empty_cases;
-        const std::vector<FixtureDeclInfo> empty_fixtures;
-        const int                          emit_status = gentest::codegen::emit(emit_options, empty_cases, empty_fixtures, manifest.mocks);
-        if (emit_status != 0) {
-            return emit_status;
+        timing.record("mock", mock_started);
+        const auto mock_emit_started = TimingRecorder::Clock::now();
+        const int  mock_emit_status  = gentest::codegen::emit_mock_outputs(emit_options, manifest.mocks);
+        if (mock_emit_status != 0) {
+            return mock_emit_status;
         }
+        timing.record("mock", mock_emit_started);
         std::vector<std::string> depfile_dependencies{options.mock_manifest_input_path.generic_string()};
+        const auto               depfile_started = TimingRecorder::Clock::now();
         if (!write_depfile(emit_options, depfile_dependencies)) {
             return 1;
         }
-        return 0;
+        timing.record("depfile", depfile_started, std::nullopt, {},
+                      emit_options.depfile_path.has_value() ? emit_options.depfile_path->generic_string() : std::string{});
+        return finish_success();
     }
 
     if (options.sources.empty()) {
@@ -4135,7 +4404,12 @@ int main(int argc, const char **argv) {
     }
     const std::string explicit_host_clang_path = parsed_arguments.explicit_host_clang_path.value_or(std::string{});
     const auto        default_compiler_path    = resolve_default_compiler_path(explicit_host_clang_path);
-
+    std::vector<gentest::codegen::TimingJsonProtectedPath> timing_protected_paths;
+    if (const std::string resolved_default_compiler_path = resolve_program_invocation_path(default_compiler_path);
+        !resolved_default_compiler_path.empty()) {
+        add_timing_protected_path(timing_protected_paths, resolved_default_compiler_path, "resolved host compiler");
+    }
+    const auto                                           compdb_started = TimingRecorder::Clock::now();
     std::unique_ptr<clang::tooling::CompilationDatabase> database;
     std::string                                          db_error;
     if (options.compilation_database) {
@@ -4170,6 +4444,16 @@ int main(int argc, const char **argv) {
     const bool        need_resource_dir    = !has_resource_dir_arg(extra_args);
     const std::string default_resource_dir = need_resource_dir ? resolve_resource_dir(default_compiler_path) : std::string{};
     const bool        need_default_sysroot = !has_sysroot_arg(extra_args);
+#if defined(__APPLE__)
+    if (timing.enabled() && need_default_sysroot) {
+        const auto sdkroot = get_env_value("SDKROOT");
+        if ((!sdkroot.has_value() || sdkroot->empty())) {
+            if (const auto xcrun_path = llvm::sys::findProgramByName("xcrun"); xcrun_path) {
+                add_timing_protected_path(timing_protected_paths, *xcrun_path, "resolved xcrun executable");
+            }
+        }
+    }
+#endif
     const std::string default_sysroot      = need_default_sysroot ? resolve_default_sysroot() : std::string{};
     std::mutex        resource_dir_cache_mutex;
     std::unordered_map<std::string, std::string> resource_dir_cache;
@@ -4348,6 +4632,8 @@ int main(int argc, const char **argv) {
         synthetic_command.CommandLine.emplace_back(kMissingCompdbSyntheticCommandMarker);
         tool_compile_commands[i].push_back(std::move(synthetic_command));
     }
+    timing.record("compdb", compdb_started, std::nullopt, {},
+                  options.compilation_database.has_value() ? options.compilation_database->generic_string() : std::string{});
 
     struct NamedModuleSourceInfo {
         std::size_t              source_index = 0;
@@ -4382,7 +4668,8 @@ int main(int argc, const char **argv) {
         return true;
     };
 
-    bool        used_scan_deps = false;
+    const auto  scan_deps_started = TimingRecorder::Clock::now();
+    bool        used_scan_deps    = false;
     std::string scan_deps_error;
     if (options.module_dependency_scan_mode != ModuleDependencyScanMode::Off) {
         std::vector<ScanDepsPreparedCommand> prepared_scan_deps_commands;
@@ -4427,9 +4714,10 @@ int main(int argc, const char **argv) {
         }
 
         if (can_run_scan_deps) {
-            if (const auto scan_deps_results = run_clang_scan_deps(
-                    prepared_scan_deps_commands,
-                    options.clang_scan_deps_executable ? options.clang_scan_deps_executable->string() : std::string{}, scan_deps_error);
+            if (const auto scan_deps_results =
+                    run_clang_scan_deps(prepared_scan_deps_commands,
+                                        options.clang_scan_deps_executable ? options.clang_scan_deps_executable->string() : std::string{},
+                                        scan_deps_error, &timing_protected_paths);
                 scan_deps_results.has_value()) {
                 std::vector<NamedModuleSourceInfo>                        scan_deps_named_module_sources;
                 std::unordered_map<std::string, std::size_t>              scan_deps_named_module_index_by_name;
@@ -4585,6 +4873,9 @@ int main(int argc, const char **argv) {
             }
         }
     }
+    timing.record("scan-deps", scan_deps_started, std::nullopt, {},
+                  options.clang_scan_deps_executable.has_value() ? options.clang_scan_deps_executable->generic_string()
+                                                                 : std::string{"auto"});
 
     for (auto &module_source : named_module_sources) {
         module_source.imported_modules = imported_named_modules_by_source[module_source.source_index];
@@ -4735,12 +5026,20 @@ int main(int argc, const char **argv) {
     const bool has_any_named_module_imports =
         std::ranges::any_of(imported_named_modules_by_source, [](const auto &imports) { return !imports.empty(); });
 
+    const auto pcm_started = TimingRecorder::Clock::now();
     if (!named_module_sources.empty() || has_any_named_module_imports) {
         const std::filesystem::path module_cache_dir =
             resolve_codegen_module_cache_dir(options, default_compiler_path, default_resource_dir, default_sysroot);
         for (auto &module_source : named_module_sources) {
             module_source.pcm_path = module_cache_dir / fmt::format("m_{:04d}_{}.pcm", static_cast<unsigned>(module_source.source_index),
                                                                     stable_hash_hex(module_source.module_name));
+            add_timing_protected_path(timing_protected_paths, module_source.pcm_path, "generated named-module PCM");
+        }
+        std::string planned_pcm_timing_collision_error;
+        if (!gentest::codegen::validate_timing_json_dependency_collision(options, {}, timing_protected_paths,
+                                                                         planned_pcm_timing_collision_error)) {
+            gentest::codegen::log_err("gentest_codegen: {}\n", planned_pcm_timing_collision_error);
+            return 1;
         }
 
         struct ModuleResolutionContext {
@@ -4886,7 +5185,7 @@ int main(int argc, const char **argv) {
                                     .command_line      = std::move(adjusted_scan_deps_command),
                                 }},
                                 options.clang_scan_deps_executable ? options.clang_scan_deps_executable->string() : std::string{},
-                                external_scan_deps_error);
+                                external_scan_deps_error, &timing_protected_paths);
                             scan_deps_results.has_value()) {
                             if (const auto scan_deps_it = scan_deps_results->find(normalize_compdb_lookup_path(candidate.string()));
                                 scan_deps_it != scan_deps_results->end()) {
@@ -5103,9 +5402,13 @@ int main(int argc, const char **argv) {
             const auto precompile_command = build_module_precompile_command(
                 adjusted_command, module_source.source_path.string(),
                 source_commands.empty() ? compdb_dir : source_commands.front().Directory, module_source.pcm_path, true);
-            if (!execute_module_precompile(precompile_command, module_source.module_name, module_source.source_path.string(),
-                                           module_source.pcm_path,
-                                           source_commands.empty() ? compdb_dir : source_commands.front().Directory)) {
+            const auto pcm_record_started = TimingRecorder::Clock::now();
+            const bool precompiled        = execute_module_precompile(
+                precompile_command, module_source.module_name, module_source.source_path.string(), module_source.pcm_path,
+                source_commands.empty() ? compdb_dir : source_commands.front().Directory, options);
+            timing.record("pcm", pcm_record_started, std::nullopt, module_source.source_path.generic_string(),
+                          module_source.pcm_path.generic_string(), module_source.module_name);
+            if (!precompiled) {
                 state = ModuleBuildState::Failed;
                 return false;
             }
@@ -5140,6 +5443,19 @@ int main(int argc, const char **argv) {
                 return true;
             }
 
+            const gentest::codegen::TimingJsonProtectedPath external_pcm_path{
+                .path        = module_source->pcm_path,
+                .description = "generated external named-module PCM",
+            };
+            std::string external_pcm_timing_collision_error;
+            if (!gentest::codegen::validate_timing_json_dependency_collision(options, {}, {external_pcm_path},
+                                                                             external_pcm_timing_collision_error)) {
+                gentest::codegen::log_err("gentest_codegen: {}\n", external_pcm_timing_collision_error);
+                state = ModuleBuildState::Failed;
+                return false;
+            }
+            add_timing_protected_path(timing_protected_paths, external_pcm_path.path, external_pcm_path.description);
+
             state = ModuleBuildState::Building;
             std::vector<std::string> module_file_args;
             module_file_args.reserve(module_source->imported_modules.size());
@@ -5161,8 +5477,12 @@ int main(int argc, const char **argv) {
                                             explicit_host_clang_path, module_source->resolution_context.forced_compiler_path);
             const auto precompile_command = build_module_precompile_command(adjusted_command, module_source->source_path.string(),
                                                                             external_working_directory, module_source->pcm_path, true);
-            if (!execute_module_precompile(precompile_command, module_name, module_source->source_path.string(), module_source->pcm_path,
-                                           external_working_directory)) {
+            const auto pcm_record_started = TimingRecorder::Clock::now();
+            const bool precompiled        = execute_module_precompile(precompile_command, module_name, module_source->source_path.string(),
+                                                                      module_source->pcm_path, external_working_directory, options);
+            timing.record("pcm", pcm_record_started, std::nullopt, module_source->source_path.generic_string(),
+                          module_source->pcm_path.generic_string(), std::string{module_name});
+            if (!precompiled) {
                 state = ModuleBuildState::Failed;
                 return false;
             }
@@ -5269,6 +5589,8 @@ int main(int argc, const char **argv) {
         }
     }
 
+    timing.record("pcm", pcm_started);
+
     const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
         const std::string compdb_dir =
             options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
@@ -5327,6 +5649,8 @@ int main(int argc, const char **argv) {
         std::vector<std::string> diag_texts(options.sources.size());
 
         const auto parse_one = [&](std::size_t idx) {
+            const auto parse_started = TimingRecorder::Clock::now();
+            const auto finish_parse  = [&]() { timing.record("parse", parse_started, idx, options.sources[idx]); };
             if (const auto wrapped_source = resolve_wrapped_source_from_codegen_shim(options.sources[idx]); wrapped_source.has_value()) {
                 clang::tooling::CommandLineArguments wrapped_command_line;
                 if (!compile_commands[idx].empty()) {
@@ -5339,6 +5663,7 @@ int main(int argc, const char **argv) {
                         scan_include_search_paths[idx])) {
                     results[idx] = ParseResult{};
                     diag_texts[idx].clear();
+                    finish_parse();
                     return;
                 }
             }
@@ -5427,6 +5752,7 @@ int main(int argc, const char **argv) {
 
             diag_stream.flush();
             diag_texts[idx] = std::move(diag_buffer);
+            finish_parse();
         };
 
         // Run one TU serially to warm up other Clang lazy initialization before
@@ -5466,6 +5792,7 @@ int main(int argc, const char **argv) {
             return 1;
         }
     } else {
+        const auto                                                                   parse_started = TimingRecorder::Clock::now();
         std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> file_commands;
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
             file_commands.emplace(normalize_compdb_lookup_path(options.sources[i]), tool_compile_commands[i]);
@@ -5506,6 +5833,13 @@ int main(int argc, const char **argv) {
                                                 skip_function_bodies};
 
         const int status = tool.run(&action_factory);
+        if (options.sources.size() == 1) {
+            timing.record("parse", parse_started, 0, options.sources.front());
+        } else {
+            // This ClangTool invocation owns all sources at once, so there is
+            // no honest per-TU duration to report outside TU wrapper mode.
+            timing.record("parse", parse_started);
+        }
         if (status != 0) {
             return status;
         }
@@ -5516,6 +5850,7 @@ int main(int argc, const char **argv) {
         depfile_dependencies = std::move(depfile_dependencies_local);
     }
 
+    const auto merge_started = TimingRecorder::Clock::now();
     merge_duplicate_mocks(mocks);
 
     if (!mock_manifest_discovery_only && allow_includes) {
@@ -5529,6 +5864,7 @@ int main(int argc, const char **argv) {
     }
 
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
+    timing.record("merge", merge_started);
 
     if (!options.check_only && options.tu_output_dir.empty() && options.mock_manifest_output_path.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --tu-out-dir is required unless --check is specified\n");
@@ -5626,9 +5962,26 @@ int main(int argc, const char **argv) {
         merge_duplicate_mocks(registration_mocks);
         mocks = std::move(registration_mocks);
     }
-    if (options.check_only) {
-        return 0;
+
+    {
+        std::lock_guard<std::mutex> lock(resource_dir_cache_mutex);
+        for (const auto &[compiler_key, _] : resource_dir_cache) {
+            if (const std::string resolved_compiler = resolve_program_invocation_path(compiler_key); !resolved_compiler.empty()) {
+                add_timing_protected_path(timing_protected_paths, resolved_compiler, "resource-dir probe compiler executable");
+            }
+        }
     }
+
+    std::string timing_dependency_error;
+    if (!gentest::codegen::validate_timing_json_dependency_collision(final_options, depfile_dependencies, timing_protected_paths,
+                                                                     timing_dependency_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", timing_dependency_error);
+        return 1;
+    }
+    if (options.check_only) {
+        return finish_success();
+    }
+    const auto mock_started               = TimingRecorder::Clock::now();
     const auto mock_output_domain_modules = mock_domain_modules_from_context(final_options);
     if (!options.mock_manifest_output_path.empty()) {
         std::string manifest_error;
@@ -5637,10 +5990,14 @@ int main(int argc, const char **argv) {
             return 1;
         }
         if (mock_manifest_discovery_only) {
+            timing.record("mock", mock_started);
+            const auto depfile_started = TimingRecorder::Clock::now();
             if (!write_depfile(final_options, depfile_dependencies)) {
                 return 1;
             }
-            return 0;
+            timing.record("depfile", depfile_started, std::nullopt, {},
+                          final_options.depfile_path.has_value() ? final_options.depfile_path->generic_string() : std::string{});
+            return finish_success();
         }
     }
     if (!final_options.mock_aggregate_module_path.empty() && !has_named_module_mock(mocks)) {
@@ -5651,12 +6008,39 @@ int main(int argc, const char **argv) {
     if (!write_mock_aggregate_module(final_options, mock_output_domain_modules)) {
         return 1;
     }
-    const int emit_status = gentest::codegen::emit(final_options, cases, fixtures, mocks);
+    timing.record("mock", mock_started);
+    const auto                                            emit_started = TimingRecorder::Clock::now();
+    std::vector<gentest::codegen::ModuleMockRenderTiming> module_mock_renders;
+    const int emit_status = gentest::codegen::emit_registration_outputs(final_options, cases, fixtures, mocks,
+                                                                        timing.enabled() ? &module_mock_renders : nullptr);
     if (emit_status != 0) {
         return emit_status;
     }
+    const auto emit_finished = TimingRecorder::Clock::now();
+    timing.record_duration("emit", duration_excluding_module_mock_renders(emit_started, emit_finished, module_mock_renders));
+    for (const auto &mock_render : module_mock_renders) {
+        const auto record_mock_span = [&](TimingRecorder::TimePoint started, TimingRecorder::TimePoint finished, bool recorded) {
+            if (!recorded) {
+                return;
+            }
+            const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finished - started).count();
+            timing.record_duration("mock", duration, std::nullopt, {}, mock_render.registration_output.generic_string(),
+                                   mock_render.module_name);
+        };
+        record_mock_span(mock_render.api_include_started, mock_render.api_include_finished, mock_render.recorded_api_include);
+        record_mock_span(mock_render.attachment_started, mock_render.attachment_finished, mock_render.recorded_attachments);
+    }
+    const auto mock_emit_started = TimingRecorder::Clock::now();
+    const int  mock_emit_status  = gentest::codegen::emit_mock_outputs(final_options, mocks);
+    if (mock_emit_status != 0) {
+        return mock_emit_status;
+    }
+    timing.record("mock", mock_emit_started);
+    const auto depfile_started = TimingRecorder::Clock::now();
     if (!write_depfile(final_options, depfile_dependencies)) {
         return 1;
     }
-    return 0;
+    timing.record("depfile", depfile_started, std::nullopt, {},
+                  final_options.depfile_path.has_value() ? final_options.depfile_path->generic_string() : std::string{});
+    return finish_success();
 }
