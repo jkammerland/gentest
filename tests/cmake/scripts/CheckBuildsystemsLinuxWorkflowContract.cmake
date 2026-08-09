@@ -200,7 +200,9 @@ endforeach()
 foreach(_expected IN ITEMS
     "function gentest_add_mocks(opts)"
     "function gentest_attach_codegen(opts)"
-    "run_command(batchcmds, codegen, args)"
+    "batchcmds:vrunv(os.programfile(), runner_args)"
+    "GENTEST_STRICT_FIXTURE"
+    "GENTEST_NO_INCLUDE_SOURCES"
     "module_public_output_rel"
     "module_registration_output_rel"
     "\"--module-registration-output\""
