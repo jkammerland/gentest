@@ -27,6 +27,7 @@
 #include <clang/Driver/Compilation.h>
 #include <clang/Driver/Driver.h>
 #include <clang/Frontend/CompilerInstance.h>
+#include <clang/Frontend/FrontendActions.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Lex/PPCallbacks.h>
 #include <clang/Lex/Preprocessor.h>
@@ -3843,6 +3844,118 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
     return command;
 }
 
+struct ModuleMacroProbeResult {
+    bool volatile_time             = false;
+    bool non_primary_file_spelling = false;
+};
+
+class ModuleMacroRecorder final : public clang::PPCallbacks {
+  public:
+    ModuleMacroRecorder(clang::SourceManager &source_manager, ModuleMacroProbeResult &result)
+        : source_manager_(source_manager), result_(result) {}
+
+    void MacroExpands(const clang::Token &macro_name_token, const clang::MacroDefinition &, clang::SourceRange range,
+                      const clang::MacroArgs *) override {
+        const auto *identifier = macro_name_token.getIdentifierInfo();
+        if (identifier == nullptr) {
+            return;
+        }
+        const auto name = identifier->getName();
+        if (name == "__DATE__" || name == "__TIME__" || name == "__TIMESTAMP__") {
+            result_.volatile_time = true;
+        } else if (name == "__FILE__") {
+            const auto location = source_manager_.getExpansionLoc(range.getBegin());
+            if (!source_manager_.isWrittenInMainFile(location)) {
+                result_.non_primary_file_spelling = true;
+            }
+        }
+    }
+
+  private:
+    clang::SourceManager   &source_manager_;
+    ModuleMacroProbeResult &result_;
+};
+
+class ModuleMacroProbeAction final : public clang::PreprocessOnlyAction {
+  public:
+    explicit ModuleMacroProbeAction(ModuleMacroProbeResult &result) : result_(result) {}
+
+  protected:
+    bool BeginSourceFileAction(clang::CompilerInstance &compiler) override {
+        if (!clang::PreprocessOnlyAction::BeginSourceFileAction(compiler)) {
+            return false;
+        }
+        compiler.getPreprocessor().addPPCallbacks(std::make_unique<ModuleMacroRecorder>(compiler.getSourceManager(), result_));
+        return true;
+    }
+
+  private:
+    ModuleMacroProbeResult &result_;
+};
+
+class ModuleMacroProbeFactory final : public clang::tooling::FrontendActionFactory {
+  public:
+    explicit ModuleMacroProbeFactory(ModuleMacroProbeResult &result) : result_(result) {}
+
+    std::unique_ptr<clang::FrontendAction> create() override { return std::make_unique<ModuleMacroProbeAction>(result_); }
+
+  private:
+    ModuleMacroProbeResult &result_;
+};
+
+std::optional<ModuleMacroProbeResult> probe_module_macros(const clang::tooling::CommandLineArguments &precompile_command,
+                                                          std::string_view source_file, std::string_view working_directory) {
+    if (precompile_command.empty() || source_file.empty()) {
+        return std::nullopt;
+    }
+
+    clang::tooling::CommandLineArguments probe_command;
+    probe_command.reserve(precompile_command.size() + 1);
+    bool skip_next = false;
+    for (const auto &arg : precompile_command) {
+        if (skip_next) {
+            skip_next = false;
+            continue;
+        }
+        if (arg == "-o" || arg == "-fmodule-output") {
+            skip_next = true;
+            continue;
+        }
+        if (arg == "--precompile" || llvm::StringRef{arg}.starts_with("-fmodule-output=")) {
+            continue;
+        }
+        probe_command.push_back(arg);
+    }
+    probe_command.emplace_back("-fsyntax-only");
+
+    class ProbeCompilationDatabase final : public clang::tooling::CompilationDatabase {
+      public:
+        explicit ProbeCompilationDatabase(clang::tooling::CompileCommand command) : command_(std::move(command)) {}
+
+        std::vector<clang::tooling::CompileCommand> getCompileCommands(llvm::StringRef) const override { return {command_}; }
+        std::vector<std::string>                    getAllFiles() const override { return {command_.Filename}; }
+
+      private:
+        clang::tooling::CompileCommand command_;
+    };
+
+    ProbeCompilationDatabase    database{clang::tooling::CompileCommand{
+        std::string(working_directory),
+        std::string(source_file),
+        std::move(probe_command),
+        std::string{},
+    }};
+    clang::tooling::ClangTool   tool{database, {std::string(source_file)}};
+    clang::IgnoringDiagConsumer ignoring_diagnostics;
+    tool.setDiagnosticConsumer(&ignoring_diagnostics);
+    ModuleMacroProbeResult  result;
+    ModuleMacroProbeFactory factory{result};
+    if (tool.run(&factory) != 0) {
+        return std::nullopt;
+    }
+    return result;
+}
+
 bool execute_module_precompile(const clang::tooling::CommandLineArguments &command_line, std::string_view module_name,
                                std::string_view source_file, const std::filesystem::path &pcm_path, std::string_view working_directory,
                                const CollectorOptions &timing_options) {
@@ -4463,15 +4576,12 @@ std::vector<std::string> module_cache_include_roots(std::span<const std::string>
     return roots;
 }
 
-std::string normalize_module_precompile_command_for_cache(std::span<const std::string> command_line, std::string_view working_directory,
-                                                          std::string_view source_path) {
-    const std::string normalized_source            = normalize_compdb_lookup_path(source_path, working_directory);
+std::string normalize_module_precompile_command_for_cache(std::span<const std::string> command_line, std::string_view working_directory) {
     const std::string normalized_working_directory = normalize_compdb_lookup_path(working_directory, working_directory);
     enum class NextArgument {
         None,
         PcmOutput,
         ModuleOutput,
-        ModuleSource,
     };
     std::string  result;
     NextArgument next_argument  = NextArgument::None;
@@ -4488,15 +4598,10 @@ std::string normalize_module_precompile_command_for_cache(std::span<const std::s
         } else if (next_argument == NextArgument::ModuleOutput) {
             arg           = "$module-output";
             next_argument = NextArgument::None;
-        } else if (next_argument == NextArgument::ModuleSource) {
-            arg           = "$module-source";
-            next_argument = NextArgument::None;
         } else if (arg == "-o") {
             next_argument = NextArgument::PcmOutput;
         } else if (arg == "-fmodule-output") {
             next_argument = NextArgument::ModuleOutput;
-        } else if (arg == "--precompile") {
-            next_argument = NextArgument::ModuleSource;
         } else if (llvm::StringRef{arg}.starts_with("-fmodule-output=")) {
             arg = "-fmodule-output=$module-output";
         } else if (llvm::StringRef{arg}.starts_with("-fmodule-file=")) {
@@ -4514,12 +4619,6 @@ std::string normalize_module_precompile_command_for_cache(std::span<const std::s
             // different path-bearing debug option remains semantic input.
             arg.resize(arg.find('=') + 1);
             arg += "$working-directory";
-        } else if (!arg.starts_with('-') && !arg.starts_with('@') && !normalized_source.empty() &&
-                   normalize_compdb_lookup_path(arg, working_directory) == normalized_source) {
-            // Command-level scan-deps records use the source as a bare cc1
-            // argument. Its separately fingerprinted source context owns the
-            // relocation-safe identity, not the raw build-local spelling.
-            arg = "$module-source";
         }
         result += std::to_string(arg.size());
         result.push_back(':');
@@ -6345,10 +6444,9 @@ int main(int argc, const char **argv) {
                 external_pcm_dependencies.push_back(local_path);
             }
             attempt.context.emplace(gentest::codegen::PcmCacheContext{
-                .module_name = std::string(module_name),
-                .source      = source_path.string(),
-                .normalized_command =
-                    normalize_module_precompile_command_for_cache(precompile_command, working_directory, source_path.string()),
+                .module_name               = std::string(module_name),
+                .source                    = source_path.string(),
+                .normalized_command        = normalize_module_precompile_command_for_cache(precompile_command, working_directory),
                 .working_directory         = std::string(working_directory),
                 .include_roots             = module_cache_include_roots(scan_deps_command),
                 .file_dependencies         = std::vector<std::string>(file_dependencies.begin(), file_dependencies.end()),
@@ -6359,12 +6457,11 @@ int main(int argc, const char **argv) {
                 .resource_dir              = *resource_dir,
                 .sysroot                   = effective_sysroot,
                 .scan_deps_identity        = fmt::format("path={};sha256={};version={}", scan_deps, scan_deps_hash, scan_deps_version),
-                .scan_deps_artifact =
-                    fmt::format("{};cc1={}", scan_deps_artifact,
-                                normalize_module_precompile_command_for_cache(scan_deps_command, working_directory, source_path.string())),
-                .options = fmt::format("{};scan_deps_mode={};module_language=named", pcm_codegen_identity,
-                                       static_cast<int>(options.module_dependency_scan_mode)),
-                .salt    = options.pcm_cache_salt,
+                .scan_deps_artifact        = fmt::format("{};cc1={}", scan_deps_artifact,
+                                                         normalize_module_precompile_command_for_cache(scan_deps_command, working_directory)),
+                .options                   = fmt::format("{};scan_deps_mode={};module_language=named", pcm_codegen_identity,
+                                                         static_cast<int>(options.module_dependency_scan_mode)),
+                .salt                      = options.pcm_cache_salt,
             });
             const auto key = pcm_artifact_cache->prepare(*attempt.context);
             if (!key.has_value()) {
@@ -6387,6 +6484,29 @@ int main(int argc, const char **argv) {
             attempt.state = attempt.hit ? "hit" : "miss";
             return attempt;
         };
+
+        auto store_pcm_if_semantically_stable =
+            [&](PcmCacheAttempt &attempt, const clang::tooling::CommandLineArguments &precompile_command, std::string_view module_name,
+                std::string_view source_file, const std::filesystem::path &pcm_path, std::string_view working_directory) {
+                if (!attempt.context.has_value() || attempt.key.empty()) {
+                    return;
+                }
+                const auto macro_probe = probe_module_macros(precompile_command, source_file, working_directory);
+                if (!macro_probe.has_value() || macro_probe->volatile_time || macro_probe->non_primary_file_spelling) {
+                    if (should_log_scan_deps_decisions()) {
+                        const std::string_view reason =
+                            !macro_probe.has_value() ? "predefined macro semantics could not be verified"
+                                                     : (macro_probe->volatile_time ? "a volatile predefined date/time macro is active"
+                                                                                   : "__FILE__ expanded outside the primary module source");
+                        gentest::codegen::log_err("gentest_codegen: info: PCM cache bypassed for '{}': {}\n", module_name, reason);
+                    }
+                    attempt.state = "bypass";
+                    attempt.context.reset();
+                    attempt.key.clear();
+                    return;
+                }
+                pcm_artifact_cache->store(*attempt.context, pcm_path, attempt.key);
+            };
 
         auto note_external_scan_deps_failure = [&](std::string_view module_name, const std::filesystem::path &candidate,
                                                    std::string_view detail) {
@@ -6753,7 +6873,8 @@ int main(int argc, const char **argv) {
                 precompiled = execute_module_precompile(precompile_command, module_source.module_name, module_source.source_path.string(),
                                                         module_source.pcm_path, working_directory, options);
                 if (precompiled && pcm_cache_attempt.context.has_value() && !pcm_cache_attempt.key.empty()) {
-                    pcm_artifact_cache->store(*pcm_cache_attempt.context, module_source.pcm_path, pcm_cache_attempt.key);
+                    store_pcm_if_semantically_stable(pcm_cache_attempt, precompile_command, module_source.module_name,
+                                                     module_source.source_path.string(), module_source.pcm_path, working_directory);
                 }
             }
             timing.record("pcm", pcm_record_started, std::nullopt, module_source.source_path.generic_string(),
@@ -6856,7 +6977,9 @@ int main(int argc, const char **argv) {
                 precompiled = execute_module_precompile(precompile_command, module_name, module_source->source_path.string(),
                                                         module_source->pcm_path, external_working_directory, options);
                 if (precompiled && pcm_cache_attempt.context.has_value() && !pcm_cache_attempt.key.empty()) {
-                    pcm_artifact_cache->store(*pcm_cache_attempt.context, module_source->pcm_path, pcm_cache_attempt.key);
+                    store_pcm_if_semantically_stable(pcm_cache_attempt, precompile_command, module_name,
+                                                     module_source->source_path.string(), module_source->pcm_path,
+                                                     external_working_directory);
                 }
             }
             timing.record("pcm", pcm_record_started, std::nullopt, module_source->source_path.generic_string(),

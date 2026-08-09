@@ -135,6 +135,66 @@ static_assert(gentest_pcm_strings_match(dot_provider::kBuildRoot, PCM_EXPECTED_B
   endif()
 endfunction()
 
+function(_gentest_expect_provider_pcm_source_spelling timing_path expected_value label)
+  file(READ "${timing_path}" _timing_json)
+  string(JSON _phase_count LENGTH "${_timing_json}" phases)
+  set(_provider_pcm "")
+  foreach(_phase_index RANGE 0 ${_phase_count})
+    if(_phase_index EQUAL _phase_count)
+      break()
+    endif()
+    string(JSON _phase_name GET "${_timing_json}" phases ${_phase_index} name)
+    if(NOT _phase_name STREQUAL "pcm")
+      continue()
+    endif()
+    string(JSON _module ERROR_VARIABLE _module_error GET "${_timing_json}" phases ${_phase_index} module)
+    if(NOT _module_error STREQUAL "NOTFOUND" OR NOT _module STREQUAL "gentest.pcm_cache.alpha.beta.provider")
+      continue()
+    endif()
+    string(JSON _provider_pcm GET "${_timing_json}" phases ${_phase_index} path)
+    break()
+  endforeach()
+  if("${_provider_pcm}" STREQUAL "" OR NOT EXISTS "${_provider_pcm}")
+    message(FATAL_ERROR "${label}: provider PCM was not recorded in '${timing_path}'")
+  endif()
+
+  string(MD5 _verify_id "${timing_path};${expected_value}")
+  set(_verify_source "${_work_dir}/pcm_source_spelling_${_verify_id}.cpp")
+  file(WRITE "${_verify_source}" [=[
+import gentest.pcm_cache.alpha.beta.provider;
+
+constexpr bool gentest_pcm_strings_match(const char* lhs, const char* rhs) {
+  while(*lhs != '\0' && *rhs != '\0') {
+    if(*lhs != *rhs) {
+      return false;
+    }
+    ++lhs;
+    ++rhs;
+  }
+  return *lhs == *rhs;
+}
+
+static_assert(gentest_pcm_strings_match(dot_provider::kSourceSpelling, PCM_EXPECTED_SOURCE_SPELLING));
+]=])
+  execute_process(
+    COMMAND
+      "${_clangxx}"
+      -std=c++20
+      "-fmodule-file=gentest.pcm_cache.alpha.beta.provider=${_provider_pcm}"
+      "-DPCM_EXPECTED_SOURCE_SPELLING=\"${expected_value}\""
+      -fsyntax-only
+      "${_verify_source}"
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _verify_rc
+    OUTPUT_VARIABLE _verify_out
+    ERROR_VARIABLE _verify_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT _verify_rc EQUAL 0)
+    message(FATAL_ERROR "${label}: provider PCM did not export the expected source spelling.\n--- stdout ---\n${_verify_out}\n--- stderr ---\n${_verify_err}")
+  endif()
+endfunction()
+
 function(_gentest_shell_quote out_var value)
   string(REPLACE "'" "'\"'\"'" _escaped "${value}")
   set(${out_var} "'${_escaped}'" PARENT_SCOPE)
@@ -604,6 +664,34 @@ _gentest_expect_dot_module_timing_collision(
   "${_validated_cache_pcm}"
   "validated PCM cache artifact")
 
+# The primary module source spelling is observable through __FILE__. Reusing a
+# PCM built from a different spelling is therefore unsafe even when both paths
+# resolve to the same file and have identical content/physical identity.
+set(_spelled_provider_source "${_src_dir}/./alpha_dot_provider.cppm")
+set(_source_spelling_miss_timing "${_generated_dir}/dot_source_spelling_miss_timing.json")
+_gentest_run_codegen_fixture(
+  "pcm_cache_dot_generated"
+  PCM_CACHE ON
+  TIMING_JSON "${_source_spelling_miss_timing}"
+  SOURCES
+    "${_spelled_provider_source}"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+_gentest_expect_dot_module_cache_state("${_source_spelling_miss_timing}" "miss")
+_gentest_expect_provider_pcm_source_spelling(
+  "${_source_spelling_miss_timing}"
+  "${_spelled_provider_source}"
+  "source-spelling-sensitive PCM")
+
+set(_source_spelling_hit_timing "${_generated_dir}/dot_source_spelling_hit_timing.json")
+_gentest_run_codegen_fixture(
+  "pcm_cache_dot_generated"
+  PCM_CACHE ON
+  TIMING_JSON "${_source_spelling_hit_timing}"
+  SOURCES
+    "${_spelled_provider_source}"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+_gentest_expect_dot_module_cache_state("${_source_spelling_hit_timing}" "hit")
+
 # The invocation-local PCM output changes under a relocated build tree, but
 # source identities/content and the normalized module command do not. A shared
 # cache must still validate and reuse the provider artifact.
@@ -631,9 +719,9 @@ _gentest_run_codegen_fixture(
     "${_src_dir}/alpha_dot_consumer.cppm")
 _gentest_expect_dot_module_cache_state("${_relocated_timing}" "hit")
 
-# Relocation only ignores structural module-output/source spellings. A macro
-# containing the build directory is semantic input and must force a miss; the
-# emitted registration header makes the current macro value observable.
+# Relocation only ignores structural module-output/build-metadata paths; the
+# source spelling remains semantic. A macro containing the build directory
+# must force a miss, and the current exported value is verified below.
 set(_macro_original_timing "${_generated_dir}/dot_macro_original_timing.json")
 file(TO_CMAKE_PATH "${_build_dir}" _macro_original_value)
 _gentest_run_codegen_fixture(
@@ -713,6 +801,44 @@ _gentest_run_codegen_fixture(
     "${_src_dir}/alpha_dot_consumer.cppm")
 _gentest_expect_dot_module_cache_state("${_header_timing}" "miss")
 
+# A byte-identical mtime-only change alters __TIMESTAMP__. The complete PCM
+# input fingerprint must invalidate even when no source bytes changed. Retry
+# until the filesystem reports a different timestamp so coarse clocks cannot
+# turn this into a false hit.
+file(TIMESTAMP "${_src_dir}/alpha_dot_provider.cppm" _mtime_before "%s")
+set(_mtime_changed FALSE)
+foreach(_mtime_attempt RANGE 1 5)
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 1)
+  file(TOUCH_NOCREATE "${_src_dir}/alpha_dot_provider.cppm")
+  file(TIMESTAMP "${_src_dir}/alpha_dot_provider.cppm" _mtime_after "%s")
+  if(NOT _mtime_after STREQUAL _mtime_before)
+    set(_mtime_changed TRUE)
+    break()
+  endif()
+endforeach()
+if(NOT _mtime_changed)
+  message(FATAL_ERROR "Could not advance the provider source timestamp for the mtime-only PCM cache regression")
+endif()
+set(_mtime_timing "${_generated_dir}/dot_mtime_timing.json")
+_gentest_run_codegen_fixture(
+  "pcm_cache_dot_generated"
+  PCM_CACHE ON
+  TIMING_JSON "${_mtime_timing}"
+  SOURCES
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+_gentest_expect_dot_module_cache_state("${_mtime_timing}" "miss")
+
+set(_mtime_hit_timing "${_generated_dir}/dot_mtime_hit_timing.json")
+_gentest_run_codegen_fixture(
+  "pcm_cache_dot_generated"
+  PCM_CACHE ON
+  TIMING_JSON "${_mtime_hit_timing}"
+  SOURCES
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+_gentest_expect_dot_module_cache_state("${_mtime_hit_timing}" "hit")
+
 file(APPEND "${_src_dir}/alpha_dot_provider.cppm" "\n// source content invalidation sentinel\n")
 set(_source_timing "${_generated_dir}/dot_source_timing.json")
 _gentest_run_codegen_fixture(
@@ -761,6 +887,134 @@ string(FIND "${_vfs_codegen_output}" "a VFS overlay or source remap is active" _
 if(_vfs_bypass_diagnostic_pos EQUAL -1)
   message(FATAL_ERROR "VFS-overlay PCM cache bypass did not report the expected reason.\n${_vfs_codegen_output}")
 endif()
+
+set(_pch_header "${_work_dir}/pcm_cache_probe.hpp")
+set(_pch_file "${_work_dir}/pcm_cache_probe.pch")
+file(WRITE "${_pch_header}" "#pragma once\ninline constexpr int gentest_pcm_cache_pch_probe = 1;\n")
+gentest_check_run_or_fail(
+  COMMAND "${_clangxx}" -std=c++20 -x c++-header "${_pch_header}" -o "${_pch_file}"
+  WORKING_DIRECTORY "${_work_dir}")
+set(_pch_timing "${_generated_dir}/dot_pch_timing.json")
+_gentest_run_codegen_fixture(
+  "pcm_cache_dot_generated"
+  PCM_CACHE ON
+  LOG_SCAN_DEPS
+  TIMING_JSON "${_pch_timing}"
+  OUTPUT_VARIABLE _pch_codegen_output
+  EXTRA_ARGS "-include-pch" "${_pch_file}"
+  SOURCES
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+_gentest_expect_dot_module_cache_state("${_pch_timing}" "bypass")
+string(FIND "${_pch_codegen_output}" "a precompiled-header input is active" _pch_bypass_diagnostic_pos)
+if(_pch_bypass_diagnostic_pos EQUAL -1)
+  message(FATAL_ERROR "PCH-input PCM cache bypass did not report the expected reason.\n${_pch_codegen_output}")
+endif()
+
+if(NOT CMAKE_HOST_WIN32)
+  set(_plugin_source "${_work_dir}/pcm_cache_plugin.cpp")
+  set(_plugin_file "${_work_dir}/pcm_cache_plugin${CMAKE_SHARED_LIBRARY_SUFFIX}")
+  file(WRITE "${_plugin_source}" "extern \"C\" int gentest_pcm_cache_plugin_probe = 1;\n")
+  gentest_check_run_or_fail(
+    COMMAND "${_clangxx}" -std=c++20 -shared -fPIC "${_plugin_source}" -o "${_plugin_file}"
+    WORKING_DIRECTORY "${_work_dir}")
+  set(_plugin_timing "${_generated_dir}/dot_plugin_timing.json")
+  _gentest_run_codegen_fixture(
+    "pcm_cache_dot_generated"
+    PCM_CACHE ON
+    LOG_SCAN_DEPS
+    TIMING_JSON "${_plugin_timing}"
+    OUTPUT_VARIABLE _plugin_codegen_output
+    EXTRA_ARGS "-fplugin=${_plugin_file}"
+    SOURCES
+      "${_src_dir}/alpha_dot_provider.cppm"
+      "${_src_dir}/alpha_dot_consumer.cppm")
+  _gentest_expect_dot_module_cache_state("${_plugin_timing}" "bypass")
+  string(FIND "${_plugin_codegen_output}" "a compiler plugin is active" _plugin_bypass_diagnostic_pos)
+  if(_plugin_bypass_diagnostic_pos EQUAL -1)
+    message(FATAL_ERROR "Plugin-input PCM cache bypass did not report the expected reason.\n${_plugin_codegen_output}")
+  endif()
+endif()
+
+# A header's physical spelling can change across otherwise relocatable build
+# roots. Preserve primary-source __FILE__ in the key, but conservatively bypass
+# shared publication when __FILE__ actually expands in any other closure file.
+set(_header_file_macro_timing "${_generated_dir}/dot_header_file_macro_timing.json")
+_gentest_run_codegen_fixture(
+  "pcm_cache_dot_generated"
+  PCM_CACHE ON
+  LOG_SCAN_DEPS
+  TIMING_JSON "${_header_file_macro_timing}"
+  OUTPUT_VARIABLE _header_file_macro_output
+  EXTRA_ARGS -DPCM_CACHE_HEADER_FILE_MACRO=1
+  SOURCES
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+_gentest_expect_pcm_cache_state(
+  "${_header_file_macro_timing}"
+  "bypass"
+  "gentest.pcm_cache.alpha.beta.provider")
+string(FIND "${_header_file_macro_output}" "__FILE__ expanded outside the primary module source" _header_file_macro_diagnostic_pos)
+if(_header_file_macro_diagnostic_pos EQUAL -1)
+  message(FATAL_ERROR "Header __FILE__ PCM cache bypass did not report the expected reason.\n${_header_file_macro_output}")
+endif()
+
+# __DATE__/__TIME__ depend on wall-clock compilation time and cannot have a
+# reusable PCM key. Detect actual macro expansion through Clang's preprocessor,
+# including macro indirection, then preserve normal local precompilation while
+# refusing shared publication.
+file(READ "${_src_dir}/alpha_dot_provider.cppm" _provider_before_volatile_time)
+file(APPEND "${_src_dir}/alpha_dot_provider.cppm" [=[
+
+#define GENTEST_PCM_VOLATILE_TIME __TIME__
+#define GENTEST_PCM_VOLATILE_TIMESTAMP __TIMESTAMP__
+export namespace dot_provider {
+inline constexpr const char* kVolatileDate = __DATE__;
+inline constexpr const char* kVolatileTime = GENTEST_PCM_VOLATILE_TIME;
+inline constexpr const char* kVolatileTimestamp = GENTEST_PCM_VOLATILE_TIMESTAMP;
+}
+]=])
+set(_volatile_time_timing "${_generated_dir}/dot_volatile_time_timing.json")
+_gentest_run_codegen_fixture(
+  "pcm_cache_dot_generated"
+  PCM_CACHE ON
+  LOG_SCAN_DEPS
+  TIMING_JSON "${_volatile_time_timing}"
+  OUTPUT_VARIABLE _volatile_time_output
+  SOURCES
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+_gentest_expect_pcm_cache_state(
+  "${_volatile_time_timing}"
+  "bypass"
+  "gentest.pcm_cache.alpha.beta.provider")
+_gentest_expect_pcm_cache_state(
+  "${_volatile_time_timing}"
+  "miss"
+  "gentest.pcm_cache.alpha.beta")
+string(FIND "${_volatile_time_output}" "a volatile predefined date/time macro is active" _volatile_time_diagnostic_pos)
+if(_volatile_time_diagnostic_pos EQUAL -1)
+  message(FATAL_ERROR "Volatile-time PCM cache bypass did not report the expected reason.\n${_volatile_time_output}")
+endif()
+
+set(_volatile_time_repeat_timing "${_generated_dir}/dot_volatile_time_repeat_timing.json")
+execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 1)
+_gentest_run_codegen_fixture(
+  "pcm_cache_dot_generated"
+  PCM_CACHE ON
+  TIMING_JSON "${_volatile_time_repeat_timing}"
+  SOURCES
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+_gentest_expect_pcm_cache_state(
+  "${_volatile_time_repeat_timing}"
+  "bypass"
+  "gentest.pcm_cache.alpha.beta.provider")
+_gentest_expect_pcm_cache_state(
+  "${_volatile_time_repeat_timing}"
+  "miss"
+  "gentest.pcm_cache.alpha.beta")
+file(WRITE "${_src_dir}/alpha_dot_provider.cppm" "${_provider_before_volatile_time}")
 
 if(NOT CMAKE_HOST_WIN32)
   find_program(_gentest_sh NAMES sh)

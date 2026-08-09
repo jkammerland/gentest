@@ -105,9 +105,12 @@ The PCM cache is deliberately stricter than the textual cache. Reuse requires
 a current successful `clang-scan-deps` `experimental-full` closure, including
 the current `file-deps` set and scanner command. The key includes the resolved
 compiler content identity and version, resource directory, sysroot, normalized
-effective precompile command, ordered scanner command/include metadata, source
-and dependency content hashes, scan-deps identity/result, codegen schema and
-options, and ordered transitive module cache keys. An imported artifact named
+effective precompile command, ordered scanner command/include metadata, the raw
+compiler-visible primary-source spelling, source and dependency content hashes
+and write times, scan-deps identity/result, codegen schema and options, and
+ordered transitive module cache keys. Preserving the primary-source spelling
+keeps observable `__FILE__` values distinct; write times invalidate
+`__TIMESTAMP__` even when bytes do not change. An imported artifact named
 by an explicit `-fmodule-file=name=path` mapping without a validated-cache key
 is retained as a typed external PCM dependency and receives a fresh bounded
 content/physical-identity check during every prepare, load, and store pass; its
@@ -123,6 +126,15 @@ module search directory does not identify the exact selected PCM mapping, so
 it is never assumed cache-safe. Scanner output varies by platform and release;
 for example, Clang 21 on Windows can report distinct command records for one
 module source, which deliberately selects this safe-bypass path.
+
+After a cold local precompile, Gentest runs a preprocessor-only verification
+with the same effective module command. Actual expansion of `__DATE__`,
+`__TIME__`, or `__TIMESTAMP__`—including through macro indirection—keeps the
+local PCM but bypasses shared publication. A verification failure is also a
+safe bypass. Existing validated entries therefore never depend on wall-clock
+date/time macro values. Because dependency paths are otherwise relocation
+normalized, an actual `__FILE__` expansion outside the primary module source
+also keeps the local PCM but bypasses shared publication.
 
 Each entry is an atomically renamed directory containing an immutable PCM and
 checked metadata. A hit rechecks the complete current closure and PCM digest,
