@@ -3878,6 +3878,9 @@ class ModuleMacroRecorder final : public clang::PPCallbacks {
     ModuleMacroProbeResult &result_;
 };
 
+// RecursiveASTVisitor's CRTP callback contract requires these exact method
+// names to shadow its default no-op implementations.
+// NOLINTBEGIN(bugprone-derived-method-shadowing-base-method)
 class ModuleSourceLocationVisitor final : public clang::RecursiveASTVisitor<ModuleSourceLocationVisitor> {
   public:
     ModuleSourceLocationVisitor(clang::SourceManager &source_manager, ModuleMacroProbeResult &result)
@@ -3918,6 +3921,7 @@ class ModuleSourceLocationVisitor final : public clang::RecursiveASTVisitor<Modu
     clang::SourceManager   &source_manager_;
     ModuleMacroProbeResult &result_;
 };
+// NOLINTEND(bugprone-derived-method-shadowing-base-method)
 
 class ModuleMacroProbeConsumer final : public clang::ASTConsumer {
   public:
@@ -6552,33 +6556,39 @@ int main(int argc, const char **argv) {
             return attempt;
         };
 
-        auto store_pcm_if_semantically_stable =
-            [&](PcmCacheAttempt &attempt, const clang::tooling::CommandLineArguments &precompile_command, std::string_view module_name,
-                std::string_view source_file, const std::filesystem::path &pcm_path, std::string_view working_directory) {
-                if (!attempt.context.has_value() || attempt.key.empty()) {
-                    return;
-                }
-                const auto macro_probe = probe_module_macros(precompile_command, source_file, working_directory);
-                if (!macro_probe.has_value() || macro_probe->volatile_time || macro_probe->non_primary_file_spelling ||
-                    macro_probe->non_primary_location_builtin) {
-                    if (should_log_scan_deps_decisions()) {
-                        std::string_view reason = "a file-location builtin is active outside the primary module source";
-                        if (!macro_probe.has_value()) {
-                            reason = "predefined macro semantics could not be verified";
-                        } else if (macro_probe->volatile_time) {
-                            reason = "a volatile predefined date/time macro is active";
-                        } else if (macro_probe->non_primary_file_spelling) {
-                            reason = "__FILE__ expanded outside the primary module source";
-                        }
-                        gentest::codegen::log_err("gentest_codegen: info: PCM cache bypassed for '{}': {}\n", module_name, reason);
+        struct PcmSemanticProbeInput {
+            std::string_view      module_name;
+            std::string_view      source_file;
+            std::filesystem::path pcm_path;
+            std::string_view      working_directory;
+        };
+        auto store_pcm_if_semantically_stable = [&](PcmCacheAttempt                            &attempt,
+                                                    const clang::tooling::CommandLineArguments &precompile_command,
+                                                    const PcmSemanticProbeInput                &input) {
+            if (!attempt.context.has_value() || attempt.key.empty()) {
+                return;
+            }
+            const auto macro_probe = probe_module_macros(precompile_command, input.source_file, input.working_directory);
+            if (!macro_probe.has_value() || macro_probe->volatile_time || macro_probe->non_primary_file_spelling ||
+                macro_probe->non_primary_location_builtin) {
+                if (should_log_scan_deps_decisions()) {
+                    std::string_view reason = "a file-location builtin is active outside the primary module source";
+                    if (!macro_probe.has_value()) {
+                        reason = "predefined macro semantics could not be verified";
+                    } else if (macro_probe->volatile_time) {
+                        reason = "a volatile predefined date/time macro is active";
+                    } else if (macro_probe->non_primary_file_spelling) {
+                        reason = "__FILE__ expanded outside the primary module source";
                     }
-                    attempt.state = "bypass";
-                    attempt.context.reset();
-                    attempt.key.clear();
-                    return;
+                    gentest::codegen::log_err("gentest_codegen: info: PCM cache bypassed for '{}': {}\n", input.module_name, reason);
                 }
-                pcm_artifact_cache->store(*attempt.context, pcm_path, attempt.key);
-            };
+                attempt.state = "bypass";
+                attempt.context.reset();
+                attempt.key.clear();
+                return;
+            }
+            pcm_artifact_cache->store(*attempt.context, input.pcm_path, attempt.key);
+        };
 
         auto note_external_scan_deps_failure = [&](std::string_view module_name, const std::filesystem::path &candidate,
                                                    std::string_view detail) {
@@ -6945,8 +6955,11 @@ int main(int argc, const char **argv) {
                 precompiled = execute_module_precompile(precompile_command, module_source.module_name, module_source.source_path.string(),
                                                         module_source.pcm_path, working_directory, options);
                 if (precompiled && pcm_cache_attempt.context.has_value() && !pcm_cache_attempt.key.empty()) {
-                    store_pcm_if_semantically_stable(pcm_cache_attempt, precompile_command, module_source.module_name,
-                                                     module_source.source_path.string(), module_source.pcm_path, working_directory);
+                    store_pcm_if_semantically_stable(pcm_cache_attempt, precompile_command,
+                                                     {.module_name       = module_source.module_name,
+                                                      .source_file       = module_source.source_path.string(),
+                                                      .pcm_path          = module_source.pcm_path,
+                                                      .working_directory = working_directory});
                 }
             }
             timing.record("pcm", pcm_record_started, std::nullopt, module_source.source_path.generic_string(),
@@ -7049,9 +7062,11 @@ int main(int argc, const char **argv) {
                 precompiled = execute_module_precompile(precompile_command, module_name, module_source->source_path.string(),
                                                         module_source->pcm_path, external_working_directory, options);
                 if (precompiled && pcm_cache_attempt.context.has_value() && !pcm_cache_attempt.key.empty()) {
-                    store_pcm_if_semantically_stable(pcm_cache_attempt, precompile_command, module_name,
-                                                     module_source->source_path.string(), module_source->pcm_path,
-                                                     external_working_directory);
+                    store_pcm_if_semantically_stable(pcm_cache_attempt, precompile_command,
+                                                     {.module_name       = module_name,
+                                                      .source_file       = module_source->source_path.string(),
+                                                      .pcm_path          = module_source->pcm_path,
+                                                      .working_directory = external_working_directory});
                 }
             }
             timing.record("pcm", pcm_record_started, std::nullopt, module_source->source_path.generic_string(),
