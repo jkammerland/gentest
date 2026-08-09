@@ -363,6 +363,13 @@ if(_clang_scan_deps)
 endif()
 set(_mock_build_log "${_mock_build_out}\n${_mock_build_err}")
 set(_suite_build_log "${_build_out}\n${_build_err}")
+string(FIND "${_build_log}" "--pcm-cache-dir" _default_pcm_cache_flag_pos)
+if(NOT _default_pcm_cache_flag_pos EQUAL -1)
+  message(FATAL_ERROR
+    "The default Xmake module consumer unexpectedly enabled the validated PCM cache.\n"
+    "stdout:\n${_build_out}\n"
+    "stderr:\n${_build_err}")
+endif()
 string(FIND "${_mock_build_log}" "--compdb" _mock_compdb_flag_pos)
 if(_mock_compdb_flag_pos EQUAL -1)
   message(FATAL_ERROR
@@ -398,6 +405,48 @@ foreach(_expected IN ITEMS
       "stderr:\n${_build_err}")
   endif()
 endforeach()
+
+# Module-only opt-in: reconfigure the same consumer with a build-owned PCM
+# cache and confirm its suite codegen command receives the explicit directory.
+set(_xmake_pcm_cache_rel "gentest-pcm-cache")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_clang_config_args}
+          "--gentest_codegen_pcm_cache=y"
+          "--gentest_codegen_pcm_cache_dir=${_xmake_pcm_cache_rel}"
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _pcm_cfg_rc
+  OUTPUT_VARIABLE _pcm_cfg_out
+  ERROR_VARIABLE _pcm_cfg_err)
+if(NOT _pcm_cfg_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Xmake configure failed while enabling the validated PCM cache.\n"
+    "stdout:\n${_pcm_cfg_out}\n"
+    "stderr:\n${_pcm_cfg_err}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_clang_build_args}
+          gentest_consumer_module_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _pcm_build_rc
+  OUTPUT_VARIABLE _pcm_build_out
+  ERROR_VARIABLE _pcm_build_err)
+if(NOT _pcm_build_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Xmake module consumer build failed with validated PCM cache enabled.\n"
+    "stdout:\n${_pcm_build_out}\n"
+    "stderr:\n${_pcm_build_err}")
+endif()
+set(_pcm_build_log "${_pcm_build_out}\n${_pcm_build_err}")
+string(FIND "${_pcm_build_log}" "--pcm-cache-dir" _pcm_cache_flag_pos)
+string(FIND "${_pcm_build_log}" "${_xmake_pcm_cache_rel}" _pcm_cache_dir_pos)
+if(_pcm_cache_flag_pos EQUAL -1 OR _pcm_cache_dir_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Enabled Xmake module consumer did not forward its validated PCM cache directory.\n"
+    "stdout:\n${_pcm_build_out}\n"
+    "stderr:\n${_pcm_build_err}")
+endif()
 
 set(_generated_glob_root "${_out_dir}/gen/*/*/*")
 if(WIN32)

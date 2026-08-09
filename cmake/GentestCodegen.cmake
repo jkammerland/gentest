@@ -85,6 +85,17 @@ if(NOT DEFINED GENTEST_CODEGEN_PARSE_CACHE_DIR)
         "Directory for the opt-in gentest_codegen textual parse cache (empty uses <build>/.gentest_codegen_parse_cache).")
 endif()
 
+# PCM artifacts are compiler-private. This separate validated cache is opt-in
+# and only has an effect when a codegen invocation discovers named modules.
+if(NOT DEFINED GENTEST_CODEGEN_PCM_CACHE)
+    set(GENTEST_CODEGEN_PCM_CACHE OFF CACHE BOOL
+        "Enable gentest_codegen's validated named-module PCM cache for CMake-invoked codegen commands.")
+endif()
+if(NOT DEFINED GENTEST_CODEGEN_PCM_CACHE_DIR)
+    set(GENTEST_CODEGEN_PCM_CACHE_DIR "" CACHE PATH
+        "Directory for the opt-in gentest_codegen validated PCM cache (empty uses <build>/.gentest_codegen_pcm_cache).")
+endif()
+
 
 include("${_GENTEST_CODEGEN_CMAKE_DIR}/gentest/CodegenToolchain.cmake")
 include("${_GENTEST_CODEGEN_CMAKE_DIR}/gentest/ScanDeps.cmake")
