@@ -20,6 +20,7 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
+#include <clang/AST/RecursiveASTVisitor.h>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
@@ -3845,8 +3846,9 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
 }
 
 struct ModuleMacroProbeResult {
-    bool volatile_time             = false;
-    bool non_primary_file_spelling = false;
+    bool volatile_time                = false;
+    bool non_primary_file_spelling    = false;
+    bool non_primary_location_builtin = false;
 };
 
 class ModuleMacroRecorder final : public clang::PPCallbacks {
@@ -3876,17 +3878,72 @@ class ModuleMacroRecorder final : public clang::PPCallbacks {
     ModuleMacroProbeResult &result_;
 };
 
-class ModuleMacroProbeAction final : public clang::PreprocessOnlyAction {
+class ModuleSourceLocationVisitor final : public clang::RecursiveASTVisitor<ModuleSourceLocationVisitor> {
+  public:
+    ModuleSourceLocationVisitor(clang::SourceManager &source_manager, ModuleMacroProbeResult &result)
+        : source_manager_(source_manager), result_(result) {}
+
+    bool VisitSourceLocExpr(clang::SourceLocExpr *expression) {
+        if (expression == nullptr) {
+            return true;
+        }
+        const auto kind = expression->getIdentKind();
+        if (kind == clang::SourceLocIdentKind::File || kind == clang::SourceLocIdentKind::FileName ||
+            kind == clang::SourceLocIdentKind::SourceLocStruct) {
+            note_location(expression->getExprLoc());
+        }
+        return true;
+    }
+
+    bool VisitCallExpr(clang::CallExpr *expression) {
+        if (expression == nullptr) {
+            return true;
+        }
+        const auto *callee = expression->getDirectCallee();
+        if (callee != nullptr && llvm::StringRef{callee->getQualifiedNameAsString()}.contains("source_location::current")) {
+            note_location(expression->getExprLoc());
+        }
+        return true;
+    }
+
+  private:
+    void note_location(clang::SourceLocation location) {
+        location = source_manager_.getExpansionLoc(location);
+        if (location.isInvalid() || source_manager_.isWrittenInMainFile(location) || source_manager_.isInSystemHeader(location)) {
+            return;
+        }
+        result_.non_primary_location_builtin = true;
+    }
+
+    clang::SourceManager   &source_manager_;
+    ModuleMacroProbeResult &result_;
+};
+
+class ModuleMacroProbeConsumer final : public clang::ASTConsumer {
+  public:
+    ModuleMacroProbeConsumer(clang::SourceManager &source_manager, ModuleMacroProbeResult &result) : visitor_(source_manager, result) {}
+
+    void HandleTranslationUnit(clang::ASTContext &context) override { visitor_.TraverseDecl(context.getTranslationUnitDecl()); }
+
+  private:
+    ModuleSourceLocationVisitor visitor_;
+};
+
+class ModuleMacroProbeAction final : public clang::ASTFrontendAction {
   public:
     explicit ModuleMacroProbeAction(ModuleMacroProbeResult &result) : result_(result) {}
 
   protected:
     bool BeginSourceFileAction(clang::CompilerInstance &compiler) override {
-        if (!clang::PreprocessOnlyAction::BeginSourceFileAction(compiler)) {
+        if (!clang::ASTFrontendAction::BeginSourceFileAction(compiler)) {
             return false;
         }
         compiler.getPreprocessor().addPPCallbacks(std::make_unique<ModuleMacroRecorder>(compiler.getSourceManager(), result_));
         return true;
+    }
+
+    std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef) override {
+        return std::make_unique<ModuleMacroProbeConsumer>(compiler.getSourceManager(), result_);
     }
 
   private:
@@ -6502,12 +6559,17 @@ int main(int argc, const char **argv) {
                     return;
                 }
                 const auto macro_probe = probe_module_macros(precompile_command, source_file, working_directory);
-                if (!macro_probe.has_value() || macro_probe->volatile_time || macro_probe->non_primary_file_spelling) {
+                if (!macro_probe.has_value() || macro_probe->volatile_time || macro_probe->non_primary_file_spelling ||
+                    macro_probe->non_primary_location_builtin) {
                     if (should_log_scan_deps_decisions()) {
-                        const std::string_view reason =
-                            !macro_probe.has_value() ? "predefined macro semantics could not be verified"
-                                                     : (macro_probe->volatile_time ? "a volatile predefined date/time macro is active"
-                                                                                   : "__FILE__ expanded outside the primary module source");
+                        std::string_view reason = "a file-location builtin is active outside the primary module source";
+                        if (!macro_probe.has_value()) {
+                            reason = "predefined macro semantics could not be verified";
+                        } else if (macro_probe->volatile_time) {
+                            reason = "a volatile predefined date/time macro is active";
+                        } else if (macro_probe->non_primary_file_spelling) {
+                            reason = "__FILE__ expanded outside the primary module source";
+                        }
                         gentest::codegen::log_err("gentest_codegen: info: PCM cache bypassed for '{}': {}\n", module_name, reason);
                     }
                     attempt.state = "bypass";

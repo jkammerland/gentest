@@ -195,6 +195,68 @@ static_assert(gentest_pcm_strings_match(dot_provider::kSourceSpelling, PCM_EXPEC
   endif()
 endfunction()
 
+function(_gentest_expect_provider_pcm_header_location timing_path expected_value label)
+  file(READ "${timing_path}" _timing_json)
+  string(JSON _phase_count LENGTH "${_timing_json}" phases)
+  set(_provider_pcm "")
+  foreach(_phase_index RANGE 0 ${_phase_count})
+    if(_phase_index EQUAL _phase_count)
+      break()
+    endif()
+    string(JSON _phase_name GET "${_timing_json}" phases ${_phase_index} name)
+    if(NOT _phase_name STREQUAL "pcm")
+      continue()
+    endif()
+    string(JSON _module ERROR_VARIABLE _module_error GET "${_timing_json}" phases ${_phase_index} module)
+    if(NOT _module_error STREQUAL "NOTFOUND" OR NOT _module STREQUAL "gentest.pcm_cache.alpha.beta.provider")
+      continue()
+    endif()
+    string(JSON _provider_pcm GET "${_timing_json}" phases ${_phase_index} path)
+    break()
+  endforeach()
+  if("${_provider_pcm}" STREQUAL "" OR NOT EXISTS "${_provider_pcm}")
+    message(FATAL_ERROR "${label}: provider PCM was not recorded in '${timing_path}'")
+  endif()
+
+  string(MD5 _verify_id "${timing_path};${expected_value}")
+  set(_verify_source "${_work_dir}/pcm_header_location_${_verify_id}.cpp")
+  file(WRITE "${_verify_source}" [=[
+import gentest.pcm_cache.alpha.beta.provider;
+
+constexpr bool gentest_pcm_strings_match(const char* lhs, const char* rhs) {
+  while(*lhs != '\0' && *rhs != '\0') {
+    if(*lhs != *rhs) {
+      return false;
+    }
+    ++lhs;
+    ++rhs;
+  }
+  return *lhs == *rhs;
+}
+
+static_assert(gentest_pcm_strings_match(dot_provider::kHeaderLocationSpelling, PCM_EXPECTED_HEADER_LOCATION));
+]=])
+  execute_process(
+    COMMAND
+      "${_clangxx}"
+      -std=c++20
+      "-fmodule-file=gentest.pcm_cache.alpha.beta.provider=${_provider_pcm}"
+      "-DPCM_EXPECTED_HEADER_LOCATION=\"${expected_value}\""
+      -fsyntax-only
+      "${_verify_source}"
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _verify_rc
+    OUTPUT_VARIABLE _verify_out
+    ERROR_VARIABLE _verify_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT _verify_rc EQUAL 0)
+    message(FATAL_ERROR
+      "${label}: provider PCM did not export the expected header location.\n"
+      "--- stdout ---\n${_verify_out}\n--- stderr ---\n${_verify_err}")
+  endif()
+endfunction()
+
 function(_gentest_shell_quote out_var value)
   string(REPLACE "'" "'\"'\"'" _escaped "${value}")
   set(${out_var} "'${_escaped}'" PARENT_SCOPE)
@@ -723,6 +785,84 @@ _gentest_run_codegen_fixture(
     "${_src_dir}/alpha_dot_provider.cppm"
     "${_src_dir}/alpha_dot_consumer.cppm")
 _gentest_expect_dot_module_cache_state("${_relocated_timing}" "hit")
+
+# Clang represents __builtin_FILE() and __builtin_source_location() as AST
+# expressions rather than preprocessor macro expansions. A build-tree header
+# can therefore retain identical bytes/mtime while its absolute spelling
+# changes across relocated trees. Such PCMs remain local and are never
+# published into the shared cache.
+function(_gentest_check_header_location_builtin test_name define_name header_name)
+  set(_original_header_dir "${_build_dir}/pcm-location-${test_name}")
+  set(_relocated_header_dir "${_relocated_build_dir}/pcm-location-${test_name}")
+  file(MAKE_DIRECTORY "${_original_header_dir}" "${_relocated_header_dir}")
+  file(COPY "${_src_dir}/${header_name}" DESTINATION "${_original_header_dir}")
+  file(COPY "${_src_dir}/${header_name}" DESTINATION "${_relocated_header_dir}")
+
+  set(_builtin_cache "${_work_dir}/pcm-location-cache-${test_name}")
+  set(_original_output "${_generated_dir}/pcm-location-${test_name}")
+  set(_original_timing "${_original_output}/timing.json")
+  _gentest_run_codegen_fixture(
+    "pcm_location_${test_name}_original"
+    PCM_CACHE ON
+    PCM_CACHE_DIR "${_builtin_cache}"
+    LOG_SCAN_DEPS
+    OUTPUT_ROOT "${_original_output}"
+    TIMING_JSON "${_original_timing}"
+    OUTPUT_VARIABLE _original_log
+    EXTRA_ARGS "-I${_original_header_dir}" "-D${define_name}=1"
+    SOURCES
+      "${_src_dir}/alpha_dot_provider.cppm"
+      "${_src_dir}/alpha_dot_consumer.cppm")
+  _gentest_expect_pcm_cache_state(
+    "${_original_timing}"
+    "bypass"
+    "gentest.pcm_cache.alpha.beta.provider")
+  string(FIND "${_original_log}" "a file-location builtin is active outside the primary module source" _original_diagnostic)
+  if(_original_diagnostic EQUAL -1)
+    message(FATAL_ERROR "${test_name}: original-tree location-builtin bypass was not diagnosed.\n${_original_log}")
+  endif()
+
+  set(_relocated_output "${_relocated_generated_dir}/pcm-location-${test_name}")
+  set(_relocated_builtin_timing "${_relocated_output}/timing.json")
+  _gentest_run_codegen_fixture(
+    "pcm_location_${test_name}_relocated"
+    PCM_CACHE ON
+    PCM_CACHE_DIR "${_builtin_cache}"
+    LOG_SCAN_DEPS
+    COMPDB_DIR "${_relocated_build_dir}"
+    OUTPUT_ROOT "${_relocated_output}"
+    TIMING_JSON "${_relocated_builtin_timing}"
+    OUTPUT_VARIABLE _relocated_log
+    EXTRA_ARGS "-I${_relocated_header_dir}" "-D${define_name}=1"
+    SOURCES
+      "${_src_dir}/alpha_dot_provider.cppm"
+      "${_src_dir}/alpha_dot_consumer.cppm")
+  _gentest_expect_pcm_cache_state(
+    "${_relocated_builtin_timing}"
+    "bypass"
+    "gentest.pcm_cache.alpha.beta.provider")
+  string(FIND "${_relocated_log}" "a file-location builtin is active outside the primary module source" _relocated_diagnostic)
+  if(_relocated_diagnostic EQUAL -1)
+    message(FATAL_ERROR "${test_name}: relocated-tree location-builtin bypass was not diagnosed.\n${_relocated_log}")
+  endif()
+
+  file(TO_CMAKE_PATH "${_relocated_header_dir}/${header_name}" _expected_header_location)
+  _gentest_expect_provider_pcm_header_location(
+    "${_relocated_builtin_timing}"
+    "${_expected_header_location}"
+    "${test_name} relocated local PCM")
+
+  file(GLOB_RECURSE _builtin_entries LIST_DIRECTORIES FALSE "${_builtin_cache}/*")
+  if(_builtin_entries)
+    message(FATAL_ERROR "${test_name}: a location-sensitive PCM was published to the shared cache: ${_builtin_entries}")
+  endif()
+endfunction()
+
+_gentest_check_header_location_builtin("builtin-file" "PCM_CACHE_HEADER_BUILTIN_FILE" "pcm_cache_builtin_file.hpp")
+_gentest_check_header_location_builtin(
+  "source-location"
+  "PCM_CACHE_HEADER_SOURCE_LOCATION"
+  "pcm_cache_source_location.hpp")
 
 # Relocation only ignores structural module-output/build-metadata paths; the
 # source spelling remains semantic. A macro containing the build directory
