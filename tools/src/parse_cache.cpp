@@ -9,10 +9,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <limits>
 #include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/StringRef.h>
+#include <llvm/Support/Error.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/JSON.h>
 #include <llvm/Support/MemoryBuffer.h>
@@ -35,6 +35,8 @@ namespace json = llvm::json;
 
 constexpr std::string_view kSchema             = "gentest.textual_parse_cache.v1";
 constexpr std::uintmax_t   kMaxCacheEntryBytes = std::uintmax_t{64} * 1024U * 1024U;
+constexpr std::uintmax_t   kMaxInputBytes      = std::uintmax_t{256} * 1024U * 1024U;
+constexpr std::uintmax_t   kMaxExecutableBytes = std::uintmax_t{1024} * 1024U * 1024U;
 constexpr std::size_t      kMaxCacheItems      = 200000;
 
 std::string normalize_path(std::string_view raw) {
@@ -63,6 +65,80 @@ std::string sha256_hex(std::string_view content) {
         out[idx * 2 + 1] = hex[digest[idx] & 0x0F];
     }
     return out;
+}
+
+struct BoundedFileIdentity {
+    std::string hash;
+    std::string unique_id;
+};
+
+std::optional<BoundedFileIdentity> bounded_file_identity(const fs::path &path, std::uintmax_t max_size, bool allow_empty) {
+    auto file = llvm::sys::fs::openNativeFileForRead(path.string());
+    if (!file) {
+        return std::nullopt;
+    }
+    int file_descriptor = *file;
+
+    llvm::sys::fs::file_status initial_status;
+    if (llvm::sys::fs::status(file_descriptor, initial_status) || !llvm::sys::fs::is_regular_file(initial_status) ||
+        initial_status.getSize() > max_size || (!allow_empty && initial_status.getSize() == 0)) {
+        [[maybe_unused]] const std::error_code close_error = llvm::sys::fs::closeFile(file_descriptor);
+        return std::nullopt;
+    }
+
+    llvm::SHA256                               hasher;
+    std::array<char, std::size_t{128} * 1024U> chunk{};
+    std::uintmax_t                             remaining = initial_status.getSize();
+    while (remaining != 0) {
+        const std::size_t requested = static_cast<std::size_t>(std::min<std::uintmax_t>(remaining, chunk.size()));
+        auto              read      = llvm::sys::fs::readNativeFile(file_descriptor, llvm::MutableArrayRef<char>{chunk.data(), requested});
+        if (!read || *read == 0) {
+            if (!read) {
+                llvm::consumeError(read.takeError());
+            }
+            [[maybe_unused]] const std::error_code close_error = llvm::sys::fs::closeFile(file_descriptor);
+            return std::nullopt;
+        }
+        hasher.update(llvm::StringRef{chunk.data(), *read});
+        remaining -= *read;
+    }
+
+    char extra = 0;
+    auto eof   = llvm::sys::fs::readNativeFile(file_descriptor, llvm::MutableArrayRef<char>{&extra, 1});
+    if (!eof || *eof != 0) {
+        if (!eof) {
+            llvm::consumeError(eof.takeError());
+        }
+        [[maybe_unused]] const std::error_code close_error = llvm::sys::fs::closeFile(file_descriptor);
+        return std::nullopt;
+    }
+
+    llvm::sys::fs::file_status final_descriptor_status;
+    llvm::sys::fs::file_status final_path_status;
+    const bool                 descriptor_unchanged = !llvm::sys::fs::status(file_descriptor, final_descriptor_status) &&
+                                                      llvm::sys::fs::is_regular_file(final_descriptor_status) &&
+                                                      final_descriptor_status.getSize() == initial_status.getSize() &&
+                                                      final_descriptor_status.getUniqueID() == initial_status.getUniqueID();
+    const std::error_code      close_error          = llvm::sys::fs::closeFile(file_descriptor);
+    const bool                 path_unchanged =
+        !llvm::sys::fs::status(path.string(), final_path_status) && llvm::sys::fs::is_regular_file(final_path_status) &&
+        final_path_status.getSize() == initial_status.getSize() && final_path_status.getUniqueID() == initial_status.getUniqueID();
+    if (!descriptor_unchanged || !path_unchanged || close_error) {
+        return std::nullopt;
+    }
+
+    const auto            digest = hasher.final();
+    static constexpr char hex[]  = "0123456789abcdef";
+    std::string           hash(digest.size() * 2, '\0');
+    for (std::size_t idx = 0; idx < digest.size(); ++idx) {
+        hash[idx * 2]     = hex[(digest[idx] >> 4) & 0x0F];
+        hash[idx * 2 + 1] = hex[digest[idx] & 0x0F];
+    }
+    const auto unique_id = initial_status.getUniqueID();
+    return BoundedFileIdentity{
+        .hash      = std::move(hash),
+        .unique_id = std::to_string(unique_id.getDevice()) + ":" + std::to_string(unique_id.getFile()),
+    };
 }
 
 std::string json_text(const json::Value &value) {
@@ -529,23 +605,24 @@ std::string canonical_context_text(const ParseCacheContext &context) {
 TextualParseCache::TextualParseCache(fs::path directory) : directory_(std::move(directory)) {}
 
 std::string TextualParseCache::executable_identity(const fs::path &path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
+    std::error_code ec;
+    const fs::path  resolved = fs::weakly_canonical(path, ec);
+    if (ec) {
         return {};
     }
-    std::string contents{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
-    if (input.bad()) {
+    const auto identity = bounded_file_identity(resolved, kMaxExecutableBytes, false);
+    if (!identity.has_value()) {
         return {};
     }
-    return sha256_hex(contents);
+    return identity->hash;
 }
 
-std::optional<TextualParseCache::FileFingerprint> TextualParseCache::fingerprint_file(const std::string &raw_path) {
+std::optional<TextualParseCache::FileFingerprint> TextualParseCache::fingerprint_file(const std::string &raw_path, bool allow_memoization) {
     const std::string path = normalize_path(raw_path);
     if (path.empty()) {
         return std::nullopt;
     }
-    {
+    if (allow_memoization) {
         std::lock_guard lock(mutex_);
         if (const auto it = file_fingerprints_.find(path); it != file_fingerprints_.end()) {
             return it->second;
@@ -568,25 +645,28 @@ std::optional<TextualParseCache::FileFingerprint> TextualParseCache::fingerprint
         } else {
             return std::nullopt;
         }
-        llvm::sys::fs::file_status llvm_status;
-        if (llvm::sys::fs::status(path, llvm_status)) {
-            return std::nullopt;
-        }
-        const auto unique_id  = llvm_status.getUniqueID();
-        fingerprint.unique_id = std::to_string(unique_id.getDevice()) + ":" + std::to_string(unique_id.getFile());
         if (fingerprint.regular) {
-            std::ifstream input(path, std::ios::binary);
-            if (!input) {
+            const auto file_identity = bounded_file_identity(path, kMaxInputBytes, true);
+            if (!file_identity.has_value()) {
                 return std::nullopt;
             }
-            std::string contents{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
-            if (input.bad()) {
+            fingerprint.unique_id = file_identity->unique_id;
+            fingerprint.hash      = file_identity->hash;
+
+            ec.clear();
+            const fs::path final_canonical = fs::weakly_canonical(path, ec);
+            if (ec || final_canonical.generic_string() != fingerprint.identity) {
                 return std::nullopt;
             }
-            fingerprint.hash = sha256_hex(contents);
+        } else {
+            llvm::sys::fs::file_status llvm_status;
+            if (llvm::sys::fs::status(path, llvm_status)) {
+                return std::nullopt;
+            }
+            const auto unique_id  = llvm_status.getUniqueID();
+            fingerprint.unique_id = std::to_string(unique_id.getDevice()) + ":" + std::to_string(unique_id.getFile());
         }
     }
-    std::lock_guard lock(mutex_);
     if (!fingerprint.exists) {
         ec.clear();
         if (const fs::path canonical = fs::weakly_canonical(path, ec); !ec) {
@@ -595,6 +675,10 @@ std::optional<TextualParseCache::FileFingerprint> TextualParseCache::fingerprint
             return std::nullopt;
         }
     }
+    if (!allow_memoization) {
+        return fingerprint;
+    }
+    std::lock_guard lock(mutex_);
     auto [it, _] = file_fingerprints_.emplace(path, std::move(fingerprint));
     return it->second;
 }
@@ -602,7 +686,10 @@ std::optional<TextualParseCache::FileFingerprint> TextualParseCache::fingerprint
 std::string TextualParseCache::slot_for(const ParseCacheContext &context) const { return sha256_hex(canonical_context_text(context)); }
 
 bool TextualParseCache::fingerprint_matches(const FileFingerprint &expected) {
-    const auto actual = fingerprint_file(expected.path);
+    // Cache-entry validation must always observe the filesystem as it exists
+    // at this load. Store-side memoization only avoids duplicate hashing while
+    // serializing results from one parse invocation.
+    const auto actual = fingerprint_file(expected.path, false);
     return actual.has_value() && actual->identity == expected.identity && actual->unique_id == expected.unique_id &&
            actual->exists == expected.exists && actual->regular == expected.regular && actual->hash == expected.hash;
 }
