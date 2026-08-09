@@ -73,6 +73,18 @@ if(NOT DEFINED GENTEST_CODEGEN_HOST_CLANG)
         "Optional path to the host Clang executable used by gentest_codegen for Clang-only operations.")
 endif()
 
+# Persistent textual parse caching remains opt-in. When enabled from CMake the
+# emitted CLI path wins over the tool's environment configuration; an empty
+# directory uses one deterministic cache shared by this build tree.
+if(NOT DEFINED GENTEST_CODEGEN_PARSE_CACHE)
+    set(GENTEST_CODEGEN_PARSE_CACHE OFF CACHE BOOL
+        "Enable gentest_codegen's persistent textual parse cache for CMake-invoked codegen commands.")
+endif()
+if(NOT DEFINED GENTEST_CODEGEN_PARSE_CACHE_DIR)
+    set(GENTEST_CODEGEN_PARSE_CACHE_DIR "" CACHE PATH
+        "Directory for the opt-in gentest_codegen textual parse cache (empty uses <build>/.gentest_codegen_parse_cache).")
+endif()
+
 
 include("${_GENTEST_CODEGEN_CMAKE_DIR}/gentest/CodegenToolchain.cmake")
 include("${_GENTEST_CODEGEN_CMAKE_DIR}/gentest/ScanDeps.cmake")

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/JSON.h>
 #include <llvm/Support/MemoryBuffer.h>
@@ -22,7 +23,8 @@ namespace gentest::codegen::mock_manifest {
 namespace {
 namespace json = llvm::json;
 
-constexpr std::string_view kSchema = "gentest.mock_manifest.v1";
+constexpr std::string_view kSchema           = "gentest.mock_manifest.v1";
+constexpr std::size_t      kMaxManifestItems = 200000;
 
 std::string to_string(TemplateParamKind kind) {
     switch (kind) {
@@ -328,6 +330,10 @@ bool string_vector(const json::Object &obj, llvm::StringRef key, std::vector<std
     if (array == nullptr) {
         return true;
     }
+    if (array->size() > kMaxManifestItems) {
+        error = "too many entries in '" + key.str() + "'";
+        return false;
+    }
     out.clear();
     out.reserve(array->size());
     for (const auto &entry : *array) {
@@ -357,6 +363,10 @@ bool parse_template_params(const json::Object &obj, llvm::StringRef key, std::ve
     const auto *array = obj.getArray(key);
     if (array == nullptr) {
         return true;
+    }
+    if (array->size() > kMaxManifestItems) {
+        error = "too many entries in '" + key.str() + "'";
+        return false;
     }
     out.clear();
     out.reserve(array->size());
@@ -393,6 +403,10 @@ bool parse_params(const json::Object &obj, llvm::StringRef key, std::vector<Mock
     if (array == nullptr) {
         return true;
     }
+    if (array->size() > kMaxManifestItems) {
+        error = "too many entries in '" + key.str() + "'";
+        return false;
+    }
     out.clear();
     out.reserve(array->size());
     for (const auto &entry : *array) {
@@ -420,6 +434,10 @@ bool parse_ctors(const json::Object &obj, std::vector<MockCtorInfo> &out, std::s
     const auto *array = obj.getArray("constructors");
     if (array == nullptr) {
         return true;
+    }
+    if (array->size() > kMaxManifestItems) {
+        error = "too many entries in 'constructors'";
+        return false;
     }
     out.clear();
     out.reserve(array->size());
@@ -476,6 +494,10 @@ bool parse_methods(const json::Object &obj, std::vector<MockMethodInfo> &out, st
     if (array == nullptr) {
         return true;
     }
+    if (array->size() > kMaxManifestItems) {
+        error = "too many entries in 'methods'";
+        return false;
+    }
     out.clear();
     out.reserve(array->size());
     for (const auto &entry : *array) {
@@ -495,7 +517,8 @@ bool parse_methods(const json::Object &obj, std::vector<MockMethodInfo> &out, st
 
 bool parse_namespace_scope(const json::Object &obj, MockNamespaceScopeInfo &out, std::string &error) {
     const auto lexical_close_group = obj.getInteger("lexical_close_group");
-    if (lexical_close_group.has_value() && *lexical_close_group >= 0) {
+    if (lexical_close_group.has_value() && *lexical_close_group >= 0 &&
+        static_cast<std::uint64_t>(*lexical_close_group) <= std::numeric_limits<std::size_t>::max()) {
         out.lexical_close_group = static_cast<std::size_t>(*lexical_close_group);
     } else if (obj.get("lexical_close_group") != nullptr) {
         error = "invalid integer field 'lexical_close_group'";
@@ -509,6 +532,10 @@ bool parse_namespace_scopes(const json::Object &obj, std::vector<MockNamespaceSc
     const auto *array = obj.getArray("attachment_namespace_chain");
     if (array == nullptr) {
         return true;
+    }
+    if (array->size() > kMaxManifestItems) {
+        error = "too many entries in 'attachment_namespace_chain'";
+        return false;
     }
     out.clear();
     out.reserve(array->size());
@@ -554,7 +581,7 @@ bool parse_mock(const json::Object &obj, MockClassInfo &out, std::string &error)
         out.display_name = out.qualified_name;
     }
     if (const auto offset = obj.getInteger("attachment_insertion_offset"); offset.has_value()) {
-        if (*offset < 0) {
+        if (*offset < 0 || static_cast<std::uint64_t>(*offset) > std::numeric_limits<std::size_t>::max()) {
             error = "invalid integer field 'attachment_insertion_offset'";
             return false;
         }
@@ -636,17 +663,11 @@ bool write(const std::filesystem::path &path, const std::vector<MockClassInfo> &
     return true;
 }
 
-ReadResult read(const std::filesystem::path &path) {
+ReadResult parse(std::string_view content) {
     ReadResult result;
-    auto       buffer = llvm::MemoryBuffer::getFile(path.string());
-    if (!buffer) {
-        result.error = "failed to read mock manifest '" + path.string() + "': " + buffer.getError().message();
-        return result;
-    }
-
-    auto parsed = json::parse((*buffer)->getBuffer());
+    auto       parsed = json::parse(llvm::StringRef{content.data(), content.size()});
     if (!parsed) {
-        result.error = "failed to parse mock manifest '" + path.string() + "': " + llvm::toString(parsed.takeError());
+        result.error = "invalid JSON: " + llvm::toString(parsed.takeError());
         return result;
     }
 
@@ -679,6 +700,10 @@ ReadResult read(const std::filesystem::path &path) {
         result.error = "mock manifest is missing 'mocks'";
         return result;
     }
+    if (mocks->size() > kMaxManifestItems) {
+        result.error = "too many entries in 'mocks'";
+        return result;
+    }
 
     result.mocks.reserve(mocks->size());
     for (const auto &entry : *mocks) {
@@ -694,6 +719,20 @@ ReadResult read(const std::filesystem::path &path) {
             return result;
         }
         result.mocks.push_back(std::move(mock));
+    }
+    return result;
+}
+
+ReadResult read(const std::filesystem::path &path) {
+    auto buffer = llvm::MemoryBuffer::getFile(path.string());
+    if (!buffer) {
+        ReadResult result;
+        result.error = "failed to read mock manifest '" + path.string() + "': " + buffer.getError().message();
+        return result;
+    }
+    auto result = parse((*buffer)->getBuffer());
+    if (!result.error.empty()) {
+        result.error = "failed to parse mock manifest '" + path.string() + "': " + result.error;
     }
     return result;
 }

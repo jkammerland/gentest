@@ -3784,6 +3784,31 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_response_file_expansion APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_textual_parse_cache
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenTextualParseCache.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_textual_parse_cache APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_textual_parse_cache_edges
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenTextualParseCacheEdges.cmake
+    cmake
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg})
+set_property(TEST gentest_codegen_textual_parse_cache_edges APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_parse_cache_cmake_contract
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenParseCacheCmakeContract.cmake
+    cmake)
+set_property(TEST gentest_codegen_parse_cache_cmake_contract APPEND PROPERTY LABELS "cmake;codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_codegen_synthetic_compdb_fallback
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenSyntheticFallback.cmake
