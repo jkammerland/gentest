@@ -571,6 +571,9 @@ std::string include_literal_for_path(fs::path path) {
     return literal;
 }
 
+// The direction is part of the operation: compute the include spelling of the
+// second path from the first path's directory.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 std::string include_literal_relative_to(const fs::path &including_file, const fs::path &included_file) {
     if (including_file.has_parent_path()) {
         const fs::path including_parent = including_file.parent_path().lexically_normal();
