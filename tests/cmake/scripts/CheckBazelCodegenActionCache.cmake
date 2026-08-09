@@ -253,6 +253,8 @@ foreach(_required IN ITEMS
     "bin/clang++"
     "lib/clang/${_clang_resource_version}/include/stddef.h"
     "tests/consumer/cases.cpp"
+    "tests/consumer/bazel_private_case_value.hpp"
+    "tests/consumer/bazel_dep_case_value.hpp"
     "include/gentest/runner.h"
     "gentest_consumer_mocks.hpp")
   string(FIND "${_aquery_out}" "${_required}" _required_pos)
@@ -326,6 +328,8 @@ foreach(_required_module_action_token IN ITEMS
     "gentest_codegen"
     "bin/clang++"
     "lib/clang/${_clang_resource_version}/include/stddef.h"
+    "tests/consumer/bazel_private_case_value.hpp"
+    "tests/consumer/bazel_dep_case_value.hpp"
     "compile_commands.json")
   string(FIND "${_module_aquery_out}" "${_required_module_action_token}" _required_module_action_pos)
   if(_required_module_action_pos EQUAL -1)

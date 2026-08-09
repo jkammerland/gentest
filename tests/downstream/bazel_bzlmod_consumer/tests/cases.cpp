@@ -2,6 +2,8 @@
 #include "gentest/bench_util.h"
 #include "gentest/context.h"
 #include "gentest_downstream_mocks.hpp"
+#include "dep_case_value.hpp"
+#include "private_case_value.hpp"
 
 #include <sstream>
 #include <string>
@@ -10,6 +12,9 @@
 using namespace gentest::asserts;
 
 namespace {
+
+static_assert(gentest_downstream_private_case_value == 31);
+static_assert(gentest_downstream_dep_case_value == 37);
 
 struct RestoreDefaultLogSink {
     ~RestoreDefaultLogSink() { gentest::restore_default_log_sink(); }

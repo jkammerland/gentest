@@ -23,6 +23,12 @@ if(NOT _bazel)
   message(STATUS "bazel/bazelisk not found; skipping Bazel Bzlmod consumer check.")
   return()
 endif()
+if(WIN32)
+  message(STATUS
+    "Skipping the Bazel Bzlmod consumer execution check on Windows: the automatic local exec-tool fallback is disabled; "
+    "Windows consumers must register a packaged Gentest/Clang toolchain with its DLL closure.")
+  return()
+endif()
 
 set(_bazel_command "${_bazel}")
 if(WIN32 AND _bazel MATCHES "\\.(cmd|bat)$")
@@ -367,6 +373,40 @@ if(NOT _build_rc EQUAL 0)
     "stdout:\n${_build_out}\n"
     "stderr:\n${_build_err}")
 endif()
+
+function(_gentest_assert_codegen_header_invalidation header label)
+  file(APPEND "${header}" "\n// ${label} invalidation\n")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
+            ${_bazel_command}
+            ${_build_args}
+            --subcommands
+    WORKING_DIRECTORY "${_workspace_dir}"
+    RESULT_VARIABLE _incremental_rc
+    OUTPUT_VARIABLE _incremental_out
+    ERROR_VARIABLE _incremental_err)
+  if(NOT _incremental_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Bazel Bzlmod build failed after ${label} changed.\n"
+      "stdout:\n${_incremental_out}\nstderr:\n${_incremental_err}")
+  endif()
+  set(_incremental_log "${_incremental_out}\n${_incremental_err}")
+  foreach(_mnemonic IN ITEMS GentestTextualSuiteCodegen GentestModuleSuiteCodegen)
+    string(FIND "${_incremental_log}" "${_mnemonic}" _mnemonic_pos)
+    if(_mnemonic_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Changing ${label} did not rerun ${_mnemonic}; the header is missing from the action key.\n"
+        "${_incremental_log}")
+    endif()
+  endforeach()
+endfunction()
+
+_gentest_assert_codegen_header_invalidation(
+  "${_workspace_dir}/tests/private_case_value.hpp"
+  "an explicit source_hdrs header")
+_gentest_assert_codegen_header_invalidation(
+  "${_workspace_dir}/tests/dep_case_value.hpp"
+  "a transitive CcInfo dependency header")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}

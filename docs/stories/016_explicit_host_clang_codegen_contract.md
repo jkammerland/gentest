@@ -261,19 +261,9 @@ gentest_attach_codegen(my_tests
 
 ### Bazel
 
-```python
-gentest_attach_codegen_modules(
-    name = "my_tests",
-    src = "tests/cases.cppm",
-    main = "tests/main.cpp",
-    mock_targets = [":my_mocks"],
-    codegen_host_clang = "/opt/llvm/bin/clang++",
-    clang_args = [
-        "--target=aarch64-linux-gnu",
-        "--sysroot=/opt/sdk/sysroots/aarch64",
-    ],
-)
-```
+Bazel no longer accepts an absolute `codegen_host_clang`. Register the
+exec-platform toolchain described in the [current Bazel guide](../buildsystems/bazel.md#exec-toolchain-contract),
+then keep target/sysroot flags in `clang_args`.
 
 ### Xmake/xrepo
 
