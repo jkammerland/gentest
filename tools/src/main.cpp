@@ -259,7 +259,7 @@ class TimingRecorder {
         return true;
     }
     std::ranges::sort(guards);
-    guards.erase(std::unique(guards.begin(), guards.end()), guards.end());
+    guards.erase(std::ranges::unique(guards).begin(), guards.end());
 
     llvm::json::Array guard_values;
     guard_values.reserve(guards.size());
@@ -1697,15 +1697,19 @@ bool record_parse_input_snapshot(clang::SourceManager &source_manager, clang::Fi
     return true;
 }
 
+struct ParseObservationState {
+    bool *cacheable              = nullptr;
+    bool *lookup_guards_complete = nullptr;
+};
+
 class DependencyRecorder final : public clang::PPCallbacks {
   public:
     DependencyRecorder(clang::SourceManager &source_manager, clang::HeaderSearch &header_search, std::vector<std::string> &dependencies,
                        std::vector<std::string> *shadow_guards, std::vector<gentest::codegen::ParseInputSnapshot> *parse_input_snapshots,
-                       std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots, bool *cacheable,
-                       bool *lookup_guards_complete)
+                       std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots, ParseObservationState state)
         : source_manager_(source_manager), header_search_(header_search), dependencies_(dependencies), shadow_guards_(shadow_guards),
-          parse_input_snapshots_(parse_input_snapshots), parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable),
-          lookup_guards_complete_(lookup_guards_complete) {}
+          parse_input_snapshots_(parse_input_snapshots), parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(state.cacheable),
+          lookup_guards_complete_(state.lookup_guards_complete) {}
 
     void FileChanged(clang::SourceLocation loc, clang::PPCallbacks::FileChangeReason reason, clang::SrcMgr::CharacteristicKind,
                      clang::FileID) override {
@@ -1942,11 +1946,12 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
     MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
                       bool allow_mock_includes, bool skip_function_bodies, std::vector<std::string> *shadow_guards = nullptr,
                       std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots  = nullptr,
-                      std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots = nullptr, bool *cacheable = nullptr,
-                      bool *lookup_guards_complete = nullptr)
+                      std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots = nullptr,
+                      ParseObservationState                               state                  = {})
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
           skip_function_bodies_(skip_function_bodies), shadow_guards_(shadow_guards), parse_input_snapshots_(parse_input_snapshots),
-          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable), lookup_guards_complete_(lookup_guards_complete) {}
+          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(state.cacheable),
+          lookup_guards_complete_(state.lookup_guards_complete) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
         const bool is_named_module_input = named_module_name_from_source_file(std::filesystem::path{input_file.str()}).has_value();
@@ -1955,7 +1960,8 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
         }
         compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(
             compiler.getSourceManager(), compiler.getPreprocessor().getHeaderSearchInfo(), dependencies_, shadow_guards_,
-            parse_input_snapshots_, parse_lookup_snapshots_, cacheable_, lookup_guards_complete_));
+            parse_input_snapshots_, parse_lookup_snapshots_,
+            ParseObservationState{.cacheable = cacheable_, .lookup_guards_complete = lookup_guards_complete_}));
         if (!record_parse_input_snapshot(compiler.getSourceManager(), compiler.getSourceManager().getMainFileID(),
                                          parse_input_snapshots_) &&
             cacheable_ != nullptr) {
@@ -1988,15 +1994,16 @@ class MatchFinderActionFactory final : public clang::tooling::FrontendActionFact
                              bool allow_mock_includes, bool skip_function_bodies, std::vector<std::string> *shadow_guards = nullptr,
                              std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots  = nullptr,
                              std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots = nullptr,
-                             bool *cacheable = nullptr, bool *lookup_guards_complete = nullptr)
+                             ParseObservationState                               state                  = {})
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
           skip_function_bodies_(skip_function_bodies), shadow_guards_(shadow_guards), parse_input_snapshots_(parse_input_snapshots),
-          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable), lookup_guards_complete_(lookup_guards_complete) {}
+          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(state.cacheable),
+          lookup_guards_complete_(state.lookup_guards_complete) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, skip_function_bodies_,
-                                                   shadow_guards_, parse_input_snapshots_, parse_lookup_snapshots_, cacheable_,
-                                                   lookup_guards_complete_);
+        return std::make_unique<MatchFinderAction>(
+            finder_, dependencies_, allow_includes_, allow_mock_includes_, skip_function_bodies_, shadow_guards_, parse_input_snapshots_,
+            parse_lookup_snapshots_, ParseObservationState{.cacheable = cacheable_, .lookup_guards_complete = lookup_guards_complete_});
     }
 
   private:
@@ -6558,16 +6565,19 @@ int main(int argc, const char **argv) {
             MatchFinder finder;
             register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
                                       !mock_manifest_discovery_only);
-            MatchFinderActionFactory action_factory{finder,
-                                                    local_dependencies,
-                                                    allow_includes,
-                                                    options.discover_mocks,
-                                                    skip_function_bodies,
-                                                    track_lookup_state ? &local_shadow_guards : nullptr,
-                                                    use_parse_cache ? &local_parse_input_snapshots : nullptr,
-                                                    use_parse_cache ? &local_parse_lookup_snapshots : nullptr,
-                                                    track_lookup_state ? &local_cacheable : nullptr,
-                                                    collect_lookup_guards ? &local_lookup_guards_complete : nullptr};
+            MatchFinderActionFactory action_factory{
+                finder,
+                local_dependencies,
+                allow_includes,
+                options.discover_mocks,
+                skip_function_bodies,
+                track_lookup_state ? &local_shadow_guards : nullptr,
+                use_parse_cache ? &local_parse_input_snapshots : nullptr,
+                use_parse_cache ? &local_parse_lookup_snapshots : nullptr,
+                ParseObservationState{
+                    .cacheable              = track_lookup_state ? &local_cacheable : nullptr,
+                    .lookup_guards_complete = collect_lookup_guards ? &local_lookup_guards_complete : nullptr,
+                }};
 
             ParseResult result;
             std::string gentest_diag_buffer;
@@ -6695,8 +6705,9 @@ int main(int argc, const char **argv) {
             collect_lookup_guards ? &lookup_guards : nullptr,
             nullptr,
             nullptr,
-            nullptr,
-            collect_lookup_guards ? &lookup_state_complete : nullptr,
+            ParseObservationState{
+                .lookup_guards_complete = collect_lookup_guards ? &lookup_state_complete : nullptr,
+            },
         };
 
         const int status = tool.run(&action_factory);
