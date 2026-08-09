@@ -63,6 +63,24 @@ endif()
 
 _gentest_prepare_xmake_workspace(_project_dir "${SOURCE_DIR}" "${_gentest_xmake_root}")
 
+set(_module_mock_probe_source "${_project_dir}/tests/consumer/module_mock_defs.cppm")
+file(READ "${_module_mock_probe_source}" _module_mock_probe_text)
+file(WRITE "${_module_mock_probe_source}" [=[module;
+#if __has_include("xmake_module_mock_optional.hpp")
+#include "xmake_module_mock_optional.hpp"
+#endif
+
+]=] "${_module_mock_probe_text}")
+
+set(_module_suite_probe_source "${_project_dir}/tests/consumer/cases.cppm")
+file(READ "${_module_suite_probe_source}" _module_suite_probe_text)
+string(REPLACE
+  "#include <string_view>\n"
+  "#include <string_view>\n#if __has_include(\"xmake_module_suite_optional.hpp\")\n#include \"xmake_module_suite_optional.hpp\"\n#endif\n"
+  _module_suite_probe_text
+  "${_module_suite_probe_text}")
+file(WRITE "${_module_suite_probe_source}" "${_module_suite_probe_text}")
+
 set(_configured_target_cc "$ENV{GENTEST_XMAKE_TEST_TARGET_CC}")
 set(_configured_target_cxx "$ENV{GENTEST_XMAKE_TEST_TARGET_CXX}")
 set(_has_configured_target_cc FALSE)
@@ -352,6 +370,13 @@ if(_suite_compdb_flag_pos EQUAL -1)
     "stdout:\n${_build_out}\n"
     "stderr:\n${_build_err}")
 endif()
+foreach(_lookup_guard_log IN ITEMS _mock_build_log _suite_build_log)
+  string(FIND "${${_lookup_guard_log}}" "--lookup-guard-output" _lookup_guard_flag_pos)
+  if(_lookup_guard_flag_pos EQUAL -1)
+    message(FATAL_ERROR
+      "xmake module codegen did not request an exact lookup-guard sidecar.\n${${_lookup_guard_log}}")
+  endif()
+endforeach()
 foreach(_expected IN ITEMS
     "-DGENTEST_CONSUMER_USE_MODULES=1"
     "-DGENTEST_XMAKE_MODULE_MOCKS_DEFINE=1"
@@ -431,6 +456,48 @@ if(NOT _aggregate_mtime_after STREQUAL _aggregate_mtime_before)
     "Before: ${_aggregate_mtime_before}\n"
     "After:  ${_aggregate_mtime_after}")
 endif()
+
+# Module mock and suite codegen must both retain wholly missing __has_include
+# candidates. Creating each candidate schedules its owner once, then the
+# stable membership produces a native Xmake no-op.
+function(_gentest_check_module_optional_probe header_name target_name label)
+  file(WRITE "${_project_dir}/tests/consumer/${header_name}" "#pragma once\n")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+            "${_xmake}" ${_clang_build_args} "${target_name}"
+    WORKING_DIRECTORY "${_project_dir}"
+    RESULT_VARIABLE _probe_rc
+    OUTPUT_VARIABLE _probe_out
+    ERROR_VARIABLE _probe_err)
+  set(_probe_log "${_probe_out}\n${_probe_err}")
+  string(FIND "${_probe_log}" "--source-root" _probe_codegen_pos)
+  if(NOT _probe_rc EQUAL 0 OR _probe_codegen_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Creating the missing ${label} __has_include candidate did not rerun module codegen.\n${_probe_log}")
+  endif()
+
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+            "${_xmake}" ${_clang_build_args} "${target_name}"
+    WORKING_DIRECTORY "${_project_dir}"
+    RESULT_VARIABLE _probe_noop_rc
+    OUTPUT_VARIABLE _probe_noop_out
+    ERROR_VARIABLE _probe_noop_err)
+  set(_probe_noop_log "${_probe_noop_out}\n${_probe_noop_err}")
+  string(FIND "${_probe_noop_log}" "--source-root" _probe_noop_codegen_pos)
+  if(NOT _probe_noop_rc EQUAL 0 OR NOT _probe_noop_codegen_pos EQUAL -1)
+    message(FATAL_ERROR "Stable ${label} __has_include membership did not produce an Xmake no-op.\n${_probe_noop_log}")
+  endif()
+endfunction()
+
+_gentest_check_module_optional_probe(
+  "xmake_module_mock_optional.hpp"
+  "gentest_consumer_module_mocks_xmake"
+  "module mock")
+_gentest_check_module_optional_probe(
+  "xmake_module_suite_optional.hpp"
+  "gentest_consumer_module_xmake"
+  "module suite")
 
 set(_extra_defs "${_project_dir}/tests/consumer/module_mock_extra_defs.cppm")
 file(WRITE "${_extra_defs}" [=[export module gentest.consumer_mock_extra_defs;

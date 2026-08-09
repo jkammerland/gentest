@@ -1596,6 +1596,21 @@ local function dependency_fingerprint(files)
     return table.concat(parts, "\31")
 end
 
+local function absent_guard_fingerprint(entries)
+    local parts = {}
+    for _, entry in ipairs(entries or {}) do
+        if type(entry) == "table" and entry.kind == "absent" and type(entry.path) == "string" then
+            local state = "absent"
+            if os.exists(entry.path) then
+                state = "present:" .. tostring(os.mtime(entry.path))
+            end
+            table.insert(parts, entry.path .. "=" .. state)
+        end
+    end
+    table.sort(parts)
+    return table.concat(parts, "\31")
+end
+
 local function run_cached_codegen(target, batchcmds, config)
     if config.kind == "modules" then
         require_clang_module_toolchain(target, config.operation)
@@ -1624,7 +1639,7 @@ local function run_cached_codegen(target, batchcmds, config)
         -- closure; the fingerprint makes the native cache run this batch when
         -- any of those headers changed.
         batchcmds:add_depfiles(table.unpack(native_dependencies))
-        batchcmds:add_depvalues(identity, dependency_fingerprint(native_dependencies))
+        batchcmds:add_depvalues(identity, dependency_fingerprint(native_dependencies), absent_guard_fingerprint(cached_entries))
         batchcmds:set_depcache(target:dependfile(config.depcache_anchor))
     end
     -- No sidecar closure means no trustworthy native dependency cache. Leave
@@ -1839,10 +1854,8 @@ function gentest_add_mocks(opts)
         table.insert(config.outputs, output)
     end
     config.depcache_anchor = config.header_output or config.module_header_outputs[1]
-    if kind == "textual" then
-        config.lookup_guard_output = config.depcache_anchor .. ".lookup_guards.json"
-        table.insert(config.outputs, config.lookup_guard_output)
-    end
+    config.lookup_guard_output = config.depcache_anchor .. ".lookup_guards.json"
+    table.insert(config.outputs, config.lookup_guard_output)
     config.prepare_inputs = prepare_mock_codegen_inputs
     local dep_targets = collect_dep_targets(opts.deps)
 
@@ -2047,10 +2060,8 @@ function gentest_attach_codegen(opts)
     end
     config.prepare_inputs = prepare_suite_codegen_inputs
     config.depcache_anchor = config.header_output
-    if kind == "textual" then
-        config.lookup_guard_output = config.depcache_anchor .. ".lookup_guards.json"
-        table.insert(config.outputs, config.lookup_guard_output)
-    end
+    config.lookup_guard_output = config.depcache_anchor .. ".lookup_guards.json"
+    table.insert(config.outputs, config.lookup_guard_output)
     set_configdir(project_root())
     local fmt_link = gentest_fmt_link_name()
     if not fmt_link then
