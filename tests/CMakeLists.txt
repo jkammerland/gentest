@@ -53,6 +53,19 @@ add_dependencies(gentest_test_suites gentest_codegen_timing_utils_tests)
 add_test(NAME gentest_codegen_timing_utils COMMAND $<TARGET_FILE:gentest_codegen_timing_utils_tests>)
 set_property(TEST gentest_codegen_timing_utils APPEND PROPERTY LABELS "codegen;timing")
 
+add_executable(gentest_parse_cache_tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/parse_cache_tests.cpp
+    ${PROJECT_SOURCE_DIR}/tools/src/parse_cache.cpp
+    ${PROJECT_SOURCE_DIR}/tools/src/mock_manifest.cpp)
+target_compile_features(gentest_parse_cache_tests PRIVATE cxx_std_20)
+target_include_directories(gentest_parse_cache_tests PRIVATE ${PROJECT_SOURCE_DIR}/tools/src)
+target_link_libraries(gentest_parse_cache_tests PRIVATE gentest_codegen_support)
+add_dependencies(gentest_test_suites gentest_parse_cache_tests)
+add_test(
+    NAME gentest_codegen_textual_parse_cache_unit
+    COMMAND $<TARGET_FILE:gentest_parse_cache_tests> ${CMAKE_CURRENT_BINARY_DIR})
+set_property(TEST gentest_codegen_textual_parse_cache_unit APPEND PROPERTY LABELS "codegen;cache")
+
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
 target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)

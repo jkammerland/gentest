@@ -1571,6 +1571,48 @@ void prime_llvm_statistics_registry() {
     return true;
 }
 
+#if CLANG_VERSION_MAJOR < 22
+[[nodiscard]] bool source_buffer_mentions_embed(llvm::StringRef buffer) {
+    bool        in_block_comment = false;
+    std::string logical_line;
+    std::size_t cursor = 0;
+    while (cursor < buffer.size()) {
+        const std::size_t line_end = buffer.find('\n', cursor);
+        const std::size_t next     = line_end == llvm::StringRef::npos ? buffer.size() : line_end + 1;
+        llvm::StringRef   line     = buffer.slice(cursor, line_end == llvm::StringRef::npos ? buffer.size() : line_end);
+        if (!line.empty() && line.back() == '\r') {
+            line = line.drop_back();
+        }
+
+        std::string stripped  = strip_comments_for_line_scan(line.str(), in_block_comment);
+        const bool  continued = gentest::codegen::scan::has_trailing_line_continuation(stripped);
+        if (continued) {
+            gentest::codegen::scan::strip_trailing_line_continuation(stripped);
+        }
+        logical_line += stripped;
+        if (!continued) {
+            if (logical_line.find("__has_embed") != std::string::npos) {
+                return true;
+            }
+            std::string_view directive = logical_line;
+            const auto       first     = directive.find_first_not_of(" \t\r\n");
+            if (first != std::string_view::npos) {
+                directive.remove_prefix(first);
+                if (!directive.empty() && directive.front() == '#') {
+                    directive.remove_prefix(1);
+                    if (gentest::codegen::scan::consume_scan_keyword(directive, "embed")) {
+                        return true;
+                    }
+                }
+            }
+            logical_line.clear();
+        }
+        cursor = next;
+    }
+    return false;
+}
+#endif
+
 class DependencyRecorder final : public clang::PPCallbacks {
   public:
     DependencyRecorder(clang::SourceManager &source_manager, clang::HeaderSearch &header_search, std::vector<std::string> &dependencies,
@@ -1579,11 +1621,20 @@ class DependencyRecorder final : public clang::PPCallbacks {
           cacheable_(cacheable) {}
 
     void FileChanged(clang::SourceLocation loc, clang::PPCallbacks::FileChangeReason reason, clang::SrcMgr::CharacteristicKind,
-                     clang::FileID) override {
+                     clang::FileID file_id) override {
         if (reason != clang::PPCallbacks::FileChangeReason::EnterFile) {
             return;
         }
         record(loc);
+#if CLANG_VERSION_MAJOR < 22
+        if (cacheable_ != nullptr && *cacheable_) {
+            bool       invalid = false;
+            const auto buffer  = source_manager_.getBufferData(file_id, &invalid);
+            if (!invalid && source_buffer_mentions_embed(buffer)) {
+                mark_uncacheable();
+            }
+        }
+#endif
     }
 
     void InclusionDirective(clang::SourceLocation hash_loc, const clang::Token &include_token, llvm::StringRef file_name, bool is_angled,

@@ -37,12 +37,18 @@ new shadowing header produces a miss. Header maps, frameworks, and
 and module imports conservatively bypass caching. The effective Clang driver
 command fingerprints default and explicit config expansion. Commands using VFS
 overlays, plugins, PCHs, header modules, or relative forced includes and macros
-also bypass; absolute direct `-include`/`-imacros` inputs are guarded.
+also bypass; absolute direct `-include`/`-imacros` inputs are guarded. Clang 22
+provides direct embed callbacks; on Clang 20 and 21 Gentest conservatively
+scans every entered source buffer and bypasses a TU containing `#embed` or
+`__has_embed`.
 
 Entries are written through a same-directory temporary file and atomic rename.
 Unreadable, corrupt, stale, locked, read-only, or concurrently written cache
 entries are always ordinary misses; they never fail code generation. Cache
 files are implementation data, not build outputs or depfile dependencies.
+Dependency and source hashing is streamed and limited to 256 MiB per file;
+the codegen executable identity is limited to 1 GiB. Larger inputs safely
+disable storage or produce a miss instead of being read into memory.
 The cache directory is expected to be build-owned and trusted. Direct entry
 symlinks are rejected and reads are size-bounded from one opened file, but the
 cache is not a security boundary against an adversary replacing directory
