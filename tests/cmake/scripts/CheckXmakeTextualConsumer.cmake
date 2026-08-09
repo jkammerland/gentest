@@ -112,6 +112,44 @@ if(NOT WIN32)
         "Concurrent Xmake dependency-cache publication was not atomic.\n"
         "stdout:\n${_dep_race_validate_out}\nstderr:\n${_dep_race_validate_err}")
     endif()
+
+    set(_owner_dir "${_dep_cache_unit_dir}/owner-race")
+    set(_owner_cache "${_owner_dir}/snapshot")
+    set(_owner_output "${_owner_dir}/generated.txt")
+    set(_owner_depfile "${_owner_dir}/generated.d")
+    file(MAKE_DIRECTORY "${_owner_dir}")
+    gentest_fixture_join_posix_shell_command(_owner_writer_a
+      "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/run_codegen_with_dep_cache.lua"
+      "${_owner_cache}" "${_owner_depfile}" identity-a "${_owner_dir}" 1 "${_xmake}"
+      "${_owner_output}" lua "${SOURCE_DIR}/tests/xmake/fake_codegen_cache_writer.lua"
+      "${_owner_output}" "${_owner_depfile}" identity-a 50)
+    gentest_fixture_join_posix_shell_command(_owner_writer_b
+      "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/run_codegen_with_dep_cache.lua"
+      "${_owner_cache}" "${_owner_depfile}" identity-b "${_owner_dir}" 1 "${_xmake}"
+      "${_owner_output}" lua "${SOURCE_DIR}/tests/xmake/fake_codegen_cache_writer.lua"
+      "${_owner_output}" "${_owner_depfile}" identity-b 0)
+    execute_process(
+      COMMAND "${_sh}" -c
+        "${_owner_writer_a} & p1=$!; ${_owner_writer_b} & p2=$!; wait \"$p1\"; a=$?; wait \"$p2\"; b=$?; test \"$a\" -eq 0 && test \"$b\" -eq 0"
+      RESULT_VARIABLE _owner_race_rc
+      OUTPUT_VARIABLE _owner_race_out
+      ERROR_VARIABLE _owner_race_err)
+    if(NOT _owner_race_rc EQUAL 0)
+      message(FATAL_ERROR
+        "Concurrent divergent Xmake codegen owners failed.\n"
+        "stdout:\n${_owner_race_out}\nstderr:\n${_owner_race_err}")
+    endif()
+    execute_process(
+      COMMAND "${_xmake}" lua "${SOURCE_DIR}/tests/xmake/check_codegen_dep_cache.lua"
+              validate-output "${_owner_cache}" "${_owner_output}"
+      RESULT_VARIABLE _owner_validate_rc
+      OUTPUT_VARIABLE _owner_validate_out
+      ERROR_VARIABLE _owner_validate_err)
+    if(NOT _owner_validate_rc EQUAL 0)
+      message(FATAL_ERROR
+        "Divergent Xmake codegen snapshot does not own its generated output.\n"
+        "stdout:\n${_owner_validate_out}\nstderr:\n${_owner_validate_err}")
+    endif()
   endif()
 endif()
 
@@ -240,6 +278,8 @@ set(_xmake_env
   "--unset=GENTEST_CODEGEN_SCAN_DEPS_MODE"
   "--unset=GENTEST_CODEGEN_PARSE_CACHE"
   "--unset=GENTEST_CODEGEN_PARSE_CACHE_DIR"
+  "--unset=GENTEST_STRICT_FIXTURE"
+  "--unset=GENTEST_NO_INCLUDE_SOURCES"
   "GENTEST_CODEGEN=${_codegen}"
   "GENTEST_CODEGEN_HOST_CLANG=${_clang_cxx}"
   "GENTEST_XMAKE_SKIP_MODULE_TARGETS=1"
@@ -503,6 +543,41 @@ if(NOT _resource_dir_noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Stable GENTEST_CODEGEN_RESOURCE_DIR did not produce a no-op build.\n${_resource_dir_noop_log}")
 endif()
 list(APPEND _xmake_env "${_resource_dir_env}")
+
+set(_strict_fixture_env "GENTEST_STRICT_FIXTURE=1")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_strict_fixture_env}"
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _strict_fixture_rc
+  OUTPUT_VARIABLE _strict_fixture_out
+  ERROR_VARIABLE _strict_fixture_err)
+if(NOT _strict_fixture_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake build failed after changing GENTEST_STRICT_FIXTURE.\n${_strict_fixture_out}\n${_strict_fixture_err}")
+endif()
+set(_strict_fixture_log "${_strict_fixture_out}\n${_strict_fixture_err}")
+string(FIND "${_strict_fixture_log}" "--source-root" _strict_fixture_codegen_pos)
+if(_strict_fixture_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Changing GENTEST_STRICT_FIXTURE did not rerun gentest_codegen.\n${_strict_fixture_log}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_strict_fixture_env}"
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _strict_fixture_noop_rc
+  OUTPUT_VARIABLE _strict_fixture_noop_out
+  ERROR_VARIABLE _strict_fixture_noop_err)
+if(NOT _strict_fixture_noop_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake no-op failed with stable GENTEST_STRICT_FIXTURE.\n${_strict_fixture_noop_out}\n${_strict_fixture_noop_err}")
+endif()
+set(_strict_fixture_noop_log "${_strict_fixture_noop_out}\n${_strict_fixture_noop_err}")
+string(FIND "${_strict_fixture_noop_log}" "--source-root" _strict_fixture_noop_codegen_pos)
+if(NOT _strict_fixture_noop_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Stable GENTEST_STRICT_FIXTURE did not produce a no-op build.\n${_strict_fixture_noop_log}")
+endif()
+list(APPEND _xmake_env "${_strict_fixture_env}")
 
 # An unrelated file must leave the discovered closure untouched.
 file(WRITE "${_project_dir}/tests/consumer/xmake_incremental_unrelated.hpp" "#pragma once\n")
@@ -812,6 +887,25 @@ list(GET _mock_impl_matches 0 _mock_impl)
 file(READ "${_mock_impl}" _mock_impl_contents)
 if(NOT _mock_impl_contents MATCHES "AdditionalService")
   message(FATAL_ERROR "The second textual mock definitions file was not processed by codegen.\n${_mock_impl_contents}")
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "GENTEST_NO_INCLUDE_SOURCES=1"
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _removed_env_rc
+  OUTPUT_VARIABLE _removed_env_out
+  ERROR_VARIABLE _removed_env_err)
+if(_removed_env_rc EQUAL 0)
+  message(FATAL_ERROR
+    "GENTEST_NO_INCLUDE_SOURCES unexpectedly reused cached Xmake generation.\n"
+    "stdout:\n${_removed_env_out}\nstderr:\n${_removed_env_err}")
+endif()
+set(_removed_env_log "${_removed_env_out}\n${_removed_env_err}")
+string(FIND "${_removed_env_log}" "GENTEST_NO_INCLUDE_SOURCES was removed" _removed_env_diagnostic_pos)
+if(_removed_env_diagnostic_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Changing GENTEST_NO_INCLUDE_SOURCES did not run codegen and surface the removal diagnostic.\n${_removed_env_log}")
 endif()
 
 file(GLOB_RECURSE _consumer_bins

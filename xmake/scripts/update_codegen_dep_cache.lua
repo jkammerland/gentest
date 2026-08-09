@@ -52,9 +52,34 @@ local function matching_snapshot(snapshot, identity, entries)
     return true
 end
 
-local function save_snapshot_locked(cache_path, identity, files)
+function snapshot_current(cache_path, identity)
+    for _, candidate in ipairs(os.files(cache_path .. ".v.*") or {}) do
+        local loaded, state = utils.trycall(function()
+            return io.load(candidate)
+        end)
+        if loaded and type(state) == "table" and state.schema == 1 and state.identity == identity and type(state.files) == "table" then
+            local current = true
+            for _, entry in ipairs(state.files) do
+                if type(entry) ~= "table" or type(entry.path) ~= "string" or os.mtime(entry.path) ~= entry.mtime then
+                    current = false
+                    break
+                end
+            end
+            if current then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function save_snapshot_locked(cache_path, identity, files)
     local entries = {}
     for _, filepath in ipairs(files) do
+        if not os.isfile(filepath) then
+            cprint("${yellow}warning: gentest codegen dependency cache omitted because a declared input/output is missing: %s", filepath)
+            return false
+        end
         table.insert(entries, {path = filepath, mtime = os.mtime(filepath)})
     end
     local snapshot = snapshot_name(cache_path, identity, entries)
@@ -115,17 +140,22 @@ local function save_snapshot_locked(cache_path, identity, files)
     for _, stale_temporary in ipairs(os.files(cache_path .. ".next.*") or {}) do
         os.tryrm(stale_temporary)
     end
+    return true
 end
 
-local function save_snapshot(cache_path, identity, files)
+function with_cache_lock(cache_path, strict, callback)
     local directory = path.directory(cache_path)
     local prepared, prepare_errors = utils.trycall(function()
         os.mkdir(directory)
         return io.openlock(cache_path .. ".lock")
     end)
     if not prepared or not prepare_errors then
-        cprint("${yellow}warning: gentest codegen dependency cache lock could not be opened: %s", prepare_errors or "unknown error")
-        return
+        local message = "gentest codegen dependency cache lock could not be opened: " .. tostring(prepare_errors or "unknown error")
+        if strict then
+            raise(message)
+        end
+        cprint("${yellow}warning: %s", message)
+        return false
     end
 
     local lock = prepare_errors
@@ -137,14 +167,15 @@ local function save_snapshot(cache_path, identity, files)
         utils.trycall(function()
             lock:close()
         end)
-        cprint("${yellow}warning: gentest codegen dependency cache lock could not be acquired: %s", lock_errors or "unknown error")
-        return
+        local message = "gentest codegen dependency cache lock could not be acquired: " .. tostring(lock_errors or "unknown error")
+        if strict then
+            raise(message)
+        end
+        cprint("${yellow}warning: %s", message)
+        return false
     end
 
-    local saved, save_errors = utils.trycall(function()
-        save_snapshot_locked(cache_path, identity, files)
-        return true
-    end)
+    local invoked, result_or_errors = utils.trycall(callback)
     local unlocked, unlock_errors = utils.trycall(function()
         lock:unlock()
         return true
@@ -153,11 +184,21 @@ local function save_snapshot(cache_path, identity, files)
         lock:close()
         return true
     end)
-    if not saved then
-        cprint("${yellow}warning: gentest codegen dependency cache was not updated: %s", save_errors or "unknown error")
-    elseif not unlocked or not unlock_errors or not closed or not close_errors then
-        cprint("${yellow}warning: gentest codegen dependency cache lock cleanup failed: %s", unlock_errors or close_errors or "unknown error")
+    if not unlocked or not unlock_errors or not closed or not close_errors then
+        local message = "gentest codegen dependency cache lock cleanup failed: " .. tostring(unlock_errors or close_errors or "unknown error")
+        if strict then
+            raise(message)
+        end
+        cprint("${yellow}warning: %s", message)
     end
+    if not invoked then
+        if strict then
+            raise(result_or_errors or "gentest codegen dependency cache operation failed")
+        end
+        cprint("${yellow}warning: gentest codegen dependency cache was not updated: %s", result_or_errors or "unknown error")
+        return false
+    end
+    return result_or_errors
 end
 
 function main(cache_path, depfile, identity, project_root, ...)
@@ -169,5 +210,7 @@ function main(cache_path, depfile, identity, project_root, ...)
     for _, filepath in ipairs({...}) do
         append_unique(files, seen, filepath, project_root)
     end
-    save_snapshot(cache_path, identity, files)
+    with_cache_lock(cache_path, false, function()
+        return save_snapshot_locked(cache_path, identity, files)
+    end)
 end
