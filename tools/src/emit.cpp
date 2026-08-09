@@ -1324,6 +1324,7 @@ bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::stri
         !add_option_artifact(opts.mock_public_header_path, "mock public header", "--mock-public-header") ||
         !add_option_artifact(opts.mock_aggregate_module_path, "mock aggregate module", "--mock-aggregate-module-output") ||
         !add_option_artifact(opts.mock_manifest_output_path, "mock manifest", "--mock-manifest-output") ||
+        !add_option_artifact(opts.lookup_guard_output_path.value_or(fs::path{}), "lookup guard sidecar", "--lookup-guard-output") ||
         !add_option_artifact(opts.timing_json_path.value_or(fs::path{}), "timing JSON", "--timing-json")) {
         return false;
     }
