@@ -1,9 +1,27 @@
 set_project("gentest")
 set_languages("cxx20")
-set_policy("build.ccache", false)
 
 add_rules("mode.debug", "mode.release")
 add_requires("fmt")
+
+option("gentest_codegen_parse_cache")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Enable gentest_codegen's opt-in textual parse cache")
+option_end()
+
+option("gentest_codegen_parse_cache_dir")
+    set_default("")
+    set_showmenu(true)
+    set_description("Build-directory-relative gentest_codegen parse cache directory (empty uses .gentest_codegen_parse_cache)")
+option_end()
+
+option("gentest_compiler_cache")
+    set_default("off")
+    set_showmenu(true)
+    set_values("off", "xmake")
+    set_description("Gentest target compiler-cache policy: off or Xmake's build-local cache")
+option_end()
 
 local project_root = os.scriptdir()
 local codegen_project_root = project_root
@@ -40,15 +58,22 @@ local enable_module_targets = os.getenv("GENTEST_XMAKE_SKIP_MODULE_TARGETS") ~= 
 includes("xmake/gentest.lua")
 gentest_configure({
     project_root = project_root,
+    helper_root = path.join(project_root, "xmake"),
     codegen_project_root = codegen_project_root,
     incdirs = incdirs,
     gentest_common_defines = gentest_common_defines,
     gentest_common_cxxflags = gentest_common_cxxflags,
+    codegen = {
+        parse_cache = get_config("gentest_codegen_parse_cache"),
+        parse_cache_dir = get_config("gentest_codegen_parse_cache_dir"),
+        compiler_cache = get_config("gentest_compiler_cache"),
+    },
 })
 
 target("gentest_runtime")
     set_kind("static")
     gentest_apply_windows_llvm_toolchain()
+    gentest_apply_compiler_cache_policy("textual")
     add_packages("fmt")
     add_files("src/async.cpp")
     add_files("src/bench_stats.cpp")
@@ -81,6 +106,7 @@ if enable_module_targets then
     target("gentest")
         set_kind("static")
         gentest_apply_windows_llvm_toolchain()
+        gentest_apply_compiler_cache_policy("modules")
         add_packages("fmt")
         add_includedirs(incdirs, {public = true})
         add_defines(gentest_common_defines)
@@ -94,6 +120,7 @@ end
 target("gentest_main")
     set_kind("static")
     gentest_apply_windows_llvm_toolchain()
+    gentest_apply_compiler_cache_policy("textual")
     add_packages("fmt")
     add_files("src/gentest_main.cpp")
     add_includedirs(incdirs)

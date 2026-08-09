@@ -36,6 +36,14 @@ policy as `-Dgentest_codegen_parse_cache=true` and
 `GENTEST_CODEGEN_PARSE_CACHE` policy can still opt in. A Meson-emitted
 `--parse-cache-dir` wins over both environment settings.
 
+Xmake users can opt in with `xmake f --gentest_codegen_parse_cache=y` and can
+set `--gentest_codegen_parse_cache_dir=<dir>`. An empty directory uses
+`<builddir>/.gentest_codegen_parse_cache`; relative directories are resolved
+from the Xmake build directory. With the option false (the default), Xmake
+emits no cache CLI option, so ambient `GENTEST_CODEGEN_PARSE_CACHE=ON` still
+applies. When Xmake is explicitly enabled, its emitted `--parse-cache-dir`
+takes precedence over environment directory settings.
+
 Entries contain the complete textual parse result (cases, fixtures, mocks and
 successful diagnostics) plus the dependency set. Reuse verifies SHA-256
 content hashes and physical file identity, adjusted compile command, Clang and
