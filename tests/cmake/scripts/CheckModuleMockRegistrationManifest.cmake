@@ -131,6 +131,26 @@ endfunction()
 set(_header "${_generated_dir}/tu_0000_module_service.gentest.h")
 set(_registration "${_generated_dir}/tu_0000_module_service.registration.gentest.cpp")
 set(_depfile "${_generated_dir}/tu_0000_module_service.d")
+set(_timing_json "${_generated_dir}/module_registration.timing.json")
+
+file(SHA256 "${_manifest}" _registration_manifest_hash_before)
+_gentest_expect_result(
+  "timing JSON cannot replace registration manifest input"
+  1
+  "mock registration manifest input"
+  "${PROG}"
+  --tu-out-dir "${_generated_dir}/timing-collision"
+  --tu-header-output "${_generated_dir}/timing-collision/tu_0000_module_service.gentest.h"
+  --module-registration-output "${_generated_dir}/timing-collision/tu_0000_module_service.registration.gentest.cpp"
+  --mock-registration-manifest "${_manifest}"
+  --timing-json "${_manifest}"
+  "${_module_source}"
+  --
+  ${_clang_args})
+file(SHA256 "${_manifest}" _registration_manifest_hash_after)
+if(NOT "${_registration_manifest_hash_after}" STREQUAL "${_registration_manifest_hash_before}")
+  message(FATAL_ERROR "Timing JSON collision modified mock registration manifest '${_manifest}'")
+endif()
 
 _gentest_expect_result(
   "registration manifest mode emits same-module mock attachment"
@@ -141,6 +161,7 @@ _gentest_expect_result(
   --tu-header-output "${_header}"
   --module-registration-output "${_registration}"
   --mock-registration-manifest "${_manifest}"
+  --timing-json "${_timing_json}"
   --depfile "${_depfile}"
   "${_module_source}"
   --
@@ -151,6 +172,42 @@ foreach(_generated IN ITEMS "${_header}" "${_registration}" "${_depfile}")
     message(FATAL_ERROR "Expected module mock registration manifest output '${_generated}'")
   endif()
 endforeach()
+
+if(NOT EXISTS "${_timing_json}")
+  message(FATAL_ERROR "Expected module-registration timing JSON '${_timing_json}'")
+endif()
+file(READ "${_timing_json}" _timing_text)
+string(JSON _timing_phase_count LENGTH "${_timing_text}" phases)
+set(_module_mock_render_timing_found FALSE)
+foreach(_timing_phase_index RANGE 0 ${_timing_phase_count})
+  if(_timing_phase_index EQUAL _timing_phase_count)
+    break()
+  endif()
+  string(JSON _timing_phase_name GET "${_timing_text}" phases ${_timing_phase_index} name)
+  if(NOT _timing_phase_name STREQUAL "mock")
+    continue()
+  endif()
+  string(JSON _timing_path_type ERROR_VARIABLE _timing_path_error TYPE "${_timing_text}" phases ${_timing_phase_index} path)
+  if(NOT _timing_path_error STREQUAL "NOTFOUND")
+    continue()
+  endif()
+  if(NOT _timing_path_type STREQUAL "STRING")
+    continue()
+  endif()
+  string(JSON _timing_path GET "${_timing_text}" phases ${_timing_phase_index} path)
+  if(NOT _timing_path STREQUAL "${_registration}")
+    continue()
+  endif()
+  string(JSON _timing_module GET "${_timing_text}" phases ${_timing_phase_index} module)
+  string(JSON _timing_duration_type TYPE "${_timing_text}" phases ${_timing_phase_index} duration_us)
+  if(NOT _timing_module STREQUAL "gentest.module_mock_registration_manifest" OR NOT _timing_duration_type STREQUAL "NUMBER")
+    message(FATAL_ERROR "Module-registration mock render timing record is malformed:\n${_timing_text}")
+  endif()
+  set(_module_mock_render_timing_found TRUE)
+endforeach()
+if(NOT _module_mock_render_timing_found)
+  message(FATAL_ERROR "Module-registration mock attachment render has no identified mock timing record:\n${_timing_text}")
+endif()
 
 file(READ "${_registration}" _registration_text)
 foreach(_token IN ITEMS

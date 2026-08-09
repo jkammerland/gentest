@@ -3665,6 +3665,60 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_tu_depfile_escaped_paths APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_timing_json
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenTuDepfileAggregation.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DMODE=timing_json)
+set_property(TEST gentest_codegen_timing_json APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_timing_write_failure
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenTuDepfileAggregation.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DMODE=timing_write_failure)
+set_property(TEST gentest_codegen_timing_write_failure APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_timing_dependency_collision
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenTuDepfileAggregation.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DMODE=timing_dependency_collision)
+set_property(TEST gentest_codegen_timing_dependency_collision APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_timing_nonregular_destination
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenTuDepfileAggregation.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DMODE=timing_nonregular_destination)
+set_property(TEST gentest_codegen_timing_nonregular_destination APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_build_pool
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenBuildPool.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DC_COMPILER=${CMAKE_C_COMPILER}
+    -DCXX_COMPILER=${CMAKE_CXX_COMPILER})
+set_property(TEST gentest_codegen_build_pool APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_codegen_cli_validation_warnings
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenCliValidationWarnings.cmake
