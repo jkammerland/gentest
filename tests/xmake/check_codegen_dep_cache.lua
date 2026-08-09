@@ -43,6 +43,32 @@ local function run_parser_check(helper, work_dir)
         expected_drive_space = path.join(work_dir, expected_drive_space)
     end
     require_equal(dependencies[5], path.absolute(expected_drive_space), "Make-escaped Windows path with spaces")
+
+    for _, line_ending in ipairs({"\n", "\r\n"}) do
+        local suffix = line_ending == "\n" and "lf" or "crlf"
+        local final_backslash = "final-" .. suffix .. "\\"
+        local final_depfile = path.join(work_dir, "final-" .. suffix .. ".d")
+        io.writefile(final_depfile, "output: " .. make_escape(final_backslash) .. line_ending)
+        local final_dependencies = codegen_dep_cache_common.dependencies(final_depfile, work_dir)
+        require_equal(#final_dependencies, 1, suffix .. " final-backslash dependency count")
+        require_equal(
+            final_dependencies[1],
+            path.absolute(path.join(work_dir, final_backslash)),
+            suffix .. " final literal backslash"
+        )
+
+        local first = path.join(work_dir, suffix .. " first.hpp")
+        local second = path.join(work_dir, suffix .. " second.hpp")
+        local continuation_depfile = path.join(work_dir, "continuation-" .. suffix .. ".d")
+        io.writefile(
+            continuation_depfile,
+            "output: " .. make_escape(first) .. " \\" .. line_ending .. " " .. make_escape(second) .. line_ending
+        )
+        local continuation_dependencies = codegen_dep_cache_common.dependencies(continuation_depfile, work_dir)
+        require_equal(#continuation_dependencies, 2, suffix .. " continuation dependency count")
+        require_equal(continuation_dependencies[1], path.absolute(first), suffix .. " continuation first dependency")
+        require_equal(continuation_dependencies[2], path.absolute(second), suffix .. " continuation second dependency")
+    end
 end
 
 local function validate_snapshot(cache_path, identity)
