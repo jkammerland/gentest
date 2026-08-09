@@ -961,9 +961,8 @@ bool write_file_atomic_if_changed(const fs::path &path, std::string_view content
         log_err("gentest_codegen: failed to inspect output file '{}': {}\n", path.string(), ec.message());
         return false;
     }
-    const bool replaced = destination_exists
-                              ? ::ReplaceFileW(path.c_str(), tmp_path.c_str(), nullptr, REPLACEFILE_WRITE_THROUGH, nullptr, nullptr) != 0
-                              : ::MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_WRITE_THROUGH) != 0;
+    const bool replaced = destination_exists ? ::ReplaceFileW(path.c_str(), tmp_path.c_str(), nullptr, 0, nullptr, nullptr) != 0
+                                             : ::MoveFileExW(tmp_path.c_str(), path.c_str(), MOVEFILE_WRITE_THROUGH) != 0;
     if (!replaced) {
         ec = std::error_code{static_cast<int>(::GetLastError()), std::system_category()};
     }
