@@ -303,7 +303,7 @@ not yet separate non-CMake CI lanes.
   Xmake target public include/module settings are not inferred for codegen.
 - The current package shape is validated through the checked-in fixture-local
   xrepo repository, not a published external xrepo registry entry yet.
-- Like other depfile-based generators, adding a previously missing header that
-  would shadow an include is not observable until another recorded input causes
-  codegen to run. Existing discovered headers, owner sources, generator tools,
-  configuration, and generated products are tracked directly.
+- Codegen derives negative lookup guards from depfile-resolved headers and the
+  ordered include roots. Creating a previously missing earlier shadow header
+  therefore invalidates the sidecar, while unrelated files remain outside the
+  discovered closure.

@@ -75,11 +75,11 @@ local function validate_snapshot(cache_path, identity)
     local candidates = os.files(cache_path .. ".v.*") or {}
     require_equal(#candidates, 1, "published snapshot count")
     local loaded = io.load(candidates[1])
-    if type(loaded) ~= "table" or loaded.schema ~= 1 or loaded.identity ~= identity or type(loaded.files) ~= "table" then
+    if type(loaded) ~= "table" or loaded.schema ~= 2 or loaded.identity ~= identity or type(loaded.files) ~= "table" then
         fail("published snapshot is invalid")
     end
     for _, entry in ipairs(loaded.files) do
-        if type(entry) ~= "table" or type(entry.path) ~= "string" or entry.mtime ~= os.mtime(entry.path) then
+        if type(entry) ~= "table" or type(entry.path) ~= "string" or entry.kind ~= "file" or entry.mtime ~= os.mtime(entry.path) then
             fail("published snapshot contains an invalid file fingerprint")
         end
     end
