@@ -18,6 +18,7 @@ and ``summary.md`` and never invents results for an unavailable compiler.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform

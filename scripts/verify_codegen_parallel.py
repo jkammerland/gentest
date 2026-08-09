@@ -176,7 +176,8 @@ def main() -> int:
         except CodegenCommandError as error:
             print(f"error: cannot assert parallel codegen cap: {error}", file=sys.stderr)
             return 2
-        current = hash_outputs(outputs)
+        current_outputs = collect_outputs(command)
+        current = hash_outputs(current_outputs)
         diffs = diff_hashes(baseline, current)
         if diffs:
             print("[verify] FAIL: parallel output differs from serial baseline:", file=sys.stderr)

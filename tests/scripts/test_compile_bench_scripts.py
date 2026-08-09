@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import math
 import os
@@ -16,6 +18,7 @@ import sys
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import bench_compile_campaign as campaign  # noqa: E402
+import verify_codegen_parallel as verifier  # noqa: E402
 from compile_bench_common import (  # noqa: E402
     CodegenCommandError,
     alternating_order,
@@ -137,6 +140,37 @@ class StatisticsAndOrderTests(unittest.TestCase):
 
 
 class CampaignContractTests(unittest.TestCase):
+    def test_provenance_hashes_file_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            tool = Path(temporary_directory) / "cmake"
+            tool.write_bytes(b"campaign-tool")
+            with mock.patch.object(campaign, "run_output", return_value="cmake version"):
+                provenance = campaign.version(tool)
+        self.assertEqual(provenance["sha256"], hashlib.sha256(b"campaign-tool").hexdigest())
+        self.assertEqual(provenance["version"], "cmake version")
+
+    def test_parallel_verifier_detects_new_output_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            build_dir = Path(temporary_directory)
+            (build_dir / "build.ninja").write_text("# fixture\n", encoding="utf-8")
+            baseline_output = build_dir / "tu_0000.gentest.h"
+            extra_output = build_dir / "tu_0001.gentest.h"
+            baseline_output.write_text("baseline\n", encoding="utf-8")
+            extra_output.write_text("parallel-only\n", encoding="utf-8")
+            with (
+                mock.patch.object(sys, "argv", ["verify_codegen_parallel.py", "--build-dir", str(build_dir), "--repeats", "1"]),
+                mock.patch.object(verifier, "parse_codegen_commands", return_value={"gentest_codegen_parallel_bench_obj": "codegen"}),
+                mock.patch.object(verifier, "run_codegen", return_value={"effective": 1}),
+                mock.patch.object(
+                    verifier,
+                    "collect_outputs",
+                    side_effect=[[baseline_output], [baseline_output, extra_output]],
+                ),
+                mock.patch.object(sys, "stdout", io.StringIO()),
+                mock.patch.object(sys, "stderr", io.StringIO()),
+            ):
+                self.assertEqual(verifier.main(), 1)
+
     def test_cache_mode_and_dirty_checkout_validation_are_explicit(self) -> None:
         self.assertIsNone(resolve_cache_tool("off", lambda _: None))
         self.assertEqual(resolve_cache_tool("ccache", lambda name: f"/tools/{name}"), "/tools/ccache")
