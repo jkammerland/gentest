@@ -7,6 +7,7 @@
 #include "mock_manifest.hpp"
 #include "model.hpp"
 #include "parallel_for.hpp"
+#include "parse_cache.hpp"
 #include "scan_utils.hpp"
 #include "source_inspection.hpp"
 #include "timing_utils.hpp"
@@ -22,6 +23,8 @@
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
+#include <clang/Driver/Compilation.h>
+#include <clang/Driver/Driver.h>
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Lex/PPCallbacks.h>
@@ -50,6 +53,7 @@
 #include <llvm/Support/Program.h>
 #include <llvm/Support/StringSaver.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/TargetParser/Host.h>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -116,16 +120,16 @@ class TimingRecorder {
     [[nodiscard]] bool enabled() const { return path_.has_value() && !path_->empty(); }
 
     void record(std::string name, TimePoint started, std::optional<std::size_t> tu_index = std::nullopt, std::string source = {},
-                std::string path = {}, std::string module = {}) {
+                std::string path = {}, std::string module = {}, std::string cache = {}) {
         if (!enabled()) {
             return;
         }
         const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - started).count();
-        record_duration(std::move(name), elapsed, tu_index, std::move(source), std::move(path), std::move(module));
+        record_duration(std::move(name), elapsed, tu_index, std::move(source), std::move(path), std::move(module), std::move(cache));
     }
 
     void record_duration(std::string name, std::int64_t duration_us, std::optional<std::size_t> tu_index = std::nullopt,
-                         std::string source = {}, std::string path = {}, std::string module = {}) {
+                         std::string source = {}, std::string path = {}, std::string module = {}, std::string cache = {}) {
         if (!enabled()) {
             return;
         }
@@ -137,6 +141,7 @@ class TimingRecorder {
             .source      = std::move(source),
             .path        = std::move(path),
             .module      = std::move(module),
+            .cache       = std::move(cache),
         });
     }
 
@@ -158,8 +163,8 @@ class TimingRecorder {
         // the JSON layout stable enough for consumers by sorting identity
         // fields while leaving the measured values untouched.
         std::ranges::sort(records, [](const Record &lhs, const Record &rhs) {
-            return std::tie(lhs.name, lhs.tu_index, lhs.source, lhs.path, lhs.module) <
-                   std::tie(rhs.name, rhs.tu_index, rhs.source, rhs.path, rhs.module);
+            return std::tie(lhs.name, lhs.tu_index, lhs.source, lhs.path, lhs.module, lhs.cache) <
+                   std::tie(rhs.name, rhs.tu_index, rhs.source, rhs.path, rhs.module, rhs.cache);
         });
 
         llvm::json::Array phase_values;
@@ -179,6 +184,9 @@ class TimingRecorder {
             }
             if (!record.module.empty()) {
                 phase["module"] = record.module;
+            }
+            if (!record.cache.empty()) {
+                phase["cache"] = record.cache;
             }
             phase_values.push_back(std::move(phase));
         }
@@ -237,6 +245,7 @@ class TimingRecorder {
         std::string                source;
         std::string                path;
         std::string                module;
+        std::string                cache;
     };
 
     std::optional<std::filesystem::path> path_;
@@ -1564,8 +1573,10 @@ void prime_llvm_statistics_registry() {
 
 class DependencyRecorder final : public clang::PPCallbacks {
   public:
-    DependencyRecorder(clang::SourceManager &source_manager, std::vector<std::string> &dependencies)
-        : source_manager_(source_manager), dependencies_(dependencies) {}
+    DependencyRecorder(clang::SourceManager &source_manager, clang::HeaderSearch &header_search, std::vector<std::string> &dependencies,
+                       std::vector<std::string> *shadow_guards, bool *cacheable)
+        : source_manager_(source_manager), header_search_(header_search), dependencies_(dependencies), shadow_guards_(shadow_guards),
+          cacheable_(cacheable) {}
 
     void FileChanged(clang::SourceLocation loc, clang::PPCallbacks::FileChangeReason reason, clang::SrcMgr::CharacteristicKind,
                      clang::FileID) override {
@@ -1575,7 +1586,127 @@ class DependencyRecorder final : public clang::PPCallbacks {
         record(loc);
     }
 
+    void InclusionDirective(clang::SourceLocation hash_loc, const clang::Token &include_token, llvm::StringRef file_name, bool is_angled,
+                            clang::CharSourceRange, clang::OptionalFileEntryRef file, llvm::StringRef search_path,
+                            llvm::StringRef relative_path, const clang::Module *suggested_module, bool,
+                            clang::SrcMgr::CharacteristicKind) override {
+        if (suggested_module != nullptr) {
+            mark_uncacheable();
+            return;
+        }
+        if (const auto *identifier = include_token.getIdentifierInfo(); identifier != nullptr && identifier->getName() == "include_next") {
+            mark_uncacheable();
+            return;
+        }
+        record_lookup_guards(hash_loc, file_name, is_angled, file, search_path, relative_path);
+    }
+
+    void EnteredSubmodule(clang::Module *, clang::SourceLocation, bool) override { mark_uncacheable(); }
+
+    void moduleImport(clang::SourceLocation, clang::ModuleIdPath, const clang::Module *) override { mark_uncacheable(); }
+
+    void HasInclude(clang::SourceLocation loc, llvm::StringRef file_name, bool is_angled, clang::OptionalFileEntryRef file,
+                    clang::SrcMgr::CharacteristicKind) override {
+        const auto spelling_loc = source_manager_.getSpellingLoc(loc);
+        const auto file_id      = source_manager_.getFileID(spelling_loc);
+        bool       invalid      = false;
+        const auto buffer       = source_manager_.getBufferData(file_id, &invalid);
+        if (!invalid && source_manager_.getFileOffset(spelling_loc) <= buffer.size() &&
+            buffer.drop_front(source_manager_.getFileOffset(spelling_loc)).starts_with("__has_include_next")) {
+            mark_uncacheable();
+            return;
+        }
+        record_lookup_guards(loc, file_name, is_angled, file, {}, file_name);
+    }
+
+    void MacroExpands(const clang::Token &macro_name_token, const clang::MacroDefinition &, clang::SourceRange,
+                      const clang::MacroArgs *) override {
+        const auto *identifier = macro_name_token.getIdentifierInfo();
+        if (identifier != nullptr &&
+            (identifier->getName() == "__DATE__" || identifier->getName() == "__TIME__" || identifier->getName() == "__TIMESTAMP__")) {
+            mark_uncacheable();
+        }
+    }
+
+#if CLANG_VERSION_MAJOR >= 22
+    void EmbedDirective(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef,
+                        const clang::LexEmbedParametersResult &) override {
+        mark_uncacheable();
+    }
+
+    void HasEmbed(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef) override { mark_uncacheable(); }
+#endif
+
   private:
+    void mark_uncacheable() {
+        if (cacheable_ != nullptr) {
+            *cacheable_ = false;
+        }
+    }
+
+    void add_guard(const std::filesystem::path &path) {
+        if (shadow_guards_ == nullptr || path.empty()) {
+            return;
+        }
+        const std::string normalized = normalize_dependency_path(path.generic_string());
+        if (!normalized.empty()) {
+            shadow_guards_->push_back(normalized);
+        }
+    }
+
+    void record_lookup_guards(clang::SourceLocation include_loc, llvm::StringRef file_name, bool is_angled,
+                              clang::OptionalFileEntryRef file, llvm::StringRef search_path, llvm::StringRef relative_path) {
+        if (shadow_guards_ == nullptr || cacheable_ == nullptr || !*cacheable_) {
+            return;
+        }
+        const std::filesystem::path requested{file_name.str()};
+        if (requested.is_absolute()) {
+            add_guard(requested);
+            return;
+        }
+
+        std::vector<std::filesystem::path> roots;
+        roots.reserve(header_search_.search_dir_size() + 1);
+        if (!is_angled) {
+            const auto file_loc = source_manager_.getFileLoc(include_loc);
+            const auto filename = source_manager_.getFilename(file_loc);
+            if (!filename.empty()) {
+                roots.emplace_back(std::filesystem::path{filename.str()}.parent_path());
+            }
+        }
+        for (const auto &lookup : header_search_.search_dir_range()) {
+            if (!lookup.isNormalDir()) {
+                mark_uncacheable();
+                return;
+            }
+            roots.emplace_back(lookup.getName().str());
+        }
+
+        const std::string actual_path = file.has_value() ? normalize_dependency_path(file->getName().str()) : std::string{};
+        const std::string actual_root = search_path.empty() ? std::string{} : normalize_dependency_path(search_path.str());
+        const std::string relative    = relative_path.empty() ? file_name.str() : relative_path.str();
+        bool              found       = !file.has_value();
+        for (const auto &root : roots) {
+            const std::filesystem::path candidate       = root / relative;
+            const std::string           candidate_path  = normalize_dependency_path(candidate.generic_string());
+            const std::string           normalized_root = normalize_dependency_path(root.generic_string());
+            const bool                  is_actual =
+                !actual_path.empty() && ((!actual_root.empty() && normalized_root == actual_root) || candidate_path == actual_path);
+            if (is_actual) {
+                found = true;
+                break;
+            }
+            add_guard(candidate);
+        }
+        if (!found) {
+            mark_uncacheable();
+            return;
+        }
+        if (file.has_value()) {
+            add_guard(std::filesystem::path{actual_path});
+        }
+    }
+
     void record(clang::SourceLocation loc) {
         const clang::SourceLocation file_loc = source_manager_.getFileLoc(loc);
         if (file_loc.isInvalid()) {
@@ -1598,7 +1729,10 @@ class DependencyRecorder final : public clang::PPCallbacks {
     }
 
     clang::SourceManager     &source_manager_;
+    clang::HeaderSearch      &header_search_;
     std::vector<std::string> &dependencies_;
+    std::vector<std::string> *shadow_guards_;
+    bool                     *cacheable_;
 };
 
 class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
@@ -1634,16 +1768,18 @@ void register_codegen_matchers(MatchFinder &finder, TestCaseCollector &test_coll
 class MatchFinderAction final : public clang::ASTFrontendAction {
   public:
     MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                      bool allow_mock_includes, bool skip_function_bodies)
+                      bool allow_mock_includes, bool skip_function_bodies, std::vector<std::string> *shadow_guards = nullptr,
+                      bool *cacheable = nullptr)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
-          skip_function_bodies_(skip_function_bodies) {}
+          skip_function_bodies_(skip_function_bodies), shadow_guards_(shadow_guards), cacheable_(cacheable) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
         const bool is_named_module_input = named_module_name_from_source_file(std::filesystem::path{input_file.str()}).has_value();
         if (skip_function_bodies_ && !is_named_module_input) {
             compiler.getFrontendOpts().SkipFunctionBodies = true;
         }
-        compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(compiler.getSourceManager(), dependencies_));
+        compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(
+            compiler.getSourceManager(), compiler.getPreprocessor().getHeaderSearchInfo(), dependencies_, shadow_guards_, cacheable_));
         const std::string normalized = normalize_dependency_path(input_file.str());
         if (!normalized.empty()) {
             dependencies_.push_back(normalized);
@@ -1658,17 +1794,21 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
     bool                              allow_includes_       = false;
     bool                              allow_mock_includes_  = false;
     bool                              skip_function_bodies_ = false;
+    std::vector<std::string>         *shadow_guards_        = nullptr;
+    bool                             *cacheable_            = nullptr;
 };
 
 class MatchFinderActionFactory final : public clang::tooling::FrontendActionFactory {
   public:
     MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                             bool allow_mock_includes, bool skip_function_bodies)
+                             bool allow_mock_includes, bool skip_function_bodies, std::vector<std::string> *shadow_guards = nullptr,
+                             bool *cacheable = nullptr)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
-          skip_function_bodies_(skip_function_bodies) {}
+          skip_function_bodies_(skip_function_bodies), shadow_guards_(shadow_guards), cacheable_(cacheable) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, skip_function_bodies_);
+        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, skip_function_bodies_,
+                                                   shadow_guards_, cacheable_);
     }
 
   private:
@@ -1677,6 +1817,8 @@ class MatchFinderActionFactory final : public clang::tooling::FrontendActionFact
     bool                              allow_includes_       = false;
     bool                              allow_mock_includes_  = false;
     bool                              skip_function_bodies_ = false;
+    std::vector<std::string>         *shadow_guards_        = nullptr;
+    bool                             *cacheable_            = nullptr;
 };
 
 bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_args = false) {
@@ -3991,6 +4133,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<std::string> timing_json_option{
         "timing-json", llvm::cl::desc("Write a changed-only JSON timing sidecar after successful code generation"), llvm::cl::init(""),
         llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string> parse_cache_dir_option{
+        "parse-cache-dir", llvm::cl::desc("Cache successful textual TU parse results in this directory (opt-in)"), llvm::cl::init(""),
+        llvm::cl::cat(category)};
     static llvm::cl::opt<bool> check_option{"check", llvm::cl::desc("Validate attributes only; do not emit code"), llvm::cl::init(false),
                                             llvm::cl::cat(category)};
     static llvm::cl::opt<bool> inspect_source_option{"inspect-source", llvm::cl::desc("Inspect one source and print source-shape facts"),
@@ -4153,6 +4298,32 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     }
     if (!source_root_option.getValue().empty()) {
         opts.source_root = std::filesystem::path{source_root_option.getValue()};
+    }
+    bool parse_cache_enabled = parse_cache_dir_option.getNumOccurrences() != 0 && !parse_cache_dir_option.getValue().empty();
+    if (!parse_cache_enabled) {
+        if (const auto parse_cache_env = get_env_value("GENTEST_CODEGEN_PARSE_CACHE"); parse_cache_env) {
+            if (const auto enabled = parse_cmake_bool(*parse_cache_env); enabled.has_value()) {
+                parse_cache_enabled = *enabled;
+            } else {
+                gentest::codegen::log_err("gentest_codegen: warning: ignoring invalid GENTEST_CODEGEN_PARSE_CACHE='{}'\n",
+                                          *parse_cache_env);
+            }
+        }
+    }
+    if (parse_cache_enabled) {
+        if (parse_cache_dir_option.getNumOccurrences() != 0 && !parse_cache_dir_option.getValue().empty()) {
+            opts.parse_cache_dir = std::filesystem::path{parse_cache_dir_option.getValue()};
+        } else if (const auto parse_cache_dir_env = get_env_value("GENTEST_CODEGEN_PARSE_CACHE_DIR");
+                   parse_cache_dir_env && !parse_cache_dir_env->empty()) {
+            opts.parse_cache_dir = std::filesystem::path{*parse_cache_dir_env};
+        } else {
+            const std::filesystem::path base =
+                opts.compilation_database.has_value() ? *opts.compilation_database : std::filesystem::current_path();
+            opts.parse_cache_dir = base / ".gentest_codegen_parse_cache";
+        }
+        if (const auto cache_salt = get_env_value("GENTEST_CODEGEN_PARSE_CACHE_SALT"); cache_salt) {
+            opts.parse_cache_salt = *cache_salt;
+        }
     }
     if (!opts.explicit_module_sources_by_name.empty()) {
         const std::filesystem::path explicit_module_base =
@@ -5216,6 +5387,10 @@ int main(int argc, const char **argv) {
 
     const bool has_any_named_module_imports =
         std::ranges::any_of(imported_named_modules_by_source, [](const auto &imports) { return !imports.empty(); });
+    // A global named-module import disables normalized textual source overlays
+    // for every TU in this invocation. It therefore changes a cacheable
+    // textual TU's parse input even when that TU does not import a module.
+    const bool normalized_module_source_overlay_enabled = named_module_sources.empty() && !has_any_named_module_imports;
 
     const auto  pcm_started             = TimingRecorder::Clock::now();
     std::size_t pcm_timing_record_count = 0;
@@ -5818,18 +5993,276 @@ int main(int argc, const char **argv) {
         };
     }();
 
-    struct ParseResult {
-        int                                          status             = 0;
-        bool                                         had_test_errors    = false;
-        bool                                         had_fixture_errors = false;
-        bool                                         had_mock_errors    = false;
-        std::vector<TestCaseInfo>                    cases;
-        std::vector<FixtureDeclInfo>                 fixtures;
-        std::vector<gentest::codegen::MockClassInfo> mocks;
-        std::vector<std::string>                     dependencies;
+    std::unique_ptr<gentest::codegen::TextualParseCache> textual_parse_cache;
+    std::string                                          parse_cache_tool_identity;
+    if (options.parse_cache_dir.has_value()) {
+        const std::string codegen_path = argv[0] == nullptr ? std::string{} : resolve_program_invocation_path(argv[0]);
+        if (!codegen_path.empty()) {
+            if (const std::string executable_hash = gentest::codegen::TextualParseCache::executable_identity(codegen_path);
+                !executable_hash.empty()) {
+                parse_cache_tool_identity = fmt::format("gentest_codegen={};clang={}", executable_hash, CLANG_VERSION_STRING);
+            }
+        }
+        if (!parse_cache_tool_identity.empty()) {
+            textual_parse_cache = std::make_unique<gentest::codegen::TextualParseCache>(*options.parse_cache_dir);
+        }
+    }
+
+    const std::string parse_cache_default_working_directory =
+        options.compilation_database.has_value() ? options.compilation_database->string() : std::filesystem::current_path().string();
+
+    // ClangTool invokes the driver after the tooling arguments have been
+    // adjusted. The driver may expand default/explicit config files and
+    // environment-derived search roots, so the raw compile-db argv is not a
+    // sufficient cache context. Fingerprint its one unambiguous compiler job
+    // instead. A failure here is deliberately an eligibility failure, never a
+    // codegen error.
+    // The source and working-directory strings are adjacent but carry distinct
+    // roles that are explicit at the only call site below.
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    const auto effective_parse_command = [&](const clang::tooling::CommandLineArguments &adjusted_command, llvm::StringRef source_file,
+                                             std::string_view working_directory) -> std::optional<clang::tooling::CommandLineArguments> {
+        if (adjusted_command.empty()) {
+            return std::nullopt;
+        }
+        auto                                            syntax_only_command = syntax_only_adjuster(adjusted_command, source_file);
+        auto                                            physical_fs_unique  = llvm::vfs::createPhysicalFileSystem();
+        llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> physical_fs;
+        if (physical_fs_unique) {
+            physical_fs = llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(physical_fs_unique.release());
+        } else {
+            physical_fs = llvm::vfs::getRealFileSystem();
+        }
+        if (!working_directory.empty() && physical_fs->setCurrentWorkingDirectory(working_directory)) {
+            return std::nullopt;
+        }
+
+        llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagnostic_ids{new clang::DiagnosticIDs()};
+        clang::DiagnosticOptions                       driver_diagnostic_options;
+        clang::DiagnosticsEngine driver_diagnostics{diagnostic_ids, driver_diagnostic_options, new clang::IgnoringDiagConsumer(),
+                                                    /*ShouldOwnClient=*/true};
+        clang::driver::Driver    driver{syntax_only_command.front(), llvm::sys::getDefaultTargetTriple(), driver_diagnostics,
+                                        "gentest_codegen", physical_fs};
+        driver.setCheckInputsExist(false);
+
+        llvm::SmallVector<const char *, 64> driver_args;
+        driver_args.reserve(syntax_only_command.size());
+        for (const auto &arg : syntax_only_command) {
+            driver_args.push_back(arg.c_str());
+        }
+        std::unique_ptr<clang::driver::Compilation> compilation{driver.BuildCompilation(driver_args)};
+        if (!compilation || driver_diagnostics.hasErrorOccurred()) {
+            return std::nullopt;
+        }
+        const auto &jobs = compilation->getJobs().getJobs();
+        if (jobs.size() != 1) {
+            return std::nullopt;
+        }
+
+        clang::tooling::CommandLineArguments effective;
+        const auto                          &job = *jobs.front();
+        effective.emplace_back(job.getExecutable());
+        effective.reserve(job.getArguments().size() + 1);
+        for (const char *arg : job.getArguments()) {
+            effective.emplace_back(arg);
+        }
+        return effective;
     };
 
-    const bool  multi_tu            = allow_includes && options.sources.size() > 1;
+    const auto command_is_parse_cache_safe = [](std::span<const std::string> command_line) {
+        const auto is_absolute_input = [](std::string_view value) {
+            return !value.empty() && std::filesystem::path{std::string{value}}.is_absolute();
+        };
+        const auto has_absolute_forced_input = [&](std::string_view value) { return is_absolute_input(value); };
+
+        for (std::size_t arg_index = 0; arg_index < command_line.size(); ++arg_index) {
+            const std::string_view arg = command_line[arg_index];
+            // Config files are expanded into the effective cc1 command
+            // fingerprint above. VFS overlays are not: their mapping content
+            // can alter lookup without changing the cc1 argument spelling.
+            if (arg == "-ivfsoverlay" || arg.starts_with("-ivfsoverlay=") || arg == "-vfsoverlay" || arg.starts_with("-vfsoverlay=") ||
+                arg == "/clang:-ivfsoverlay" || arg.starts_with("/clang:-ivfsoverlay=") || arg == "/clang:-vfsoverlay" ||
+                arg.starts_with("/clang:-vfsoverlay=")) {
+                return false;
+            }
+            // Header modules, module maps, and prebuilt/implicit PCMs do not
+            // have a complete textual dependency callback surface.
+            if (arg == "-fmodules" || arg.starts_with("-fmodules=") || arg.starts_with("-fmodule") ||
+                arg.starts_with("-fprebuilt-module-path") || arg.starts_with("-fimplicit-module")) {
+                return false;
+            }
+            if (arg == "-include-pch" || arg.starts_with("-include-pch=")) {
+                return false;
+            }
+            if (arg.starts_with("-fplugin") || arg.starts_with("/clang:-fplugin") || arg == "-load" || arg == "-plugin" ||
+                arg == "-add-plugin" || arg == "/clang:-load" || arg == "/clang:-plugin" || arg == "/clang:-add-plugin" ||
+                arg == "/interface" || arg.starts_with("/interface:") || arg == "/headerUnit" || arg.starts_with("/headerUnit:") ||
+                arg == "/reference" || arg.starts_with("/reference:") || arg == "/ifcSearchDir" || arg.starts_with("/ifcSearchDir:")) {
+                return false;
+            }
+            if (arg == "-Xclang" && arg_index + 1 < command_line.size() &&
+                (command_line[arg_index + 1] == "-load" || command_line[arg_index + 1] == "-plugin" ||
+                 command_line[arg_index + 1] == "-add-plugin")) {
+                return false;
+            }
+            if (arg == "-include" || arg == "-imacros" || arg == "/FI") {
+                if (arg_index + 1 >= command_line.size()) {
+                    return false;
+                }
+                ++arg_index;
+                if (!has_absolute_forced_input(command_line[arg_index])) {
+                    return false;
+                }
+                continue;
+            }
+            if (arg.starts_with("-include=") || arg.starts_with("-imacros=")) {
+                if (!has_absolute_forced_input(arg.substr(arg.find('=') + 1))) {
+                    return false;
+                }
+                continue;
+            }
+            // Clang also accepts joined forms (for example -includefoo.hpp).
+            // Treat them as unsupported unless they were one of the exact,
+            // path-bearing forms above; we must not reinterpret a lookup name
+            // as a direct file under the compile directory.
+            if (arg.starts_with("-include") || arg.starts_with("-imacros")) {
+                return false;
+            }
+            if (arg.size() > 3 && (arg.starts_with("/FI") || arg.starts_with("/fi")) && !has_absolute_forced_input(arg.substr(3))) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    const auto command_input_guards = [&](std::span<const std::string> command_line, std::string_view working_directory) {
+        std::vector<std::string> guards;
+        auto                     add = [&](std::string_view raw) {
+            if (raw.empty()) {
+                return;
+            }
+            std::filesystem::path path{std::string{raw}};
+            (void)working_directory;
+            const std::string normalized = normalize_dependency_path(path.generic_string());
+            if (!normalized.empty()) {
+                guards.push_back(normalized);
+            }
+        };
+        for (std::size_t arg_index = 0; arg_index < command_line.size(); ++arg_index) {
+            const std::string_view arg = command_line[arg_index];
+            if ((arg == "-include" || arg == "-imacros" || arg == "-include-pch" || arg == "/FI") && arg_index + 1 < command_line.size()) {
+                add(command_line[++arg_index]);
+            } else if (arg.starts_with("-include=") || arg.starts_with("-imacros=") || arg.starts_with("-include-pch=")) {
+                add(arg.substr(arg.find('=') + 1));
+            } else if (arg.size() > 3 && (arg.starts_with("/FI") || arg.starts_with("/fi"))) {
+                add(arg.substr(3));
+            }
+        }
+        return guards;
+    };
+
+    using ParseResult = gentest::codegen::TextualParseResult;
+
+    const bool        multi_tu                     = allow_includes && options.sources.size() > 1;
+    const bool        cache_tu_mode                = allow_includes && textual_parse_cache != nullptr && textual_parse_cache->enabled();
+    const bool        has_cacheable_textual_source = cache_tu_mode && std::ranges::any_of(options.sources, [&](const std::string &source) {
+                                                  return !module_interface_sources.contains(source);
+                                                     });
+    const bool        per_tu_parse                 = multi_tu || has_cacheable_textual_source;
+    const std::string parse_cache_policy           = fmt::format(
+        "strict_fixture={};discover_mocks={};quiet_clang={};mock_manifest_discovery_only={};skip_function_bodies={};allow_includes={};"
+        "mock_backend={};check_only={};normalized_module_source_overlay={}",
+        options.strict_fixture, options.discover_mocks, options.quiet_clang, mock_manifest_discovery_only, skip_function_bodies,
+        allow_includes, static_cast<int>(options.mock_backend), options.check_only, normalized_module_source_overlay_enabled);
+    const auto command_key = [](std::span<const std::string> command_line) {
+        std::string key;
+        for (const auto &arg : command_line) {
+            key += std::to_string(arg.size());
+            key.push_back(':');
+            key += arg;
+            key.push_back('\0');
+        }
+        return key;
+    };
+    const auto effective_include_roots = [](std::span<const std::string> command_line, std::string_view working_directory) {
+        static constexpr std::array<std::string_view, 9> split_flags = {
+            "-I",
+            "-isystem",
+            "-iquote",
+            "-idirafter",
+            "-F",
+            "-iframework",
+            "-internal-isystem",
+            "-internal-externc-isystem",
+            "-internal-iframework",
+        };
+        std::vector<std::string> roots;
+        for (std::size_t index = 0; index < command_line.size(); ++index) {
+            const std::string_view arg = command_line[index];
+            std::string_view       value;
+            std::string_view       flag;
+            for (const auto candidate : split_flags) {
+                if (arg == candidate && index + 1 < command_line.size()) {
+                    flag  = candidate;
+                    value = command_line[++index];
+                    break;
+                }
+                if ((candidate == "-I" || candidate == "-F") && arg.starts_with(candidate) && arg.size() > candidate.size()) {
+                    flag  = candidate;
+                    value = arg.substr(candidate.size());
+                    break;
+                }
+            }
+            if (value.empty()) {
+                continue;
+            }
+            std::filesystem::path path{std::string{value}};
+            if (path.is_relative() && !working_directory.empty()) {
+                path = std::filesystem::path{std::string{working_directory}} / path;
+            }
+            roots.push_back(fmt::format("{}={}", flag, normalize_dependency_path(path.generic_string())));
+        }
+        return roots;
+    };
+    const auto append_ambient_include_metadata = [](std::vector<std::string> &roots, std::string_view working_directory) {
+        static constexpr std::array<std::string_view, 7> names = {
+            "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH", "OBJCPLUS_INCLUDE_PATH", "INCLUDE", "SDKROOT",
+        };
+        const char separator =
+#if defined(_WIN32)
+            ';';
+#else
+            ':';
+#endif
+        for (const auto name : names) {
+            const auto value = get_env_value(name);
+            if (!value.has_value()) {
+                roots.push_back(fmt::format("env:{}=<unset>", name));
+                continue;
+            }
+            std::size_t start = 0;
+            while (start <= value->size()) {
+                const std::size_t      end = value->find(separator, start);
+                const std::string_view root =
+                    end == std::string::npos ? std::string_view{*value}.substr(start) : std::string_view{*value}.substr(start, end - start);
+                if (root.empty()) {
+                    // An empty compiler include-path component means the
+                    // driver's working directory, not an inert marker.
+                    roots.push_back(fmt::format("env:{}=<empty:{}>", name, normalize_dependency_path(working_directory)));
+                } else {
+                    std::filesystem::path path{std::string{root}};
+                    if (path.is_relative() && !working_directory.empty()) {
+                        path = std::filesystem::path{std::string{working_directory}} / path;
+                    }
+                    roots.push_back(fmt::format("env:{}={}", name, normalize_dependency_path(path.generic_string())));
+                }
+                if (end == std::string::npos) {
+                    break;
+                }
+                start = end + 1;
+            }
+        }
+    };
     std::size_t parse_jobs          = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
     const auto  serial_parse_reason = forced_serial_parse_reason();
     if (parse_jobs > 1 && serial_parse_reason.has_value()) {
@@ -5845,7 +6278,7 @@ int main(int argc, const char **argv) {
             gentest::codegen::log_err("gentest_codegen: using multi-TU parse jobs={}\n", parse_jobs);
         }
     }
-    if (multi_tu) {
+    if (per_tu_parse) {
         // Snapshot each TU's compile command up front so every worker gets an
         // immutable one-file view and does not need to share lookup state while
         // fanning out across separate ClangTool instances.
@@ -5853,15 +6286,16 @@ int main(int argc, const char **argv) {
         std::vector<std::string> diag_texts(options.sources.size());
 
         const auto parse_one = [&](std::size_t idx) {
-            const auto parse_started = TimingRecorder::Clock::now();
-            const auto finish_parse  = [&]() { timing.record("parse", parse_started, idx, options.sources[idx]); };
+            const auto  parse_started = TimingRecorder::Clock::now();
+            std::string cache_timing  = cache_tu_mode ? "miss" : "disabled";
+            const auto  finish_parse  = [&]() { timing.record("parse", parse_started, idx, options.sources[idx], {}, {}, cache_timing); };
             if (const auto wrapped_source = resolve_wrapped_source_from_codegen_shim(options.sources[idx]); wrapped_source.has_value()) {
                 clang::tooling::CommandLineArguments wrapped_command_line;
                 if (!compile_commands[idx].empty()) {
                     wrapped_command_line = build_augmented_scan_command_line(compile_commands[idx], direct_compile_commands[idx],
                                                                              options.sources[idx], wrapped_source->string());
                 }
-                if (wrapped_source->filename() == "main.cpp" && !source_contains_codegen_markers(*wrapped_source) &&
+                if (multi_tu && wrapped_source->filename() == "main.cpp" && !source_contains_codegen_markers(*wrapped_source) &&
                     !source_has_active_include_directives(
                         *wrapped_source, std::span<const std::string>(wrapped_command_line.data(), wrapped_command_line.size()),
                         scan_include_search_paths[idx])) {
@@ -5870,6 +6304,60 @@ int main(int argc, const char **argv) {
                     finish_parse();
                     return;
                 }
+            }
+
+            const bool        source_is_named_module = module_interface_sources.contains(options.sources[idx]);
+            const std::string source_key             = normalize_compdb_lookup_path(options.sources[idx]);
+            const bool        has_module_inputs =
+                !imported_named_modules_by_source[idx].empty() || extra_module_args_by_source.contains(source_key);
+            bool                                 use_parse_cache = cache_tu_mode && !source_is_named_module && !has_module_inputs;
+            clang::tooling::CommandLineArguments cache_adjusted_command;
+            clang::tooling::CommandLineArguments cache_effective_command;
+            std::optional<gentest::codegen::ParseCacheContext> cache_context;
+            if (use_parse_cache) {
+                cache_adjusted_command =
+                    args_adjuster(tool_compile_commands[idx].front().CommandLine, llvm::StringRef{options.sources[idx]});
+                if (!command_is_parse_cache_safe(
+                        std::span<const std::string>(cache_adjusted_command.data(), cache_adjusted_command.size()))) {
+                    use_parse_cache = false;
+                } else {
+                    const std::string &working_directory = tool_compile_commands[idx].front().Directory.empty()
+                                                               ? parse_cache_default_working_directory
+                                                               : tool_compile_commands[idx].front().Directory;
+                    const auto effective_command = effective_parse_command(cache_adjusted_command, options.sources[idx], working_directory);
+                    if (!effective_command.has_value() ||
+                        !command_is_parse_cache_safe(std::span<const std::string>(effective_command->data(), effective_command->size()))) {
+                        use_parse_cache = false;
+                    } else {
+                        cache_effective_command = *effective_command;
+                        const std::string effective_key =
+                            command_key(std::span<const std::string>(cache_effective_command.data(), cache_effective_command.size()));
+                        auto include_roots = effective_include_roots(
+                            std::span<const std::string>(cache_effective_command.data(), cache_effective_command.size()),
+                            working_directory);
+                        append_ambient_include_metadata(include_roots, working_directory);
+                        cache_context.emplace(gentest::codegen::ParseCacheContext{
+                            .source            = options.sources[idx],
+                            .adjusted_command  = effective_key,
+                            .working_directory = working_directory,
+                            .include_roots     = std::move(include_roots),
+                            .tool_identity     = parse_cache_tool_identity,
+                            .salt              = options.parse_cache_salt,
+                            .parse_policy      = parse_cache_policy,
+                        });
+                        ParseResult cached;
+                        if (textual_parse_cache->load(*cache_context, cached)) {
+                            cache_timing    = "hit";
+                            diag_texts[idx] = cached.diagnostics;
+                            results[idx]    = std::move(cached);
+                            finish_parse();
+                            return;
+                        }
+                    }
+                }
+            }
+            if (!use_parse_cache && cache_tu_mode) {
+                cache_timing = "bypass";
             }
 
 #if CLANG_VERSION_MAJOR < 21
@@ -5914,7 +6402,7 @@ int main(int argc, const char **argv) {
             };
             const auto overlay_include_paths =
                 scan_include_search_paths_from_compile_commands(tool_compile_commands[idx], options.sources[idx]);
-            if (named_module_sources.empty() && !has_any_named_module_imports) {
+            if (normalized_module_source_overlay_enabled) {
                 const auto normalized_overlay = build_normalized_module_source_overlay(
                     options.sources[idx], overlay_include_paths,
                     std::span<const std::string>(scan_command_lines[idx].data(), scan_command_lines[idx].size()));
@@ -5936,12 +6424,19 @@ int main(int argc, const char **argv) {
                 mock_collector.emplace(local_mocks);
             }
             std::vector<std::string> local_dependencies;
+            std::vector<std::string> local_shadow_guards;
+            bool                     local_cacheable = true;
 
             MatchFinder finder;
             register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
                                       !mock_manifest_discovery_only);
-            MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes, options.discover_mocks,
-                                                    skip_function_bodies};
+            MatchFinderActionFactory action_factory{finder,
+                                                    local_dependencies,
+                                                    allow_includes,
+                                                    options.discover_mocks,
+                                                    skip_function_bodies,
+                                                    use_parse_cache ? &local_shadow_guards : nullptr,
+                                                    use_parse_cache ? &local_cacheable : nullptr};
 
             ParseResult result;
             result.status             = tool.run(&action_factory);
@@ -5952,10 +6447,19 @@ int main(int argc, const char **argv) {
             result.fixtures           = std::move(local_fixtures);
             result.mocks              = std::move(local_mocks);
             result.dependencies       = std::move(local_dependencies);
-            results[idx]              = std::move(result);
 
             diag_stream.flush();
-            diag_texts[idx] = std::move(diag_buffer);
+            result.diagnostics   = std::move(diag_buffer);
+            result.shadow_guards = std::move(local_shadow_guards);
+            if (use_parse_cache) {
+                result.command_input_guards =
+                    command_input_guards(std::span<const std::string>(cache_effective_command.data(), cache_effective_command.size()),
+                                         tool_compile_commands[idx].front().Directory);
+                result.cacheable = local_cacheable;
+                textual_parse_cache->store(*cache_context, result);
+            }
+            diag_texts[idx] = result.diagnostics;
+            results[idx]    = std::move(result);
             finish_parse();
         };
 
@@ -6008,7 +6512,7 @@ int main(int argc, const char **argv) {
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
             const auto overlay_include_paths =
                 scan_include_search_paths_from_compile_commands(tool_compile_commands[i], options.sources[i]);
-            if (named_module_sources.empty() && !has_any_named_module_imports) {
+            if (normalized_module_source_overlay_enabled) {
                 if (auto normalized_overlay = build_normalized_module_source_overlay(
                         options.sources[i], overlay_include_paths,
                         std::span<const std::string>(scan_command_lines[i].data(), scan_command_lines[i].size()));

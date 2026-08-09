@@ -38,6 +38,9 @@
           },
           "module": {
             "type": "string"
+          },
+          "cache": {
+            "enum": ["hit", "miss", "disabled", "bypass"]
           }
         }
       }

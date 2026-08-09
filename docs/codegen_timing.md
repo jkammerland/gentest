@@ -23,11 +23,19 @@ The current schema is `gentest.codegen.timing.v1`
 one identified `parse` record per input TU; the legacy aggregate parse path
 uses a single `parse` record without `tu_index` because Clang handles its input
 sources in one invocation. Records may include `source`, `tu_index`, `path`,
-and `module` when the phase has a relevant identity. A phase can have multiple
+and `module` when the phase has a relevant identity. A TU-wrapper `parse`
+record may additionally include `cache`: `hit`, `miss`, `disabled`, or
+`bypass` (an intentionally ineligible named-module/module-consuming TU, or a
+TU using an unsupported cache input such as a VFS overlay, plugin, PCH,
+relative forced input, volatile time macro, or preprocessor construct whose
+lookup cannot be safely reconstructed). Driver config expansion remains
+cacheable because the effective cc1 command is part of the cache context.
+Existing v1 consumers can ignore this optional field. A phase can have multiple
 records (for example, parallel TU parsing). Named-module precompilation reports
 identified `pcm` records only; the otherwise empty PCM stage reports one
 unidentified `pcm` record, so phase durations remain additive rather than
-counting module work in both child and aggregate records. `emit` covers registration headers,
+counting module work in both child and aggregate records. `emit` covers
+registration headers,
 wrappers, artifact manifests, and writes of combined registration units. It
 excludes the measured mock-specific API-include and attachment-render spans in
 same-module registration units. Their union is emitted as one `mock` record,
