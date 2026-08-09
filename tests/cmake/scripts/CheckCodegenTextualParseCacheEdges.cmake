@@ -170,6 +170,8 @@ _write_compdb("${_forced_source}" "-include" "forced.hpp")
 _run("${_forced_source}" forced_relative bypass)
 _write_compdb("${_forced_source}" "-fmodules")
 _run("${_forced_source}" modules_bypass bypass)
+_write_compdb("${_forced_source}" "-Xclang" "-chain-include" "-Xclang" "${_forced_header}")
+_run("${_forced_source}" chain_include_bypass bypass)
 
 # Predefined time macros and VFS overlays are intentionally uncacheable. The
 # former changes without an input file edit; an overlay can rewrite lookup
@@ -205,6 +207,16 @@ inline constexpr bool cache_embed_present = false;
   _run_uncacheable_twice("${_embed_source}" embed)
   gentest_fixture_write_file("${_embed_payload}" "b")
   _run("${_embed_source}" embed_changed bypass)
+
+  set(_digraph_embed_source "${_work_dir}/digraph_embed_cases.cpp")
+  gentest_fixture_write_file("${_digraph_embed_source}" [=[
+constexpr unsigned char cache_digraph_embed[] = {
+%:embed "embed_payload.bin"
+};
+[[using gentest: test("cache/digraph_embed")]] void cache_digraph_embed_case() {}
+]=])
+  _write_compdb("${_digraph_embed_source}")
+  _run_uncacheable_twice("${_digraph_embed_source}" digraph_embed)
 endif()
 
 set(_overlay "${_work_dir}/empty-overlay.yaml")
