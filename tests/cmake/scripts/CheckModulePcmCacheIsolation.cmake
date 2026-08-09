@@ -324,7 +324,7 @@ set(_dot_sources
 
 function(_gentest_run_codegen_fixture output_stem)
   set(options LOG_SCAN_DEPS)
-  set(one_value_args PCM_CACHE PCM_CACHE_DIR TIMING_JSON COMPDB_DIR OUTPUT_ROOT CACHE_SALT OUTPUT_VARIABLE)
+  set(one_value_args PCM_CACHE PCM_CACHE_DIR TIMING_JSON COMPDB_DIR OUTPUT_ROOT CACHE_SALT OUTPUT_VARIABLE HOST_CLANG)
   set(multi_value_args SOURCES EXTRA_ARGS)
   cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -393,6 +393,10 @@ function(_gentest_run_codegen_fixture output_stem)
   if(NOT "${GENTEST_TIMING_JSON}" STREQUAL "")
     list(APPEND _timing_args --timing-json "${GENTEST_TIMING_JSON}")
   endif()
+  set(_host_clang_args)
+  if(NOT "${GENTEST_HOST_CLANG}" STREQUAL "")
+    list(APPEND _host_clang_args --host-clang "${GENTEST_HOST_CLANG}")
+  endif()
   set(_codegen_env)
   if(NOT "${GENTEST_CACHE_SALT}" STREQUAL "")
     list(APPEND _codegen_env "GENTEST_CODEGEN_PCM_CACHE_SALT=${GENTEST_CACHE_SALT}")
@@ -411,6 +415,7 @@ function(_gentest_run_codegen_fixture output_stem)
       ${_codegen_command}
       ${_pcm_cache_args}
       ${_timing_args}
+      ${_host_clang_args}
       --tu-out-dir "${_tu_output_dir}"
       ${_tu_output_args}
       --mock-registry "${_mock_registry}"
@@ -1202,5 +1207,50 @@ list(LENGTH _pcm_basenames _pcm_basename_count)
 list(LENGTH _pcm_basename_unique _pcm_basename_unique_count)
 _gentest_expect_equal("${_pcm_basename_count}" "3" "total PCM basename count")
 _gentest_expect_equal("${_pcm_basename_unique_count}" "3" "unique PCM basename count")
+
+if(NOT CMAKE_HOST_WIN32)
+  find_program(_bash NAMES bash)
+  if(_bash)
+    # Force the supported compiler-fallback path by dropping the requested
+    # `-o` pair. Clang then writes <source-stem>.pcm in the compile-command
+    # working directory; Gentest must consume and remove that leaf after
+    # publishing its private local PCM.
+    set(_fallback_tool_dir "${_work_dir}/fallback_tool")
+    set(_fallback_clang "${_fallback_tool_dir}/clang++")
+    file(MAKE_DIRECTORY "${_fallback_tool_dir}")
+    set(GENTEST_REAL_CLANGXX "${_clangxx}")
+    string(CONFIGURE [=[#!/usr/bin/env bash
+set -euo pipefail
+real_clang='@GENTEST_REAL_CLANGXX@'
+args=()
+while (($#)); do
+  if [[ "$1" == "-o" && $# -ge 2 ]]; then
+    shift 2
+    continue
+  fi
+  args+=("$1")
+  shift
+done
+exec "$real_clang" "${args[@]}"
+]=] _fallback_clang_script @ONLY)
+    file(WRITE "${_fallback_clang}" "${_fallback_clang_script}")
+    file(CHMOD "${_fallback_clang}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+
+    _gentest_run_codegen_fixture(
+      "pcm_cache_fallback_cleanup_generated"
+      PCM_CACHE OFF
+      HOST_CLANG "${_fallback_clang}"
+      SOURCES
+        "${_src_dir}/alpha_dot_provider.cppm"
+        "${_src_dir}/alpha_dot_consumer.cppm")
+    foreach(_fallback_leaf IN ITEMS
+        "${_build_dir}/alpha_dot_provider.pcm"
+        "${_build_dir}/alpha_dot_provider.ifc")
+      if(EXISTS "${_fallback_leaf}")
+        message(FATAL_ERROR "Successful fallback PCM publication leaked '${_fallback_leaf}'")
+      endif()
+    endforeach()
+  endif()
+endif()
 
 message(STATUS "Shared-build-tree PCM cache isolation regression passed")
