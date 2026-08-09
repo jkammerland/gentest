@@ -5,12 +5,20 @@ load(
     "gentest_attach_codegen_modules",
     "gentest_attach_codegen_textual",
 )
-load("@rules_cc//cc:defs.bzl", "cc_library")
+load(":quote_headers.bzl", "categorized_headers")
 
-cc_library(
+categorized_headers(
     name = "codegen_headers",
-    hdrs = ["tests/dep_case_value.hpp"],
-    includes = ["tests"],
+    hdrs = [
+        "tests/dep_case_value.hpp",
+        "tests/normal_include/include_semantics.hpp",
+        "tests/quote_include/include_semantics.hpp",
+    ],
+    includes = [
+        "tests/normal_include",
+        "tests",
+    ],
+    quote_includes = ["tests/quote_include"],
 )
 
 gentest_add_mocks_textual(

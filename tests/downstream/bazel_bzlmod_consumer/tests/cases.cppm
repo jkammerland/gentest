@@ -1,6 +1,7 @@
 module;
 
 #include "dep_case_value.hpp"
+#include "include_semantics.hpp"
 #include "private_case_value.hpp"
 
 #include <memory>
@@ -20,6 +21,7 @@ namespace {
 
 static_assert(gentest_downstream_private_case_value == 31);
 static_assert(gentest_downstream_dep_case_value == 37);
+static_assert(gentest_bazel_include_semantics == 41);
 
 struct RestoreDefaultLogSink {
     ~RestoreDefaultLogSink() { gentest::restore_default_log_sink(); }

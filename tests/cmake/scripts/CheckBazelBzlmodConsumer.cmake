@@ -374,6 +374,37 @@ if(NOT _build_rc EQUAL 0)
     "stderr:\n${_build_err}")
 endif()
 
+if(NOT GENTEST_BAZEL_HELPER_CONTRACT)
+  set(_invalid_source_hdr_args ${_build_args})
+  list(REMOVE_ITEM _invalid_source_hdr_args
+    //:gentest_downstream_textual_mocks
+    //:gentest_downstream_textual
+    //:gentest_downstream_module_mocks
+    //:gentest_downstream_module)
+  list(APPEND _invalid_source_hdr_args //invalid_source_hdrs:bad)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
+            ${_bazel_command}
+            ${_invalid_source_hdr_args}
+    WORKING_DIRECTORY "${_workspace_dir}"
+    RESULT_VARIABLE _invalid_source_hdr_rc
+    OUTPUT_VARIABLE _invalid_source_hdr_out
+    ERROR_VARIABLE _invalid_source_hdr_err)
+  if(_invalid_source_hdr_rc EQUAL 0)
+    message(FATAL_ERROR "A cross-package source_hdrs label unexpectedly passed Bazel analysis.")
+  endif()
+  set(_invalid_source_hdr_log "${_invalid_source_hdr_out}\n${_invalid_source_hdr_err}")
+  foreach(_required_source_hdr_diagnostic IN ITEMS
+      "source_hdrs accepts same-package file paths only"
+      "move '//:tests/private_case_value.hpp' to deps")
+    string(FIND "${_invalid_source_hdr_log}" "${_required_source_hdr_diagnostic}" _source_hdr_diagnostic_pos)
+    if(_source_hdr_diagnostic_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Cross-package source_hdrs failure omitted '${_required_source_hdr_diagnostic}'.\n${_invalid_source_hdr_log}")
+    endif()
+  endforeach()
+endif()
+
 function(_gentest_assert_codegen_header_invalidation header label)
   file(APPEND "${header}" "\n// ${label} invalidation\n")
   execute_process(
@@ -401,12 +432,14 @@ function(_gentest_assert_codegen_header_invalidation header label)
   endforeach()
 endfunction()
 
-_gentest_assert_codegen_header_invalidation(
-  "${_workspace_dir}/tests/private_case_value.hpp"
-  "an explicit source_hdrs header")
-_gentest_assert_codegen_header_invalidation(
-  "${_workspace_dir}/tests/dep_case_value.hpp"
-  "a transitive CcInfo dependency header")
+if(NOT GENTEST_BAZEL_HELPER_CONTRACT)
+  _gentest_assert_codegen_header_invalidation(
+    "${_workspace_dir}/tests/private_case_value.hpp"
+    "an explicit source_hdrs header")
+  _gentest_assert_codegen_header_invalidation(
+    "${_workspace_dir}/tests/dep_case_value.hpp"
+    "a transitive CcInfo dependency header")
+endif()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
