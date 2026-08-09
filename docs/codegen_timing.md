@@ -30,12 +30,13 @@ unidentified `pcm` record, so phase durations remain additive rather than
 counting module work in both child and aggregate records. `emit` covers registration headers,
 wrappers, artifact manifests, and writes of combined registration units. It
 excludes the measured mock-specific API-include and attachment-render spans in
-same-module registration units; those spans are emitted as identified `mock`
-records. The combined-unit write stays in `emit` because it is not separable
-from its registration content. `mock` also covers mock-manifest/aggregate setup
-and standalone mock render/write work, so a mock-bearing invocation can have
-more than one `mock` record. The `emit` duration excludes the union of those
-identified module-mock render spans to avoid double-counting phase time.
+same-module registration units. Their union is emitted as one `mock` record,
+with `path` and `module` retained when every span belongs to the same
+registration unit. This keeps overlapping parallel renders additive with the
+corresponding `emit` record. The combined-unit write stays in `emit` because it
+is not separable from its registration content. `mock` also covers
+mock-manifest/aggregate setup and standalone mock render/write work, so a
+mock-bearing invocation can have more than one `mock` record.
 Durations use a monotonic process-local clock; they are not reproducible
 artifacts and must be excluded from byte-for-byte generated output comparisons.
 

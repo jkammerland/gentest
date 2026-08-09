@@ -9,6 +9,7 @@
 #include "parallel_for.hpp"
 #include "scan_utils.hpp"
 #include "source_inspection.hpp"
+#include "timing_utils.hpp"
 #include "tooling_support.hpp"
 
 #include <algorithm>
@@ -235,42 +236,6 @@ class TimingRecorder {
     mutable std::mutex                   mutex_;
     std::vector<Record>                  records_;
 };
-
-std::int64_t duration_excluding_module_mock_renders(TimingRecorder::TimePoint started, TimingRecorder::TimePoint finished,
-                                                    const std::vector<gentest::codegen::ModuleMockRenderTiming> &mock_renders) {
-    using TimePoint = TimingRecorder::TimePoint;
-    std::vector<std::pair<TimePoint, TimePoint>> spans;
-    spans.reserve(mock_renders.size() * 2);
-    for (const auto &render : mock_renders) {
-        const auto add_span = [&](TimingRecorder::TimePoint span_started, TimingRecorder::TimePoint span_finished, bool recorded) {
-            if (!recorded) {
-                return;
-            }
-            span_started  = std::max(started, span_started);
-            span_finished = std::min(finished, span_finished);
-            if (span_finished > span_started) {
-                spans.emplace_back(span_started, span_finished);
-            }
-        };
-        add_span(render.api_include_started, render.api_include_finished, render.recorded_api_include);
-        add_span(render.attachment_started, render.attachment_finished, render.recorded_attachments);
-    }
-    std::ranges::sort(spans);
-
-    std::int64_t excluded_us = 0;
-    for (std::size_t idx = 0; idx < spans.size();) {
-        TimePoint  group_finished = spans[idx].second;
-        const auto group_started  = spans[idx].first;
-        ++idx;
-        while (idx < spans.size() && spans[idx].first <= group_finished) {
-            group_finished = std::max(group_finished, spans[idx].second);
-            ++idx;
-        }
-        excluded_us += std::chrono::duration_cast<std::chrono::microseconds>(group_finished - group_started).count();
-    }
-    const auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(finished - started).count();
-    return std::max<std::int64_t>(0, total_us - excluded_us);
-}
 
 struct ModuleSourceShape {
     std::optional<std::string> module_name;
@@ -6021,19 +5986,13 @@ int main(int argc, const char **argv) {
     if (emit_status != 0) {
         return emit_status;
     }
-    const auto emit_finished = TimingRecorder::Clock::now();
-    timing.record_duration("emit", duration_excluding_module_mock_renders(emit_started, emit_finished, module_mock_renders));
-    for (const auto &mock_render : module_mock_renders) {
-        const auto record_mock_span = [&](TimingRecorder::TimePoint started, TimingRecorder::TimePoint finished, bool recorded) {
-            if (!recorded) {
-                return;
-            }
-            const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finished - started).count();
-            timing.record_duration("mock", duration, std::nullopt, {}, mock_render.registration_output.generic_string(),
-                                   mock_render.module_name);
-        };
-        record_mock_span(mock_render.api_include_started, mock_render.api_include_finished, mock_render.recorded_api_include);
-        record_mock_span(mock_render.attachment_started, mock_render.attachment_finished, mock_render.recorded_attachments);
+    const auto emit_finished       = TimingRecorder::Clock::now();
+    const auto module_mock_summary = summarize_module_mock_renders(emit_started, emit_finished, module_mock_renders);
+    const auto emit_duration       = std::chrono::duration_cast<std::chrono::microseconds>(emit_finished - emit_started).count();
+    timing.record_duration("emit", std::max<std::int64_t>(0, emit_duration - module_mock_summary.duration_us));
+    if (module_mock_summary.duration_us > 0) {
+        timing.record_duration("mock", module_mock_summary.duration_us, std::nullopt, {},
+                               module_mock_summary.registration_output.generic_string(), module_mock_summary.module_name);
     }
     const auto mock_emit_started = TimingRecorder::Clock::now();
     const int  mock_emit_status  = gentest::codegen::emit_mock_outputs(final_options, mocks);

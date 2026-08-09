@@ -45,6 +45,14 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_compile_bench_scripts.py)
 set_property(TEST compile_benchmark_scripts APPEND PROPERTY LABELS "scripts;benchmark")
 
+add_executable(gentest_codegen_timing_utils_tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/timing_utils_tests.cpp)
+target_compile_features(gentest_codegen_timing_utils_tests PRIVATE cxx_std_20)
+target_include_directories(gentest_codegen_timing_utils_tests PRIVATE ${PROJECT_SOURCE_DIR}/tools/src)
+add_dependencies(gentest_test_suites gentest_codegen_timing_utils_tests)
+add_test(NAME gentest_codegen_timing_utils COMMAND $<TARGET_FILE:gentest_codegen_timing_utils_tests>)
+set_property(TEST gentest_codegen_timing_utils APPEND PROPERTY LABELS "codegen;timing")
+
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
 target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)
