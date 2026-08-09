@@ -292,13 +292,14 @@ Do not use elapsed time as the gate.
 - This is source-package / Bzlmod support, not a prebuilt binary package.
 - `gentest_add_mocks_textual(...)` currently accepts exactly one defs file.
 - `gentest_attach_codegen_*` currently require same-package `mock_targets`.
-- `source_hdrs` declares private headers read directly by the authored suite.
-  `deps` contribute their transitive `CcInfo` headers, propagated defines, and
-  quote/system/include/framework roots to codegen as well as to the final target. `source_includes` only adds
-  search flags; it does not declare files. Every header codegen can read must be
-  reachable through `source_hdrs`, `deps`, a mock provider, or Gentest's fixed
-  support inputs. Module-name mappings from arbitrary dependencies are still
-  not inferred.
+- `source_hdrs` declares same-package private file paths read directly by the
+  authored suite. Cross-package headers belong in `deps`, whose transitive
+  `CcInfo` headers, propagated defines, and distinct
+  quote/system/include/framework roots reach codegen as well as the final
+  target. `source_includes` only adds search flags; it does not declare files.
+  Every header codegen can read must be reachable through `source_hdrs`,
+  `deps`, a mock provider, or Gentest's fixed support inputs. Module-name
+  mappings from arbitrary dependencies are still not inferred.
 - The repo-local CMake bootstrap for `@gentest//:gentest_codegen` is a local
   source-package convenience and is not remote-execution portable. A packaged
   `codegen` executable label is required for portable consumers.
