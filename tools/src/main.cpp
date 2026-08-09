@@ -6212,6 +6212,11 @@ int main(int argc, const char **argv) {
             if (arg == "-include-pch" || arg.starts_with("-include-pch=")) {
                 return false;
             }
+            // Serialized AST inputs can change the declarations seen by the
+            // matcher without appearing in preprocessing dependency callbacks.
+            if (arg.starts_with("-ast-merge") || arg.starts_with("/clang:-ast-merge")) {
+                return false;
+            }
             if (arg.starts_with("-fplugin") || arg.starts_with("/clang:-fplugin") || arg == "-load" || arg == "-plugin" ||
                 arg == "-add-plugin" || arg == "/clang:-load" || arg == "/clang:-plugin" || arg == "/clang:-add-plugin" ||
                 arg == "/interface" || arg.starts_with("/interface:") || arg == "/headerUnit" || arg.starts_with("/headerUnit:") ||
@@ -6585,7 +6590,11 @@ int main(int argc, const char **argv) {
                 result.cacheable              = local_cacheable;
                 result.parse_input_snapshots  = std::move(local_parse_input_snapshots);
                 result.parse_lookup_snapshots = std::move(local_parse_lookup_snapshots);
-                textual_parse_cache->store(*cache_context, result);
+                if (local_cacheable) {
+                    textual_parse_cache->store(*cache_context, result);
+                } else {
+                    cache_timing = "bypass";
+                }
             }
             diag_texts[idx] = result.diagnostics;
             results[idx]    = std::move(result);
