@@ -18,6 +18,11 @@ struct ParseInputSnapshot {
     std::string unique_id;
 };
 
+struct ParseLookupSnapshot {
+    std::string path;
+    bool        exists = false;
+};
+
 struct TextualParseResult {
     int                          status             = 0;
     bool                         had_test_errors    = false;
@@ -41,7 +46,10 @@ struct TextualParseResult {
     // parse. These are intentionally not serialized; store() uses them to
     // prove inputs did not change between parsing and cache publication.
     std::vector<ParseInputSnapshot> parse_input_snapshots;
-    bool                            cacheable = true;
+    // HeaderSearch's existence decision for every positive/negative lookup
+    // guard. These are likewise publication-only and are not serialized.
+    std::vector<ParseLookupSnapshot> parse_lookup_snapshots;
+    bool                             cacheable = true;
 };
 
 struct ParseCacheContext {
