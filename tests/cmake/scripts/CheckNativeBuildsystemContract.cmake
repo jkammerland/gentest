@@ -121,7 +121,8 @@ endforeach()
 
 file(READ "${SOURCE_DIR}/bazel/local_exec_tools.bzl" _bazel_local_tools_content)
 foreach(_expected IN ITEMS
-    "repository_ctx.os.name.lower().find(\"windows\")"
+    "os_name = repository_ctx.os.name.lower()"
+    "os_name.find(\"windows\")"
     "target_compatible_with = [\":unavailable\"]")
   string(FIND "${_bazel_local_tools_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
