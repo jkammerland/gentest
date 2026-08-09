@@ -73,6 +73,18 @@ files are present. Deleting any recorded generated product is a safe cache
 miss and regenerates the complete output set. The build-owned sidecar is
 schema-versioned and written after successful generation; unreadable or corrupt
 state is treated as a miss.
+Snapshot publication is serialized by a build-local file lock, uses a unique
+same-directory temporary leaf, and atomically renames the immutable result, so
+two Xmake processes cannot delete or publish each other's temporary state.
+Depfile parsing decodes only Make's defined escapes; literal backslashes and
+Windows drive paths are preserved.
+
+The sidecar identity includes ambient settings that can change parsing or
+cache behavior: `GENTEST_CODEGEN_RESOURCE_DIR`,
+`GENTEST_CODEGEN_SCAN_DEPS_MODE`, parse/PCM cache enablement, directories and
+salts, `CPATH`, the language-specific include-path variables, `INCLUDE`, and
+`SDKROOT`. Changing one schedules codegen once; the next unchanged build is a
+no-op.
 
 Enable the optional textual parse cache with Xmake configuration:
 
@@ -119,7 +131,8 @@ consumer needs:
 - `bin/gentest_codegen`
 - `include/gentest/...`
 - the complete `share/gentest/xmake/` helper tree, including
-  `gentest.lua` and `scripts/update_codegen_dep_cache.lua`
+  `gentest.lua`, `scripts/update_codegen_dep_cache.lua`, and
+  `scripts/codegen_dep_cache_common.lua`
 
 The checked-in downstream proof copies the helper payload into a project-local
 directory and loads it like this:

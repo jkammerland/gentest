@@ -2,6 +2,8 @@
 -- after codegen as a batch command, so a failed generator never replaces a
 -- usable cache snapshot.
 
+import("codegen_dep_cache_common", {rootdir = os.scriptdir()})
+
 local function append_unique(result, seen, filepath, project_root)
     if not filepath or filepath == "" then
         return
@@ -15,63 +17,6 @@ local function append_unique(result, seen, filepath, project_root)
         seen[normalized] = true
         table.insert(result, normalized)
     end
-end
-
-local function depfile_dependencies(depfile, project_root)
-    if not depfile or depfile == "" or not os.isfile(depfile) then
-        return {}
-    end
-    local contents = io.readfile(depfile)
-    if not contents then
-        return {}
-    end
-    contents = contents:gsub("\\\r\n", " "):gsub("\\\n", " ")
-
-    -- A drive-letter colon is not the make-rule separator. The generator
-    -- writes a separator followed by whitespace, which is portable for both
-    -- native Windows and POSIX depfiles.
-    local separator = nil
-    local index = 1
-    while index <= #contents do
-        local ch = contents:sub(index, index)
-        if ch == "\\" then
-            index = index + 2
-        elseif ch == ":" and contents:sub(index + 1, index + 1):match("%s") then
-            separator = index
-            break
-        else
-            index = index + 1
-        end
-    end
-    if not separator then
-        return {}
-    end
-
-    local result = {}
-    local seen = {}
-    local token = {}
-    local function flush()
-        if #token > 0 then
-            append_unique(result, seen, table.concat(token), project_root)
-            token = {}
-        end
-    end
-    index = separator + 1
-    while index <= #contents do
-        local ch = contents:sub(index, index)
-        if ch == "\\" and index < #contents then
-            table.insert(token, contents:sub(index + 1, index + 1))
-            index = index + 2
-        elseif ch == " " or ch == "\t" or ch == "\r" or ch == "\n" then
-            flush()
-            index = index + 1
-        else
-            table.insert(token, ch)
-            index = index + 1
-        end
-    end
-    flush()
-    return result
 end
 
 local function snapshot_name(cache_path, identity, entries)
@@ -107,7 +52,7 @@ local function matching_snapshot(snapshot, identity, entries)
     return true
 end
 
-local function save_snapshot(cache_path, identity, files)
+local function save_snapshot_locked(cache_path, identity, files)
     local entries = {}
     for _, filepath in ipairs(files) do
         table.insert(entries, {path = filepath, mtime = os.mtime(filepath)})
@@ -130,8 +75,13 @@ local function save_snapshot(cache_path, identity, files)
         snapshot = repair_snapshot
     end
 
-    local temporary = cache_path .. ".next"
-    os.tryrm(temporary)
+    local temporary_base = cache_path .. ".next." .. tostring(os.getpid()) .. "." .. tostring(os.mclock())
+    local temporary = temporary_base
+    local temporary_index = 0
+    while os.exists(temporary) do
+        temporary_index = temporary_index + 1
+        temporary = temporary_base .. "." .. temporary_index
+    end
     local invoked, ok_or_errors = utils.trycall(function()
         os.mkdir(path.directory(cache_path))
         io.save(temporary, {schema = 1, identity = identity, files = entries}, {orderkeys = true})
@@ -162,12 +112,58 @@ local function save_snapshot(cache_path, identity, files)
             os.tryrm(candidate)
         end
     end
+    for _, stale_temporary in ipairs(os.files(cache_path .. ".next.*") or {}) do
+        os.tryrm(stale_temporary)
+    end
+end
+
+local function save_snapshot(cache_path, identity, files)
+    local directory = path.directory(cache_path)
+    local prepared, prepare_errors = utils.trycall(function()
+        os.mkdir(directory)
+        return io.openlock(cache_path .. ".lock")
+    end)
+    if not prepared or not prepare_errors then
+        cprint("${yellow}warning: gentest codegen dependency cache lock could not be opened: %s", prepare_errors or "unknown error")
+        return
+    end
+
+    local lock = prepare_errors
+    local locked, lock_errors = utils.trycall(function()
+        lock:lock()
+        return true
+    end)
+    if not locked or not lock_errors then
+        utils.trycall(function()
+            lock:close()
+        end)
+        cprint("${yellow}warning: gentest codegen dependency cache lock could not be acquired: %s", lock_errors or "unknown error")
+        return
+    end
+
+    local saved, save_errors = utils.trycall(function()
+        save_snapshot_locked(cache_path, identity, files)
+        return true
+    end)
+    local unlocked, unlock_errors = utils.trycall(function()
+        lock:unlock()
+        return true
+    end)
+    local closed, close_errors = utils.trycall(function()
+        lock:close()
+        return true
+    end)
+    if not saved then
+        cprint("${yellow}warning: gentest codegen dependency cache was not updated: %s", save_errors or "unknown error")
+    elseif not unlocked or not unlock_errors or not closed or not close_errors then
+        cprint("${yellow}warning: gentest codegen dependency cache lock cleanup failed: %s", unlock_errors or close_errors or "unknown error")
+    end
 end
 
 function main(cache_path, depfile, identity, project_root, ...)
     local files = {}
     local seen = {}
-    for _, filepath in ipairs(depfile_dependencies(depfile, project_root)) do
+    for _, filepath in ipairs(codegen_dep_cache_common.dependencies(depfile, project_root)) do
         append_unique(files, seen, filepath, project_root)
     end
     for _, filepath in ipairs({...}) do
