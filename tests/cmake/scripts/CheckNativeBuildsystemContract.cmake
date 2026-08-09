@@ -99,6 +99,11 @@ foreach(_expected IN ITEMS
     "_GENTEST_CODEGEN_TOOLCHAIN_TYPE"
     "execution_requirements = execution_requirements"
     "\"no-remote\": \"1\""
+    "source_hdrs"
+    "source_deps"
+    "codegen_support.headers"
+    "codegen_support.defines"
+    "codegen_support.framework_include_dirs"
     "defs_modules"
     "\"--mock-aggregate-module-output\""
     "\"--mock-aggregate-module-name\""
@@ -114,11 +119,23 @@ foreach(_expected IN ITEMS
   endif()
 endforeach()
 
+file(READ "${SOURCE_DIR}/bazel/local_exec_tools.bzl" _bazel_local_tools_content)
+foreach(_expected IN ITEMS
+    "repository_ctx.os.name.lower().find(\"windows\")"
+    "target_compatible_with = [\":unavailable\"]")
+  string(FIND "${_bazel_local_tools_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "bazel/local_exec_tools.bzl is missing Windows fallback safety token: ${_expected}")
+  endif()
+endforeach()
+
 file(READ "${_bazel_root_file}" _bazel_root_content)
 foreach(_expected IN ITEMS
     "gentest_add_mocks_modules("
     "defs_modules = ["
     "gentest_attach_codegen_modules("
+    "source_hdrs = ['tests/consumer/bazel_private_case_value.hpp']"
+    "gentest_consumer_codegen_headers"
     "gentest_consumer_module_mocks"
     "gentest_consumer_module_bazel")
   string(FIND "${_bazel_root_content}" "${_expected}" _expected_pos)
