@@ -251,6 +251,49 @@ if(EXISTS "${_unexpected_registry}")
   message(FATAL_ERROR "Discovery-only mock manifest command unexpectedly wrote '${_unexpected_registry}'")
 endif()
 
+# The mock-manifest emit path can finish without compiling sources. Explicit
+# tool inputs must still be reserved before that early publication path.
+gentest_find_clang_scan_deps(_early_mode_scan_deps "${_codegen_host_compiler}")
+if(NOT "${_early_mode_scan_deps}" STREQUAL "")
+  set(_early_mode_registry "${_work_dir}/early_mode_registry.hpp")
+  set(_early_mode_impl "${_work_dir}/early_mode_impl.hpp")
+  file(SHA256 "${_early_mode_scan_deps}" _early_mode_scan_deps_hash_before)
+  execute_process(
+    COMMAND "${PROG}"
+      emit-mocks
+      --mock-manifest-input "${_manifest}"
+      --mock-registry "${_early_mode_registry}"
+      --mock-impl "${_early_mode_impl}"
+      --timing-json "${_early_mode_scan_deps}"
+      --clang-scan-deps "${_early_mode_scan_deps}"
+      --scan-deps-mode=OFF
+    RESULT_VARIABLE _early_mode_rc
+    OUTPUT_VARIABLE _early_mode_out
+    ERROR_VARIABLE _early_mode_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  set(_early_mode_all "${_early_mode_out}\n${_early_mode_err}")
+  if(NOT _early_mode_rc EQUAL 1)
+    message(FATAL_ERROR
+      "Mock-manifest early timing collision should fail with code 1. Output:\n${_early_mode_all}")
+  endif()
+  string(FIND "${_early_mode_all}" "resolved clang-scan-deps executable" _early_mode_error_pos)
+  if(_early_mode_error_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Mock-manifest early timing collision emitted the wrong diagnostic. Output:\n${_early_mode_all}")
+  endif()
+  foreach(_unexpected_output IN ITEMS "${_early_mode_registry}" "${_early_mode_impl}")
+    if(EXISTS "${_unexpected_output}")
+      message(FATAL_ERROR "Mock-manifest early timing collision unexpectedly wrote '${_unexpected_output}'")
+    endif()
+  endforeach()
+  file(SHA256 "${_early_mode_scan_deps}" _early_mode_scan_deps_hash_after)
+  if(NOT "${_early_mode_scan_deps_hash_after}" STREQUAL "${_early_mode_scan_deps_hash_before}")
+    message(FATAL_ERROR
+      "Mock-manifest early timing collision modified '${_early_mode_scan_deps}'")
+  endif()
+endif()
+
 set(_phase_manifest "${_work_dir}/service.phase.mock_manifest.json")
 execute_process(
   COMMAND "${PROG}"
@@ -451,6 +494,7 @@ set(_phase_registry "${_work_dir}/phase_mock_registry.hpp")
 set(_phase_impl "${_work_dir}/phase_mock_impl.hpp")
 set(_phase_domain_registry "${_work_dir}/phase_mock_registry__domain_0000_header.hpp")
 set(_phase_domain_impl "${_work_dir}/phase_mock_impl__domain_0000_header.hpp")
+set(_phase_timing_json "${_work_dir}/phase_mock_timing.json")
 
 execute_process(
   COMMAND "${PROG}"
@@ -460,6 +504,7 @@ execute_process(
     --mock-impl "${_phase_impl}"
     --mock-domain-registry-output "${_phase_domain_registry}"
     --mock-domain-impl-output "${_phase_domain_impl}"
+    --timing-json "${_phase_timing_json}"
   RESULT_VARIABLE _phase_emit_rc
   OUTPUT_VARIABLE _phase_emit_out
   ERROR_VARIABLE _phase_emit_err
@@ -475,6 +520,35 @@ foreach(_generated IN ITEMS "${_phase_registry}" "${_phase_impl}" "${_phase_doma
     message(FATAL_ERROR "Expected emit-mocks generated output '${_generated}'")
   endif()
 endforeach()
+
+if(NOT EXISTS "${_phase_timing_json}")
+  message(FATAL_ERROR "emit-mocks did not write requested timing JSON '${_phase_timing_json}'")
+endif()
+file(READ "${_phase_timing_json}" _phase_timing_text)
+string(JSON _phase_timing_count LENGTH "${_phase_timing_text}" phases)
+set(_phase_mock_timing_found FALSE)
+set(_phase_emit_timing_found FALSE)
+foreach(_phase_timing_index RANGE 0 ${_phase_timing_count})
+  if(_phase_timing_index EQUAL _phase_timing_count)
+    break()
+  endif()
+  string(JSON _phase_timing_name GET "${_phase_timing_text}" phases ${_phase_timing_index} name)
+  if(_phase_timing_name STREQUAL "mock")
+    string(JSON _phase_timing_duration_type TYPE "${_phase_timing_text}" phases ${_phase_timing_index} duration_us)
+    if(NOT _phase_timing_duration_type STREQUAL "NUMBER")
+      message(FATAL_ERROR "Mock timing record has non-numeric duration_us:\n${_phase_timing_text}")
+    endif()
+    set(_phase_mock_timing_found TRUE)
+  elseif(_phase_timing_name STREQUAL "emit")
+    set(_phase_emit_timing_found TRUE)
+  endif()
+endforeach()
+if(NOT _phase_mock_timing_found)
+  message(FATAL_ERROR "Mock-bearing emit-mocks timing JSON has no mock phase:\n${_phase_timing_text}")
+endif()
+if(_phase_emit_timing_found)
+  message(FATAL_ERROR "Mock-only emission incorrectly attributes mock render/write work to emit:\n${_phase_timing_text}")
+endif()
 
 file(READ "${_phase_registry}" _phase_registry_text)
 get_filename_component(_phase_domain_registry_name "${_phase_domain_registry}" NAME)

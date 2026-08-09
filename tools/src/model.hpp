@@ -151,6 +151,9 @@ struct CollectorOptions {
     std::filesystem::path                                               mock_aggregate_module_path;
     std::string                                                         mock_aggregate_module_name;
     std::optional<std::filesystem::path>                                depfile_path;
+    // Optional build-observability output. This is intentionally separate
+    // from generated artifact outputs so timing never affects their content.
+    std::optional<std::filesystem::path>                                timing_json_path;
     std::vector<std::string>                                            sources;
     std::unordered_map<std::string, std::string>                        module_interface_names_by_source;
     std::unordered_set<std::string>                                     module_interface_sources;

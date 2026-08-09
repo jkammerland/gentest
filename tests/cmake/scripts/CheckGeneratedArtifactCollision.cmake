@@ -163,6 +163,245 @@ _gentest_expect_artifact_failure(
     "role 'TU registration header'"
     "input source")
 
+_gentest_expect_artifact_failure(
+  "timing JSON/input source collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_source"
+    --timing-json "${_source}"
+    --compdb "${_build_dir}"
+    "${_source}"
+  PRESERVE_FILES
+    "${_source}"
+  REQUIRED_SUBSTRINGS
+    "generated artifact output at canonical path"
+    "role 'timing JSON'"
+    "input source")
+
+set(_compile_commands "${_build_dir}/compile_commands.json")
+_gentest_expect_artifact_failure(
+  "timing JSON/compilation database collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_compdb"
+    --timing-json "${_compile_commands}"
+    --compdb "${_build_dir}"
+    "${_source}"
+  PRESERVE_FILES
+    "${_compile_commands}"
+  REQUIRED_SUBSTRINGS
+    "generated artifact output at canonical path"
+    "role 'timing JSON'"
+    "compilation database input")
+
+set(_source_root_input "${_work_dir}/source_root_input.txt")
+file(WRITE "${_source_root_input}" "source-root timing collision sentinel\n")
+_gentest_expect_artifact_failure(
+  "timing JSON/source-root input collision"
+  ARGS
+    --check
+    --source-root "${_source_root_input}"
+    --timing-json "${_source_root_input}"
+    --compdb "${_build_dir}"
+    "${_source}"
+  PRESERVE_FILES
+    "${_source_root_input}"
+  REQUIRED_SUBSTRINGS
+    "generated artifact output at canonical path"
+    "role 'timing JSON'"
+    "source root input")
+
+set(_clang_scan_deps_input "${_work_dir}/clang_scan_deps_input")
+file(WRITE "${_clang_scan_deps_input}" "clang-scan-deps timing collision sentinel\n")
+_gentest_expect_artifact_failure(
+  "timing JSON/explicit clang-scan-deps executable collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_scan_deps"
+    --timing-json "${_clang_scan_deps_input}"
+    --clang-scan-deps "${_clang_scan_deps_input}"
+    --scan-deps-mode=OFF
+    --compdb "${_build_dir}"
+    "${_source}"
+  PRESERVE_FILES
+    "${_clang_scan_deps_input}"
+  REQUIRED_SUBSTRINGS
+    "resolved clang-scan-deps executable")
+
+_gentest_expect_artifact_failure(
+  "timing JSON/gentest_codegen executable collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_codegen_executable"
+    --tu-header-output "${_work_dir}/timing_codegen_executable/tu_0.gentest.h"
+    --timing-json "${PROG}"
+    --compdb "${_build_dir}"
+    "${_source}"
+  OUTPUTS
+    "${_work_dir}/timing_codegen_executable/tu_0.gentest.h"
+  PRESERVE_FILES
+    "${PROG}"
+  REQUIRED_SUBSTRINGS
+    "gentest_codegen executable")
+
+find_program(_timing_host_clang NAMES clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++ clang++.exe)
+if(_timing_host_clang)
+  set(_timing_host_compiler_header "${_work_dir}/timing_host_compiler/tu_0.gentest.h")
+  _gentest_expect_artifact_failure(
+    "timing JSON/resolved host compiler collision"
+    ARGS
+      --tu-out-dir "${_work_dir}/timing_host_compiler"
+      --tu-header-output "${_timing_host_compiler_header}"
+      --timing-json "${_timing_host_clang}"
+      --host-clang "${_timing_host_clang}"
+      --compdb "${_build_dir}"
+      "${_source}"
+    OUTPUTS
+      "${_timing_host_compiler_header}"
+    PRESERVE_FILES
+      "${_timing_host_clang}"
+    REQUIRED_SUBSTRINGS
+      "resolved host compiler")
+endif()
+
+if(APPLE AND (NOT DEFINED ENV{SDKROOT} OR "$ENV{SDKROOT}" STREQUAL ""))
+  find_program(_timing_xcrun NAMES xcrun)
+  if(_timing_xcrun)
+    _gentest_expect_artifact_failure(
+      "timing JSON/resolved xcrun collision"
+      ARGS
+        --check
+        --timing-json "${_timing_xcrun}"
+        --compdb "${_build_dir}"
+        "${_source}"
+      PRESERVE_FILES
+        "${_timing_xcrun}"
+      REQUIRED_SUBSTRINGS
+        "resolved xcrun executable")
+  endif()
+endif()
+
+# Pass only the basename so the codegen resolver must find this executable via
+# PATH. The raw option text differs from the timing target, exercising the
+# late resolved-tool collision check rather than the static option-path check.
+find_program(_timing_scan_deps NAMES clang-scan-deps-23 clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19 clang-scan-deps)
+if(_timing_scan_deps)
+  get_filename_component(_timing_scan_deps_dir "${_timing_scan_deps}" DIRECTORY)
+  get_filename_component(_timing_scan_deps_basename "${_timing_scan_deps}" NAME)
+  if(CMAKE_HOST_WIN32)
+    set(_timing_path_separator ";")
+  else()
+    set(_timing_path_separator ":")
+  endif()
+  set(_timing_scan_deps_path "${_timing_scan_deps_dir}${_timing_path_separator}$ENV{PATH}")
+  set(_timing_scan_deps_header "${_work_dir}/timing_resolved_scan_deps/tu_0.gentest.h")
+  set(_timing_scan_deps_target_args)
+  if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+    list(APPEND _timing_scan_deps_target_args -- "${TARGET_ARG}")
+  endif()
+  file(SHA256 "${_timing_scan_deps}" _timing_scan_deps_hash_before)
+  execute_process(
+    COMMAND
+      "${CMAKE_COMMAND}" -E env "PATH=${_timing_scan_deps_path}"
+      "${PROG}"
+      --tu-out-dir "${_work_dir}/timing_resolved_scan_deps"
+      --tu-header-output "${_timing_scan_deps_header}"
+      --timing-json "${_timing_scan_deps}"
+      --clang-scan-deps "${_timing_scan_deps_basename}"
+      --scan-deps-mode=AUTO
+      --compdb "${_build_dir}"
+      "${_source}"
+      ${_timing_scan_deps_target_args}
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _timing_scan_deps_rc
+    OUTPUT_VARIABLE _timing_scan_deps_out
+    ERROR_VARIABLE _timing_scan_deps_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  set(_timing_scan_deps_all "${_timing_scan_deps_out}\n${_timing_scan_deps_err}")
+  if(_timing_scan_deps_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Expected timing JSON/resolved clang-scan-deps collision to fail, but it succeeded. Output:\n${_timing_scan_deps_all}")
+  endif()
+  string(FIND "${_timing_scan_deps_all}" "resolved clang-scan-deps executable" _timing_scan_deps_error_pos)
+  if(_timing_scan_deps_error_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected resolved clang-scan-deps timing collision diagnostic. Output:\n${_timing_scan_deps_all}")
+  endif()
+  if(EXISTS "${_timing_scan_deps_header}")
+    message(FATAL_ERROR
+      "Resolved clang-scan-deps timing collision created '${_timing_scan_deps_header}' before failing")
+  endif()
+  file(SHA256 "${_timing_scan_deps}" _timing_scan_deps_hash_after)
+  if(NOT "${_timing_scan_deps_hash_after}" STREQUAL "${_timing_scan_deps_hash_before}")
+    message(FATAL_ERROR
+      "Resolved clang-scan-deps timing collision modified '${_timing_scan_deps}'")
+  endif()
+
+  set(_timing_scan_deps_off_header "${_work_dir}/timing_resolved_scan_deps_off/tu_0.gentest.h")
+  file(SHA256 "${_timing_scan_deps}" _timing_scan_deps_off_hash_before)
+  execute_process(
+    COMMAND
+      "${CMAKE_COMMAND}" -E env "PATH=${_timing_scan_deps_path}"
+      "${PROG}"
+      --tu-out-dir "${_work_dir}/timing_resolved_scan_deps_off"
+      --tu-header-output "${_timing_scan_deps_off_header}"
+      --timing-json "${_timing_scan_deps}"
+      --clang-scan-deps "${_timing_scan_deps_basename}"
+      --scan-deps-mode=OFF
+      --compdb "${_build_dir}"
+      "${_source}"
+      ${_timing_scan_deps_target_args}
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _timing_scan_deps_off_rc
+    OUTPUT_VARIABLE _timing_scan_deps_off_out
+    ERROR_VARIABLE _timing_scan_deps_off_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  set(_timing_scan_deps_off_all "${_timing_scan_deps_off_out}\n${_timing_scan_deps_off_err}")
+  if(_timing_scan_deps_off_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Expected OFF-mode timing JSON/resolved clang-scan-deps collision to fail, but it succeeded. Output:\n${_timing_scan_deps_off_all}")
+  endif()
+  string(FIND "${_timing_scan_deps_off_all}" "resolved clang-scan-deps executable" _timing_scan_deps_off_error_pos)
+  if(_timing_scan_deps_off_error_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected OFF-mode resolved clang-scan-deps timing collision diagnostic. Output:\n${_timing_scan_deps_off_all}")
+  endif()
+  if(EXISTS "${_timing_scan_deps_off_header}")
+    message(FATAL_ERROR
+      "OFF-mode resolved clang-scan-deps timing collision created '${_timing_scan_deps_off_header}' before failing")
+  endif()
+  file(SHA256 "${_timing_scan_deps}" _timing_scan_deps_off_hash_after)
+  if(NOT "${_timing_scan_deps_off_hash_after}" STREQUAL "${_timing_scan_deps_off_hash_before}")
+    message(FATAL_ERROR
+      "OFF-mode resolved clang-scan-deps timing collision modified '${_timing_scan_deps}'")
+  endif()
+endif()
+
+set(_inspect_include_input "${_work_dir}/inspect_include_input.txt")
+file(WRITE "${_inspect_include_input}" "inspect include timing collision sentinel\n")
+_gentest_expect_artifact_failure(
+  "inspect-source timing JSON/include-directory input collision"
+  ARGS
+    --inspect-source
+    --inspect-include-dir "${_inspect_include_input}"
+    --timing-json "${_inspect_include_input}"
+    "${_source}"
+  PRESERVE_FILES
+    "${_inspect_include_input}"
+  REQUIRED_SUBSTRINGS
+    "inspect include directory")
+
+_gentest_expect_artifact_failure(
+  "inspect-source timing JSON/input source collision"
+  ARGS
+    --inspect-source
+    --timing-json "${_source}"
+    "${_source}"
+  PRESERVE_FILES
+    "${_source}"
+  REQUIRED_SUBSTRINGS
+    "generated artifact output at canonical path"
+    "role 'timing JSON'"
+    "input source")
+
 set(_tu_registry_dir "${_work_dir}/tu_registry")
 _gentest_expect_artifact_failure(
   "TU header/mock registry collision"
@@ -189,6 +428,24 @@ _gentest_expect_artifact_failure(
     "source slot 0"
     "option '--mock-registry'"
 )
+
+set(_timing_header_dir "${_work_dir}/timing_header")
+_gentest_expect_artifact_failure(
+  "timing JSON/TU header collision"
+  ARGS
+    --tu-out-dir "${_timing_header_dir}"
+    --tu-header-output "${_timing_header_dir}/Timing.JSON"
+    --timing-json "${_timing_header_dir}/timing.json"
+    --compdb "${_build_dir}"
+    "${_source}"
+  OUTPUTS
+    "${_timing_header_dir}"
+    "${_timing_header_dir}/Timing.JSON"
+    "${_timing_header_dir}/timing.json"
+  REQUIRED_SUBSTRINGS
+    "generated artifact collision at canonical path"
+    "role 'TU registration header'"
+    "role 'timing JSON'")
 
 set(_manifest_impl_dir "${_work_dir}/manifest_impl")
 _gentest_expect_artifact_failure(
@@ -219,6 +476,48 @@ _gentest_expect_artifact_failure(
     "option '--mock-impl'"
 )
 
+set(_timing_manifest_dir "${_work_dir}/timing_manifest")
+_gentest_expect_artifact_failure(
+  "timing JSON/artifact manifest collision"
+  ARGS
+    --tu-out-dir "${_timing_manifest_dir}"
+    --artifact-manifest "${_timing_manifest_dir}/Artifacts.JSON"
+    --timing-json "${_timing_manifest_dir}/artifacts.json"
+    --compdb "${_build_dir}"
+    "${_source}"
+  OUTPUTS
+    "${_timing_manifest_dir}"
+    "${_timing_manifest_dir}/Artifacts.JSON"
+    "${_timing_manifest_dir}/artifacts.json"
+  REQUIRED_SUBSTRINGS
+    "generated artifact collision at canonical path"
+    "role 'artifact manifest'"
+    "role 'timing JSON'")
+
+set(_timing_mock_dir "${_work_dir}/timing_mock")
+_gentest_expect_artifact_failure(
+  "timing JSON/mock output collision"
+  ARGS
+    --tu-out-dir "${_timing_mock_dir}"
+    --mock-registry "${_timing_mock_dir}/Mock.JSON"
+    --mock-impl "${_timing_mock_dir}/mock_impl.hpp"
+    --mock-domain-registry-output "${_timing_mock_dir}/domain_registry.hpp"
+    --mock-domain-impl-output "${_timing_mock_dir}/domain_impl.hpp"
+    --timing-json "${_timing_mock_dir}/mock.json"
+    --compdb "${_build_dir}"
+    "${_source}"
+  OUTPUTS
+    "${_timing_mock_dir}"
+    "${_timing_mock_dir}/Mock.JSON"
+    "${_timing_mock_dir}/mock.json"
+    "${_timing_mock_dir}/mock_impl.hpp"
+    "${_timing_mock_dir}/domain_registry.hpp"
+    "${_timing_mock_dir}/domain_impl.hpp"
+  REQUIRED_SUBSTRINGS
+    "generated artifact collision at canonical path"
+    "role 'mock registry'"
+    "role 'timing JSON'")
+
 set(_depfile_dir "${_work_dir}/depfile")
 _gentest_expect_artifact_failure(
   "TU header/depfile collision"
@@ -238,6 +537,24 @@ _gentest_expect_artifact_failure(
     "role 'depfile'"
     "option '--depfile'"
 )
+
+set(_timing_depfile_dir "${_work_dir}/timing_depfile")
+_gentest_expect_artifact_failure(
+  "timing JSON/depfile collision"
+  ARGS
+    --tu-out-dir "${_timing_depfile_dir}"
+    --depfile "${_timing_depfile_dir}/Deps.JSON"
+    --timing-json "${_timing_depfile_dir}/deps.json"
+    --compdb "${_build_dir}"
+    "${_source}"
+  OUTPUTS
+    "${_timing_depfile_dir}"
+    "${_timing_depfile_dir}/Deps.JSON"
+    "${_timing_depfile_dir}/deps.json"
+  REQUIRED_SUBSTRINGS
+    "generated artifact collision at canonical path"
+    "role 'depfile'"
+    "role 'timing JSON'")
 
 set(_mock_domain_dir "${_work_dir}/mock_domain")
 _gentest_expect_artifact_failure(

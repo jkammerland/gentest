@@ -14,6 +14,7 @@
 - Async tests: [`docs/async.md`](async.md)
 - Mock generation: [`docs/mock_generation.md`](mock_generation.md)
 - Codegen artifact protocols: [`docs/codegen_artifact_protocols.md`](codegen_artifact_protocols.md)
+- Codegen timing sidecar: [`docs/codegen_timing.md`](codegen_timing.md)
 - Deprecations: [`DEPRECATIONS.md`](../DEPRECATIONS.md)
 - Previous (full) README snapshot: [`docs/archive/README_2026-01-03.md`](archive/README_2026-01-03.md)
 

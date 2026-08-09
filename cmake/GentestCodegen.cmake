@@ -49,6 +49,20 @@ if(NOT GENTEST_CODEGEN_JOBS MATCHES "^[0-9]+$")
     message(FATAL_ERROR "GENTEST_CODEGEN_JOBS must be a non-negative integer or AUTO (got '${GENTEST_CODEGEN_JOBS}')")
 endif()
 
+# This caps *processes* only.  Per-process parsing/emission concurrency stays
+# under GENTEST_CODEGEN_JOBS, so the default remains intentionally conservative
+# even when a project has many generated test targets.
+set(_gentest_codegen_build_pool_help
+    "Maximum concurrent gentest_codegen processes for Ninja builds (0 disables the process pool).")
+if(NOT DEFINED GENTEST_CODEGEN_BUILD_POOL)
+    set(GENTEST_CODEGEN_BUILD_POOL "0" CACHE STRING "${_gentest_codegen_build_pool_help}")
+endif()
+unset(_gentest_codegen_build_pool_help)
+if(NOT GENTEST_CODEGEN_BUILD_POOL MATCHES "^[0-9]+$")
+    message(FATAL_ERROR
+        "GENTEST_CODEGEN_BUILD_POOL must be a non-negative integer (got '${GENTEST_CODEGEN_BUILD_POOL}')")
+endif()
+
 if(NOT DEFINED GENTEST_CODEGEN_CLANG_SCAN_DEPS)
     set(GENTEST_CODEGEN_CLANG_SCAN_DEPS "" CACHE STRING
         "Optional path to the clang-scan-deps executable used by gentest_codegen for named-module dependency discovery.")

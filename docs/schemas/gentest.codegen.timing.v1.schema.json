@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gentest.dev/schemas/gentest.codegen.timing.v1.schema.json",
+  "title": "gentest codegen timing v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "duration_unit", "phases"],
+  "properties": {
+    "schema": {
+      "const": "gentest.codegen.timing.v1"
+    },
+    "duration_unit": {
+      "const": "microseconds"
+    },
+    "phases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "duration_us"],
+        "properties": {
+          "name": {
+            "enum": ["startup", "compdb", "scan-deps", "pcm", "parse", "merge", "emit", "mock", "depfile"]
+          },
+          "duration_us": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tu_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -115,6 +115,61 @@ function(_gentest_append_codegen_module_context_args command_var target clang_sc
     set(${command_var} "${_gentest_command}" PARENT_SCOPE)
 endfunction()
 
+# Ninja job pools are global, not directory-scoped.  Keep one gentest-owned
+# name and validate an existing definition so repeated gentest includes never
+# produce duplicate entries or silently attach to a differently sized pool.
+# A consumer can seed the global property directly.  If it has not done so,
+# CMAKE_JOB_POOLS is the source CMake uses to initialize the property.
+function(_gentest_configure_codegen_build_pool out_pool)
+    set(_gentest_pool "")
+    if(NOT CMAKE_GENERATOR MATCHES "Ninja" OR NOT GENTEST_CODEGEN_BUILD_POOL GREATER 0)
+        set(${out_pool} "" PARENT_SCOPE)
+        return()
+    endif()
+
+    set(_gentest_pool "gentest_codegen_build_pool")
+    get_property(_gentest_global_job_pools_set GLOBAL PROPERTY JOB_POOLS SET)
+    if(_gentest_global_job_pools_set)
+        get_property(_gentest_existing_pools GLOBAL PROPERTY JOB_POOLS)
+        set(_gentest_pool_origin "GLOBAL JOB_POOLS")
+    else()
+        set(_gentest_existing_pools "${CMAKE_JOB_POOLS}")
+        set(_gentest_pool_origin "CMAKE_JOB_POOLS")
+    endif()
+
+    set(_gentest_pool_found FALSE)
+    set(_gentest_merged_pools "")
+    foreach(_gentest_existing_pool IN LISTS _gentest_existing_pools)
+        if(_gentest_existing_pool MATCHES "^${_gentest_pool}=(.+)$")
+            if(NOT "${CMAKE_MATCH_1}" STREQUAL "${GENTEST_CODEGEN_BUILD_POOL}")
+                message(FATAL_ERROR
+                    "gentest codegen build pool '${_gentest_pool}' from ${_gentest_pool_origin} is already configured with "
+                    "depth ${CMAKE_MATCH_1}, but GENTEST_CODEGEN_BUILD_POOL requests ${GENTEST_CODEGEN_BUILD_POOL}")
+            endif()
+            if(NOT _gentest_pool_found)
+                list(APPEND _gentest_merged_pools "${_gentest_existing_pool}")
+                set(_gentest_pool_found TRUE)
+            endif()
+        else()
+            list(APPEND _gentest_merged_pools "${_gentest_existing_pool}")
+        endif()
+    endforeach()
+    if(NOT _gentest_pool_found)
+        list(APPEND _gentest_merged_pools "${_gentest_pool}=${GENTEST_CODEGEN_BUILD_POOL}")
+    endif()
+    set_property(GLOBAL PROPERTY JOB_POOLS "${_gentest_merged_pools}")
+    set(${out_pool} "${_gentest_pool}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_append_codegen_build_pool custom_command_args_var)
+    _gentest_configure_codegen_build_pool(_gentest_pool)
+    if(NOT "${_gentest_pool}" STREQUAL "")
+        set(_gentest_args "${${custom_command_args_var}}")
+        list(APPEND _gentest_args JOB_POOL "${_gentest_pool}")
+        set(${custom_command_args_var} "${_gentest_args}" PARENT_SCOPE)
+    endif()
+endfunction()
+
 function(_gentest_make_codegen_target_id target out_var)
     string(MAKE_C_IDENTIFIER "${target}" _gentest_identifier)
     string(SHA256 _gentest_target_hash "${target}")

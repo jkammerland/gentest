@@ -180,12 +180,93 @@ function(_gentest_run_codegen_fixture output_stem)
     STRIP_TRAILING_WHITESPACE)
 endfunction()
 
+function(_gentest_expect_dot_module_timing_collision label timing_path expected_diagnostic)
+  if(NOT EXISTS "${timing_path}")
+    message(FATAL_ERROR "${label}: timing collision sentinel '${timing_path}' does not exist")
+  endif()
+  file(SHA256 "${timing_path}" _hash_before)
+
+  set(_tu_output_dir "${_generated_dir}/pcm_cache_dot_generated")
+  execute_process(
+    COMMAND
+      "${_codegen_exe}"
+      --timing-json "${timing_path}"
+      --tu-out-dir "${_tu_output_dir}"
+      --tu-header-output "${_tu_output_dir}/tu_0.gentest.h"
+      --module-wrapper-output "${_tu_output_dir}/tu_0.module.gentest.cppm"
+      --tu-header-output "${_tu_output_dir}/tu_1.gentest.h"
+      --module-wrapper-output "${_tu_output_dir}/tu_1.module.gentest.cppm"
+      --mock-registry "${_generated_dir}/pcm_cache_dot_generated_mock_registry.hpp"
+      --mock-impl "${_generated_dir}/pcm_cache_dot_generated_mock_impl.hpp"
+      --mock-domain-registry-output "${_generated_dir}/pcm_cache_dot_generated_mock_registry_domain_header.hpp"
+      --mock-domain-registry-output "${_generated_dir}/pcm_cache_dot_generated_mock_registry_domain_a.hpp"
+      --mock-domain-registry-output "${_generated_dir}/pcm_cache_dot_generated_mock_registry_domain_b.hpp"
+      --mock-domain-impl-output "${_generated_dir}/pcm_cache_dot_generated_mock_impl_domain_header.hpp"
+      --mock-domain-impl-output "${_generated_dir}/pcm_cache_dot_generated_mock_impl_domain_a.hpp"
+      --mock-domain-impl-output "${_generated_dir}/pcm_cache_dot_generated_mock_impl_domain_b.hpp"
+      --depfile "${_generated_dir}/pcm_cache_dot_generated.gentest.d"
+      --compdb "${_build_dir}"
+      --source-root "${_src_dir}"
+      "${_src_dir}/alpha_dot_provider.cppm"
+      "${_src_dir}/alpha_dot_consumer.cppm"
+      --
+      -std=c++20
+      -x
+      c++-module
+      -DGENTEST_CODEGEN=1
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _rc
+    OUTPUT_VARIABLE _out
+    ERROR_VARIABLE _err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  set(_all "${_out}\n${_err}")
+  if(_rc EQUAL 0)
+    message(FATAL_ERROR "${label}: expected failure, but it succeeded. Output:\n${_all}")
+  endif()
+  string(FIND "${_all}" "${expected_diagnostic}" _diagnostic_pos)
+  if(_diagnostic_pos EQUAL -1)
+    message(FATAL_ERROR "${label}: expected '${expected_diagnostic}'. Output:\n${_all}")
+  endif()
+  file(SHA256 "${timing_path}" _hash_after)
+  if(NOT "${_hash_after}" STREQUAL "${_hash_before}")
+    message(FATAL_ERROR "${label}: collision modified '${timing_path}' before it failed")
+  endif()
+endfunction()
+
 message(STATUS "Run gentest_codegen for the dot module target...")
 _gentest_run_codegen_fixture(
   "pcm_cache_dot_generated"
   SOURCES
     "${_src_dir}/alpha_dot_provider.cppm"
     "${_src_dir}/alpha_dot_consumer.cppm")
+
+# The PCM paths are discovered only after module planning. A timing sidecar
+# must be rejected before precompilation can remove or replace one of them.
+file(GLOB _dot_local_pcm_files LIST_DIRECTORIES FALSE
+  "${_generated_dir}/pcm_cache_dot_generated/.gentest_codegen_modules_*/m_*.pcm")
+list(SORT _dot_local_pcm_files)
+list(LENGTH _dot_local_pcm_files _dot_local_pcm_count)
+_gentest_expect_equal("${_dot_local_pcm_count}" "1" "dot-module PCM file count before timing collision")
+list(GET _dot_local_pcm_files 0 _dot_timing_collision_pcm)
+_gentest_expect_dot_module_timing_collision(
+  "timing/generated PCM collision"
+  "${_dot_timing_collision_pcm}"
+  "generated named-module PCM")
+
+set(_dot_timing_temp_pcm "${_dot_timing_collision_pcm}.tmp")
+file(WRITE "${_dot_timing_temp_pcm}" "temporary PCM timing collision sentinel\n")
+_gentest_expect_dot_module_timing_collision(
+  "timing/temporary PCM collision"
+  "${_dot_timing_temp_pcm}"
+  "module precompile temporary PCM output")
+
+set(_dot_timing_fallback_pcm "${_build_dir}/alpha_dot_provider.pcm")
+file(WRITE "${_dot_timing_fallback_pcm}" "fallback PCM timing collision sentinel\n")
+_gentest_expect_dot_module_timing_collision(
+  "timing/fallback PCM collision"
+  "${_dot_timing_fallback_pcm}"
+  "module precompile fallback PCM output")
 
 message(STATUS "Run gentest_codegen for the underscore module target...")
 _gentest_run_codegen_fixture(
