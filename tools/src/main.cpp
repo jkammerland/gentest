@@ -1604,6 +1604,11 @@ void prime_llvm_statistics_registry() {
                     if (gentest::codegen::scan::consume_scan_keyword(directive, "embed")) {
                         return true;
                     }
+                } else if (directive.starts_with("%:")) {
+                    directive.remove_prefix(2);
+                    if (gentest::codegen::scan::consume_scan_keyword(directive, "embed")) {
+                        return true;
+                    }
                 }
             }
             logical_line.clear();
@@ -6209,7 +6214,8 @@ int main(int argc, const char **argv) {
                 arg.starts_with("-fprebuilt-module-path") || arg.starts_with("-fimplicit-module")) {
                 return false;
             }
-            if (arg == "-include-pch" || arg.starts_with("-include-pch=")) {
+            if (arg == "-include-pch" || arg.starts_with("-include-pch=") || arg == "-chain-include" ||
+                arg.starts_with("-chain-include=") || arg == "/clang:-chain-include" || arg.starts_with("/clang:-chain-include=")) {
                 return false;
             }
             // Serialized AST inputs can change the declarations seen by the
