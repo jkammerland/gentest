@@ -857,8 +857,7 @@ struct RenderedSameModuleRegistrationSource {
 RenderedSameModuleRegistrationSource render_same_module_registration_source(std::string_view module_name,
                                                                             std::string_view registration_header_name,
                                                                             const std::vector<const MockClassInfo *> &source_mocks,
-                                                                            bool has_registrations,
-                                                                            bool needs_full_registration_support,
+                                                                            bool has_registrations, bool needs_full_registration_support,
                                                                             bool measure_mock_render) {
     RenderedSameModuleRegistrationSource result;
     std::string                         &rendered = result.source;

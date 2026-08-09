@@ -139,18 +139,18 @@ struct CollectorOptions {
     // Build-owned per-domain mock outputs. When mock outputs are requested,
     // these must stay aligned with the ordered mock domain plan: header first,
     // then the first-seen unique named modules in source order.
-    std::vector<std::filesystem::path>                                  mock_domain_registry_outputs;
-    std::vector<std::filesystem::path>                                  mock_domain_impl_outputs;
-    std::vector<std::string>                                            mock_output_domain_modules;
-    std::filesystem::path                                               mock_manifest_output_path;
-    std::filesystem::path                                               mock_manifest_input_path;
-    std::filesystem::path                                               mock_registration_manifest_path;
-    std::filesystem::path                                               mock_registry_path;
-    std::filesystem::path                                               mock_impl_path;
-    std::filesystem::path                                               mock_public_header_path;
-    std::filesystem::path                                               mock_aggregate_module_path;
-    std::string                                                         mock_aggregate_module_name;
-    std::optional<std::filesystem::path>                                depfile_path;
+    std::vector<std::filesystem::path>   mock_domain_registry_outputs;
+    std::vector<std::filesystem::path>   mock_domain_impl_outputs;
+    std::vector<std::string>             mock_output_domain_modules;
+    std::filesystem::path                mock_manifest_output_path;
+    std::filesystem::path                mock_manifest_input_path;
+    std::filesystem::path                mock_registration_manifest_path;
+    std::filesystem::path                mock_registry_path;
+    std::filesystem::path                mock_impl_path;
+    std::filesystem::path                mock_public_header_path;
+    std::filesystem::path                mock_aggregate_module_path;
+    std::string                          mock_aggregate_module_name;
+    std::optional<std::filesystem::path> depfile_path;
     // Optional build-observability output. This is intentionally separate
     // from generated artifact outputs so timing never affects their content.
     std::optional<std::filesystem::path>                                timing_json_path;
