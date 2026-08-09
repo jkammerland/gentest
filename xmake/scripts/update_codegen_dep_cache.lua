@@ -23,7 +23,7 @@ local function snapshot_name(cache_path, identity, entries)
     local hash = 2166136261
     local fingerprint = {}
     for _, entry in ipairs(entries) do
-        table.insert(fingerprint, entry.path .. "=" .. tostring(entry.mtime))
+        table.insert(fingerprint, entry.kind .. ":" .. entry.path .. "=" .. tostring(entry.mtime or ""))
     end
     local text = identity .. "\30" .. table.concat(fingerprint, "\31")
     for index = 1, #text do
@@ -39,13 +39,13 @@ local function matching_snapshot(snapshot, identity, entries)
     local loaded, state = utils.trycall(function()
         return io.load(snapshot)
     end)
-    if not loaded or type(state) ~= "table" or state.schema ~= 1 or state.identity ~= identity or type(state.files) ~= "table" or
+    if not loaded or type(state) ~= "table" or state.schema ~= 2 or state.identity ~= identity or type(state.files) ~= "table" or
         #state.files ~= #entries then
         return false
     end
     for index, entry in ipairs(entries) do
         local cached = state.files[index]
-        if type(cached) ~= "table" or cached.path ~= entry.path or cached.mtime ~= entry.mtime then
+        if type(cached) ~= "table" or cached.kind ~= entry.kind or cached.path ~= entry.path or cached.mtime ~= entry.mtime then
             return false
         end
     end
@@ -57,10 +57,12 @@ function snapshot_current(cache_path, identity)
         local loaded, state = utils.trycall(function()
             return io.load(candidate)
         end)
-        if loaded and type(state) == "table" and state.schema == 1 and state.identity == identity and type(state.files) == "table" then
+        if loaded and type(state) == "table" and state.schema == 2 and state.identity == identity and type(state.files) == "table" then
             local current = true
             for _, entry in ipairs(state.files) do
-                if type(entry) ~= "table" or type(entry.path) ~= "string" or os.mtime(entry.path) ~= entry.mtime then
+                if type(entry) ~= "table" or type(entry.path) ~= "string" or
+                    (entry.kind == "file" and (not os.isfile(entry.path) or os.mtime(entry.path) ~= entry.mtime)) or
+                    (entry.kind == "absent" and os.exists(entry.path)) or (entry.kind ~= "file" and entry.kind ~= "absent") then
                     current = false
                     break
                 end
@@ -73,15 +75,53 @@ function snapshot_current(cache_path, identity)
     return false
 end
 
-function save_snapshot_locked(cache_path, identity, files)
+local function append_absent_guard(entries, seen, candidate)
+    local normalized = path.absolute(candidate)
+    if not seen[normalized] and not os.exists(normalized) then
+        seen[normalized] = true
+        table.insert(entries, {kind = "absent", path = normalized})
+    end
+end
+
+local function append_lookup_guards(entries, files, include_roots)
+    local seen = {}
+    for _, root in ipairs(include_roots or {}) do
+        if not os.isdir(root) then
+            append_absent_guard(entries, seen, root)
+        end
+    end
+    for _, filepath in ipairs(files) do
+        for root_index, root in ipairs(include_roots or {}) do
+            if os.isdir(root) then
+                local relative = path.relative(filepath, root)
+                if relative ~= "." and relative ~= ".." and not path.is_absolute(relative) and
+                    not relative:find("^%.%.[/\\]") then
+                    for earlier_index = 1, root_index - 1 do
+                        append_absent_guard(entries, seen, path.join(include_roots[earlier_index], relative))
+                    end
+                    break
+                end
+            end
+        end
+    end
+    table.sort(entries, function(left, right)
+        if left.kind ~= right.kind then
+            return left.kind < right.kind
+        end
+        return left.path < right.path
+    end)
+end
+
+function save_snapshot_locked(cache_path, identity, files, include_roots)
     local entries = {}
     for _, filepath in ipairs(files) do
         if not os.isfile(filepath) then
             cprint("${yellow}warning: gentest codegen dependency cache omitted because a declared input/output is missing: %s", filepath)
             return false
         end
-        table.insert(entries, {path = filepath, mtime = os.mtime(filepath)})
+        table.insert(entries, {kind = "file", path = filepath, mtime = os.mtime(filepath)})
     end
+    append_lookup_guards(entries, files, include_roots)
     local snapshot = snapshot_name(cache_path, identity, entries)
     if matching_snapshot(snapshot, identity, entries) then
         return
@@ -109,7 +149,7 @@ function save_snapshot_locked(cache_path, identity, files)
     end
     local invoked, ok_or_errors = utils.trycall(function()
         os.mkdir(path.directory(cache_path))
-        io.save(temporary, {schema = 1, identity = identity, files = entries}, {orderkeys = true})
+        io.save(temporary, {schema = 2, identity = identity, files = entries}, {orderkeys = true})
         if not os.isfile(temporary) then
             cprint("${yellow}warning: gentest codegen dependency cache could not be written")
             return false
