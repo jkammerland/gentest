@@ -4101,8 +4101,8 @@ int main(int argc, const char **argv) {
         return run_artifact_manifest_validator(argc - 1, argv + 1);
     }
 
-    const auto  parsed_arguments = parse_arguments(argc, argv);
-    const auto &options          = parsed_arguments.options;
+    const auto     parsed_arguments = parse_arguments(argc, argv);
+    const auto    &options          = parsed_arguments.options;
     TimingRecorder timing{options.timing_json_path};
     timing.record("startup", startup_started);
     const auto                                             finish_success = [&timing]() -> int { return timing.publish() ? 0 : 1; };
@@ -4454,8 +4454,8 @@ int main(int argc, const char **argv) {
         }
     }
 #endif
-    const std::string default_sysroot      = need_default_sysroot ? resolve_default_sysroot() : std::string{};
-    std::mutex        resource_dir_cache_mutex;
+    const std::string                            default_sysroot = need_default_sysroot ? resolve_default_sysroot() : std::string{};
+    std::mutex                                   resource_dir_cache_mutex;
     std::unordered_map<std::string, std::string> resource_dir_cache;
     if (need_resource_dir && !default_resource_dir.empty()) {
         resource_dir_cache.emplace(default_compiler_path, default_resource_dir);
