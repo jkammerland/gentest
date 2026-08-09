@@ -5,6 +5,13 @@ load(
     "gentest_attach_codegen_modules",
     "gentest_attach_codegen_textual",
 )
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "codegen_headers",
+    hdrs = ["tests/dep_case_value.hpp"],
+    includes = ["tests"],
+)
 
 gentest_add_mocks_textual(
     name = "gentest_downstream_textual_mocks",
@@ -16,7 +23,9 @@ gentest_attach_codegen_textual(
     name = "gentest_downstream_textual",
     src = "tests/cases.cpp",
     main = "tests/main.cpp",
+    source_hdrs = ["tests/private_case_value.hpp"],
     mock_targets = [":gentest_downstream_textual_mocks"],
+    deps = [":codegen_headers"],
     source_includes = ["tests"],
 )
 
@@ -37,8 +46,10 @@ gentest_attach_codegen_modules(
     name = "gentest_downstream_module",
     src = "tests/cases.cppm",
     main = "tests/main.cpp",
+    source_hdrs = ["tests/private_case_value.hpp"],
     mock_targets = [":gentest_downstream_module_mocks"],
     deps = [
+        ":codegen_headers",
         "@gentest//:gentest",
         "@gentest//:gentest_bench_util",
     ],
