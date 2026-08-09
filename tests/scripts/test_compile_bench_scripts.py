@@ -433,6 +433,18 @@ class CampaignContractTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 require_clean_checkout(bool(state["tracked_dirty"]), False)
 
+    def test_repository_build_roots_are_fresh_and_source_local(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory) / "source"
+            source.mkdir()
+            first = campaign.fresh_repository_build_root(source)
+            second = campaign.fresh_repository_build_root(source)
+            self.assertNotEqual(first, second)
+            self.assertEqual(first.parent, source / "build")
+            self.assertEqual(second.parent, source / "build")
+            self.assertTrue(first.is_dir())
+            self.assertTrue(second.is_dir())
+
     def test_manual_workflow_and_documentation_keep_campaign_contract(self) -> None:
         workflow = (ROOT / ".github/workflows/compile_benchmark_campaign.yml").read_text(encoding="utf-8")
         document = (ROOT / "docs/compile_benchmark_campaign.md").read_text(encoding="utf-8")
@@ -441,6 +453,9 @@ class CampaignContractTests(unittest.TestCase):
         self.assertIn("clang++-22", workflow)
         self.assertIn("g++-16", workflow)
         self.assertIn("upload-artifact", workflow)
+        self.assertIn("compile-campaign-${{ matrix.cc }}/result.json", workflow)
+        self.assertIn("compile-campaign-${{ matrix.cc }}/summary.md", workflow)
+        self.assertNotIn("path: ${{ runner.temp }}/compile-campaign-${{ matrix.cc }}\n", workflow)
         self.assertIn("apt.llvm.org", workflow)
         self.assertIn("gcc-16", workflow)
         self.assertIn("9edd3c826eadb31714f6462b5264cc1793bb535b", document)

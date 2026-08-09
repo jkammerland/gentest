@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Reproducible Gentest compile-time benchmark campaign.
 
-The campaign deliberately creates generated consumer fixtures and build trees
-outside the source checkout.  It measures seven raw samples (after two
-warmups) by default, records median plus median absolute deviation (MAD), and
-alternates codegen-cap order for every sample round.
+The campaign deliberately isolates generated consumer fixtures and build
+trees. Repository E2E builds use a campaign-unique directory beneath their
+source tree so CMake's absolute dependency handling stays valid without
+reusing prior state. It measures seven raw samples (after two warmups) by
+default, records median plus median absolute deviation (MAD), and alternates
+codegen-cap order for every sample round.
 
 Examples:
   python3 scripts/bench_compile_campaign.py --cxx clang++-22 --cc clang-22
@@ -278,6 +280,12 @@ def codegen_executable(build_dir: Path) -> Path:
     if not candidate.exists():
         raise RuntimeError(f"host gentest_codegen was not produced at {candidate}")
     return candidate
+
+
+def fresh_repository_build_root(source: Path) -> Path:
+    parent = source / "build"
+    parent.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix="compile-campaign-", dir=parent))
 
 
 def configure_host_codegen(source: Path, output: Path, cc: str, cxx: str, jobs: int, cache: str, env: dict[str, str]) -> Path:
@@ -744,6 +752,7 @@ def main() -> int:
         ]
         fixture_source = output / "fixture-source"
         fixture_targets = write_fixture(fixture_source, source_input)
+        repository_build_root = fresh_repository_build_root(source_input) if "repo-e2e" in lanes else None
         entries: list[dict[str, object]] = []
         cap_labels = [raw for raw, _ in caps]
         cap_by_label = dict(caps)
@@ -764,7 +773,9 @@ def main() -> int:
                     # source worktree.  CMake's depfile transformer then keeps
                     # absolute system-header dependencies valid; a sibling
                     # /tmp build can otherwise turn /usr/include into /tmp/usr.
-                    build_root = output / "builds" if lane in fixture_targets else source / "build" / "compile-campaign"
+                    build_root = output / "builds" if lane in fixture_targets else repository_build_root
+                    if build_root is None:
+                        raise RuntimeError("repository build root was not initialized")
                     build = build_root / lane / f"cap-{cap_label}" / f"round-{len(entries):03d}"
                     if lane in fixture_targets:
                         run(["cmake", "-S", str(source), "-B", str(build), *configure, f"-DGENTEST_CODEGEN_JOBS={cap}"], cwd=source, env=env, capture=True)

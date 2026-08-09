@@ -93,5 +93,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: compile-campaign-${{ matrix.cc }}
-          path: ${{ runner.temp }}/compile-campaign-${{ matrix.cc }}
+          path: |
+            ${{ runner.temp }}/compile-campaign-${{ matrix.cc }}/result.json
+            ${{ runner.temp }}/compile-campaign-${{ matrix.cc }}/summary.md
           if-no-files-found: warn

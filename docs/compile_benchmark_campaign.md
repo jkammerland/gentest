@@ -6,8 +6,10 @@ harness. Its baseline contract is current master commit
 turn wall time into a pass/fail threshold.
 
 The harness creates a generated consumer fixture, isolated build/cache
-directories, and (for a clean checkout) an ephemeral detached worktree. It
-does not modify source files in the checkout. Full dirty/untracked state is
+directories, and (for a clean checkout) an ephemeral detached worktree.
+Repository E2E builds use a fresh campaign-owned directory beneath that source
+tree; this also prevents `--allow-dirty` runs from reusing an earlier checkout
+build. It does not modify source files in the checkout. Full dirty/untracked state is
 recorded in provenance; tracked staged/unstaged changes are rejected unless
 `--allow-dirty` is explicit. Untracked local tooling noise does not prevent an
 isolated HEAD worktree. Every run requires an empty output directory so a
