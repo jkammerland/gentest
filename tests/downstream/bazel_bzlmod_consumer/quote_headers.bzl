@@ -8,6 +8,7 @@ def _categorized_headers_impl(ctx):
         CcInfo(
             compilation_context = cc_common.create_compilation_context(
                 headers = headers,
+                defines = depset(ctx.attr.defines),
                 includes = depset(ctx.attr.includes),
                 quote_includes = depset(ctx.attr.quote_includes),
                 system_includes = depset(ctx.attr.system_includes),
@@ -24,5 +25,6 @@ categorized_headers = rule(
         "quote_includes": attr.string_list(),
         "system_includes": attr.string_list(),
         "framework_includes": attr.string_list(),
+        "defines": attr.string_list(),
     },
 )
