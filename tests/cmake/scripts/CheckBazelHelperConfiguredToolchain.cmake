@@ -805,6 +805,7 @@ function(_run_bazel_helper_regression name script_path)
       "-DC_COMPILER=${_configured_cc}"
       "-DCXX_COMPILER=${_configured_cxx}"
       "-DBAZEL_EXECUTABLE=${_fake_bazel}"
+      "-DGENTEST_BAZEL_HELPER_CONTRACT=ON"
       "-DLLVM_DIR=${_fake_llvm_dir}"
       "-DClang_DIR=${_fake_clang_dir}"
       "-P" "${script_path}"
