@@ -305,6 +305,7 @@ cc_library(
 gentest_add_mocks_textual(
     name = 'gentest_consumer_textual_mocks',
     defs = ['tests/consumer/header_mock_defs.hpp'],
+    defines = ['GENTEST_BAZEL_MOCK_PRIVATE_DEFINE=1'],
     public_header = 'gentest_consumer_mocks.hpp',
     deps = ['//tests/consumer/bazel_mock_dep:mock_codegen_headers'],
     linkopts = _gentest_linkopts,
@@ -332,6 +333,7 @@ gentest_add_mocks_modules(
         'gentest.consumer_mock_defs',
     ],
     module_name = 'gentest.consumer_mocks',
+    defines = ['GENTEST_BAZEL_MOCK_PRIVATE_DEFINE=1'],
     deps = ['//tests/consumer/bazel_mock_dep:mock_codegen_headers'],
     linkopts = _gentest_linkopts,
 )

@@ -379,7 +379,11 @@ def _gentest_textual_codegen_impl(ctx):
             quote_include_dirs = codegen_support.quote_include_dirs,
             system_include_dirs = codegen_support.system_include_dirs,
             framework_include_dirs = codegen_support.framework_include_dirs,
-            defines = _gentest_unique(ctx.attr.defines + codegen_support.defines),
+            # Direct mock defines are private implementation details: the
+            # generated mock library compiles with them, but a consuming suite
+            # does not. Only definitions inherited from public CcInfo inputs
+            # may flow into downstream suite codegen.
+            defines = codegen_support.defines,
             module_mappings = [],
             codegen_inputs = depset(
                 [public_header] + generated_headers + textual_inputs + ctx.files._public_headers + codegen_support.headers,
@@ -598,7 +602,10 @@ def _gentest_module_mocks_codegen_impl(ctx):
             quote_include_dirs = codegen_support.quote_include_dirs,
             system_include_dirs = codegen_support.system_include_dirs,
             framework_include_dirs = codegen_support.framework_include_dirs,
-            defines = _gentest_unique(ctx.attr.defines + codegen_support.defines),
+            # Keep direct mock defines private for the same reason as the
+            # textual mock rule: downstream suite codegen must match the
+            # final suite compilation environment.
+            defines = codegen_support.defines,
             module_mappings = module_mappings,
             codegen_inputs = depset(codegen_outputs + ctx.files._public_headers + codegen_support.headers),
         ),
