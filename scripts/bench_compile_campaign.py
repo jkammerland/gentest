@@ -163,8 +163,28 @@ def require_fresh_output(path: Path) -> None:
         raise RuntimeError(f"output directory is not empty; choose a fresh directory: {path}")
 
 
+def stop_sccache_server(env: dict[str, str], root: Path, tool: str | None = None, *, check: bool) -> None:
+    resolved = tool or shutil.which("sccache")
+    if not resolved:
+        return
+    if check:
+        run_output([resolved, "--stop-server"], cwd=root, env=env)
+        return
+    subprocess.run(
+        [resolved, "--stop-server"],
+        cwd=root,
+        env=env,
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+
+
 def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, object]]:
     env = os.environ.copy()
+    env.pop("CMAKE_C_COMPILER_LAUNCHER", None)
+    env.pop("CMAKE_CXX_COMPILER_LAUNCHER", None)
     cache_dir = root / "compiler-cache"
     metadata: dict[str, object] = {"mode": mode, "directory": str(cache_dir), "before": None, "after": None}
     if mode == "off":
@@ -185,7 +205,25 @@ def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, 
         env.pop("SCCACHE_DISABLE", None)
         env["CCACHE_DISABLE"] = "1"
         env["SCCACHE_DIR"] = str(cache_dir)
-        metadata["before"] = run_output([tool, "--show-stats"], cwd=root, env=env)
+        env.pop("SCCACHE_SERVER_PORT", None)
+        env.pop("SCCACHE_SERVER_UDS", None)
+        env.pop("SCCACHE_CONF", None)
+        config_path = cache_dir / "sccache.conf"
+        config_path.write_text("", encoding="utf-8")
+        env["SCCACHE_CONF"] = str(config_path)
+        if os.name == "nt":
+            raise RuntimeError("isolated sccache campaigns are not yet supported on Windows")
+        socket_path = cache_dir / "server.sock"
+        if len(os.fsencode(socket_path)) >= 100:
+            socket_path = Path(tempfile.gettempdir()) / f"gentest-sccache-{hashlib.sha256(str(root).encode()).hexdigest()[:16]}.sock"
+        env["SCCACHE_SERVER_UDS"] = str(socket_path)
+        metadata["server_endpoint"] = {"kind": "uds", "path": str(socket_path)}
+        try:
+            run_output([tool, "--start-server"], cwd=root, env=env)
+            metadata["before"] = run_output([tool, "--show-stats"], cwd=root, env=env)
+        except (OSError, subprocess.CalledProcessError):
+            stop_sccache_server(env, root, tool, check=False)
+            raise
     metadata["tool"] = version(tool)
     return env, metadata
 
@@ -195,7 +233,11 @@ def finish_cache_metadata(mode: str, env: dict[str, str], root: Path, metadata: 
         return
     tool = shutil.which(mode)
     if tool:
-        metadata["after"] = run_output([tool, "--show-stats"], cwd=root, env=env)
+        try:
+            metadata["after"] = run_output([tool, "--show-stats"], cwd=root, env=env)
+        finally:
+            if mode == "sccache":
+                stop_sccache_server(env, root, tool, check=True)
 
 
 def cmake_arguments(cc: str, cxx: str, build_type: str, cache: str) -> list[str]:
@@ -209,7 +251,9 @@ def cmake_arguments(cc: str, cxx: str, build_type: str, cache: str) -> list[str]
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
         "-DCMAKE_CXX_EXTENSIONS=OFF",
     ]
-    if cache != "off":
+    if cache == "off":
+        arguments.extend(["-DCMAKE_C_COMPILER_LAUNCHER=", "-DCMAKE_CXX_COMPILER_LAUNCHER="])
+    else:
         arguments.extend([f"-DCMAKE_C_COMPILER_LAUNCHER={cache}", f"-DCMAKE_CXX_COMPILER_LAUNCHER={cache}"])
     for variable in ("LLVM_DIR", "Clang_DIR"):
         if os.environ.get(variable):
@@ -669,6 +713,8 @@ def main() -> int:
     temporary: tempfile.TemporaryDirectory[str] | None = None
     worktree: Path | None = None
     worktree_added = False
+    env: dict[str, str] | None = None
+    cache_finished = False
     try:
         env, cache_metadata = cache_environment(args.cache, output)
         source_input = root
@@ -784,6 +830,7 @@ def main() -> int:
                 stats.update({"warmups": warmup_count, **median_mad(samples), "profiles": profiles, "settling_profiles": settling_profiles})
             final_lanes.append(item)
         finish_cache_metadata(args.cache, env, output, cache_metadata)
+        cache_finished = True
         provenance["tools"]["host_codegen"] = version(host_codegen)  # type: ignore[index]
         result: dict[str, object] = {
             "status": "ok",
@@ -808,6 +855,9 @@ def main() -> int:
             temporary.cleanup()
         print(f"error: {error}", file=sys.stderr)
         return 1
+    finally:
+        if args.cache == "sccache" and env is not None and not cache_finished:
+            stop_sccache_server(env, output, check=False)
 
 
 if __name__ == "__main__":

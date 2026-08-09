@@ -150,7 +150,15 @@ class CampaignContractTests(unittest.TestCase):
     def test_selected_cache_clears_its_inherited_disable_flag(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             with (
-                mock.patch.dict(os.environ, {"CCACHE_DISABLE": "1", "SCCACHE_DISABLE": "1"}),
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "CCACHE_DISABLE": "1",
+                        "SCCACHE_DISABLE": "1",
+                        "CMAKE_C_COMPILER_LAUNCHER": "ambient-c-launcher",
+                        "CMAKE_CXX_COMPILER_LAUNCHER": "ambient-cxx-launcher",
+                    },
+                ),
                 mock.patch.object(campaign, "resolve_cache_tool", return_value="/bin/true"),
                 mock.patch.object(campaign, "run_output", return_value="empty stats"),
                 mock.patch.object(campaign, "version", return_value={"path": "/bin/true"}),
@@ -161,6 +169,63 @@ class CampaignContractTests(unittest.TestCase):
         self.assertEqual(ccache_env["SCCACHE_DISABLE"], "1")
         self.assertNotIn("SCCACHE_DISABLE", sccache_env)
         self.assertEqual(sccache_env["CCACHE_DISABLE"], "1")
+        for cache_env in (ccache_env, sccache_env):
+            self.assertNotIn("CMAKE_C_COMPILER_LAUNCHER", cache_env)
+            self.assertNotIn("CMAKE_CXX_COMPILER_LAUNCHER", cache_env)
+
+    def test_cache_off_clears_launchers_in_environment_and_cmake_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "CMAKE_C_COMPILER_LAUNCHER": "ambient-c-launcher",
+                    "CMAKE_CXX_COMPILER_LAUNCHER": "ambient-cxx-launcher",
+                },
+            ):
+                cache_env, _ = campaign.cache_environment("off", Path(temporary_directory))
+        self.assertNotIn("CMAKE_C_COMPILER_LAUNCHER", cache_env)
+        self.assertNotIn("CMAKE_CXX_COMPILER_LAUNCHER", cache_env)
+        arguments = campaign.cmake_arguments("clang", "clang++", "Release", "off")
+        self.assertIn("-DCMAKE_C_COMPILER_LAUNCHER=", arguments)
+        self.assertIn("-DCMAKE_CXX_COMPILER_LAUNCHER=", arguments)
+
+    @unittest.skipIf(os.name == "nt", "isolated sccache UDS is a POSIX campaign contract")
+    def test_sccache_lifecycle_uses_one_isolated_endpoint(self) -> None:
+        calls: list[tuple[list[str], dict[str, str]]] = []
+
+        def fake_run_output(command, *, cwd=None, env=None):  # noqa: ANN001, ANN202
+            del cwd
+            calls.append((list(command), dict(env or {})))
+            return "stats"
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "SCCACHE_SERVER_PORT": "4226",
+                        "SCCACHE_SERVER_UDS": "/tmp/ambient-sccache.sock",
+                        "SCCACHE_CONF": "/tmp/ambient-sccache.conf",
+                    },
+                ),
+                mock.patch.object(campaign, "resolve_cache_tool", return_value="/tools/sccache"),
+                mock.patch.object(campaign, "run_output", side_effect=fake_run_output),
+                mock.patch.object(campaign, "version", return_value={"path": "/tools/sccache"}),
+                mock.patch.object(campaign.shutil, "which", return_value="/tools/sccache"),
+            ):
+                cache_env, metadata = campaign.cache_environment("sccache", root)
+                campaign.finish_cache_metadata("sccache", cache_env, root, metadata)
+
+        self.assertEqual([command[1] for command, _ in calls], ["--start-server", "--show-stats", "--show-stats", "--stop-server"])
+        endpoint = cache_env["SCCACHE_SERVER_UDS"]
+        self.assertNotEqual(endpoint, "/tmp/ambient-sccache.sock")
+        self.assertNotIn("SCCACHE_SERVER_PORT", cache_env)
+        self.assertNotEqual(cache_env["SCCACHE_CONF"], "/tmp/ambient-sccache.conf")
+        self.assertEqual(metadata["server_endpoint"], {"kind": "uds", "path": endpoint})
+        for _, call_env in calls:
+            self.assertEqual(call_env["SCCACHE_SERVER_UDS"], endpoint)
+            self.assertEqual(call_env["SCCACHE_CONF"], cache_env["SCCACHE_CONF"])
 
     def test_extensionless_repository_executable_is_a_link_edge(self) -> None:
         self.assertEqual(campaign.classify(["tests/gentest_unit_tests"], ("gentest_unit_tests",)), "link_or_archive")

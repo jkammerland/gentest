@@ -80,7 +80,12 @@ python3 scripts/bench_compile_campaign.py --cc clang-22 --cxx clang++-22 \
 missing cache program fails clearly; no user-level cache directory or config
 is changed. An inherited disable flag for the selected cache is cleared, while
 the unselected cache remains disabled, so the recorded mode is the mode that
-actually executes.
+actually executes. Cache-off runs clear inherited CMake compiler launchers in
+both the process environment and configure cache. On POSIX, sccache runs use a
+campaign-owned config, cache directory, and server socket; the harness starts
+and stops that isolated server around the campaign so an ambient daemon cannot
+serve measurements or statistics. Isolated sccache campaigns currently fail
+clearly on Windows instead of attaching to the default shared server.
 
 ## Result schema and interpretation
 
