@@ -27,7 +27,7 @@ namespace {
 namespace fs   = std::filesystem;
 namespace json = llvm::json;
 
-constexpr std::string_view kSchema                    = "gentest.validated_pcm_cache.v1";
+constexpr std::string_view kSchema                    = "gentest.validated_pcm_cache.v2";
 constexpr std::uintmax_t   kMaxPcmBytes               = std::uintmax_t{1024} * 1024U * 1024U;
 constexpr std::uintmax_t   kMaxInputBytes             = std::uintmax_t{256} * 1024U * 1024U;
 constexpr std::uintmax_t   kMaxExecutableBytes        = std::uintmax_t{1024} * 1024U * 1024U;
@@ -288,13 +288,14 @@ struct PcmArtifactCache::InputBundle {
     std::string                  canonical_context;
     FileFingerprint              source;
     std::vector<FileFingerprint> dependencies;
+    std::vector<FileFingerprint> external_pcm_dependencies;
     std::string                  key;
 };
 
 namespace {
 
 std::optional<PcmArtifactCache::FileFingerprint> fingerprint_file(std::string_view raw_path, std::string_view build_directory,
-                                                                  bool allow_memo) {
+                                                                  std::uintmax_t max_size, bool allow_memo) {
     PcmArtifactCache::FileFingerprint fingerprint;
     fingerprint.path         = normalize_path(raw_path, build_directory);
     fingerprint.logical_path = logical_path(fingerprint.path, build_directory);
@@ -331,6 +332,7 @@ std::optional<PcmArtifactCache::FileFingerprint> fingerprint_file(std::string_vi
     append_length_prefixed(memo_key, fingerprint.unique_id);
     append_length_prefixed(memo_key, std::to_string(size));
     append_length_prefixed(memo_key, std::to_string(write_time.time_since_epoch().count()));
+    append_length_prefixed(memo_key, std::to_string(max_size));
     struct FingerprintMemo {
         std::mutex                                                         mutex;
         std::unordered_map<std::string, PcmArtifactCache::FileFingerprint> entries;
@@ -342,7 +344,7 @@ std::optional<PcmArtifactCache::FileFingerprint> fingerprint_file(std::string_vi
             return existing->second;
         }
     }
-    const auto content_hash = sha256_file(fingerprint.path, kMaxInputBytes);
+    const auto content_hash = sha256_file(fingerprint.path, max_size);
     if (!content_hash.has_value()) {
         return std::nullopt;
     }
@@ -423,9 +425,33 @@ std::optional<std::string> get_string(const json::Object &object, llvm::StringRe
 
 } // namespace
 
-PcmArtifactCache::PcmArtifactCache(fs::path directory) : directory_(std::move(directory)) {}
+std::optional<std::string_view> pcm_cache_unsupported_semantic_input(std::span<const std::string> command_line) {
+    for (const auto &raw_arg : command_line) {
+        llvm::StringRef arg{raw_arg};
+        if (arg.starts_with("/clang:")) {
+            arg = arg.drop_front(std::string_view{"/clang:"}.size());
+        }
+        if (arg == "-ivfsoverlay" || arg == "-vfsoverlay" || arg == "--vfsoverlay" || arg == "-remap-file" ||
+            arg.starts_with("-ivfsoverlay=") || arg.starts_with("-vfsoverlay=") || arg.starts_with("--vfsoverlay=") ||
+            arg.starts_with("-remap-file=")) {
+            return "a VFS overlay or source remap is active";
+        }
+        if (arg == "-include-pch" || arg == "-include-pth" || arg == "-chain-include" || arg == "-pch-through-header" ||
+            arg == "-pch-through-hdrstop-create" || arg == "-pch-through-hdrstop-use" || arg.starts_with("-include-pch=") ||
+            arg.starts_with("-include-pth=") || arg.starts_with("-chain-include=") || arg.starts_with("-pch-through-header=") ||
+            arg.starts_with("/Yu") || arg.starts_with("/Yc") || arg.starts_with("/Fp")) {
+            return "a precompiled-header input is active";
+        }
+        if (arg == "-fplugin" || arg == "-fpass-plugin" || arg == "-load" || arg == "-load-pass-plugin" || arg == "-plugin" ||
+            arg == "-add-plugin" || arg.starts_with("-fplugin=") || arg.starts_with("-fpass-plugin=") ||
+            arg.starts_with("-load-pass-plugin=")) {
+            return "a compiler plugin is active";
+        }
+    }
+    return std::nullopt;
+}
 
-std::optional<std::string> PcmArtifactCache::content_identity(const fs::path &path) { return sha256_file(path, kMaxPcmBytes); }
+PcmArtifactCache::PcmArtifactCache(fs::path directory) : directory_(std::move(directory)) {}
 
 std::optional<std::string> PcmArtifactCache::executable_identity(const fs::path &path) {
     std::error_code ec;
@@ -452,13 +478,14 @@ std::optional<PcmArtifactCache::InputBundle> PcmArtifactCache::input_bundle(cons
         return std::nullopt;
     }
     InputBundle bundle;
-    bundle.source = fingerprint_file(context.source, context.working_directory, allow_fingerprint_memo).value_or(FileFingerprint{});
+    bundle.source =
+        fingerprint_file(context.source, context.working_directory, kMaxInputBytes, allow_fingerprint_memo).value_or(FileFingerprint{});
     if (bundle.source.path.empty()) {
         return std::nullopt;
     }
     bundle.dependencies.reserve(context.file_dependencies.size());
     for (const auto &dependency : context.file_dependencies) {
-        const auto fingerprint = fingerprint_file(dependency, context.working_directory, allow_fingerprint_memo);
+        const auto fingerprint = fingerprint_file(dependency, context.working_directory, kMaxInputBytes, allow_fingerprint_memo);
         if (!fingerprint.has_value()) {
             return std::nullopt;
         }
@@ -472,6 +499,19 @@ std::optional<PcmArtifactCache::InputBundle> PcmArtifactCache::input_bundle(cons
     const auto duplicate = std::ranges::adjacent_find(bundle.dependencies, {}, &FileFingerprint::logical_path);
     if (duplicate != bundle.dependencies.end()) {
         // Different physical spellings for one logical input are ambiguous.
+        return std::nullopt;
+    }
+    bundle.external_pcm_dependencies.reserve(context.external_pcm_dependencies.size());
+    for (const auto &dependency : context.external_pcm_dependencies) {
+        const auto fingerprint = fingerprint_file(dependency, context.working_directory, kMaxPcmBytes, allow_fingerprint_memo);
+        if (!fingerprint.has_value()) {
+            return std::nullopt;
+        }
+        bundle.external_pcm_dependencies.push_back(*fingerprint);
+    }
+    std::ranges::sort(bundle.external_pcm_dependencies, {}, &FileFingerprint::logical_path);
+    const auto external_duplicate = std::ranges::adjacent_find(bundle.external_pcm_dependencies, {}, &FileFingerprint::logical_path);
+    if (external_duplicate != bundle.external_pcm_dependencies.end()) {
         return std::nullopt;
     }
 
@@ -499,6 +539,9 @@ std::optional<PcmArtifactCache::InputBundle> PcmArtifactCache::input_bundle(cons
     append_fingerprint_material(material, "source", bundle.source);
     for (const auto &dependency : bundle.dependencies) {
         append_fingerprint_material(material, "dependency", dependency);
+    }
+    for (const auto &dependency : bundle.external_pcm_dependencies) {
+        append_fingerprint_material(material, "external-pcm", dependency);
     }
     bundle.key = sha256_hex(material);
     return bundle;
@@ -546,9 +589,12 @@ bool PcmArtifactCache::load_prepared(std::string_view key, const fs::path &desti
         get_string(*root, "cache_key") != bundle->key) {
         return false;
     }
-    const auto *source_value = root->get("source");
-    const auto *dependencies = root->getArray("dependencies");
-    if (source_value == nullptr || dependencies == nullptr || dependencies->size() != bundle->dependencies.size()) {
+    const auto *source_value              = root->get("source");
+    const auto *dependencies              = root->getArray("dependencies");
+    const auto *external_pcm_dependencies = root->getArray("external_pcm_dependencies");
+    if (source_value == nullptr || dependencies == nullptr || external_pcm_dependencies == nullptr ||
+        dependencies->size() != bundle->dependencies.size() ||
+        external_pcm_dependencies->size() != bundle->external_pcm_dependencies.size()) {
         return false;
     }
     FileFingerprint stored_source;
@@ -559,6 +605,13 @@ bool PcmArtifactCache::load_prepared(std::string_view key, const fs::path &desti
         FileFingerprint stored_dependency;
         if (!read_fingerprint((*dependencies)[idx], stored_dependency) ||
             !fingerprints_match(stored_dependency, bundle->dependencies[idx])) {
+            return false;
+        }
+    }
+    for (std::size_t idx = 0; idx < external_pcm_dependencies->size(); ++idx) {
+        FileFingerprint stored_dependency;
+        if (!read_fingerprint((*external_pcm_dependencies)[idx], stored_dependency) ||
+            !fingerprints_match(stored_dependency, bundle->external_pcm_dependencies[idx])) {
             return false;
         }
     }
@@ -636,13 +689,14 @@ void PcmArtifactCache::store(const PcmCacheContext &context, const fs::path &pcm
     }
 
     json::Object root;
-    root["schema"]       = std::string(kSchema);
-    root["context"]      = bundle->canonical_context;
-    root["cache_key"]    = bundle->key;
-    root["source"]       = fingerprint_object(bundle->source);
-    root["dependencies"] = fingerprint_array(bundle->dependencies);
-    root["pcm_sha256"]   = *pcm_hash;
-    root["pcm_size"]     = std::to_string(pcm_size);
+    root["schema"]                    = std::string(kSchema);
+    root["context"]                   = bundle->canonical_context;
+    root["cache_key"]                 = bundle->key;
+    root["source"]                    = fingerprint_object(bundle->source);
+    root["dependencies"]              = fingerprint_array(bundle->dependencies);
+    root["external_pcm_dependencies"] = fingerprint_array(bundle->external_pcm_dependencies);
+    root["pcm_sha256"]                = *pcm_hash;
+    root["pcm_size"]                  = std::to_string(pcm_size);
     std::string              metadata;
     llvm::raw_string_ostream output(metadata);
     output << json::Value(std::move(root));
