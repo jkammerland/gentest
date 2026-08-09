@@ -1246,6 +1246,7 @@ function(gentest_attach_codegen target)
 
     set(_gentest_codegen_compdb_dir "")
     set(_gentest_config_compdb "")
+    set(_gentest_compdb_stage_target "")
     if(CMAKE_GENERATOR STREQUAL "Ninja Multi-Config")
         _gentest_write_multi_config_compdb_filter_script("${_gentest_target_id}" _gentest_compdb_filter_script)
         set(_gentest_config_compdb "${_gentest_output_dir}/compdb/compile_commands.json")
@@ -1268,16 +1269,21 @@ function(gentest_attach_codegen target)
         # a content-stable dependency so a no-op reconfigure does not make
         # every gentest_codegen output appear stale.
         set(_gentest_config_compdb "${_gentest_output_dir}/compdb/compile_commands.json")
+        set(_gentest_config_compdb_stamp "${_gentest_output_dir}/compdb/compile_commands.staged")
+        set(_gentest_compdb_stage_target "gentest_compdb_stage_${_gentest_target_id}")
         get_filename_component(_gentest_codegen_compdb_dir "${_gentest_config_compdb}" DIRECTORY)
         add_custom_command(
-            OUTPUT "${_gentest_config_compdb}"
+            OUTPUT "${_gentest_config_compdb_stamp}"
+            BYPRODUCTS "${_gentest_config_compdb}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gentest_codegen_compdb_dir}"
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 "${CMAKE_BINARY_DIR}/compile_commands.json"
                 "${_gentest_config_compdb}"
+            COMMAND "${CMAKE_COMMAND}" -E touch "${_gentest_config_compdb_stamp}"
             DEPENDS "${CMAKE_BINARY_DIR}/compile_commands.json"
             COMMENT "Staging compile commands for gentest target ${target}"
             VERBATIM)
+        add_custom_target(${_gentest_compdb_stage_target} DEPENDS "${_gentest_config_compdb_stamp}")
     elseif(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
         # Preserve the historic compiler-database lookup/fallback behavior for
         # consumers that intentionally leave CMAKE_EXPORT_COMPILE_COMMANDS off.
@@ -1605,6 +1611,9 @@ function(gentest_attach_codegen target)
             MODULE_NAMES ${_gentest_module_names}
             EXTRA_CPP ${_gentest_extra_cpp}
             CODEGEN_OUTPUTS ${_gentest_codegen_target_depends})
+    endif()
+    if(_gentest_compdb_stage_target)
+        add_dependencies(gentest_codegen_${_gentest_target_id} ${_gentest_compdb_stage_target})
     endif()
 
     # MODULE_REGISTRATION consumes the split inspect-mocks manifest directly;
