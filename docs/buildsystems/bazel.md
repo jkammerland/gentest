@@ -18,6 +18,7 @@ The public Bazel surface is:
 - `gentest_add_mocks_modules(...)`
 - `gentest_attach_codegen_modules(...)`
 - `GentestGeneratedInfo`
+- `gentest_codegen_toolchain(...)`
 
 The contract is explicit 2-step codegen:
 
@@ -33,14 +34,70 @@ context. Bazel still predeclares those outputs during analysis; the manifest is
 a validation/product artifact rather than a way to create new outputs at action
 execution time.
 
-Host-tool selection is explicit:
+## Exec toolchain contract
 
-- per target: `codegen_host_clang = "/path/to/clang++"`
-- env fallback: `GENTEST_CODEGEN_HOST_CLANG=/path/to/clang++`
+Gentest code generation resolves its parser and generator from an
+**exec-platform** `gentest_codegen_toolchain`; it does not take a compiler from
+the target C++ toolchain, `PATH`, or the action environment. This keeps a
+host-built code generator out of target dependencies when cross-compiling.
 
-`CC` / `CXX` remain target-toolchain inputs. In CI they are still mirrored from
-the chosen LLVM install only to keep the repo-local `gentest_codegen` bootstrap
-on the same toolchain.
+Define an implementation in a tool package and register the enclosing
+`toolchain` from your root `MODULE.bazel` (or `.bazelrc`):
+
+```python
+# tools/gentest_codegen/BUILD.bazel
+load("@gentest//bazel:defs.bzl", "gentest_codegen_toolchain")
+
+gentest_codegen_toolchain(
+    name = "impl",
+    codegen = "@gentest_tool_bundle//:gentest_codegen",
+    clang = "@llvm_exec_bundle//:clangxx",
+    # Optional. If omitted, Gentest uses its deterministic source scanner.
+    clang_scan_deps = "@llvm_exec_bundle//:clang_scan_deps",
+    # Files not already supplied by executable DefaultInfo files/runfiles.
+    runtime_files = ["@llvm_exec_bundle//:clang_runtime_files"],
+)
+
+toolchain(
+    name = "registered",
+    toolchain = ":impl",
+    toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
+)
+```
+
+```python
+# MODULE.bazel
+register_toolchains("//tools/gentest_codegen:registered")
+```
+
+`codegen`, `clang`, and optional `clang_scan_deps` are executable labels in the
+exec configuration. Gentest passes their `FilesToRunProvider` objects to every
+codegen action, retaining runfiles-tree layout for wrappers and packaged tools.
+It also declares their files/runfiles plus `runtime_files` in every action.
+Package Clang's resource directory, shared libraries, and scan-deps closure;
+an absolute system path or a ccache wrapper is not remotely portable and is not
+an accepted substitute for this contract.
+
+The legacy `codegen_host_clang` parameter remains syntactically accepted for
+source compatibility, but a nonempty value fails analysis with this migration
+path. `GENTEST_CODEGEN_HOST_CLANG` is no longer read by codegen actions.
+
+For local source-package development only, Gentest registers a fallback when
+`GENTEST_BAZEL_LOCAL_CLANG` names a local `clang++` executable:
+
+```bash
+GENTEST_BAZEL_LOCAL_CLANG=/opt/llvm/bin/clang++ \
+  bazelisk build --repo_env=GENTEST_BAZEL_LOCAL_CLANG //:my_tests
+```
+
+That fallback declares a label pointing at the local executable so it is useful
+for local correctness checks, but it is deliberately **not** a remotely
+executable LLVM package. Gentest marks actions using this local fallback
+`no-remote`, disabling remote execution and remote action-cache use; ordinary
+local and disk-cache reuse remains available. Release and remote-cache
+consumers must register a prepackaged toolchain. If neither is available,
+analysis reports a missing Gentest exec codegen toolchain instead of attempting
+ambient compiler lookup.
 
 ## Downstream Bzlmod example
 
@@ -132,48 +189,27 @@ your_project/
 ## Build and run
 
 These commands assume a prepared downstream Bzlmod project with a concrete
-`MODULE.bazel`. The checked-in fixture stores `MODULE.bazel.in`; the CTest proof
+`MODULE.bazel`. They use Gentest's source-package local fallback, so the local
+Clang path must be available to the repository rule as well as the client
+environment. The checked-in fixture stores `MODULE.bazel.in`; the CTest proof
 configures and stages it before invoking Bazel.
 
 ```bash
-HOST_CLANG=/opt/llvm/bin/clang++
-HOST_CC=/opt/llvm/bin/clang
-RES_DIR="$($HOST_CLANG -print-resource-dir)"
+export GENTEST_BAZEL_LOCAL_CLANG=/opt/llvm/bin/clang++
 
-GENTEST_BAZEL_FLAGS=(
-  --experimental_cpp_modules
-  --action_env=CC
-  --action_env=CXX
-  --action_env=GENTEST_CODEGEN_HOST_CLANG
-  --action_env=GENTEST_CODEGEN_RESOURCE_DIR
-  --host_action_env=CC
-  --host_action_env=CXX
-  --host_action_env=GENTEST_CODEGEN_HOST_CLANG
-  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR
-  --repo_env=CC
-  --repo_env=CXX
-  --repo_env=GENTEST_CODEGEN_HOST_CLANG
-  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
-)
-
-GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
-GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
-CC="$HOST_CC" \
-CXX="$HOST_CLANG" \
-bazelisk build "${GENTEST_BAZEL_FLAGS[@]}" //:gentest_downstream_module
-
-GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
-GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
-CC="$HOST_CC" \
-CXX="$HOST_CLANG" \
-bazelisk run "${GENTEST_BAZEL_FLAGS[@]}" //:gentest_downstream_textual -- --list
-
-GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG" \
-GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR" \
-CC="$HOST_CC" \
-CXX="$HOST_CLANG" \
-bazelisk run "${GENTEST_BAZEL_FLAGS[@]}" //:gentest_downstream_module -- --run=downstream/bazel/mock --kind=test
+bazelisk build --repo_env=GENTEST_BAZEL_LOCAL_CLANG \
+  --experimental_cpp_modules //:gentest_downstream_module
+bazelisk run --repo_env=GENTEST_BAZEL_LOCAL_CLANG \
+  //:gentest_downstream_textual -- --list
+bazelisk run --repo_env=GENTEST_BAZEL_LOCAL_CLANG \
+  //:gentest_downstream_module -- --run=downstream/bazel/mock --kind=test
 ```
+
+This is a local correctness flow: its generated actions are marked
+`no-remote`. For remote execution or remote action-cache use, register a real
+packaged `gentest_codegen_toolchain` instead, following the
+[exec toolchain contract](#exec-toolchain-contract); do not combine that
+production flow with `GENTEST_BAZEL_LOCAL_CLANG`.
 
 To run the checked-in proof instead of a prepared downstream project:
 
@@ -205,6 +241,27 @@ CI validates the Bazel downstream path on Ubuntu 24.04 and Fedora 43. Other
 platforms are expected to follow the same source-package contract, but require
 an explicitly configured module-capable Clang toolchain.
 
+## Action cache and execution portability
+
+The codegen rules use `ctx.actions.run` with deterministic `Args`, declared
+execpath inputs/outputs, declared tool closures, and an empty action
+environment. They intentionally retain the complete headers and generated mock
+inputs required for parsing; unlike an incremental build generator, Bazel
+cannot safely narrow those inputs without a sound depfile contract.
+
+`--source-root .` is retained because Bazel spawns the action from its execroot:
+`.` is a stable action contract, not the source checkout's current directory.
+Generated include literals therefore stay execroot-relative rather than leaking
+an absolute checkout or output-base path.
+
+Gentest does not expose a persistent parse-cache directory for Bazel. A mutable
+cache below a sandboxed action would make the action key incomplete and defeat
+remote portability. Bazel's local, disk, and remote action caches are the
+supported codegen cache. A local disk-cache check can use two isolated output
+bases: use `aquery` to audit argv and declared inputs, then use the second
+`build --subcommands` (or an execution log) to confirm codegen does not execute.
+Do not use elapsed time as the gate.
+
 ## Limitations
 
 - This is source-package / Bzlmod support, not a prebuilt binary package.
@@ -213,8 +270,10 @@ an explicitly configured module-capable Clang toolchain.
 - `deps` are final target dependencies. Codegen consumes explicit
   `mock_targets`, `source_includes`, gentest metadata providers, and fixed
   support inputs; arbitrary dependency include/module metadata is not inferred.
-- The repo still bootstraps `gentest_codegen` via CMake inside Bazel.
-- The module path remains toolchain-sensitive and expects explicit host-tool
-  configuration.
+- The repo-local CMake bootstrap for `@gentest//:gentest_codegen` is a local
+  source-package convenience and is not remote-execution portable. A packaged
+  `codegen` executable label is required for portable consumers.
+- The module path remains toolchain-sensitive, but its parser comes from the
+  exec toolchain contract above.
 - The artifact manifest is generated and validated as a product file; Bazel
   rules must still predeclare concrete outputs before actions run.

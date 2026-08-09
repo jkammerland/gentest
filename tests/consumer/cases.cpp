@@ -4,12 +4,15 @@
 #include "gentest_consumer_mocks.hpp"
 
 #include <sstream>
+#include <stddef.h>
 #include <string>
 #include <string_view>
 
 using namespace gentest::asserts;
 
 namespace {
+
+static_assert(sizeof(size_t) > 0);
 
 struct RestoreDefaultLogSink {
     ~RestoreDefaultLogSink() { gentest::restore_default_log_sink(); }
