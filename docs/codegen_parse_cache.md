@@ -36,8 +36,9 @@ new shadowing header produces a miss. Header maps, frameworks, and
 `include_next`/`__has_include_next`, volatile predefined time macros, embeds,
 and module imports conservatively bypass caching. The effective Clang driver
 command fingerprints default and explicit config expansion. Commands using VFS
-overlays, plugins, PCHs, header modules, or relative forced includes and macros
-also bypass; absolute direct `-include`/`-imacros` inputs are guarded. Clang 22
+overlays, plugins, PCHs, header modules, profile-guided optimization inputs, or
+relative forced includes and macros also bypass; absolute direct
+`-include`/`-imacros` inputs are guarded. Clang 22
 provides direct embed callbacks; on Clang 20 and 21 Gentest conservatively
 scans every entered source buffer and bypasses a TU containing `#embed` or
 `__has_embed`.
