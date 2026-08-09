@@ -215,7 +215,7 @@ set(_local_bazel_env
 
 # The source-package fallback remains usable for local development, but its
 # tool closure is deliberately not a remote bundle. Its actions must carry
-# no-remote; the staged packaged-label toolchain below must not.
+# no-remote/no-cache; the staged packaged-label toolchain below must not.
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_local_bazel_env}
           "${_bazel}"
@@ -233,9 +233,10 @@ if(NOT _local_aquery_rc EQUAL 0)
     "Bazel aquery for the local fallback failed.\nstdout:\n${_local_aquery_out}\nstderr:\n${_local_aquery_err}")
 endif()
 string(FIND "${_local_aquery_out}" "no-remote" _local_no_remote_pos)
-if(_local_no_remote_pos EQUAL -1)
+string(FIND "${_local_aquery_out}" "no-cache" _local_no_cache_pos)
+if(_local_no_remote_pos EQUAL -1 OR _local_no_cache_pos EQUAL -1)
   message(FATAL_ERROR
-    "Local fallback codegen action does not disable remote execution/cache.\n${_local_aquery_out}")
+    "Local fallback codegen action does not disable execution/cache reuse.\n${_local_aquery_out}")
 endif()
 
 execute_process(
@@ -266,6 +267,8 @@ foreach(_required IN ITEMS
     "tests/consumer/cases.cpp"
     "tests/consumer/bazel_private_case_value.hpp"
     "tests/consumer/bazel_dep_case_value.hpp"
+    "tests/consumer/bazel_mock_dep/mock_dep.hpp"
+    "GENTEST_BAZEL_MOCK_DEP=1"
     "include/gentest/runner.h"
     "gentest_consumer_mocks.hpp")
   string(FIND "${_aquery_out}" "${_required}" _required_pos)
@@ -274,7 +277,8 @@ foreach(_required IN ITEMS
   endif()
 endforeach()
 string(FIND "${_aquery_out}" "no-remote" _staged_no_remote_pos)
-if(NOT _staged_no_remote_pos EQUAL -1)
+string(FIND "${_aquery_out}" "no-cache" _staged_no_cache_pos)
+if(NOT _staged_no_remote_pos EQUAL -1 OR NOT _staged_no_cache_pos EQUAL -1)
   message(FATAL_ERROR "Packaged-label codegen action unexpectedly disables remote execution/cache.\n${_aquery_out}")
 endif()
 string(FIND "${_aquery_out}" "${SOURCE_DIR}" _absolute_source_pos)
@@ -343,6 +347,8 @@ foreach(_required_module_action_token IN ITEMS
     "SDKROOT"
     "tests/consumer/bazel_private_case_value.hpp"
     "tests/consumer/bazel_dep_case_value.hpp"
+    "tests/consumer/bazel_mock_dep/mock_dep.hpp"
+    "GENTEST_BAZEL_MOCK_DEP=1"
     "compile_commands.json")
   string(FIND "${_module_aquery_out}" "${_required_module_action_token}" _required_module_action_pos)
   if(_required_module_action_pos EQUAL -1)
@@ -351,7 +357,8 @@ foreach(_required_module_action_token IN ITEMS
   endif()
 endforeach()
 string(FIND "${_module_aquery_out}" "no-remote" _module_staged_no_remote_pos)
-if(NOT _module_staged_no_remote_pos EQUAL -1)
+string(FIND "${_module_aquery_out}" "no-cache" _module_staged_no_cache_pos)
+if(NOT _module_staged_no_remote_pos EQUAL -1 OR NOT _module_staged_no_cache_pos EQUAL -1)
   message(FATAL_ERROR "Packaged-label module codegen unexpectedly disables remote execution/cache.\n${_module_aquery_out}")
 endif()
 
