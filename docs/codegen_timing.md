@@ -24,7 +24,10 @@ one identified `parse` record per input TU; the legacy aggregate parse path
 uses a single `parse` record without `tu_index` because Clang handles its input
 sources in one invocation. Records may include `source`, `tu_index`, `path`,
 and `module` when the phase has a relevant identity. A phase can have multiple
-records (for example, parallel TU parsing). `emit` covers registration headers,
+records (for example, parallel TU parsing). Named-module precompilation reports
+identified `pcm` records only; the otherwise empty PCM stage reports one
+unidentified `pcm` record, so phase durations remain additive rather than
+counting module work in both child and aggregate records. `emit` covers registration headers,
 wrappers, artifact manifests, and writes of combined registration units. It
 excludes the measured mock-specific API-include and attachment-render spans in
 same-module registration units; those spans are emitted as identified `mock`

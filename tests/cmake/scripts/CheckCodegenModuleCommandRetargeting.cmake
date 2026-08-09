@@ -138,6 +138,7 @@ if(NOT APPLE)
     ARGUMENTS ${_env_fallback_args})
   gentest_fixture_write_compdb("${_env_fallback_dir}/compile_commands.json" "${_env_fallback_entry}")
   file(TO_CMAKE_PATH "${_env_fallback_generated_dir}/tu_0000_suite.module.gentest.cppm" _env_fallback_wrapper_abs)
+  set(_env_fallback_timing "${_env_fallback_generated_dir}/timing.json")
 
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
@@ -145,6 +146,7 @@ if(NOT APPLE)
       "PATH=${_env_fallback_empty_path}"
       "CXX=${_clangxx_norm}"
       "${PROG}" --check --compdb "${_env_fallback_dir}" --tu-out-dir "${_env_fallback_generated_dir}"
+      --timing-json "${_env_fallback_timing}"
       --module-wrapper-output "${_env_fallback_wrapper_abs}"
       "${_env_fallback_source_abs}"
     WORKING_DIRECTORY "${_env_fallback_dir}"
@@ -165,6 +167,31 @@ if(NOT APPLE)
     message(FATAL_ERROR
       "module precompile compiler fallback: gentest_codegen still tried to execute bare clang++ instead of the CXX override.\n"
       "Output:\n${_env_fallback_out}\nErrors:\n${_env_fallback_err}")
+  endif()
+
+  file(READ "${_env_fallback_timing}" _env_fallback_timing_json)
+  string(JSON _env_fallback_phase_count LENGTH "${_env_fallback_timing_json}" phases)
+  set(_env_fallback_pcm_count 0)
+  set(_env_fallback_unidentified_pcm_count 0)
+  foreach(_phase_index RANGE 0 ${_env_fallback_phase_count})
+    if(_phase_index EQUAL _env_fallback_phase_count)
+      break()
+    endif()
+    string(JSON _phase_name GET "${_env_fallback_timing_json}" phases ${_phase_index} name)
+    if(NOT _phase_name STREQUAL "pcm")
+      continue()
+    endif()
+    math(EXPR _env_fallback_pcm_count "${_env_fallback_pcm_count} + 1")
+    string(JSON _module_type ERROR_VARIABLE _module_error TYPE
+      "${_env_fallback_timing_json}" phases ${_phase_index} module)
+    if(NOT _module_error STREQUAL "NOTFOUND" OR NOT _module_type STREQUAL "STRING")
+      math(EXPR _env_fallback_unidentified_pcm_count "${_env_fallback_unidentified_pcm_count} + 1")
+    endif()
+  endforeach()
+  if(_env_fallback_pcm_count LESS 1 OR NOT _env_fallback_unidentified_pcm_count EQUAL 0)
+    message(FATAL_ERROR
+      "Module precompile timing must contain identified PCM records without an aggregate duplicate.\n"
+      "${_env_fallback_timing_json}")
   endif()
 endif()
 
