@@ -7,7 +7,8 @@ end
 
 -- Configure the shared Xmake helper context. External consumers can override
 -- codegen_project_root to point at a gentest checkout, or provide
--- codegen = { exe = ..., clang = ..., scan_deps = ... }.
+-- codegen = { exe = ..., clang = ..., scan_deps = ..., parse_cache = ...,
+--             parse_cache_dir = ..., compiler_cache = "off"|"xmake" }.
 function gentest_configure(opts)
     gentest_state = opts or {}
 end
@@ -613,6 +614,79 @@ local function configured_codegen_settings()
     return codegen
 end
 
+local function normalize_opt_in(value, label)
+    if value == nil or value == "" then
+        return nil
+    end
+    if value == true or value == 1 then
+        return true
+    end
+    if value == false or value == 0 then
+        return false
+    end
+    local normalized = tostring(value):lower()
+    if normalized == "on" or normalized == "true" or normalized == "yes" or normalized == "y" or normalized == "1" then
+        return true
+    end
+    if normalized == "off" or normalized == "false" or normalized == "no" or normalized == "n" or normalized == "0" then
+        return false
+    end
+    fail(label .. " must be ON or OFF")
+end
+
+local function resolved_parse_cache_dir()
+    local codegen = configured_codegen_settings()
+    if not normalize_opt_in(codegen["parse_cache"], "gentest_configure().codegen.parse_cache") then
+        return nil
+    end
+    local configured = tostring(codegen["parse_cache_dir"] or "")
+    if configured == "" then
+        return path.absolute(path.join(configured_build_dir(), ".gentest_codegen_parse_cache"))
+    end
+    if not path.is_absolute(configured) then
+        configured = path.join(configured_build_dir(), configured)
+    end
+    return path.absolute(configured)
+end
+
+local function append_parse_cache_args(args)
+    local cache_dir = resolved_parse_cache_dir()
+    if cache_dir then
+        table.insert(args, "--parse-cache-dir")
+        table.insert(args, cache_dir)
+    end
+end
+
+local function compiler_cache_policy()
+    local codegen = configured_codegen_settings()
+    local configured = codegen["compiler_cache"]
+    if configured == nil or configured == "" then
+        configured = os.getenv("GENTEST_XMAKE_COMPILER_CACHE") or "off"
+    end
+    local policy = tostring(configured):lower()
+    if policy ~= "off" and policy ~= "xmake" then
+        fail("gentest_configure().codegen.compiler_cache must be `off` or `xmake`")
+    end
+    return policy
+end
+
+-- Apply Gentest's compiler-cache policy to the current target. This is
+-- intentionally target-scoped: unrelated user targets retain Xmake's own
+-- policy/default rather than inheriting a project-global setting.
+function gentest_apply_compiler_cache_policy(kind)
+    local policy = compiler_cache_policy()
+    -- This target-scope DSL call writes the target's actual policy table.
+    -- It deliberately does not use an `after_load` hook: a helper target may
+    -- already have an after_load callback for module-scanner invalidation.
+    -- Xmake's module rule may also force this policy off while loading.
+    set_policy("build.ccache", kind ~= "modules" and policy == "xmake")
+    if kind ~= "modules" and policy == "xmake" then
+        -- Keep the opt-in cache inside this build tree. Do not opt targets
+        -- into Xmake's user-global cache storage.
+        set_policy("build.ccache.global_storage", false)
+    end
+end
+
 local function resolve_program_candidate(candidate)
     local candidate_text = tostring(candidate or "")
     if candidate_text == "" then
@@ -1024,9 +1098,10 @@ local function require_clang_module_toolchain(target, operation)
 end
 
 local function run_command(batchcmds, program, args)
-    if batchcmds then
-        batchcmds:vrunv(program, args)
+    if not batchcmds then
+        fail("code generation commands must be scheduled through an Xmake build rule")
     end
+    batchcmds:vrunv(program, args)
 end
 
 local function resolve_codegen()
@@ -1170,6 +1245,7 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
         table.insert(args, "--compdb")
         table.insert(args, compdb_dir)
     end
+    append_parse_cache_args(args)
     append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args, config.forced_includes)
     run_command(batchcmds, codegen, args)
 end
@@ -1223,9 +1299,291 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
         table.insert(args, "--clang-scan-deps")
         table.insert(args, scan_deps)
     end
+    append_parse_cache_args(args)
     append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args)
     run_command(batchcmds, codegen, args)
 end
+
+local function append_path_unique(paths, seen, filepath)
+    if filepath == nil or filepath == "" then
+        return
+    end
+    local normalized = tostring(filepath)
+    if not path.is_absolute(normalized) then
+        normalized = project_path(normalized)
+    end
+    normalized = path.absolute(normalized)
+    if not seen[normalized] then
+        seen[normalized] = true
+        table.insert(paths, normalized)
+    end
+end
+
+local function append_external_module_source_path(paths, seen, mapping)
+    -- `--external-module-source` carries `module-name=/path/to/source`.
+    -- These source units are recorded in the artifact manifest rather than in
+    -- the codegen depfile, so their RHS must be a static dependency as well.
+    local text = tostring(mapping or "")
+    local separator = text:find("=", 1, true)
+    if separator and separator < #text then
+        append_path_unique(paths, seen, text:sub(separator + 1))
+    end
+end
+
+local function value_identity(value)
+    if type(value) ~= "table" then
+        return tostring(value or "")
+    end
+    local values = {}
+    for _, item in ipairs(value) do
+        table.insert(values, value_identity(item))
+    end
+    return "[" .. table.concat(values, "\31") .. "]"
+end
+
+local function target_codegen_identity(target, config, codegen, compdb_dir, host_clang, scan_deps)
+    local cxx_program, cxx_name = target:tool("cxx")
+    local target_values = {
+        "gentest-xmake-codegen-v2",
+        config.operation or "",
+        config.codegen_kind or "",
+        config.kind,
+        config.source_file or "",
+        config.module_name or "",
+        codegen or "",
+        compdb_dir or "",
+        host_clang or "",
+        scan_deps or "",
+        resolved_parse_cache_dir() or "",
+        tostring(configured_codegen_settings()["parse_cache"] or ""),
+        tostring(os.getenv("GENTEST_CODEGEN_PARSE_CACHE") or ""),
+        tostring(os.getenv("GENTEST_CODEGEN_PARSE_CACHE_DIR") or ""),
+        tostring(os.getenv("GENTEST_CODEGEN_PARSE_CACHE_READONLY") or ""),
+        value_identity(config.inputs),
+        value_identity(config.defines),
+        value_identity(config.clang_args),
+        value_identity(config.forced_includes),
+        value_identity(config.extra_includes),
+        value_identity(config.dep_module_sources),
+        value_identity(config.dep_support_headers),
+        value_identity(config.outputs),
+        value_identity(gentest_common_defines()),
+        value_identity(gentest_common_cxxflags()),
+        value_identity(target:get("defines")),
+        value_identity(target:get("cxflags")),
+        value_identity(target:get("cxxflags")),
+        cxx_program or "",
+        cxx_name or "",
+    }
+    return table.concat(target_values, "\30")
+end
+
+local function prepare_mock_codegen_inputs(target, config)
+    config.extra_includes = collect_target_package_include_dirs(target)
+    local dep_include_dirs = resolve_dep_inputs(config.deps)
+    local dep_metadata_include_dirs, dep_module_sources, support_headers = collect_mock_metadata_inputs(config.deps)
+    local seen_build_includes = {}
+    for _, include_dir in ipairs(config.extra_includes) do
+        seen_build_includes[include_dir] = true
+    end
+    for _, include_dir in ipairs(dep_include_dirs) do
+        if not seen_build_includes[include_dir] then
+            seen_build_includes[include_dir] = true
+            table.insert(config.extra_includes, include_dir)
+        end
+    end
+    for _, include_dir in ipairs(dep_metadata_include_dirs) do
+        if not seen_build_includes[include_dir] then
+            seen_build_includes[include_dir] = true
+            table.insert(config.extra_includes, include_dir)
+        end
+    end
+    config.dep_module_sources = dep_module_sources
+    config.dep_support_headers = support_headers
+end
+
+local function prepare_suite_codegen_inputs(target, config)
+    local seen_extra_includes = {}
+    for _, include_dir in ipairs(config.extra_includes) do
+        seen_extra_includes[include_dir] = true
+    end
+    local dep_include_dirs = resolve_dep_inputs(config.deps)
+    local dep_metadata_include_dirs, dep_module_sources, support_headers = collect_mock_metadata_inputs(config.deps)
+    for _, include_dir in ipairs(dep_include_dirs) do
+        append_unique(config.extra_includes, seen_extra_includes, include_dir)
+    end
+    for _, include_dir in ipairs(dep_metadata_include_dirs) do
+        append_unique(config.extra_includes, seen_extra_includes, include_dir)
+    end
+    for _, include_dir in ipairs(collect_target_package_include_dirs(target)) do
+        append_unique(config.extra_includes, seen_extra_includes, include_dir)
+    end
+    config.dep_module_sources = dep_module_sources
+    config.dep_support_headers = support_headers
+end
+
+local function codegen_static_dependencies(target, config, codegen, compdb_dir, host_clang, scan_deps)
+    local files = {}
+    local seen = {}
+    for _, input in ipairs(config.inputs or {}) do
+        append_path_unique(files, seen, input)
+    end
+    for _, output in ipairs(config.outputs or {}) do
+        append_path_unique(files, seen, output)
+    end
+    for _, support_header in ipairs(config.dep_support_headers or {}) do
+        append_path_unique(files, seen, support_header)
+    end
+    if config.kind == "modules" then
+        for _, module_source in ipairs(default_external_module_sources()) do
+            append_external_module_source_path(files, seen, module_source)
+        end
+        for _, module_source in ipairs(config.dep_module_sources or {}) do
+            append_external_module_source_path(files, seen, module_source)
+        end
+    end
+    append_path_unique(files, seen, codegen)
+    append_path_unique(files, seen, host_clang)
+    append_path_unique(files, seen, scan_deps)
+    append_path_unique(files, seen, path.join(helper_script_dir(), "gentest.lua"))
+    append_path_unique(files, seen, path.join(helper_script_dir(), "scripts", "update_codegen_dep_cache.lua"))
+    local cxx_program = target:tool("cxx")
+    append_path_unique(files, seen, cxx_program)
+    if compdb_dir and compdb_dir ~= "" then
+        append_path_unique(files, seen, path.join(compdb_dir, "compile_commands.json"))
+    end
+    return files
+end
+
+local function combined_dependency_files(primary, secondary)
+    local files = {}
+    local seen = {}
+    for _, filepath in ipairs(primary or {}) do
+        append_path_unique(files, seen, filepath)
+    end
+    for _, filepath in ipairs(secondary or {}) do
+        append_path_unique(files, seen, filepath)
+    end
+    return files
+end
+
+local function generation_cache_path(config)
+    return config.depcache_anchor .. ".gentest_codegen_deps"
+end
+
+local function cached_generation_state(cache_path, identity)
+    local candidates = os.files(cache_path .. ".v.*") or {}
+    local latest_entries = {}
+    for _, candidate in ipairs(candidates) do
+        -- Xmake's dependency loader safely treats a corrupt or unreadable
+        -- serialized state file as absent.
+        local depend_loader = gentest_state["_depend_loader"]
+        local cached = depend_loader and depend_loader.load(candidate) or nil
+        if type(cached) == "table" and cached.schema == 1 and cached.identity == identity and type(cached.files) == "table" then
+            latest_entries = cached.files
+            local current = true
+            for _, entry in ipairs(cached.files) do
+                if type(entry) ~= "table" or type(entry.path) ~= "string" or os.mtime(entry.path) ~= entry.mtime then
+                    current = false
+                    break
+                end
+            end
+            if current then
+                return true, cached.files
+            end
+        end
+    end
+    return false, latest_entries
+end
+
+local function cached_file_paths(entries)
+    local result = {}
+    local seen = {}
+    for _, entry in ipairs(entries or {}) do
+        if type(entry) == "table" then
+            append_path_unique(result, seen, entry.path)
+        end
+    end
+    return result
+end
+
+local function dependency_fingerprint(files)
+    local parts = {}
+    for _, filepath in ipairs(files) do
+        table.insert(parts, filepath .. "=" .. tostring(os.mtime(filepath)))
+    end
+    return table.concat(parts, "\31")
+end
+
+local function run_cached_codegen(target, batchcmds, config)
+    if config.kind == "modules" then
+        require_clang_module_toolchain(target, config.operation)
+    end
+    config.prepare_inputs(target, config)
+    local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
+    if not compdb_dir then
+        compdb_dir = config.fallback_compdb_dir
+    end
+    local static_dependencies = codegen_static_dependencies(target, config, codegen, compdb_dir, host_clang, scan_deps)
+    local identity = target_codegen_identity(target, config, codegen, compdb_dir, host_clang, scan_deps)
+    local cache_path = generation_cache_path(config)
+    local is_current, cached_entries = cached_generation_state(cache_path, identity)
+    if is_current then
+        return
+    end
+
+    -- Native depcache mirrors the sidecar closure. The sidecar is required
+    -- because gentest_codegen discovers headers only after it has run; its
+    -- closure fingerprint ensures Xmake also invalidates an old native cache
+    -- when that discovered set changes.
+    local native_dependencies = combined_dependency_files(cached_file_paths(cached_entries), static_dependencies)
+    if #cached_entries > 0 then
+        -- A stale but readable sidecar contributes its previous dynamic
+        -- closure; the fingerprint makes the native cache run this batch when
+        -- any of those headers changed.
+        batchcmds:add_depfiles(table.unpack(native_dependencies))
+        batchcmds:add_depvalues(identity, dependency_fingerprint(native_dependencies))
+        batchcmds:set_depcache(target:dependfile(config.depcache_anchor))
+    end
+    -- No sidecar closure means no trustworthy native dependency cache. Leave
+    -- this batch uncached so missing/corrupt/read-only sidecar state always
+    -- regenerates instead of being skipped by a prior static-only depcache.
+    if config.codegen_kind == "mocks" then
+        run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+    else
+        run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+    end
+    local cache_args = {cache_path, config.depfile, identity, project_root()}
+    for _, filepath in ipairs(static_dependencies) do
+        table.insert(cache_args, filepath)
+    end
+    batchcmds:vlua(path.join(helper_script_dir(), "scripts", "update_codegen_dep_cache.lua"), cache_args)
+end
+
+local function generation_configs()
+    local configs = gentest_state["_generation_configs"]
+    if not configs then
+        configs = {}
+        gentest_state["_generation_configs"] = configs
+    end
+    return configs
+end
+
+local function register_generation_config(target_name, config)
+    generation_configs()[target_name] = config
+end
+
+rule("gentest.codegen.prepare")
+    on_preparecmd_file(function(target, batchcmds, sourcefile, opt)
+        -- Xmake strips the namespace from target:name(); helper callers use
+        -- the public full target name in opts.name, so preserve it here.
+        local target_name = target:fullname()
+        local config = generation_configs()[target_name] or generation_configs()[target:name()]
+        if not config then
+            fail("missing codegen configuration for target `" .. target_name .. "`")
+        end
+        run_cached_codegen(target, batchcmds, config)
+    end)
 
 function gentest_add_mocks(opts)
     local kind = require_kind(opts, "gentest_add_mocks")
@@ -1234,6 +1592,7 @@ function gentest_add_mocks(opts)
     end
 
     gentest_apply_windows_llvm_toolchain()
+    gentest_apply_compiler_cache_policy(kind)
 
     local target_name = require_opt(opts, "name", "gentest_add_mocks")
     local output_dir = require_opt(opts, "output_dir", "gentest_add_mocks")
@@ -1257,6 +1616,8 @@ function gentest_add_mocks(opts)
     local fallback_compdb_dir, fallback_compdb_file = fallback_compdb_paths(output_dir)
     local config = {
         kind = kind,
+        operation = "gentest_add_mocks",
+        codegen_kind = "mocks",
         defs = {},
         out_dir_abs = out_dir_abs,
         fallback_compdb_dir = fallback_compdb_dir,
@@ -1336,6 +1697,44 @@ function gentest_add_mocks(opts)
     for _, defs_file in ipairs(defs) do
         table.insert(config.defs, project_path(defs_file))
     end
+    config.inputs = {}
+    for _, defs_file in ipairs(config.defs) do
+        table.insert(config.inputs, defs_file)
+    end
+    if config.aggregate_source then
+        table.insert(config.inputs, config.aggregate_source)
+    end
+    config.outputs = {
+        config.depfile,
+        config.mock_registry,
+        config.mock_impl,
+    }
+    for _, output in ipairs(config.mock_domain_registry_outputs) do
+        table.insert(config.outputs, output)
+    end
+    for _, output in ipairs(config.mock_domain_impl_outputs) do
+        table.insert(config.outputs, output)
+    end
+    if config.wrapper_output then
+        table.insert(config.outputs, config.wrapper_output)
+    end
+    if config.header_output then
+        table.insert(config.outputs, config.header_output)
+    end
+    if config.public_header then
+        table.insert(config.outputs, config.public_header)
+    end
+    if config.public_module then
+        table.insert(config.outputs, config.public_module)
+    end
+    for _, output in ipairs(config.module_wrapper_outputs or {}) do
+        table.insert(config.outputs, output)
+    end
+    for _, output in ipairs(config.module_header_outputs or {}) do
+        table.insert(config.outputs, output)
+    end
+    config.depcache_anchor = config.header_output or config.module_header_outputs[1]
+    config.prepare_inputs = prepare_mock_codegen_inputs
     local dep_targets = collect_dep_targets(opts.deps)
 
     set_policy("build.fence", true)
@@ -1403,6 +1802,11 @@ function gentest_add_mocks(opts)
         table.insert(generated_support_headers, generated_header)
     end
     add_headerfiles(table.unpack(generated_support_headers), {always_added = true})
+    if kind ~= "modules" then
+        -- Textual definitions are existing non-compilable inputs, so they are
+        -- safe clean-tree preparation triggers.
+        add_files(config.defs[1], {rules = "gentest.codegen.prepare", override = true, always_added = true})
+    end
     if config.depfile then
         add_extrafiles(config.depfile, {always_added = true})
     end
@@ -1425,6 +1829,7 @@ function gentest_add_mocks(opts)
         end
     end)
     on_load(function (target)
+        gentest_state["_depend_loader"] = import("core.project.depend")
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         for _, include_dir in ipairs(dep_include_dirs) do
             target:add("includedirs", include_dir)
@@ -1444,36 +1849,12 @@ function gentest_add_mocks(opts)
             invalidate_xmake_module_scanner_cache(target, project, localcache)
         end
     end)
-    before_preparecmd(function (target, batchcmds)
-        if kind == "modules" then
-            require_clang_module_toolchain(target, "gentest_add_mocks")
-        end
-        local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
-        config.extra_includes = collect_target_package_include_dirs(target)
-        local dep_include_dirs = resolve_dep_inputs(config.deps)
-        local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.deps)
-        local seen_build_includes = {}
-        for _, include_dir in ipairs(config.extra_includes) do
-            seen_build_includes[include_dir] = true
-        end
-        for _, include_dir in ipairs(dep_include_dirs) do
-            if not seen_build_includes[include_dir] then
-                seen_build_includes[include_dir] = true
-                table.insert(config.extra_includes, include_dir)
-            end
-        end
-        for _, include_dir in ipairs(dep_metadata_include_dirs) do
-            if not seen_build_includes[include_dir] then
-                seen_build_includes[include_dir] = true
-                table.insert(config.extra_includes, include_dir)
-            end
-        end
-        config.dep_module_sources = dep_module_sources
-        if not compdb_dir then
-            compdb_dir = config.fallback_compdb_dir
-        end
-        run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
-    end)
+    register_generation_config(target_name, config)
+    if kind == "modules" then
+        before_preparecmd(function(target, batchcmds)
+            run_cached_codegen(target, batchcmds, config)
+        end)
+    end
 
     registered_target_metadata()[target_name] = {
         target = target_name,
@@ -1491,6 +1872,7 @@ function gentest_attach_codegen(opts)
     end
 
     gentest_apply_windows_llvm_toolchain()
+    gentest_apply_compiler_cache_policy(kind)
 
     local target_name = require_opt(opts, "name", "gentest_attach_codegen")
     local source = require_opt(opts, "source", "gentest_attach_codegen")
@@ -1517,6 +1899,8 @@ function gentest_attach_codegen(opts)
     local dep_targets = collect_dep_targets(opts.deps)
     local config = {
         kind = kind,
+        operation = "gentest_attach_codegen",
+        codegen_kind = "suite",
         out_dir_abs = out_dir_abs,
         fallback_compdb_dir = fallback_compdb_dir,
         fallback_compdb_file = fallback_compdb_file,
@@ -1541,6 +1925,19 @@ function gentest_attach_codegen(opts)
     if kind == "modules" and not config.public_modules_via_deps then
         config.public_module_entries = materialized_public_module_entries(output_dir)
     end
+    config.inputs = {config.source_file}
+    config.outputs = {
+        config.depfile,
+        config.header_output,
+        config.artifact_manifest,
+    }
+    if kind == "modules" then
+        table.insert(config.outputs, config.registration_output)
+    else
+        table.insert(config.outputs, config.wrapper_output)
+    end
+    config.prepare_inputs = prepare_suite_codegen_inputs
+    config.depcache_anchor = config.header_output
     set_configdir(project_root())
     local fmt_link = gentest_fmt_link_name()
     if not fmt_link then
@@ -1583,6 +1980,14 @@ function gentest_attach_codegen(opts)
         add_files(wrapper_cpp, {always_added = true})
     else
         add_files(wrapper_cpp, {always_added = true})
+        -- The owner source is deliberately not added: the generated textual
+        -- wrapper includes it and is the sole compiled TU. Use an existing
+        -- non-compilable Gentest header to drive preparation on clean trees.
+        add_files(path.join(gentest_public_include_dir(), "gentest", "attributes.h"), {
+            rules = "gentest.codegen.prepare",
+            override = true,
+            always_added = true,
+        })
     end
     if main_source then
         add_files(main_source, {always_added = true})
@@ -1597,6 +2002,7 @@ function gentest_attach_codegen(opts)
         ensure_materialized_public_modules(config.public_module_entries, os)
     end)
     on_load(function (target)
+        gentest_state["_depend_loader"] = import("core.project.depend")
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         for _, include_dir in ipairs(extra_includes) do
             target:add("includedirs", include_dir)
@@ -1606,35 +2012,19 @@ function gentest_attach_codegen(opts)
             target:add("includedirs", include_dir)
         end
     end)
-    before_preparecmd(function (target, batchcmds)
-        if kind == "modules" then
-            require_clang_module_toolchain(target, "gentest_attach_codegen")
-        end
-        local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
-        local dep_include_dirs = resolve_dep_inputs(config.deps)
-        local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.deps)
-        for _, include_dir in ipairs(dep_include_dirs) do
-            append_unique(config.extra_includes, seen_extra_includes, include_dir)
-        end
-        for _, include_dir in ipairs(dep_metadata_include_dirs) do
-            append_unique(config.extra_includes, seen_extra_includes, include_dir)
-        end
-        local package_include_dirs = collect_target_package_include_dirs(target)
-        for _, include_dir in ipairs(package_include_dirs) do
-            append_unique(config.extra_includes, seen_extra_includes, include_dir)
-        end
-        config.dep_module_sources = dep_module_sources
-        if not compdb_dir then
-            compdb_dir = config.fallback_compdb_dir
-        end
-        run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
-    end)
+    register_generation_config(target_name, config)
+    if kind == "modules" then
+        before_preparecmd(function(target, batchcmds)
+            run_cached_codegen(target, batchcmds, config)
+        end)
+    end
 
 end
 
 function gentest_add_public_modules(opts)
     require_clang_module_toolchain(nil, "gentest_add_public_modules")
     gentest_apply_windows_llvm_toolchain()
+    gentest_apply_compiler_cache_policy("modules")
 
     local output_dir = require_opt(opts, "output_dir", "gentest_add_public_modules")
     local out_dir_abs = project_path(output_dir)

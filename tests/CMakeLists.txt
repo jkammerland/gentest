@@ -4617,6 +4617,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_xmake_textual_consumer APPEND PROPERTY LABELS "xmake")
 
 _gentest_add_cmake_helper_test(
+    gentest_xmake_compiler_cache_policy
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckXmakeCompilerCachePolicy.cmake
+    cmake)
+set_property(TEST gentest_xmake_compiler_cache_policy APPEND PROPERTY LABELS "xmake")
+
+_gentest_add_cmake_helper_test(
     gentest_xmake_module_consumer
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckXmakeModuleConsumer.cmake

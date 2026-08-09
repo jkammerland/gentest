@@ -62,6 +62,55 @@ The env fallbacks remain:
 - `GENTEST_CODEGEN_HOST_CLANG`
 - `GENTEST_CODEGEN_CLANG_SCAN_DEPS`
 
+## Incremental generation and optional caches
+
+The textual helper rules are dependency-aware. A successful generation records
+the owner source, all generated registration/mock products, the codegen and
+Clang tool identities, effective codegen flags, configured dependency metadata,
+and headers discovered from the codegen depfile. A subsequent unchanged build
+does not invoke `gentest_codegen`, compile, or link merely because generated
+files are present. Deleting any recorded generated product is a safe cache
+miss and regenerates the complete output set. The build-owned sidecar is
+schema-versioned and written after successful generation; unreadable or corrupt
+state is treated as a miss.
+
+Enable the optional textual parse cache with Xmake configuration:
+
+```bash
+xmake f --gentest_codegen_parse_cache=y
+xmake f --gentest_codegen_parse_cache=y \
+  --gentest_codegen_parse_cache_dir=cache/gentest
+```
+
+The default enabled path is
+`<builddir>/.gentest_codegen_parse_cache`. A relative directory is resolved
+from `<builddir>`, not the source tree. When the option is false (the default),
+the helper deliberately emits no parse-cache CLI flag, so an ambient
+`GENTEST_CODEGEN_PARSE_CACHE=ON` can still opt in. Enabling the option emits
+`--parse-cache-dir`; that explicit directory takes precedence over the
+environment directory settings. The same fields are available to a downstream
+helper configuration:
+
+```lua
+codegen = {
+    parse_cache = true,
+    parse_cache_dir = "cache/gentest", -- relative to Xmake's builddir
+},
+```
+
+Compiler caching is separately opt-in and target-local:
+
+```bash
+xmake f --gentest_compiler_cache=xmake
+```
+
+`off` is the default and preserves Gentest targets' existing disabled Xmake
+`build.ccache` policy. `xmake` enables Xmake's own build-local cache for
+Gentest textual targets; it does not select or configure external `ccache` or
+`sccache`, and does not modify the developer environment. Xmake disables this
+policy for named-module targets. Targets that do not call a Gentest helper are
+left unchanged.
+
 ## Installed helper layout
 
 The downstream Xmake flow is based on an installed prefix. At minimum, the
@@ -69,7 +118,8 @@ consumer needs:
 
 - `bin/gentest_codegen`
 - `include/gentest/...`
-- `share/gentest/xmake/gentest.lua`
+- the complete `share/gentest/xmake/` helper tree, including
+  `gentest.lua` and `scripts/update_codegen_dep_cache.lua`
 
 The checked-in downstream proof copies the helper payload into a project-local
 directory and loads it like this:
@@ -92,6 +142,8 @@ your_project/
   xmake.lua
   .gentest_support/
     gentest.lua
+    scripts/
+      update_codegen_dep_cache.lua
   tests/
     main.cpp
     cases.cpp
@@ -231,3 +283,7 @@ not yet separate non-CMake CI lanes.
   Xmake target public include/module settings are not inferred for codegen.
 - The current package shape is validated through the checked-in fixture-local
   xrepo repository, not a published external xrepo registry entry yet.
+- Like other depfile-based generators, adding a previously missing header that
+  would shadow an include is not observable until another recorded input causes
+  codegen to run. Existing discovered headers, owner sources, generator tools,
+  configuration, and generated products are tracked directly.
