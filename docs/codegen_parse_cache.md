@@ -127,14 +127,18 @@ it is never assumed cache-safe. Scanner output varies by platform and release;
 for example, Clang 21 on Windows can report distinct command records for one
 module source, which deliberately selects this safe-bypass path.
 
-After a cold local precompile, Gentest runs a preprocessor-only verification
-with the same effective module command. Actual expansion of `__DATE__`,
+After a cold local precompile, Gentest runs a syntax-only preprocessor/AST
+verification with the same effective module command. Actual expansion of `__DATE__`,
 `__TIME__`, or `__TIMESTAMP__`—including through macro indirection—keeps the
 local PCM but bypasses shared publication. A verification failure is also a
 safe bypass. Existing validated entries therefore never depend on wall-clock
 date/time macro values. Because dependency paths are otherwise relocation
 normalized, an actual `__FILE__` expansion outside the primary module source
-also keeps the local PCM but bypasses shared publication.
+also keeps the local PCM but bypasses shared publication. The same rule applies
+to non-primary user headers that evaluate `__builtin_FILE()`,
+`__builtin_FILE_NAME()`, `__builtin_source_location()`, or
+`std::source_location::current()`, whose locations are represented in Clang's
+AST rather than as macro expansions.
 
 Each entry is an atomically renamed directory containing an immutable PCM and
 checked metadata. A hit rechecks the complete current closure and PCM digest,
