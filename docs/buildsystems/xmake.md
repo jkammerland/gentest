@@ -81,8 +81,9 @@ snapshot each other's generated outputs or delete each other's temporary state.
 Depfile parsing decodes only Make's defined escapes; literal backslashes and
 Windows drive paths are preserved.
 
-The sidecar identity includes ambient settings that can change parsing or
-cache behavior: `GENTEST_CODEGEN_RESOURCE_DIR`,
+The sidecar identity includes the resolved `gentest_root`, helper root, and
+configured include directories, plus ambient settings that can change parsing
+or cache behavior: `GENTEST_CODEGEN_RESOURCE_DIR`,
 `GENTEST_CODEGEN_SCAN_DEPS_MODE`, parse/PCM cache enablement, directories and
 salts, `CPATH`, the language-specific include-path variables, `INCLUDE`, and
 `SDKROOT`, plus `GENTEST_STRICT_FIXTURE` and
