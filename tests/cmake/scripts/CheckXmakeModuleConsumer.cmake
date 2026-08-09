@@ -65,12 +65,19 @@ _gentest_prepare_xmake_workspace(_project_dir "${SOURCE_DIR}" "${_gentest_xmake_
 
 set(_module_mock_probe_source "${_project_dir}/tests/consumer/module_mock_defs.cppm")
 file(READ "${_module_mock_probe_source}" _module_mock_probe_text)
-file(WRITE "${_module_mock_probe_source}" [=[module;
-#if __has_include("xmake_module_mock_optional.hpp")
-#include "xmake_module_mock_optional.hpp"
-#endif
-
-]=] "${_module_mock_probe_text}")
+set(_module_mock_probe_fragment
+  "#if __has_include(\"xmake_module_mock_optional.hpp\")\n#include \"xmake_module_mock_optional.hpp\"\n#endif\n")
+string(FIND "${_module_mock_probe_text}" "module;\n" _module_mock_fragment_pos)
+if(_module_mock_fragment_pos EQUAL -1)
+  set(_module_mock_probe_text "module;\n${_module_mock_probe_fragment}${_module_mock_probe_text}")
+else()
+  string(REPLACE
+    "module;\n"
+    "module;\n${_module_mock_probe_fragment}"
+    _module_mock_probe_text
+    "${_module_mock_probe_text}")
+endif()
+file(WRITE "${_module_mock_probe_source}" "${_module_mock_probe_text}")
 
 set(_module_suite_probe_source "${_project_dir}/tests/consumer/cases.cppm")
 file(READ "${_module_suite_probe_source}" _module_suite_probe_text)
