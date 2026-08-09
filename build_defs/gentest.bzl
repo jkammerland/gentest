@@ -119,6 +119,9 @@ def _gentest_run_codegen(ctx, tools, inputs, outputs, args, mnemonic):
         # CMake bootstrap closure. Do not let that local lane poison a remote
         # executor/cache; packaged executable labels stay remotely cacheable.
         execution_requirements = {"no-remote": "1"}
+    action_env = {}
+    if tools.macos_sdk_root_path:
+        action_env["SDKROOT"] = tools.macos_sdk_root_path
     ctx.actions.run(
         executable = tools.codegen,
         tools = action_tools,
@@ -126,7 +129,7 @@ def _gentest_run_codegen(ctx, tools, inputs, outputs, args, mnemonic):
         outputs = outputs,
         arguments = [args],
         mnemonic = mnemonic,
-        env = {},
+        env = action_env,
         use_default_shell_env = False,
         execution_requirements = execution_requirements,
     )
