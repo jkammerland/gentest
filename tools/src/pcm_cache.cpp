@@ -27,7 +27,7 @@ namespace {
 namespace fs   = std::filesystem;
 namespace json = llvm::json;
 
-constexpr std::string_view kSchema                    = "gentest.validated_pcm_cache.v2";
+constexpr std::string_view kSchema                    = "gentest.validated_pcm_cache.v4";
 constexpr std::uintmax_t   kMaxPcmBytes               = std::uintmax_t{1024} * 1024U * 1024U;
 constexpr std::uintmax_t   kMaxInputBytes             = std::uintmax_t{256} * 1024U * 1024U;
 constexpr std::uintmax_t   kMaxExecutableBytes        = std::uintmax_t{1024} * 1024U * 1024U;
@@ -281,6 +281,7 @@ struct PcmArtifactCache::FileFingerprint {
     std::string logical_path;
     std::string identity;
     std::string unique_id;
+    std::string write_time;
     std::string hash;
 };
 
@@ -326,12 +327,13 @@ std::optional<PcmArtifactCache::FileFingerprint> fingerprint_file(std::string_vi
     if (ec) {
         return std::nullopt;
     }
+    fingerprint.write_time = std::to_string(write_time.time_since_epoch().count());
     std::string memo_key;
     append_length_prefixed(memo_key, fingerprint.path);
     append_length_prefixed(memo_key, fingerprint.identity);
     append_length_prefixed(memo_key, fingerprint.unique_id);
     append_length_prefixed(memo_key, std::to_string(size));
-    append_length_prefixed(memo_key, std::to_string(write_time.time_since_epoch().count()));
+    append_length_prefixed(memo_key, fingerprint.write_time);
     append_length_prefixed(memo_key, std::to_string(max_size));
     struct FingerprintMemo {
         std::mutex                                                         mutex;
@@ -362,13 +364,17 @@ std::optional<PcmArtifactCache::FileFingerprint> fingerprint_file(std::string_vi
 void append_fingerprint_material(std::string &out, std::string_view prefix, const PcmArtifactCache::FileFingerprint &fingerprint) {
     append_length_prefixed(out, prefix);
     append_length_prefixed(out, fingerprint.logical_path);
+    append_length_prefixed(out, fingerprint.write_time);
     append_length_prefixed(out, fingerprint.hash);
 }
 
 json::Object fingerprint_object(const PcmArtifactCache::FileFingerprint &fingerprint) {
     return json::Object{
-        {.K = "path", .V = fingerprint.path},         {.K = "logical_path", .V = fingerprint.logical_path},
-        {.K = "identity", .V = fingerprint.identity}, {.K = "unique_id", .V = fingerprint.unique_id},
+        {.K = "path", .V = fingerprint.path},
+        {.K = "logical_path", .V = fingerprint.logical_path},
+        {.K = "identity", .V = fingerprint.identity},
+        {.K = "unique_id", .V = fingerprint.unique_id},
+        {.K = "write_time", .V = fingerprint.write_time},
         {.K = "hash", .V = fingerprint.hash},
     };
 }
@@ -387,24 +393,27 @@ bool read_fingerprint(const json::Value &value, PcmArtifactCache::FileFingerprin
     if (object == nullptr) {
         return false;
     }
-    const auto path      = object->getString("path");
-    const auto logical   = object->getString("logical_path");
-    const auto identity  = object->getString("identity");
-    const auto unique_id = object->getString("unique_id");
-    const auto hash      = object->getString("hash");
-    if (!path.has_value() || !logical.has_value() || !identity.has_value() || !unique_id.has_value() || !hash.has_value()) {
+    const auto path       = object->getString("path");
+    const auto logical    = object->getString("logical_path");
+    const auto identity   = object->getString("identity");
+    const auto unique_id  = object->getString("unique_id");
+    const auto write_time = object->getString("write_time");
+    const auto hash       = object->getString("hash");
+    if (!path.has_value() || !logical.has_value() || !identity.has_value() || !unique_id.has_value() || !write_time.has_value() ||
+        !hash.has_value()) {
         return false;
     }
     out = PcmArtifactCache::FileFingerprint{.path         = path->str(),
                                             .logical_path = logical->str(),
                                             .identity     = identity->str(),
                                             .unique_id    = unique_id->str(),
+                                            .write_time   = write_time->str(),
                                             .hash         = hash->str()};
     return true;
 }
 
 bool fingerprints_match(const PcmArtifactCache::FileFingerprint &expected, const PcmArtifactCache::FileFingerprint &actual) {
-    if (expected.logical_path != actual.logical_path || expected.hash != actual.hash) {
+    if (expected.logical_path != actual.logical_path || expected.write_time != actual.write_time || expected.hash != actual.hash) {
         return false;
     }
     // A byte-identical symlink/hard-link retarget at the same spelling is a
