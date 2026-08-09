@@ -161,8 +161,13 @@ struct CollectorOptions {
     std::optional<std::filesystem::path> timing_json_path;
     // Opt-in persistent cache for successful textual TU parse results. Named
     // module inputs intentionally bypass this cache.
-    std::optional<std::filesystem::path>                                parse_cache_dir;
-    std::string                                                         parse_cache_salt;
+    std::optional<std::filesystem::path> parse_cache_dir;
+    std::string                          parse_cache_salt;
+    // Opt-in persistent cache for fully validated named-module PCM artifacts.
+    // It is intentionally independent from the textual parse cache because
+    // compiler module files are ABI/toolchain-sensitive.
+    std::optional<std::filesystem::path>                                pcm_cache_dir;
+    std::string                                                         pcm_cache_salt;
     std::vector<std::string>                                            sources;
     std::unordered_map<std::string, std::string>                        module_interface_names_by_source;
     std::unordered_set<std::string>                                     module_interface_sources;

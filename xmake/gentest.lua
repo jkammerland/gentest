@@ -8,7 +8,8 @@ end
 -- Configure the shared Xmake helper context. External consumers can override
 -- codegen_project_root to point at a gentest checkout, or provide
 -- codegen = { exe = ..., clang = ..., scan_deps = ..., parse_cache = ...,
---             parse_cache_dir = ..., compiler_cache = "off"|"xmake" }.
+--             parse_cache_dir = ..., pcm_cache = ..., pcm_cache_dir = ...,
+--             compiler_cache = "off"|"xmake" }.
 function gentest_configure(opts)
     gentest_state = opts or {}
 end
@@ -657,6 +658,29 @@ local function append_parse_cache_args(args)
     end
 end
 
+local function resolved_pcm_cache_dir()
+    local codegen = configured_codegen_settings()
+    if not normalize_opt_in(codegen["pcm_cache"], "gentest_configure().codegen.pcm_cache") then
+        return nil
+    end
+    local configured = tostring(codegen["pcm_cache_dir"] or "")
+    if configured == "" then
+        return path.absolute(path.join(configured_build_dir(), ".gentest_codegen_pcm_cache"))
+    end
+    if not path.is_absolute(configured) then
+        configured = path.join(configured_build_dir(), configured)
+    end
+    return path.absolute(configured)
+end
+
+local function append_pcm_cache_args(args)
+    local cache_dir = resolved_pcm_cache_dir()
+    if cache_dir then
+        table.insert(args, "--pcm-cache-dir")
+        table.insert(args, cache_dir)
+    end
+end
+
 local function compiler_cache_policy()
     local codegen = configured_codegen_settings()
     local configured = codegen["compiler_cache"]
@@ -1274,6 +1298,9 @@ local function mock_codegen_args(compdb_dir, host_clang, scan_deps, config)
         table.insert(args, compdb_dir)
     end
     append_parse_cache_args(args)
+    if config.kind == "modules" then
+        append_pcm_cache_args(args)
+    end
     append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args, config.forced_includes)
     append_raw_user_clang_args(args, config.target_clang_args)
     return args
@@ -1333,6 +1360,9 @@ local function suite_codegen_args(compdb_dir, host_clang, scan_deps, config)
         table.insert(args, scan_deps)
     end
     append_parse_cache_args(args)
+    if config.kind == "modules" then
+        append_pcm_cache_args(args)
+    end
     append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args)
     append_raw_user_clang_args(args, config.target_clang_args)
     return args
@@ -1419,6 +1449,7 @@ local codegen_environment_identity_names = {
     "GENTEST_CODEGEN_SCAN_DEPS_MODE",
     "GENTEST_CODEGEN_PARSE_CACHE",
     "GENTEST_CODEGEN_PARSE_CACHE_DIR",
+    "GENTEST_CODEGEN_PARSE_CACHE_READONLY",
     "GENTEST_CODEGEN_PARSE_CACHE_SALT",
     "GENTEST_CODEGEN_PCM_CACHE",
     "GENTEST_CODEGEN_PCM_CACHE_DIR",
@@ -1435,16 +1466,27 @@ local codegen_environment_identity_names = {
     "MACOSX_DEPLOYMENT_TARGET",
 }
 
-local function codegen_environment_identity()
+local function codegen_environment_identity(include_pcm)
     local values = {}
     for _, name in ipairs(codegen_environment_identity_names) do
-        table.insert(values, name .. "=" .. tostring(os.getenv(name) or ""))
+        if include_pcm or not name:find("^GENTEST_CODEGEN_PCM_") then
+            table.insert(values, name .. "=" .. tostring(os.getenv(name) or ""))
+        end
     end
     return table.concat(values, "\31")
 end
 
 local function target_codegen_identity(target, config, codegen, compdb_dir, host_clang, scan_deps)
     local cxx_program, cxx_name = target:tool("cxx")
+    -- Only module codegen ever receives the PCM cache command-line option.
+    -- Keeping this out of textual target identity avoids regenerating otherwise
+    -- identical textual outputs when a module-only cache setting changes.
+    local pcm_cache_dir = ""
+    local configured_pcm_cache = ""
+    if config.kind == "modules" then
+        pcm_cache_dir = resolved_pcm_cache_dir() or ""
+        configured_pcm_cache = tostring(configured_codegen_settings()["pcm_cache"] or "")
+    end
     local target_values = {
         "gentest-xmake-codegen-v3",
         config.operation or "",
@@ -1461,7 +1503,9 @@ local function target_codegen_identity(target, config, codegen, compdb_dir, host
         value_identity(resolved_incdirs()),
         resolved_parse_cache_dir() or "",
         tostring(configured_codegen_settings()["parse_cache"] or ""),
-        codegen_environment_identity(),
+        codegen_environment_identity(config.kind == "modules"),
+        pcm_cache_dir,
+        configured_pcm_cache,
         value_identity(config.inputs),
         value_identity(config.defines),
         value_identity(config.clang_args),

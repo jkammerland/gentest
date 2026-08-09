@@ -130,6 +130,19 @@ codegen = {
 },
 ```
 
+Named-module consumers can separately opt in to the fully validated PCM cache:
+
+```bash
+xmake f --gentest_codegen_pcm_cache=y \
+  --gentest_codegen_pcm_cache_dir=cache/gentest-pcm
+```
+
+Its default directory is `<builddir>/.gentest_codegen_pcm_cache`; relative
+paths are build-directory-relative. The helper emits `--pcm-cache-dir` only
+for `kind = "modules"` codegen. A cache hit still validates the current
+scan-deps file closure and compiler-consumable PCM, so unavailable or
+ambiguous scan-deps data safely falls back to normal precompilation.
+
 Compiler caching is separately opt-in and target-local:
 
 ```bash

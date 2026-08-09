@@ -79,3 +79,57 @@ components concurrently.
 With `--timing-json`, per-TU `parse` records expose the optional `cache` value
 `hit`, `miss`, `disabled`, or `bypass`; see [the timing sidecar
 reference](codegen_timing.md).
+
+## Validated named-module PCM cache
+
+Named-module precompiles use a separate, opt-in cache. It is disabled by
+default and is not a replacement for the textual parse cache:
+
+```sh
+gentest_codegen --pcm-cache-dir build/.gentest_codegen_pcm_cache ...
+```
+
+Environment opt-in uses `GENTEST_CODEGEN_PCM_CACHE=ON`, with an optional
+`GENTEST_CODEGEN_PCM_CACHE_DIR`; `GENTEST_CODEGEN_PCM_CACHE_SALT` provides an
+additional explicit invalidation value. CMake exposes
+`-DGENTEST_CODEGEN_PCM_CACHE=ON` and
+`-DGENTEST_CODEGEN_PCM_CACHE_DIR=...`. Xmake exposes
+`--gentest_codegen_pcm_cache=y` and
+`--gentest_codegen_pcm_cache_dir=...`; the Xmake helper emits this option only
+for module codegen commands. A non-empty `--pcm-cache-dir` takes precedence
+over the environment. CMake/Xmake `OFF` emits no CLI option; it does not scrub
+an inherited `GENTEST_CODEGEN_PCM_CACHE=ON`, so projects that require a hard
+off state must sanitize that command environment.
+
+The PCM cache is deliberately stricter than the textual cache. Reuse requires
+a current successful `clang-scan-deps` `experimental-full` closure, including
+the current `file-deps` set and scanner command. The key includes the resolved
+compiler content identity and version, resource directory, sysroot, normalized
+effective precompile command, ordered scanner command/include metadata, source
+and dependency content hashes, scan-deps identity/result, codegen schema and
+options, and ordered transitive module cache keys. An imported artifact named
+by an explicit `-fmodule-file=name=path` mapping without a validated-cache key
+contributes a bounded content identity instead; its compiler context is still
+covered by the importing precompile command. A `-fprebuilt-module-path` search
+directory does not identify the selected artifact and is never enumerated as
+an external input.
+If scan-deps is unavailable, ambiguous, incomplete, or falls back to source
+scanning, or an effective command contains `-fprebuilt-module-path`, PCM
+caching is a `bypass` and normal local precompilation continues. A prebuilt
+module search directory does not identify the exact selected PCM mapping, so
+it is never assumed cache-safe. Scanner output varies by platform and release;
+for example, Clang 21 on Windows can report distinct command records for one
+module source, which deliberately selects this safe-bypass path.
+
+Each entry is an atomically renamed directory containing an immutable PCM and
+checked metadata. A hit rechecks the complete current closure and PCM digest,
+materializes the checked bytes to an invocation-local PCM path, then validates
+that local copy with the current compiler's non-mutating `-module-file-info`.
+Corrupt, stale, missing, read-only, symlinked, or racing entries are ordinary
+misses. Existing entries are never removed or overwritten. `pcm` timing
+records report `disabled`, `bypass`, `miss`, or `hit`; these are observability
+fields, not performance gates.
+
+Meson remains textual-parse-cache-only by contract. Bazel module actions do
+not accept a mutable PCM-cache directory: Bazel's declared action inputs and
+native local/remote action caches preserve hermetic module-consumer behavior.
