@@ -126,10 +126,12 @@ int main(int argc, char **argv) {
     const fs::path source       = root / "module.cppm";
     const fs::path dependency   = root / "dependency.hpp";
     const fs::path external_pcm = root / "external.pcm";
+    const fs::path empty_header = root / "empty.hpp";
     const fs::path source_pcm   = root / "fresh.pcm";
     const fs::path destination  = root / "materialized.pcm";
     if (!require(write_file(source, "export module gentest.test.module;\n"), "write source") ||
         !require(write_file(dependency, "inline constexpr int value = 1;\n"), "write dependency") ||
+        !require(write_file(empty_header, ""), "write empty dependency") ||
         !require(write_file(external_pcm, "external-pcm-v1"), "write external PCM") ||
         !require(write_file(source_pcm, "validated-pcm-bytes"), "write PCM")) {
         return 1;
@@ -139,6 +141,30 @@ int main(int argc, char **argv) {
     gentest::codegen::PcmArtifactCache cache(root / "cache");
     const auto                         key = cache.prepare(context);
     if (!require(key.has_value(), "prepare cacheable closure")) {
+        return 1;
+    }
+
+    auto empty_dependency_context = context;
+    empty_dependency_context.file_dependencies.push_back(empty_header.string());
+    empty_dependency_context.salt = "unit-empty-dependency";
+    gentest::codegen::PcmArtifactCache empty_dependency_cache(root / "empty-dependency-cache");
+    const auto                         empty_dependency_key = empty_dependency_cache.prepare(empty_dependency_context);
+    if (!require(empty_dependency_key.has_value(), "accept an empty regular header dependency")) {
+        return 1;
+    }
+    empty_dependency_cache.store(empty_dependency_context, source_pcm, *empty_dependency_key);
+    if (!require(empty_dependency_cache.load_prepared(*empty_dependency_key, destination),
+                 "load a PCM keyed by an empty header dependency") ||
+        !require(read_file(destination) == "validated-pcm-bytes", "materialize PCM with empty header dependency")) {
+        return 1;
+    }
+    fs::remove(destination, ec);
+    if (!require(!ec, "remove PCM materialized for empty dependency") ||
+        !require(write_file(empty_header, "#pragma once\n"), "make empty dependency nonempty") ||
+        !require(!empty_dependency_cache.load_prepared(*empty_dependency_key, destination),
+                 "invalidate an empty dependency when content appears") ||
+        !require(!fs::exists(destination), "leave destination absent after empty dependency mutation") ||
+        !require(write_file(empty_header, ""), "restore empty dependency")) {
         return 1;
     }
     cache.store(context, source_pcm, *key);

@@ -49,7 +49,8 @@ std::string sha256_hex(std::string_view content) {
     return out;
 }
 
-std::optional<std::string> sha256_file(const fs::path &path, std::uintmax_t max_size, std::uintmax_t *size_out = nullptr) {
+std::optional<std::string> sha256_file(const fs::path &path, std::uintmax_t max_size, std::uintmax_t *size_out = nullptr,
+                                       bool allow_empty = false) {
     std::error_code ec;
     const auto      status = fs::symlink_status(path, ec);
     if (ec || fs::is_symlink(status) || !fs::is_regular_file(status)) {
@@ -65,7 +66,7 @@ std::optional<std::string> sha256_file(const fs::path &path, std::uintmax_t max_
         return std::nullopt;
     }
     const std::uintmax_t size = file_status.getSize();
-    if (size == 0 || size > max_size) {
+    if ((!allow_empty && size == 0) || size > max_size) {
         [[maybe_unused]] const std::error_code close_ec = llvm::sys::fs::closeFile(*fd);
         return std::nullopt;
     }
@@ -296,7 +297,7 @@ struct PcmArtifactCache::InputBundle {
 namespace {
 
 std::optional<PcmArtifactCache::FileFingerprint> fingerprint_file(std::string_view raw_path, std::string_view build_directory,
-                                                                  std::uintmax_t max_size, bool allow_memo) {
+                                                                  std::uintmax_t max_size, bool allow_memo, bool allow_empty = false) {
     PcmArtifactCache::FileFingerprint fingerprint;
     fingerprint.path         = normalize_path(raw_path, build_directory);
     fingerprint.logical_path = logical_path(fingerprint.path, build_directory);
@@ -335,6 +336,7 @@ std::optional<PcmArtifactCache::FileFingerprint> fingerprint_file(std::string_vi
     append_length_prefixed(memo_key, std::to_string(size));
     append_length_prefixed(memo_key, fingerprint.write_time);
     append_length_prefixed(memo_key, std::to_string(max_size));
+    append_length_prefixed(memo_key, allow_empty ? "allow-empty" : "require-content");
     struct FingerprintMemo {
         std::mutex                                                         mutex;
         std::unordered_map<std::string, PcmArtifactCache::FileFingerprint> entries;
@@ -346,7 +348,7 @@ std::optional<PcmArtifactCache::FileFingerprint> fingerprint_file(std::string_vi
             return existing->second;
         }
     }
-    const auto content_hash = sha256_file(fingerprint.path, max_size);
+    const auto content_hash = sha256_file(fingerprint.path, max_size, nullptr, allow_empty);
     if (!content_hash.has_value()) {
         return std::nullopt;
     }
@@ -494,7 +496,7 @@ std::optional<PcmArtifactCache::InputBundle> PcmArtifactCache::input_bundle(cons
     }
     bundle.dependencies.reserve(context.file_dependencies.size());
     for (const auto &dependency : context.file_dependencies) {
-        const auto fingerprint = fingerprint_file(dependency, context.working_directory, kMaxInputBytes, allow_fingerprint_memo);
+        const auto fingerprint = fingerprint_file(dependency, context.working_directory, kMaxInputBytes, allow_fingerprint_memo, true);
         if (!fingerprint.has_value()) {
             return std::nullopt;
         }
