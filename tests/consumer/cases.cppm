@@ -49,6 +49,11 @@ void module_test(SuiteFixture &suite_fx, GlobalFixture &global_fx) {
     EXPECT_EQ(global_fx.value, 11);
 }
 
+#if defined(GENTEST_BAZEL_MOCK_PRIVATE_DEFINE)
+[[using gentest: test("consumer/mock_private_define_must_not_leak")]]
+void mock_private_define_must_not_leak() {}
+#endif
+
 [[using gentest: test("consumer/module_mock")]]
 void module_mock() {
     consumer::mocks::ServiceMock mock_service;
