@@ -160,6 +160,31 @@ if(_symlink_create_rc EQUAL 0)
   gentest_check_run_or_fail(
     COMMAND "${_codegen_host_compiler}" -fsyntax-only "${_symlink_wrapper}" ${_clang_args}
     STRIP_TRAILING_WHITESPACE)
+
+  # Exercise the same topology with relative CLI spellings. A lexical return
+  # would walk above the symlink target and include the wrong file.
+  set(_relative_symlink_wrapper "views/deep/source-view/symlink-generated/tu_relative_cases.gentest.cpp")
+  set(_relative_symlink_header "src/symlink-generated/tu_relative_cases.gentest.h")
+  gentest_check_run_or_fail(
+    COMMAND "${PROG}"
+      --discover-mocks
+      --tu-out-dir "src/symlink-generated"
+      --tu-header-output "${_relative_symlink_header}"
+      --textual-wrapper-output "${_relative_symlink_wrapper}"
+      "src/cases.cpp"
+      --
+      ${_clang_args}
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE)
+  file(READ "${_work_dir}/${_relative_symlink_wrapper}" _relative_symlink_wrapper_text)
+  string(FIND "${_relative_symlink_wrapper_text}" "#include \"../cases.cpp\"" _relative_symlink_include_pos)
+  if(_relative_symlink_include_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Relative wrapper/source spellings must resolve through the physical symlink target.\n${_relative_symlink_wrapper_text}")
+  endif()
+  gentest_check_run_or_fail(
+    COMMAND "${_codegen_host_compiler}" -fsyntax-only "${_work_dir}/${_relative_symlink_wrapper}" ${_clang_args}
+    STRIP_TRAILING_WHITESPACE)
 else()
   message(STATUS "Skipping generated-wrapper symlink subcase: ${_symlink_create_err}")
 endif()
