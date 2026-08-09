@@ -55,7 +55,13 @@ gentest_codegen_toolchain(
     # Optional. If omitted, Gentest uses its deterministic source scanner.
     clang_scan_deps = "@llvm_exec_bundle//:clang_scan_deps",
     # Files not already supplied by executable DefaultInfo files/runfiles.
-    runtime_files = ["@llvm_exec_bundle//:clang_runtime_files"],
+    runtime_files = [
+        "@llvm_exec_bundle//:clang_runtime_files",
+        "@llvm_exec_bundle//:macos_sdk_files",
+    ],
+    # macOS only: a tree artifact, or a marker file directly under the SDK
+    # root. The complete SDK remains declared through runtime_files.
+    macos_sdk_root = "@llvm_exec_bundle//:MacOSX.sdk/SDKSettings.json",
 )
 
 toolchain(
@@ -74,9 +80,11 @@ register_toolchains("//tools/gentest_codegen:registered")
 exec configuration. Gentest passes their `FilesToRunProvider` objects to every
 codegen action, retaining runfiles-tree layout for wrappers and packaged tools.
 It also declares their files/runfiles plus `runtime_files` in every action.
-Package Clang's resource directory, shared libraries, and scan-deps closure;
-an absolute system path or a ccache wrapper is not remotely portable and is not
-an accepted substitute for this contract.
+Package Clang's resource directory, shared libraries, and scan-deps closure.
+On macOS, package the SDK closure too and set `macos_sdk_root`; Gentest passes
+that declared exec-path as `SDKROOT` without restoring ambient `PATH` or the
+client's action environment. An absolute system path or a ccache wrapper is
+not remotely portable and is not an accepted substitute for this contract.
 
 The legacy `codegen_host_clang` parameter remains syntactically accepted for
 source compatibility, but a nonempty value fails analysis with this migration
@@ -84,11 +92,19 @@ path. `GENTEST_CODEGEN_HOST_CLANG` is no longer read by codegen actions.
 
 For local source-package development on non-Windows hosts only, Gentest
 registers a fallback when `GENTEST_BAZEL_LOCAL_CLANG` names a local `clang++`
-executable:
+executable. macOS additionally requires `GENTEST_BAZEL_LOCAL_SDKROOT` so the
+repository rule can declare the SDK before any codegen action runs:
 
 ```bash
 GENTEST_BAZEL_LOCAL_CLANG=/opt/llvm/bin/clang++ \
   bazelisk build --repo_env=GENTEST_BAZEL_LOCAL_CLANG //:my_tests
+
+# macOS
+GENTEST_BAZEL_LOCAL_CLANG=/opt/homebrew/opt/llvm/bin/clang++ \
+GENTEST_BAZEL_LOCAL_SDKROOT="$(xcrun --show-sdk-path)" \
+  bazelisk build \
+    --repo_env=GENTEST_BAZEL_LOCAL_CLANG \
+    --repo_env=GENTEST_BAZEL_LOCAL_SDKROOT //:my_tests
 ```
 
 That fallback declares a label pointing at the local executable so it is useful
@@ -221,6 +237,8 @@ register the packaged exec toolchain described above and omit
 
 ```bash
 export GENTEST_BAZEL_LOCAL_CLANG=/opt/llvm/bin/clang++
+# On macOS also export and forward this value:
+# export GENTEST_BAZEL_LOCAL_SDKROOT="$(xcrun --show-sdk-path)"
 
 bazelisk build --repo_env=GENTEST_BAZEL_LOCAL_CLANG \
   --experimental_cpp_modules //:gentest_downstream_module
