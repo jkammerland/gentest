@@ -340,6 +340,13 @@ bases: use `aquery` to audit argv and declared inputs, then use the second
 `build --subcommands` (or an execution log) to confirm codegen does not execute.
 Do not use elapsed time as the gate.
 
+The same contract applies to validated named-module PCM artifacts. The Bazel
+module macros intentionally do not expose `--pcm-cache-dir`: a mutable
+compiler-artifact directory is neither a declared action output nor a stable
+remote-execution input. Module consumers use Bazel's native action cache and
+the declared module interfaces instead; the CMake/Xmake PCM-cache opt-in does
+not change Bazel's hermetic action shape.
+
 ## Limitations
 
 - This is source-package / Bzlmod support, not a prebuilt binary package.

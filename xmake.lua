@@ -16,6 +16,18 @@ option("gentest_codegen_parse_cache_dir")
     set_description("Build-directory-relative gentest_codegen parse cache directory (empty uses .gentest_codegen_parse_cache)")
 option_end()
 
+option("gentest_codegen_pcm_cache")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Enable gentest_codegen's opt-in validated named-module PCM cache")
+option_end()
+
+option("gentest_codegen_pcm_cache_dir")
+    set_default("")
+    set_showmenu(true)
+    set_description("Build-directory-relative gentest_codegen PCM cache directory (empty uses .gentest_codegen_pcm_cache)")
+option_end()
+
 option("gentest_compiler_cache")
     set_default("off")
     set_showmenu(true)
@@ -66,6 +78,8 @@ gentest_configure({
     codegen = {
         parse_cache = get_config("gentest_codegen_parse_cache"),
         parse_cache_dir = get_config("gentest_codegen_parse_cache_dir"),
+        pcm_cache = get_config("gentest_codegen_pcm_cache"),
+        pcm_cache_dir = get_config("gentest_codegen_pcm_cache_dir"),
         compiler_cache = get_config("gentest_compiler_cache"),
     },
 })

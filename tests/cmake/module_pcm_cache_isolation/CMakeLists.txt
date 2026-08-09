@@ -27,6 +27,9 @@ function(_gentest_add_pcm_cache_target target_name output_stem)
                 ${GENTEST_MODULE_SOURCES})
     target_link_libraries(${target_name} PRIVATE gentest gentest_runtime)
     target_compile_features(${target_name} PRIVATE cxx_std_20)
+    target_include_directories(${target_name} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/early"
+        "${CMAKE_CURRENT_SOURCE_DIR}/late")
 endfunction()
 
 _gentest_add_pcm_cache_target(
@@ -34,7 +37,8 @@ _gentest_add_pcm_cache_target(
     pcm_cache_dot_generated
     MODULE_SOURCES
       "${CMAKE_CURRENT_SOURCE_DIR}/alpha_dot_provider.cppm"
-      "${CMAKE_CURRENT_SOURCE_DIR}/alpha_dot_consumer.cppm")
+      "${CMAKE_CURRENT_SOURCE_DIR}/alpha_dot_consumer.cppm"
+      "${CMAKE_CURRENT_SOURCE_DIR}/alpha_dot_root.cppm")
 
 _gentest_add_pcm_cache_target(
     pcm_cache_underscore_tests

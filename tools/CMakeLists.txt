@@ -50,6 +50,7 @@ add_executable(gentest_codegen
     src/parse_core.cpp
     src/parse.cpp
     src/parse_cache.cpp
+    src/pcm_cache.cpp
     src/discovery.cpp
     src/mock_discovery.cpp
     src/mock_manifest.cpp
