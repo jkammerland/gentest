@@ -140,6 +140,7 @@ int main(int argc, char **argv) {
     const fs::path                       shadow = root / "previously_missing.hpp";
     gentest::codegen::TextualParseResult shadow_result;
     shadow_result.shadow_guards.push_back(shadow.string());
+    shadow_result.parse_lookup_snapshots.push_back({.path = shadow.string(), .exists = false});
     snapshot_inputs(shadow_result, source);
     const auto                          shadow_a = context_for(source, "shadow-a");
     const auto                          shadow_b = context_for(source, "shadow-b");
@@ -151,6 +152,22 @@ int main(int argc, char **argv) {
     if (!require(shadow_reader.load(shadow_a, loaded), "load first missing-shadow entry") ||
         !require(write_file(shadow, "#pragma once\n"), "create previously missing shadow") ||
         !require(!shadow_reader.load(shadow_b, loaded), "re-check an absent shadow between loads")) {
+        return 1;
+    }
+
+    const fs::path                       store_shadow = root / "created_before_store.hpp";
+    gentest::codegen::TextualParseResult shadow_store_race_result;
+    shadow_store_race_result.shadow_guards.push_back(store_shadow.string());
+    shadow_store_race_result.parse_lookup_snapshots.push_back({.path = store_shadow.string(), .exists = false});
+    snapshot_inputs(shadow_store_race_result, source);
+    if (!require(write_file(store_shadow, "#pragma once\n"), "create missing shadow after parse snapshot")) {
+        return 1;
+    }
+    const auto                          shadow_store_race_context = context_for(source, "shadow-store-race");
+    gentest::codegen::TextualParseCache shadow_store_race_cache(root / "shadow-store-race-cache");
+    shadow_store_race_cache.store(shadow_store_race_context, shadow_store_race_result);
+    if (!require(!shadow_store_race_cache.load(shadow_store_race_context, loaded),
+                 "reject a new earlier lookup candidate between parse and store")) {
         return 1;
     }
 
