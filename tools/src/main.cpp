@@ -4123,13 +4123,23 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
     }
     auto publish_pcm_output = [&](const std::filesystem::path &produced_path) -> bool {
         std::error_code move_ec;
-        if (produced_path != temp_pcm_path) {
+        const bool      alternate_output = produced_path != temp_pcm_path;
+        if (alternate_output) {
             const auto produced_status = std::filesystem::symlink_status(produced_path, move_ec);
             if (move_ec || std::filesystem::is_symlink(produced_status) || !std::filesystem::is_regular_file(produced_status)) {
                 return false;
             }
             std::filesystem::copy_file(produced_path, temp_pcm_path, std::filesystem::copy_options::overwrite_existing, move_ec);
             if (move_ec) {
+                return false;
+            }
+            // Some compiler drivers ignore the requested -o spelling and
+            // publish <source-stem>.pcm/.ifc in the launch directory. Once
+            // copied into our unique private temporary, consume that fallback
+            // before publishing so it cannot be mistaken for fresh output by
+            // a later precompile.
+            const bool removed = std::filesystem::remove(produced_path, move_ec);
+            if (move_ec || !removed) {
                 return false;
             }
         }
