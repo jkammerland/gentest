@@ -77,9 +77,11 @@ Minimal assets:
 - installed prefix containing:
   - `bin/gentest_codegen`
   - `include/gentest/...`
-  - `share/gentest/xmake/gentest.lua`
+  - the complete `share/gentest/xmake/` helper tree, including
+    `gentest.lua` and `scripts/update_codegen_dep_cache.lua`
 - project-local helper copy, usually:
-  - `.gentest_support/gentest.lua`
+  - `.gentest_support/gentest.lua` plus
+    `.gentest_support/scripts/update_codegen_dep_cache.lua`
 - `xmake.lua`
 - your `tests/...` sources
 
