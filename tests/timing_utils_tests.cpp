@@ -41,7 +41,7 @@ int main() {
         render("a.cpp", "module.a", 10, 60, 90, 95),
         render("b.cpp", "module.b", 40, 80, 0, 0, true, false),
     };
-    const auto overlap_summary = gentest::codegen::summarize_module_mock_renders(at(0), at(100), overlapping);
+    const auto overlap_summary = gentest::codegen::summarize_module_mock_renders({.started = at(0), .finished = at(100)}, overlapping);
     if (overlap_summary.duration_us != 75) {
         fail("overlapping parallel spans were not reduced to their 75us union");
     }
@@ -57,7 +57,7 @@ int main() {
         render("a.cpp", "module.a", 30, 40, 80, 120),
         render("ignored.cpp", "ignored", 0, 100, 0, 100, false, false),
     };
-    const auto nested_summary = gentest::codegen::summarize_module_mock_renders(at(0), at(100), nested);
+    const auto nested_summary = gentest::codegen::summarize_module_mock_renders({.started = at(0), .finished = at(100)}, nested);
     if (nested_summary.duration_us != 90) {
         fail("clipped, touching, and nested spans did not produce the expected union");
     }
@@ -66,7 +66,7 @@ int main() {
     }
 
     const std::vector<ModuleMockRenderTiming> empty;
-    const auto                                empty_summary = gentest::codegen::summarize_module_mock_renders(at(0), at(100), empty);
+    const auto empty_summary = gentest::codegen::summarize_module_mock_renders({.started = at(0), .finished = at(100)}, empty);
     if (empty_summary.duration_us != 0 || !empty_summary.registration_output.empty() || !empty_summary.module_name.empty()) {
         fail("an empty span set produced timing or identity data");
     }
