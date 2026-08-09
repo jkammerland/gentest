@@ -6089,7 +6089,11 @@ int main(int argc, const char **argv) {
         }
 
         llvm::IntrusiveRefCntPtr<clang::DiagnosticIDs> diagnostic_ids{new clang::DiagnosticIDs()};
-        clang::DiagnosticOptions                       driver_diagnostic_options;
+#if CLANG_VERSION_MAJOR >= 21
+        clang::DiagnosticOptions driver_diagnostic_options;
+#else
+        llvm::IntrusiveRefCntPtr<clang::DiagnosticOptions> driver_diagnostic_options{new clang::DiagnosticOptions()};
+#endif
         clang::DiagnosticsEngine driver_diagnostics{diagnostic_ids, driver_diagnostic_options, new clang::IgnoringDiagConsumer(),
                                                     /*ShouldOwnClient=*/true};
         clang::driver::Driver    driver{syntax_only_command.front(), llvm::sys::getDefaultTargetTriple(), driver_diagnostics,
