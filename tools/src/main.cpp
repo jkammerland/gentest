@@ -6847,8 +6847,8 @@ int main(int argc, const char **argv) {
             }
             const auto pcm_record_started = TimingRecorder::Clock::now();
             bool       precompiled        = pcm_cache_attempt.hit && cached_pcm_is_compiler_consumable(
-                                                                         precompile_command, module_source->pcm_path,
-                                                                         {.module_name = module_name, .working_directory = external_working_directory});
+                                                            precompile_command, module_source->pcm_path,
+                                                            {.module_name = module_name, .working_directory = external_working_directory});
             if (pcm_cache_attempt.hit && !precompiled) {
                 pcm_cache_attempt.state = "miss";
             }
