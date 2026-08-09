@@ -116,11 +116,11 @@ std::optional<BoundedFileIdentity> bounded_file_identity(const fs::path &path, s
     llvm::sys::fs::file_status final_descriptor_status;
     llvm::sys::fs::file_status final_path_status;
     const bool                 descriptor_unchanged = !llvm::sys::fs::status(file_descriptor, final_descriptor_status) &&
-                                                      llvm::sys::fs::is_regular_file(final_descriptor_status) &&
-                                                      final_descriptor_status.getSize() == initial_status.getSize() &&
-                                                      final_descriptor_status.getUniqueID() == initial_status.getUniqueID();
-    const std::error_code      close_error          = llvm::sys::fs::closeFile(file_descriptor);
-    const bool                 path_unchanged =
+                                      llvm::sys::fs::is_regular_file(final_descriptor_status) &&
+                                      final_descriptor_status.getSize() == initial_status.getSize() &&
+                                      final_descriptor_status.getUniqueID() == initial_status.getUniqueID();
+    const std::error_code close_error = llvm::sys::fs::closeFile(file_descriptor);
+    const bool            path_unchanged =
         !llvm::sys::fs::status(path.string(), final_path_status) && llvm::sys::fs::is_regular_file(final_path_status) &&
         final_path_status.getSize() == initial_status.getSize() && final_path_status.getUniqueID() == initial_status.getUniqueID();
     if (!descriptor_unchanged || !path_unchanged || close_error) {
