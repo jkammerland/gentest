@@ -6223,6 +6223,13 @@ int main(int argc, const char **argv) {
             if (arg.starts_with("-ast-merge") || arg.starts_with("/clang:-ast-merge")) {
                 return false;
             }
+            // PGO/profile options can name externally updated data that does
+            // not participate in preprocessing dependency callbacks. Even a
+            // diagnostics-only profile change must force a real parse.
+            if (arg.starts_with("-fprofile") || arg.starts_with("/clang:-fprofile") || arg.starts_with("-fauto-profile") ||
+                arg.starts_with("/clang:-fauto-profile")) {
+                return false;
+            }
             if (arg.starts_with("-fplugin") || arg.starts_with("/clang:-fplugin") || arg == "-load" || arg == "-plugin" ||
                 arg == "-add-plugin" || arg == "/clang:-load" || arg == "/clang:-plugin" || arg == "/clang:-add-plugin" ||
                 arg == "/interface" || arg.starts_with("/interface:") || arg == "/headerUnit" || arg.starts_with("/headerUnit:") ||

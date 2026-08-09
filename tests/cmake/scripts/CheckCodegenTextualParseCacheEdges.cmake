@@ -255,6 +255,72 @@ if(NOT _ast_replace_rc EQUAL 0)
 endif()
 _run("${_ast_merge_source}" ast_merge_replaced bypass)
 
+# Profile-guided commands can consume data files that Clang does not report
+# through preprocessing callbacks. Keep every profile mode conservative, and
+# prove that replacing a previously valid indexed profile is observed by a
+# real parse rather than hidden behind a cache hit.
+_write_compdb("${_forced_source}" "-fprofile-instr-generate")
+_run("${_forced_source}" profile_generate_bypass bypass)
+
+get_filename_component(_clang_bin_dir "${_clang_norm}" DIRECTORY)
+find_program(
+  _llvm_profdata
+  NAMES llvm-profdata llvm-profdata-23 llvm-profdata-22 llvm-profdata-21 llvm-profdata-20 llvm-profdata-19
+  HINTS "${_clang_bin_dir}")
+if(_llvm_profdata)
+  set(_profile_program_source "${_work_dir}/profile_program.cpp")
+  set(_profile_program "${_work_dir}/profile_program${CMAKE_EXECUTABLE_SUFFIX}")
+  if(CMAKE_HOST_WIN32)
+    set(_profile_program "${_work_dir}/profile_program.exe")
+  endif()
+  set(_profile_raw "${_work_dir}/profile.profraw")
+  set(_profile_data "${_work_dir}/profile.profdata")
+  gentest_fixture_write_file("${_profile_program_source}" "int main() { return 0; }\n")
+  execute_process(
+    COMMAND "${_clang_norm}" "${_ast_std}" "-fprofile-instr-generate=${_profile_raw}" "${_profile_program_source}" -o "${_profile_program}"
+    RESULT_VARIABLE _profile_compile_rc
+    OUTPUT_VARIABLE _profile_compile_out
+    ERROR_VARIABLE _profile_compile_err)
+  if(NOT _profile_compile_rc EQUAL 0)
+    message(FATAL_ERROR "Could not compile profile fixture.\n${_profile_compile_out}\n${_profile_compile_err}")
+  endif()
+  execute_process(
+    COMMAND "${_profile_program}"
+    RESULT_VARIABLE _profile_run_rc
+    OUTPUT_VARIABLE _profile_run_out
+    ERROR_VARIABLE _profile_run_err)
+  if(NOT _profile_run_rc EQUAL 0 OR NOT EXISTS "${_profile_raw}")
+    message(FATAL_ERROR "Could not record profile fixture.\n${_profile_run_out}\n${_profile_run_err}")
+  endif()
+  execute_process(
+    COMMAND "${_llvm_profdata}" merge -o "${_profile_data}" "${_profile_raw}"
+    RESULT_VARIABLE _profile_merge_rc
+    OUTPUT_VARIABLE _profile_merge_out
+    ERROR_VARIABLE _profile_merge_err)
+  if(NOT _profile_merge_rc EQUAL 0)
+    message(FATAL_ERROR "Could not index profile fixture.\n${_profile_merge_out}\n${_profile_merge_err}")
+  endif()
+
+  _write_compdb("${_forced_source}" "-fprofile-instr-use=${_profile_data}")
+  _run_uncacheable_twice("${_forced_source}" profile_input)
+  gentest_fixture_write_file("${_profile_data}" "not an indexed profile\n")
+  execute_process(
+    COMMAND "${PROG}"
+      --jobs=1
+      --check
+      --parse-cache-dir "${_cache_dir}"
+      --compdb "${_work_dir}"
+      "${_forced_source}"
+    RESULT_VARIABLE _invalid_profile_rc
+    OUTPUT_VARIABLE _invalid_profile_out
+    ERROR_VARIABLE _invalid_profile_err)
+  if(_invalid_profile_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Replacing a profile input was hidden by a parse-cache hit.\n"
+      "${_invalid_profile_out}\n${_invalid_profile_err}")
+  endif()
+endif()
+
 # quiet-clang affects captured diagnostics and is part of the parse policy.
 # A normal warning cache must neither be accepted nor replayed in quiet mode.
 set(_warning_source "${_work_dir}/warning_cases.cpp")
