@@ -465,6 +465,96 @@ foreach(_incremental_marker IN ITEMS "compiling." "linking.")
   endif()
 endforeach()
 
+# Configured include roots participate in the sidecar identity even when every
+# previously discovered file remains unchanged. xmake.lua is intentionally not
+# a static codegen dependency, so this probe fails if the resolved argv inputs
+# are omitted from the identity.
+set(_identity_include_dir "${_project_dir}/identity-include")
+file(MAKE_DIRECTORY "${_identity_include_dir}")
+file(READ "${_project_dir}/xmake.lua" _identity_xmake_text)
+string(REPLACE
+  [=[local incdirs = {"include", "tests", "third_party/include"}]=]
+  [=[local incdirs = {"include", "tests", "third_party/include", "identity-include"}]=]
+  _identity_xmake_text "${_identity_xmake_text}")
+file(WRITE "${_project_dir}/xmake.lua" "${_identity_xmake_text}")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_xmake}" ${_xmake_reconfigure_args}
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _incdir_config_rc
+  OUTPUT_VARIABLE _incdir_config_out
+  ERROR_VARIABLE _incdir_config_err)
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _incdir_build_rc
+  OUTPUT_VARIABLE _incdir_build_out
+  ERROR_VARIABLE _incdir_build_err)
+set(_incdir_build_log "${_incdir_build_out}\n${_incdir_build_err}")
+string(FIND "${_incdir_build_log}" "--source-root" _incdir_codegen_pos)
+string(FIND "${_incdir_build_log}" "${_identity_include_dir}" _incdir_path_pos)
+if(NOT _incdir_config_rc EQUAL 0 OR NOT _incdir_build_rc EQUAL 0 OR _incdir_codegen_pos EQUAL -1 OR _incdir_path_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Changing only gentest_configure().incdirs did not invalidate Xmake codegen.\n"
+    "configure:\n${_incdir_config_out}\n${_incdir_config_err}\n"
+    "build:\n${_incdir_build_log}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _incdir_noop_rc
+  OUTPUT_VARIABLE _incdir_noop_out
+  ERROR_VARIABLE _incdir_noop_err)
+set(_incdir_noop_log "${_incdir_noop_out}\n${_incdir_noop_err}")
+string(FIND "${_incdir_noop_log}" "--source-root" _incdir_noop_codegen_pos)
+if(NOT _incdir_noop_rc EQUAL 0 OR NOT _incdir_noop_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Stable configured incdirs did not produce an Xmake no-op.\n${_incdir_noop_log}")
+endif()
+
+# An explicit Gentest root changes the implicit public include root. Use an
+# identical private copy so only configuration identity—not file contents or
+# mtimes—forces the regeneration.
+set(_alternate_gentest_root "${_project_dir}/alternate-gentest-root")
+file(MAKE_DIRECTORY "${_alternate_gentest_root}")
+file(COPY "${_project_dir}/include" DESTINATION "${_alternate_gentest_root}")
+file(READ "${_project_dir}/xmake.lua" _root_xmake_text)
+string(REPLACE
+  "gentest_configure({\n    project_root = project_root,"
+  "gentest_configure({\n    project_root = project_root,\n    gentest_root = path.join(project_root, \"alternate-gentest-root\"),"
+  _root_xmake_text "${_root_xmake_text}")
+file(WRITE "${_project_dir}/xmake.lua" "${_root_xmake_text}")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_xmake}" ${_xmake_reconfigure_args}
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _root_config_rc
+  OUTPUT_VARIABLE _root_config_out
+  ERROR_VARIABLE _root_config_err)
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _root_build_rc
+  OUTPUT_VARIABLE _root_build_out
+  ERROR_VARIABLE _root_build_err)
+set(_root_build_log "${_root_build_out}\n${_root_build_err}")
+string(FIND "${_root_build_log}" "--source-root" _root_codegen_pos)
+string(FIND "${_root_build_log}" "${_alternate_gentest_root}/include" _root_path_pos)
+if(NOT _root_config_rc EQUAL 0 OR NOT _root_build_rc EQUAL 0 OR _root_codegen_pos EQUAL -1 OR _root_path_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Changing only gentest_root did not invalidate Xmake codegen.\n"
+    "configure:\n${_root_config_out}\n${_root_config_err}\n"
+    "build:\n${_root_build_log}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _root_noop_rc
+  OUTPUT_VARIABLE _root_noop_out
+  ERROR_VARIABLE _root_noop_err)
+set(_root_noop_log "${_root_noop_out}\n${_root_noop_err}")
+string(FIND "${_root_noop_log}" "--source-root" _root_noop_codegen_pos)
+if(NOT _root_noop_rc EQUAL 0 OR NOT _root_noop_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Stable gentest_root did not produce an Xmake no-op.\n${_root_noop_log}")
+endif()
+
 # Output-affecting ambient codegen settings are part of the sidecar identity.
 # Changing either one must schedule generation once; repeating it must be a
 # true no-op. Keep each setting in the base environment after its probe so
