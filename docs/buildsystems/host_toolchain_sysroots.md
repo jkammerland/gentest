@@ -39,7 +39,7 @@ For background on why the exact host Clang path matters, see
 | Build system | Current downstream status | Module path | What users should configure |
 | --- | --- | --- | --- |
 | CMake | primary / packaged | supported | set `GENTEST_CODEGEN_HOST_CLANG`; in cross builds also set `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` to an imported executable target |
-| Bazel | official Bzlmod / source-package support | supported but toolchain-sensitive | set per-target `codegen_host_clang` or export/pass through `GENTEST_CODEGEN_HOST_CLANG`; keep target flags in Bazel/C++ toolchain config |
+| Bazel | official Bzlmod / source-package support | supported but toolchain-sensitive | register an exec-platform `gentest_codegen_toolchain` with packaged codegen/Clang executable labels; keep target flags in Bazel/C++ toolchain config |
 | Xmake | official xrepo / installed-helper support | supported but toolchain-sensitive | set `codegen = { exe, clang, scan_deps }` or the matching env fallbacks; keep Xmake `cc` / `cxx` for the final target toolchain |
 | Meson | official wrap/subproject textual support | intentionally unsupported | pass `-Dcodegen_path=...` and `-Dcodegen_host_clang=...`; textual-only today |
 
@@ -118,75 +118,26 @@ Notes:
 
 ## Bazel
 
-The Bazel downstream surface is source-package/Bzlmod based and still
-toolchain-sensitive. The stable approach is to pass the host Clang toolchain
-into Bazel actions explicitly.
+Bazel code generation resolves its parser and generator only from an
+exec-platform `gentest_codegen_toolchain`. Package `gentest_codegen`, `clang`,
+optional `clang-scan-deps`, Clang resource headers, and shared-library/runtime
+closures as declared executable labels, then register that toolchain from the
+root module. This lets the target C++ toolchain use another compiler or target
+triple without making host tools target dependencies.
 
-Example `BUILD.bazel`:
+Do not supply `codegen_host_clang` or `GENTEST_CODEGEN_HOST_CLANG`: the former
+is retained only to give an actionable migration error and the latter is not
+read by codegen actions. The source-package fallback
+`GENTEST_BAZEL_LOCAL_CLANG=/path/to/clang++` is for local testing only; it is
+not a portable tool bundle. Gentest marks its actions `no-remote`, so they
+cannot use remote execution or a remote action cache (local/disk caches remain
+usable). See [bazel.md](bazel.md#exec-toolchain-contract) for the
+registered-toolchain example, full runfiles/runtime closure requirements, and
+cache behavior.
 
-```python
-gentest_add_mocks_modules(
-    name = "my_module_mocks",
-    defs = [
-        "tests/service.cppm",
-        "tests/mock_defs.cppm",
-    ],
-    module_name = "demo.service_mocks",
-)
-
-gentest_attach_codegen_modules(
-    name = "my_tests",
-    src = "tests/cases.cppm",
-    main = "tests/main.cpp",
-    mock_targets = [":my_module_mocks"],
-    deps = [
-        ":gentest",
-        ":gentest_bench_util",
-    ],
-    clang_args = [
-        "--sysroot=/opt/sdk/targets/aarch64-sysroot",
-        "--target=aarch64-linux-gnu",
-    ],
-    codegen_host_clang = "/opt/sdk/host-llvm/bin/clang++",
-)
-```
-
-Build:
-
-```bash
-HOST_LLVM=/opt/sdk/host-llvm
-HOST_CLANG="$HOST_LLVM/bin/clang++"
-HOST_CC="$HOST_LLVM/bin/clang"
-RES_DIR="$($HOST_CLANG -print-resource-dir)"
-export GENTEST_CODEGEN_HOST_CLANG="$HOST_CLANG"
-export GENTEST_CODEGEN_RESOURCE_DIR="$RES_DIR"
-
-bazelisk build //:my_tests \
-  --experimental_cpp_modules \
-  --action_env=CC="$HOST_CC" \
-  --action_env=CXX="$HOST_CLANG" \
-  --action_env=GENTEST_CODEGEN_HOST_CLANG \
-  --action_env=GENTEST_CODEGEN_RESOURCE_DIR \
-  --host_action_env=CC="$HOST_CC" \
-  --host_action_env=CXX="$HOST_CLANG" \
-  --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
-  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR \
-  --repo_env=CC="$HOST_CC" \
-  --repo_env=CXX="$HOST_CLANG" \
-  --repo_env=GENTEST_CODEGEN_HOST_CLANG \
-  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
-```
-
-Notes:
-
-- Do not rely on plain `PATH` discovery for the codegen-host lane.
-- If the target already sets `codegen_host_clang` in `BUILD.bazel`, the
-  `GENTEST_CODEGEN_HOST_CLANG` env pass-through becomes a repo-wide default or
-  CI override instead of the only source of truth.
-- Prefer putting target sysroot and target-triple flags in the C++ toolchain.
-  When that is not available, pass them through `clang_args`.
-- The checked-in downstream proof uses the public `@gentest//bazel:defs.bzl`
-  entrypoint and a real `MODULE.bazel` fixture.
+Keep target sysroot and target-triple flags in the C++ toolchain where possible,
+or pass them through `clang_args`. The codegen parser remains the exec tool,
+while those flags describe the target source being parsed.
 
 ## Xmake
 

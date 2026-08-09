@@ -68,6 +68,7 @@ genrule(
     # Still, we want Bazel to rebuild `gentest_codegen` when the generator sources/config change.
     srcs = _gentest_codegen_build_srcs,
     outs = ['gen_tools/gentest_codegen'],
+    executable = True,
     cmd = "set -e; " +
           "GENTEST_CMAKE_ARGS='-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON'; " +
           "GENTEST_SOURCE_ROOT=$$(dirname \"$(location CMakeLists.txt)\"); " +
@@ -107,6 +108,7 @@ genrule(
     name = 'gentest_codegen_build_windows',
     srcs = _gentest_codegen_build_srcs,
     outs = ['gen_tools/gentest_codegen.exe'],
+    executable = True,
     cmd_bat = "setlocal EnableDelayedExpansion && set GENTEST_CMAKE_ARGS=-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON && " +
               "for %%I in (\"$(location CMakeLists.txt)\") do set GENTEST_SOURCE_ROOT=%%~dpI && " +
               "if not defined CC for %%I in (C:\\Tools\\llvm-23.1.0\\bin\\clang.exe C:\\Tools\\llvm-22.1.0\\bin\\clang.exe C:\\Tools\\llvm-21.1.4\\bin\\clang.exe C:\\Tools\\llvm-20.1.8\\bin\\clang.exe C:\\Tools\\llvm-19.1.7\\bin\\clang.exe) do if not defined CC if exist %%I set CC=%%I && " +
