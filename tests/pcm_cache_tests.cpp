@@ -1,6 +1,7 @@
 #include "pcm_cache.hpp"
 
 #include <barrier>
+#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -148,17 +149,46 @@ int main(int argc, char **argv) {
         return 1;
     }
     fs::remove(destination, ec);
-    if (!require(!ec, "remove first materialized PCM") ||
+    const auto dependency_write_time = fs::last_write_time(dependency, ec);
+    if (!require(!ec, "read dependency write time")) {
+        return 1;
+    }
+    fs::last_write_time(dependency, dependency_write_time + std::chrono::seconds{10}, ec);
+    if (!require(!ec, "advance dependency write time without changing bytes")) {
+        return 1;
+    }
+    const auto mtime_key = cache.prepare(context);
+    if (!require(mtime_key.has_value() && mtime_key != key, "write-time-only change produces a distinct key") ||
+        !require(!cache.load_prepared(*prepared_again, destination), "write-time-only change rejects the prepared entry") ||
+        !require(!fs::exists(destination), "leave destination absent after write-time-only change") ||
+        !require(!fs::exists(destination), "leave destination absent after write-time-only change")) {
+        return 1;
+    }
+    fs::last_write_time(dependency, dependency_write_time, ec);
+    if (!require(!ec, "restore dependency write time") ||
+        !require(cache.prepare(context) == key, "restored write time restores the original key") ||
         !require(write_file(dependency, "inline constexpr int value = 2;\n"), "mutate dependency after prepare") ||
         !require(!cache.load_prepared(*prepared_again, destination), "re-fingerprint closure immediately before materialization") ||
         !require(!fs::exists(destination), "leave destination absent after stale prepared lookup")) {
         return 1;
     }
 
-    if (!require(write_file(dependency, "inline constexpr int value = 1;\n"), "restore dependency") ||
-        !require(cache.prepare(context) == key, "prepare closure before source mutation") ||
+    if (!require(write_file(dependency, "inline constexpr int value = 1;\n"), "restore dependency")) {
+        return 1;
+    }
+    const auto source_race_key = cache.prepare(context);
+    if (!require(source_race_key.has_value(), "prepare closure before source mutation")) {
+        return 1;
+    }
+    cache.store(context, source_pcm, *source_race_key);
+    if (!require(cache.load_prepared(*source_race_key, destination), "load current entry before source mutation") ||
+        !require(read_file(destination) == "validated-pcm-bytes", "materialize current PCM before source mutation")) {
+        return 1;
+    }
+    fs::remove(destination, ec);
+    if (!require(!ec, "remove PCM materialized before source mutation") ||
         !require(write_file(source, "export module gentest.test.changed;\n"), "mutate source after prepare") ||
-        !require(!cache.load_prepared(*key, destination), "re-fingerprint source immediately before materialization") ||
+        !require(!cache.load_prepared(*source_race_key, destination), "re-fingerprint source immediately before materialization") ||
         !require(!fs::exists(destination), "leave destination absent after stale source lookup")) {
         return 1;
     }
@@ -177,10 +207,22 @@ int main(int argc, char **argv) {
     external_store_cache.store(external_store_context, source_pcm, *external_store_key);
     if (!require(!fs::exists(root / "external-store-race-cache" / *external_store_key),
                  "do not publish an entry after external PCM changes before store") ||
-        !require(write_file(external_pcm, "external-pcm-v1"), "restore external PCM before load race") ||
-        !require(cache.prepare(context) == key, "prepare closure before external PCM mutation") ||
+        !require(write_file(external_pcm, "external-pcm-v1"), "restore external PCM before load race")) {
+        return 1;
+    }
+    const auto external_load_key = cache.prepare(context);
+    if (!require(external_load_key.has_value(), "prepare closure before external PCM mutation")) {
+        return 1;
+    }
+    cache.store(context, source_pcm, *external_load_key);
+    if (!require(cache.load_prepared(*external_load_key, destination), "load current entry before external PCM mutation") ||
+        !require(read_file(destination) == "validated-pcm-bytes", "materialize current PCM before external PCM mutation")) {
+        return 1;
+    }
+    fs::remove(destination, ec);
+    if (!require(!ec, "remove PCM materialized before external PCM mutation") ||
         !require(write_file(external_pcm, "external-pcm-v2"), "mutate external PCM after prepare") ||
-        !require(!cache.load_prepared(*key, destination), "re-fingerprint external PCM immediately before materialization") ||
+        !require(!cache.load_prepared(*external_load_key, destination), "re-fingerprint external PCM immediately before materialization") ||
         !require(!fs::exists(destination), "leave destination absent after stale external PCM lookup")) {
         return 1;
     }
