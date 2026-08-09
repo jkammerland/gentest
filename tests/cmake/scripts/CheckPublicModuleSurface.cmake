@@ -129,6 +129,21 @@ endfunction()
 gentest_expect_generated_boundary(
   "${_consumer_build_dir}/gentest_codegen/tu_0000_cases.registration.gentest.cpp"
   "#include \"gentest/detail/generated_runtime.h\"")
+set(_sync_registration
+  "${_consumer_build_dir}/gentest_codegen/tu_0001_sync_cases.registration.gentest.cpp")
+gentest_expect_generated_boundary(
+  "${_sync_registration}"
+  "#include \"gentest/detail/registration_runtime.h\"")
+file(READ "${_sync_registration}" _sync_registration_text)
+foreach(_rejected IN ITEMS
+    "#include \"gentest/async.h\""
+    "#include \"gentest/detail/generated_runtime.h\"")
+  string(FIND "${_sync_registration_text}" "${_rejected}" _sync_rejected_pos)
+  if(NOT _sync_rejected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Simple synchronous module registration should not include '${_rejected}'.\n${_sync_registration_text}")
+  endif()
+endforeach()
 set(_generated_header "${_consumer_build_dir}/gentest_codegen/tu_0000_cases.gentest.h")
 gentest_expect_generated_boundary(
   "${_generated_header}"
