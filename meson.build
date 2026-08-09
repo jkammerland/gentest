@@ -40,6 +40,15 @@ endif
 if codegen_clang_scan_deps != ''
   codegen_tool_args += ['--clang-scan-deps', codegen_clang_scan_deps]
 endif
+if get_option('codegen_parse_cache')
+  codegen_parse_cache_dir = get_option('codegen_parse_cache_dir')
+  if codegen_parse_cache_dir == ''
+    codegen_parse_cache_dir = join_paths(meson.current_build_dir(), '.gentest_codegen_parse_cache')
+  elif not fs.is_absolute(codegen_parse_cache_dir)
+    codegen_parse_cache_dir = join_paths(meson.current_build_dir(), codegen_parse_cache_dir)
+  endif
+  codegen_tool_args += ['--parse-cache-dir', codegen_parse_cache_dir]
+endif
 
 gentest_codegen = codegen
 gentest_codegen_tool_args = codegen_tool_args
@@ -186,30 +195,17 @@ if use_fmt_fallback
   clang_args += ['-I@0@'.format(fmt_fallback_include_dir)]
 endif
 if get_option('build_self_tests')
+  if meson.backend() != 'ninja'
+    error('gentest Meson textual codegen requires the Ninja backend because header invalidation relies on depfiles')
+  endif
   tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']
 # The repo-local Meson integration keeps the explicit 2-step model:
 # generate mocks first, then attach codegen to the consuming test surface.
 # Only textual targets are wired here today. Meson named-module support is
-# intentionally unsupported for now.
-support_inputs_cmd = run_command(
-  py,
-  '-c',
-  '''import glob
-patterns = [
-  "include/**/*.h", "include/**/*.hh", "include/**/*.hpp", "include/**/*.hxx", "include/**/*.inc",
-  "third_party/include/**/*.h", "third_party/include/**/*.hh", "third_party/include/**/*.hpp",
-  "third_party/include/**/*.hxx", "tests/**/*.h", "tests/**/*.hh", "tests/**/*.hpp",
-  "tests/**/*.hxx", "tests/**/*.inc"
-]
-matches = sorted({path for pattern in patterns for path in glob.glob(pattern, recursive=True)})
-print("\n".join(matches))
-''',
-  check: true
-)
-support_inputs = []
-if support_inputs_cmd.stdout().strip() != ''
-  support_inputs = support_inputs_cmd.stdout().strip().split('\n')
-endif
+# intentionally unsupported for now. Header dependencies are intentionally
+# not listed as custom-target inputs: gentest_codegen writes complete depfiles
+# for the headers it actually parses, which keeps unrelated headers out of
+# codegen's invalidation set.
 
 foreach s : tests_suites
   out_dir = meson.current_build_dir()
@@ -221,7 +217,7 @@ foreach s : tests_suites
   gen = custom_target(
     'gen_@0@'.format(s),
     output: [wrapper_cpp, wrapper_h, wrapper_manifest],
-    input: [owner_source] + support_inputs,
+    input: [owner_source],
     command: [
       codegen,
       '--source-root', meson.project_source_root(),
@@ -277,7 +273,7 @@ consumer_mocks = custom_target(
   ],
   input: [
     consumer_mock_defs,
-  ] + support_inputs,
+  ],
   command: [
     codegen,
     '--source-root', meson.project_source_root(),
@@ -318,7 +314,7 @@ consumer_owner_source = join_paths(meson.project_source_root(), 'tests', 'consum
 consumer_codegen = custom_target(
   'gen_consumer_textual_cases',
   output: [consumer_wrapper_cpp, consumer_wrapper_h, consumer_wrapper_manifest],
-  input: [consumer_owner_source, consumer_mocks] + support_inputs,
+  input: [consumer_owner_source, consumer_mocks],
   command: [
     codegen,
     '--source-root', meson.project_source_root(),

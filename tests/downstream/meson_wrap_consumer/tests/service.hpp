@@ -1,5 +1,7 @@
 #pragma once
 
+#include "shared_service_value.hpp"
+
 namespace downstream {
 
 struct Service {
