@@ -3,8 +3,10 @@
 The targets passed to ``gentest_codegen_toolchain`` must package the complete
 runtime closure that their executables need. In particular, an LLVM package
 must include the Clang resource directory, shared libraries, and (when used)
-the clang-scan-deps runtime closure. The codegen rules add the returned
-``files`` depset to every action's declared tools.
+the clang-scan-deps runtime closure. macOS packages also provide a marker file
+directly under the declared SDK root and include the full SDK in
+``runtime_files``. The codegen rules add the returned ``files`` depset to every
+action's declared tools.
 """
 
 def _runfiles_files(target):
@@ -29,6 +31,9 @@ def _gentest_codegen_toolchain_impl(ctx):
         files.append(_runfiles_files(ctx.attr.clang_scan_deps))
     if ctx.files.runtime_files:
         files.append(depset(ctx.files.runtime_files))
+    macos_sdk_root = ctx.file.macos_sdk_root
+    if macos_sdk_root:
+        files.append(depset([macos_sdk_root]))
 
     return [platform_common.ToolchainInfo(
         # Keep FilesToRunProvider objects, not just raw executable Files: Bazel
@@ -37,6 +42,11 @@ def _gentest_codegen_toolchain_impl(ctx):
         clang = ctx.attr.clang[DefaultInfo].files_to_run,
         clang_scan_deps = ctx.attr.clang_scan_deps[DefaultInfo].files_to_run if scan_deps else None,
         files = depset(transitive = files),
+        macos_sdk_root_path = (
+            macos_sdk_root.path if macos_sdk_root and macos_sdk_root.is_directory else
+            macos_sdk_root.dirname if macos_sdk_root else
+            None
+        ),
         # Local bootstrap labels may point at arbitrary host files. Keep that
         # lane explicitly off remote execution/cache while allowing packaged
         # toolchains to retain Bazel's normal portable action-cache behavior.
@@ -62,6 +72,11 @@ gentest_codegen_toolchain = rule(
             executable = True,
         ),
         "runtime_files": attr.label_list(allow_files = True, cfg = "exec"),
+        "macos_sdk_root": attr.label(
+            allow_single_file = True,
+            cfg = "exec",
+            doc = "Optional SDK tree artifact or marker file located directly under a declared macOS SDK root.",
+        ),
         "local_only": attr.bool(
             default = False,
             doc = "Disables remote execution/cache for actions using this local host-tool bootstrap.",

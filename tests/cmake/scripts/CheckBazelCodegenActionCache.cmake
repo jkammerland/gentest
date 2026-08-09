@@ -136,6 +136,9 @@ file(COPY_FILE "${_clang}" "${_tool_repo}/bin/clang++")
 file(CHMOD "${_tool_repo}/bin/clang++"
   PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 file(COPY "${_clang_resource_dir}/" DESTINATION "${_tool_repo}/lib/clang/${_clang_resource_version}")
+file(MAKE_DIRECTORY "${_tool_repo}/MacOSX.sdk/usr/include")
+file(WRITE "${_tool_repo}/MacOSX.sdk/SDKSettings.json" "{}\n")
+file(WRITE "${_tool_repo}/MacOSX.sdk/usr/include/gentest_sdk_sentinel.h" "#pragma once\n")
 execute_process(
   COMMAND "${_tool_repo}/bin/clang++" -print-resource-dir
   RESULT_VARIABLE _staged_resource_dir_rc
@@ -165,11 +168,17 @@ filegroup(
     srcs = glob(["lib/clang/**"]),
 )
 
+filegroup(
+    name = "macos_sdk_files",
+    srcs = glob(["MacOSX.sdk/**"]),
+)
+
 gentest_codegen_toolchain(
     name = "impl",
     codegen = ":gentest_codegen",
     clang = ":bin/clang++",
-    runtime_files = [":clang_runtime_files"],
+    runtime_files = [":clang_runtime_files", ":macos_sdk_files"],
+    macos_sdk_root = "MacOSX.sdk/SDKSettings.json",
 )
 
 toolchain(
@@ -252,6 +261,8 @@ foreach(_required IN ITEMS
     "gentest_codegen"
     "bin/clang++"
     "lib/clang/${_clang_resource_version}/include/stddef.h"
+    "MacOSX.sdk/usr/include/gentest_sdk_sentinel.h"
+    "SDKROOT"
     "tests/consumer/cases.cpp"
     "tests/consumer/bazel_private_case_value.hpp"
     "tests/consumer/bazel_dep_case_value.hpp"
@@ -328,6 +339,8 @@ foreach(_required_module_action_token IN ITEMS
     "gentest_codegen"
     "bin/clang++"
     "lib/clang/${_clang_resource_version}/include/stddef.h"
+    "MacOSX.sdk/usr/include/gentest_sdk_sentinel.h"
+    "SDKROOT"
     "tests/consumer/bazel_private_case_value.hpp"
     "tests/consumer/bazel_dep_case_value.hpp"
     "compile_commands.json")
