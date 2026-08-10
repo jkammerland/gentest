@@ -1362,6 +1362,26 @@ local function append_external_module_source_path(paths, seen, mapping)
     end
 end
 
+local function append_indirect_clang_inputs(paths, seen, arguments)
+    local expect_config_path = false
+    for _, raw_argument in ipairs(arguments or {}) do
+        local argument = tostring(raw_argument)
+        if argument:sub(1, 7) == "/clang:" then
+            argument = argument:sub(8)
+        end
+        if expect_config_path then
+            append_path_unique(paths, seen, argument)
+            expect_config_path = false
+        elseif argument == "--config" then
+            expect_config_path = true
+        elseif argument:sub(1, 9) == "--config=" then
+            append_path_unique(paths, seen, argument:sub(10))
+        elseif argument:sub(1, 1) == "@" then
+            append_path_unique(paths, seen, argument:sub(2))
+        end
+    end
+end
+
 local function value_identity(value)
     if type(value) ~= "table" then
         return tostring(value or "")
@@ -1496,6 +1516,12 @@ local function codegen_static_dependencies(target, config, codegen, compdb_dir, 
     for _, support_header in ipairs(config.dep_support_headers or {}) do
         append_path_unique(files, seen, support_header)
     end
+    -- Clang expands response/config files before preprocessing, so neither
+    -- the generated depfile nor lookup-guard sidecar necessarily names them.
+    -- Keep their contents in Xmake's scheduling snapshot instead of resolving
+    -- any headers described by those files ourselves.
+    append_indirect_clang_inputs(files, seen, gentest_common_cxxflags())
+    append_indirect_clang_inputs(files, seen, config.clang_args)
     if config.kind == "modules" then
         for _, module_source in ipairs(default_external_module_sources()) do
             append_external_module_source_path(files, seen, module_source)

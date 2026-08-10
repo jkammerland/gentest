@@ -210,7 +210,23 @@ _gentest_prepare_windows_xmake_workspace(_project_dir "${SOURCE_DIR}" "${_gentes
 # membership change itself.
 file(WRITE "${_project_dir}/third_party/include/xmake_shadow.hpp" "#pragma once\n")
 file(APPEND "${_project_dir}/tests/consumer/cases.cpp"
-  "\n#include <xmake_shadow.hpp>\n#if __has_include(<xmake_optional_probe.hpp>)\n#include <xmake_optional_probe.hpp>\n#endif\n")
+  "\n#include <xmake_shadow.hpp>\n#if __has_include(<xmake_optional_probe.hpp>)\n#include <xmake_optional_probe.hpp>\n#endif\n"
+  "#if GENTEST_XMAKE_CONFIG_VARIANT\n"
+  "[[using gentest: test(\"xmake/config_on\")]] void xmake_config_case() {}\n"
+  "#else\n"
+  "[[using gentest: test(\"xmake/config_off\")]] void xmake_config_case() {}\n"
+  "#endif\n")
+set(_config_file "${_project_dir}/xmake_codegen.cfg")
+file(WRITE "${_config_file}" "-DGENTEST_XMAKE_CONFIG_VARIANT=0\n")
+file(READ "${_project_dir}/xmake.lua" _indirect_args_xmake)
+string(REPLACE
+  [=[clang_args = {"-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1"},]=]
+  [=[clang_args = {
+                "-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1",
+                "--config=" .. path.join(os.projectdir(), "xmake_codegen.cfg"),
+            },]=]
+  _indirect_args_xmake "${_indirect_args_xmake}")
+file(WRITE "${_project_dir}/xmake.lua" "${_indirect_args_xmake}")
 
 # `target:name()` strips Xmake namespaces while public helper callers pass the
 # full target name. Keep a small namespaced target in this private workspace to
@@ -452,7 +468,8 @@ foreach(_expected IN ITEMS
     "--host-clang"
     "${_clang_cxx}"
     "-DGENTEST_XMAKE_TEXTUAL_CONSUMER_DEFINE=1"
-    "-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1")
+    "-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1"
+    "--config=${_config_file}")
   string(FIND "${_suite_initial_log}" "${_expected}" _suite_initial_pos)
   if(_suite_initial_pos EQUAL -1)
     message(FATAL_ERROR
@@ -518,6 +535,23 @@ foreach(_incremental_marker IN ITEMS "compiling." "linking.")
       "stdout/stderr:\n${_noop_log}")
   endif()
 endforeach()
+
+# Clang config files are semantic compiler inputs but are not guaranteed to
+# appear in codegen's depfile. Replacing one at the same path must invalidate
+# the Xmake snapshot exactly once.
+file(WRITE "${_config_file}" "-DGENTEST_XMAKE_CONFIG_VARIANT=1\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _config_build_rc
+  OUTPUT_VARIABLE _config_build_out
+  ERROR_VARIABLE _config_build_err)
+set(_config_build_log "${_config_build_out}\n${_config_build_err}")
+string(FIND "${_config_build_log}" "gentest-codegen-cache-miss" _config_codegen_pos)
+if(NOT _config_build_rc EQUAL 0 OR _config_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Changing a Clang config file did not invalidate Xmake codegen.\n${_config_build_log}")
+endif()
 
 file(WRITE "${_project_dir}/tests/xmake_shadow.hpp" "#pragma once\n")
 execute_process(
@@ -1201,6 +1235,14 @@ foreach(_expected IN ITEMS
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR
       "The Xmake textual consumer listing is missing '${_expected}'.\n"
+      "stdout:\n${_list_out}")
+  endif()
+endforeach()
+foreach(_expected_indirect_case IN ITEMS "xmake/config_on")
+  string(FIND "${_list_out}" "${_expected_indirect_case}" _expected_indirect_case_pos)
+  if(_expected_indirect_case_pos EQUAL -1)
+    message(FATAL_ERROR
+      "The Xmake textual consumer listing did not reflect '${_expected_indirect_case}'.\n"
       "stdout:\n${_list_out}")
   endif()
 endforeach()
