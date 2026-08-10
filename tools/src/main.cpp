@@ -6256,6 +6256,17 @@ int main(int argc, const char **argv) {
             if (arg.starts_with("-fopenmp-host-ir-file-path") || arg.starts_with("/clang:-fopenmp-host-ir-file-path")) {
                 return false;
             }
+            // XRay list files affect instrumentation attributes visible to
+            // semantic analysis but are not preprocessing dependencies. Both
+            // driver and forwarded cc1 spellings must remain cold parses.
+            if (arg == "-fxray-attr-list" || arg.starts_with("-fxray-attr-list=") || arg == "-fxray-always-instrument" ||
+                arg.starts_with("-fxray-always-instrument=") || arg == "-fxray-never-instrument" ||
+                arg.starts_with("-fxray-never-instrument=") || arg == "/clang:-fxray-attr-list" ||
+                arg.starts_with("/clang:-fxray-attr-list=") || arg == "/clang:-fxray-always-instrument" ||
+                arg.starts_with("/clang:-fxray-always-instrument=") || arg == "/clang:-fxray-never-instrument" ||
+                arg.starts_with("/clang:-fxray-never-instrument=")) {
+                return false;
+            }
             // Sanitizer and coverage ignorelists are external semantic inputs
             // parsed by the driver/cc1, not preprocessing dependencies.
             if (arg.starts_with("-fsanitize-ignorelist") || arg.starts_with("/clang:-fsanitize-ignorelist") ||
