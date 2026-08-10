@@ -323,6 +323,7 @@ set(_bazel_env
   "LLVM_DIR=${_llvm_dir}"
   "Clang_DIR=${_clang_dir}"
   "GENTEST_BAZEL_LOCAL_CLANG=${_codegen_host_clang}"
+  "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}"
   "HOME=$ENV{HOME}")
 
 set(_build_args
@@ -352,6 +353,7 @@ set(_build_args
   --repo_env=LLVM_DIR
   --repo_env=Clang_DIR
   --repo_env=GENTEST_BAZEL_LOCAL_CLANG
+  --repo_env=GENTEST_BAZEL_LOCAL_SDKROOT
   --repo_env=HOME
   //:gentest_downstream_textual_mocks
   //:gentest_downstream_textual
