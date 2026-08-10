@@ -1537,11 +1537,20 @@ void prime_llvm_statistics_registry() {
         return true;
     }
 
+    std::unordered_set<std::string> normalized_targets;
+    normalized_targets.reserve(dep_targets.size());
+    for (const auto &target : dep_targets) {
+        const std::string normalized = normalize_dependency_path(target.generic_string());
+        if (!normalized.empty()) {
+            normalized_targets.insert(normalized);
+        }
+    }
+
     std::vector<std::string> normalized_deps;
     normalized_deps.reserve(dependencies.size());
     for (const auto &dependency : dependencies) {
         const std::string normalized = normalize_dependency_path(dependency);
-        if (!normalized.empty()) {
+        if (!normalized.empty() && !normalized_targets.contains(normalized)) {
             normalized_deps.push_back(normalized);
         }
     }
