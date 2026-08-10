@@ -249,6 +249,29 @@ gentest_fixture_write_file("${_overlay}" "{ 'version': 0, 'roots': [] }\n")
 _write_compdb("${_forced_source}" "-ivfsoverlay" "${_overlay}")
 _run("${_forced_source}" overlay_bypass bypass)
 
+# Sanitizer/coverage ignorelists are driver inputs rather than preprocessing
+# dependencies. Replacing one must be observed by a cold parse.
+set(_sanitize_ignorelist "${_work_dir}/sanitize-ignorelist.txt")
+gentest_fixture_write_file("${_sanitize_ignorelist}" "fun:ignored_function\n")
+_write_compdb("${_forced_source}" "-fsanitize=undefined" "-fsanitize-ignorelist=${_sanitize_ignorelist}")
+_run_uncacheable_twice("${_forced_source}" sanitizer_ignorelist)
+gentest_fixture_write_file("${_sanitize_ignorelist}" "not a valid special-case-list entry\n")
+execute_process(
+  COMMAND "${PROG}"
+    --jobs=1
+    --check
+    --parse-cache-dir "${_cache_dir}"
+    --compdb "${_work_dir}"
+    "${_forced_source}"
+  RESULT_VARIABLE _invalid_ignorelist_rc
+  OUTPUT_VARIABLE _invalid_ignorelist_out
+  ERROR_VARIABLE _invalid_ignorelist_err)
+if(_invalid_ignorelist_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Replacing a sanitizer ignorelist was hidden by a parse-cache hit.\n"
+    "${_invalid_ignorelist_out}\n${_invalid_ignorelist_err}")
+endif()
+
 # Serialized AST merge inputs are outside preprocessing dependency callbacks.
 # Even a valid AST must therefore bypass rather than become a stale cache hit
 # when the serialized input is replaced in place.
