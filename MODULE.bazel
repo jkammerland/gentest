@@ -7,6 +7,9 @@
 
 module(name = "gentest", version = "1.0.0")
 
+# Exec-toolchain registrations use canonical OS constraints.
+bazel_dep(name = "platforms", version = "1.0.0")
+
 # This is intentionally a local fallback only. Remote/cache-portable consumers
 # register their own packaged gentest_codegen_toolchain instead.
 gentest_local_exec_tools = use_repo_rule("//bazel:local_exec_tools.bzl", "gentest_local_exec_tools")
