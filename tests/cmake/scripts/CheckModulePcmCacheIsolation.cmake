@@ -363,6 +363,34 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+set(_fake_scan_deps_build_command
+  "${CMAKE_COMMAND}"
+  --build "${_build_dir}"
+  --target fake_clang_scan_deps)
+if(NOT "${BUILD_TYPE}" STREQUAL "")
+  list(APPEND _fake_scan_deps_build_command --config "${BUILD_TYPE}")
+endif()
+gentest_check_run_or_fail(
+  COMMAND ${_fake_scan_deps_build_command}
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+file(GLOB _fake_scan_deps_path_files "${_build_dir}/fake_clang_scan_deps_path_*.txt")
+list(LENGTH _fake_scan_deps_path_files _fake_scan_deps_path_count)
+if(_fake_scan_deps_path_count GREATER 1 AND NOT "${BUILD_TYPE}" STREQUAL "")
+  set(_configured_fake_scan_deps_path "${_build_dir}/fake_clang_scan_deps_path_${BUILD_TYPE}.txt")
+  if(EXISTS "${_configured_fake_scan_deps_path}")
+    set(_fake_scan_deps_path_files "${_configured_fake_scan_deps_path}")
+    set(_fake_scan_deps_path_count 1)
+  endif()
+endif()
+if(NOT _fake_scan_deps_path_count EQUAL 1)
+  message(FATAL_ERROR "Expected one generated fake clang-scan-deps path, got: ${_fake_scan_deps_path_files}")
+endif()
+file(READ "${_fake_scan_deps_path_files}" _fake_scan_deps)
+if(NOT EXISTS "${_fake_scan_deps}")
+  message(FATAL_ERROR "Built fake clang-scan-deps executable does not exist: '${_fake_scan_deps}'")
+endif()
+
 set(_generated_dir "${_build_dir}/generated")
 file(MAKE_DIRECTORY "${_generated_dir}")
 set(_validated_pcm_cache "${_generated_dir}/validated_pcm_cache")
@@ -385,8 +413,10 @@ set(_dot_sources
   "${_src_dir}/alpha_dot_root.cppm")
 
 function(_gentest_run_codegen_fixture output_stem)
-  set(options LOG_SCAN_DEPS)
-  set(one_value_args PCM_CACHE PCM_CACHE_DIR TIMING_JSON COMPDB_DIR OUTPUT_ROOT CACHE_SALT OUTPUT_VARIABLE HOST_CLANG)
+  set(options LOG_SCAN_DEPS EXPECT_FAILURE)
+  set(one_value_args
+      PCM_CACHE PCM_CACHE_DIR TIMING_JSON COMPDB_DIR OUTPUT_ROOT CACHE_SALT OUTPUT_VARIABLE HOST_CLANG
+      SCAN_DEPS_EXECUTABLE SCAN_DEPS_MODE FAKE_SCAN_DEPS_JSON EXPECTED_DIAGNOSTIC)
   set(multi_value_args SOURCES EXTRA_ARGS)
   cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -413,20 +443,7 @@ function(_gentest_run_codegen_fixture output_stem)
   set(_mock_impl "${_output_root}/${output_stem}_mock_impl.hpp")
   set(_mock_registry_header_domain "${_output_root}/${output_stem}_mock_registry_domain_header.hpp")
   set(_mock_impl_header_domain "${_output_root}/${output_stem}_mock_impl_domain_header.hpp")
-  set(_mock_registry_module_domain_a "${_output_root}/${output_stem}_mock_registry_domain_a.hpp")
-  set(_mock_impl_module_domain_a "${_output_root}/${output_stem}_mock_impl_domain_a.hpp")
-  set(_mock_registry_module_domain_b "${_output_root}/${output_stem}_mock_registry_domain_b.hpp")
-  set(_mock_impl_module_domain_b "${_output_root}/${output_stem}_mock_impl_domain_b.hpp")
-  set(_mock_registry_module_domain_root "${_output_root}/${output_stem}_mock_registry_domain_root.hpp")
-  set(_mock_impl_module_domain_root "${_output_root}/${output_stem}_mock_impl_domain_root.hpp")
   set(_depfile "${_output_root}/${output_stem}.gentest.d")
-  set(_root_domain_args)
-  if(output_stem STREQUAL "pcm_cache_dot_generated")
-    list(APPEND
-      _root_domain_args
-      --mock-domain-registry-output "${_mock_registry_module_domain_root}"
-      --mock-domain-impl-output "${_mock_impl_module_domain_root}")
-  endif()
   file(MAKE_DIRECTORY "${_tu_output_dir}")
 
   set(_tu_output_args)
@@ -442,6 +459,28 @@ function(_gentest_run_codegen_fixture output_stem)
   endforeach()
   unset(_source)
   unset(_source_index)
+
+  set(_mock_domain_args
+    --mock-domain-registry-output "${_mock_registry_header_domain}"
+    --mock-domain-impl-output "${_mock_impl_header_domain}")
+  set(_source_index 0)
+  foreach(_source IN LISTS GENTEST_SOURCES)
+    if(_source MATCHES "alpha_dot_root\\.cppm$")
+      set(_domain_suffix root)
+    elseif(_source MATCHES "alpha_dot_unrelated\\.cppm$")
+      set(_domain_suffix unrelated)
+    elseif(_source_index EQUAL 0)
+      set(_domain_suffix a)
+    elseif(_source_index EQUAL 1)
+      set(_domain_suffix b)
+    else()
+      set(_domain_suffix "module_${_source_index}")
+    endif()
+    list(APPEND _mock_domain_args
+      --mock-domain-registry-output "${_output_root}/${output_stem}_mock_registry_domain_${_domain_suffix}.hpp"
+      --mock-domain-impl-output "${_output_root}/${output_stem}_mock_impl_domain_${_domain_suffix}.hpp")
+    math(EXPR _source_index "${_source_index} + 1")
+  endforeach()
 
   set(_pcm_cache_args)
   if(GENTEST_PCM_CACHE)
@@ -459,6 +498,13 @@ function(_gentest_run_codegen_fixture output_stem)
   if(NOT "${GENTEST_HOST_CLANG}" STREQUAL "")
     list(APPEND _host_clang_args --host-clang "${GENTEST_HOST_CLANG}")
   endif()
+  set(_scan_deps_args)
+  if(NOT "${GENTEST_SCAN_DEPS_MODE}" STREQUAL "")
+    list(APPEND _scan_deps_args --scan-deps-mode "${GENTEST_SCAN_DEPS_MODE}")
+  endif()
+  if(NOT "${GENTEST_SCAN_DEPS_EXECUTABLE}" STREQUAL "")
+    list(APPEND _scan_deps_args --clang-scan-deps "${GENTEST_SCAN_DEPS_EXECUTABLE}")
+  endif()
   set(_codegen_env)
   if(NOT "${GENTEST_CACHE_SALT}" STREQUAL "")
     list(APPEND _codegen_env "GENTEST_CODEGEN_PCM_CACHE_SALT=${GENTEST_CACHE_SALT}")
@@ -466,29 +512,25 @@ function(_gentest_run_codegen_fixture output_stem)
   if(GENTEST_LOG_SCAN_DEPS)
     list(APPEND _codegen_env "GENTEST_CODEGEN_LOG_SCAN_DEPS=1")
   endif()
+  if(NOT "${GENTEST_FAKE_SCAN_DEPS_JSON}" STREQUAL "")
+    list(APPEND _codegen_env "GENTEST_FAKE_SCAN_DEPS_JSON=${GENTEST_FAKE_SCAN_DEPS_JSON}")
+  endif()
   set(_codegen_command "${_codegen_exe}")
   if(_codegen_env)
     set(_codegen_command "${CMAKE_COMMAND}" -E env ${_codegen_env} "${_codegen_exe}")
   endif()
 
-  gentest_check_run_or_fail(
-    OUTPUT_VARIABLE _codegen_output
-    COMMAND
+  set(_fixture_command
       ${_codegen_command}
       ${_pcm_cache_args}
       ${_timing_args}
       ${_host_clang_args}
+      ${_scan_deps_args}
       --tu-out-dir "${_tu_output_dir}"
       ${_tu_output_args}
       --mock-registry "${_mock_registry}"
       --mock-impl "${_mock_impl}"
-      --mock-domain-registry-output "${_mock_registry_header_domain}"
-      --mock-domain-registry-output "${_mock_registry_module_domain_a}"
-      --mock-domain-registry-output "${_mock_registry_module_domain_b}"
-      --mock-domain-impl-output "${_mock_impl_header_domain}"
-      --mock-domain-impl-output "${_mock_impl_module_domain_a}"
-      --mock-domain-impl-output "${_mock_impl_module_domain_b}"
-      ${_root_domain_args}
+      ${_mock_domain_args}
       --depfile "${_depfile}"
       --compdb "${_compdb_dir}"
       --source-root "${_src_dir}"
@@ -498,9 +540,34 @@ function(_gentest_run_codegen_fixture output_stem)
       -x
       c++-module
       -DGENTEST_CODEGEN=1
-      ${GENTEST_EXTRA_ARGS}
-    WORKING_DIRECTORY "${_work_dir}"
-    STRIP_TRAILING_WHITESPACE)
+      ${GENTEST_EXTRA_ARGS})
+  if(GENTEST_EXPECT_FAILURE)
+    execute_process(
+      COMMAND ${_fixture_command}
+      WORKING_DIRECTORY "${_work_dir}"
+      RESULT_VARIABLE _codegen_rc
+      OUTPUT_VARIABLE _codegen_out
+      ERROR_VARIABLE _codegen_err
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_STRIP_TRAILING_WHITESPACE)
+    set(_codegen_output "${_codegen_out}\n${_codegen_err}")
+    if(_codegen_rc EQUAL 0)
+      message(FATAL_ERROR "Expected gentest_codegen failure, but it succeeded. Output:\n${_codegen_output}")
+    endif()
+    if(NOT "${GENTEST_EXPECTED_DIAGNOSTIC}" STREQUAL "")
+      string(FIND "${_codegen_output}" "${GENTEST_EXPECTED_DIAGNOSTIC}" _expected_failure_pos)
+      if(_expected_failure_pos EQUAL -1)
+        message(FATAL_ERROR
+          "Expected gentest_codegen failure diagnostic '${GENTEST_EXPECTED_DIAGNOSTIC}'. Output:\n${_codegen_output}")
+      endif()
+    endif()
+  else()
+    gentest_check_run_or_fail(
+      OUTPUT_VARIABLE _codegen_output
+      COMMAND ${_fixture_command}
+      WORKING_DIRECTORY "${_work_dir}"
+      STRIP_TRAILING_WHITESPACE)
+  endif()
   if(DEFINED ENV{GENTEST_CODEGEN_LOG_SCAN_DEPS} AND NOT "$ENV{GENTEST_CODEGEN_LOG_SCAN_DEPS}" STREQUAL "" AND
      NOT "${_codegen_output}" STREQUAL "")
     message(STATUS "${_codegen_output}")
@@ -608,6 +675,82 @@ function(_gentest_expect_dot_module_timing_collision label timing_path expected_
   endif()
 endfunction()
 
+function(_gentest_json_escape out_var value)
+  string(REPLACE "\\" "\\\\" _escaped "${value}")
+  string(REPLACE "\"" "\\\"" _escaped "${_escaped}")
+  set(${out_var} "${_escaped}" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_check_invalid_scan_plan label json_text expected_reason)
+  set(_json_path "${_generated_dir}/fake_scan_${label}.json")
+  set(_timing_path "${_generated_dir}/fake_scan_${label}_timing.json")
+  set(_cache_dir "${_generated_dir}/fake_scan_${label}_cache")
+  set(_output_root "${_generated_dir}/fake_scan_${label}_outputs")
+  file(WRITE "${_json_path}" "${json_text}\n")
+  _gentest_run_codegen_fixture(
+    "fake_scan_${label}"
+    PCM_CACHE ON
+    PCM_CACHE_DIR "${_cache_dir}"
+    OUTPUT_ROOT "${_output_root}"
+    TIMING_JSON "${_timing_path}"
+    LOG_SCAN_DEPS
+    OUTPUT_VARIABLE _invalid_scan_output
+    SCAN_DEPS_EXECUTABLE "${_fake_scan_deps}"
+    SCAN_DEPS_MODE AUTO
+    FAKE_SCAN_DEPS_JSON "${_json_path}"
+    SOURCES
+      "${_src_dir}/alpha_dot_provider.cppm"
+      "${_src_dir}/alpha_dot_consumer.cppm")
+  _gentest_expect_pcm_cache_state(
+    "${_timing_path}"
+    "bypass"
+    "gentest.pcm_cache.alpha.beta.provider")
+  foreach(_expected IN ITEMS "falling back to source-scan named-module discovery" "${expected_reason}")
+    string(FIND "${_invalid_scan_output}" "${_expected}" _expected_pos)
+    if(_expected_pos EQUAL -1)
+      message(FATAL_ERROR "Invalid scan plan '${label}' did not report '${_expected}'. Output:\n${_invalid_scan_output}")
+    endif()
+  endforeach()
+  file(GLOB_RECURSE _invalid_cache_entries LIST_DIRECTORIES FALSE "${_cache_dir}/*/module.pcm")
+  if(_invalid_cache_entries)
+    message(FATAL_ERROR "Invalid scan plan '${label}' published PCM cache entries: ${_invalid_cache_entries}")
+  endif()
+endfunction()
+
+_gentest_json_escape(_fake_provider_source "${_src_dir}/alpha_dot_provider.cppm")
+set(_fake_scan_missing_file_deps
+  "{\"translation-units\":[{\"commands\":[{\"input-file\":\"${_fake_provider_source}\",\"command-line\":[\"-cc1\"],\"named-module\":\"gentest.pcm_cache.alpha.beta.provider\"}]}]}")
+set(_fake_scan_duplicate_command
+  "{\"translation-units\":[{\"commands\":[{\"input-file\":\"${_fake_provider_source}\",\"command-line\":[\"-cc1\"],\"named-module\":\"gentest.pcm_cache.alpha.beta.provider\",\"file-deps\":[\"${_fake_provider_source}\"]},{\"input-file\":\"${_fake_provider_source}\",\"command-line\":[\"-cc1\"],\"named-module\":\"gentest.pcm_cache.alpha.beta.provider\",\"file-deps\":[\"${_fake_provider_source}\"]}]}]}")
+set(_fake_scan_invalid_optional
+  "{\"translation-units\":[{\"commands\":[{\"input-file\":\"${_fake_provider_source}\",\"command-line\":[\"-cc1\"],\"named-module\":\"gentest.pcm_cache.alpha.beta.provider\",\"named-module-deps\":{},\"file-deps\":[\"${_fake_provider_source}\"]}]}]}")
+
+_gentest_check_invalid_scan_plan("root_type" "[]" "output root was not an object")
+_gentest_check_invalid_scan_plan(
+  "missing_file_deps" "${_fake_scan_missing_file_deps}" "did not contain a valid required 'file-deps' array")
+_gentest_check_invalid_scan_plan(
+  "invalid_optional" "${_fake_scan_invalid_optional}" "contained an invalid optional 'named-module-deps' array")
+_gentest_check_invalid_scan_plan("duplicate_command" "${_fake_scan_duplicate_command}" "reported more than one command")
+
+set(_fake_scan_on_output_root "${_generated_dir}/fake_scan_on_outputs")
+_gentest_run_codegen_fixture(
+  "fake_scan_on_failure"
+  PCM_CACHE ON
+  PCM_CACHE_DIR "${_generated_dir}/fake_scan_on_cache"
+  OUTPUT_ROOT "${_fake_scan_on_output_root}"
+  EXPECT_FAILURE
+  EXPECTED_DIAGNOSTIC "failed to resolve named-module dependencies via clang-scan-deps (mode=ON)"
+  SCAN_DEPS_EXECUTABLE "${_fake_scan_deps}"
+  SCAN_DEPS_MODE ON
+  FAKE_SCAN_DEPS_JSON "${_generated_dir}/fake_scan_missing_file_deps.json"
+  SOURCES
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+file(GLOB_RECURSE _fake_scan_on_cache_entries LIST_DIRECTORIES FALSE "${_generated_dir}/fake_scan_on_cache/*/module.pcm")
+if(_fake_scan_on_cache_entries)
+  message(FATAL_ERROR "Scan-deps ON failure published PCM cache entries: ${_fake_scan_on_cache_entries}")
+endif()
+
 set(_dot_disabled_timing "${_generated_dir}/dot_disabled_timing.json")
 message(STATUS "Run gentest_codegen for the dot module target with PCM cache off...")
 _gentest_run_codegen_fixture(
@@ -636,16 +779,17 @@ _gentest_get_pcm_cache_state(
   "gentest.pcm_cache.alpha.beta.provider"
   _dot_initial_cache_state)
 
-# Some Windows clang-scan-deps versions produce a complete file closure but
-# more than one distinct module command. Reuse is intentionally ineligible in
-# that case: prove that cache-enabled generation safely stays on the local PCM
-# path without publishing an entry or changing generated consumers. Supported
-# scanners continue through the full miss/hit/invalidation matrix below.
+# Some Windows clang-scan-deps versions produce more than one command for one
+# input. The entire ambiguous plan is rejected before it can authorize cache
+# reuse; AUTO mode source-scans only for the local build. Prove that path does
+# not publish an entry or change generated consumers. Supported scanners
+# continue through the full miss/hit/invalidation matrix below.
 if(CMAKE_HOST_WIN32 AND _dot_initial_cache_state STREQUAL "bypass")
   _gentest_expect_dot_module_cache_state("${_dot_miss_timing}" "bypass")
   foreach(_expected_log IN ITEMS
-      "using clang-scan-deps for named-module dependency discovery"
-      "PCM cache bypassed for 'gentest.pcm_cache.alpha.beta.provider': clang-scan-deps did not provide an unambiguous module command")
+      "falling back to source-scan named-module discovery"
+      "clang-scan-deps reported more than one command"
+      "PCM cache bypassed for 'gentest.pcm_cache.alpha.beta.provider': clang-scan-deps did not provide the dependency plan")
     string(FIND "${_dot_miss_output}" "${_expected_log}" _expected_log_pos)
     if(_expected_log_pos EQUAL -1)
       message(FATAL_ERROR "Windows safe-bypass lane did not report '${_expected_log}'. Output:\n${_dot_miss_output}")
@@ -1107,8 +1251,10 @@ endif()
 # __DATE__/__TIME__ depend on wall-clock compilation time and cannot have a
 # reusable PCM key. Detect actual macro expansion through Clang's preprocessor,
 # including macro indirection, then preserve normal local precompilation while
-# refusing shared publication.
+# refusing shared publication. The importing consumer must also bypass: a
+# source/semantic fallback in one node cannot authorize a transitive cache key.
 file(READ "${_src_dir}/alpha_dot_provider.cppm" _provider_before_volatile_time)
+file(READ "${_src_dir}/alpha_dot_root.cppm" _root_before_volatile_time)
 file(APPEND "${_src_dir}/alpha_dot_provider.cppm" [=[
 
 #define GENTEST_PCM_VOLATILE_TIME __TIME__
@@ -1119,24 +1265,38 @@ inline constexpr const char* kVolatileTime = GENTEST_PCM_VOLATILE_TIME;
 inline constexpr const char* kVolatileTimestamp = GENTEST_PCM_VOLATILE_TIMESTAMP;
 }
 ]=])
+string(REPLACE
+  "import gentest.pcm_cache.alpha.beta;"
+  "import gentest.pcm_cache.alpha.beta;\nimport gentest.pcm_cache.unrelated;"
+  _root_with_unrelated "${_root_before_volatile_time}")
+file(WRITE "${_src_dir}/alpha_dot_root.cppm" "${_root_with_unrelated}")
 set(_volatile_time_timing "${_generated_dir}/dot_volatile_time_timing.json")
+set(_volatile_cache_dir "${_generated_dir}/volatile_validated_pcm_cache")
+set(_volatile_output_root "${_generated_dir}/volatile_outputs")
 _gentest_run_codegen_fixture(
   "pcm_cache_dot_generated"
   PCM_CACHE ON
+  PCM_CACHE_DIR "${_volatile_cache_dir}"
+  OUTPUT_ROOT "${_volatile_output_root}"
   LOG_SCAN_DEPS
   TIMING_JSON "${_volatile_time_timing}"
   OUTPUT_VARIABLE _volatile_time_output
   SOURCES
     "${_src_dir}/alpha_dot_provider.cppm"
-    "${_src_dir}/alpha_dot_consumer.cppm")
+    "${_src_dir}/alpha_dot_consumer.cppm"
+    "${_src_dir}/alpha_dot_unrelated.cppm")
 _gentest_expect_pcm_cache_state(
   "${_volatile_time_timing}"
   "bypass"
   "gentest.pcm_cache.alpha.beta.provider")
 _gentest_expect_pcm_cache_state(
   "${_volatile_time_timing}"
-  "miss"
+  "bypass"
   "gentest.pcm_cache.alpha.beta")
+_gentest_expect_pcm_cache_state(
+  "${_volatile_time_timing}"
+  "miss"
+  "gentest.pcm_cache.unrelated")
 string(FIND "${_volatile_time_output}" "a volatile predefined date/time macro is active" _volatile_time_diagnostic_pos)
 if(_volatile_time_diagnostic_pos EQUAL -1)
   message(FATAL_ERROR "Volatile-time PCM cache bypass did not report the expected reason.\n${_volatile_time_output}")
@@ -1147,19 +1307,27 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 1)
 _gentest_run_codegen_fixture(
   "pcm_cache_dot_generated"
   PCM_CACHE ON
+  PCM_CACHE_DIR "${_volatile_cache_dir}"
+  OUTPUT_ROOT "${_volatile_output_root}"
   TIMING_JSON "${_volatile_time_repeat_timing}"
   SOURCES
     "${_src_dir}/alpha_dot_provider.cppm"
-    "${_src_dir}/alpha_dot_consumer.cppm")
+    "${_src_dir}/alpha_dot_consumer.cppm"
+    "${_src_dir}/alpha_dot_unrelated.cppm")
 _gentest_expect_pcm_cache_state(
   "${_volatile_time_repeat_timing}"
   "bypass"
   "gentest.pcm_cache.alpha.beta.provider")
 _gentest_expect_pcm_cache_state(
   "${_volatile_time_repeat_timing}"
-  "miss"
+  "bypass"
   "gentest.pcm_cache.alpha.beta")
+_gentest_expect_pcm_cache_state(
+  "${_volatile_time_repeat_timing}"
+  "hit"
+  "gentest.pcm_cache.unrelated")
 file(WRITE "${_src_dir}/alpha_dot_provider.cppm" "${_provider_before_volatile_time}")
+file(WRITE "${_src_dir}/alpha_dot_root.cppm" "${_root_before_volatile_time}")
 
 if(NOT CMAKE_HOST_WIN32)
   find_program(_gentest_sh NAMES sh)

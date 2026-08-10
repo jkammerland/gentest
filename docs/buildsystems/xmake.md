@@ -141,7 +141,11 @@ Its default directory is `<builddir>/.gentest_codegen_pcm_cache`; relative
 paths are build-directory-relative. The helper emits `--pcm-cache-dir` only
 for `kind = "modules"` codegen. A cache hit still validates the current
 scan-deps file closure and compiler-consumable PCM, so unavailable or
-ambiguous scan-deps data safely falls back to normal precompilation.
+ambiguous scan-deps data safely falls back to normal local precompilation.
+That source fallback never authorizes shared PCM reuse, and a fallback module
+also makes importing generated modules bypass while unrelated validated
+modules remain eligible. This authority boundary does not reduce Xmake target
+parallelism or Gentest's per-process `--jobs` setting.
 
 Compiler caching is separately opt-in and target-local:
 

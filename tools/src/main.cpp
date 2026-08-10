@@ -312,7 +312,7 @@ struct LookupConfiguredRoot {
         if (lookup_configured_root_state(root.path) != root.state) {
             complete = false;
         }
-        root_values.emplace_back(llvm::json::Object{{"path", root.path}, {"state", root.state}});
+        root_values.emplace_back(llvm::json::Object{{.K = "path", .V = root.path}, {.K = "state", .V = root.state}});
         previous_root  = root.path;
         previous_state = root.state;
     }
@@ -3014,10 +3014,13 @@ struct ScanDepsSourceInfo {
     std::vector<std::string>             file_dependencies;
     std::string                          artifact;
     clang::tooling::CommandLineArguments command_line;
-    bool                                 ambiguous_command = false;
 };
 
 using ScanDepsInfoBySource = std::unordered_map<std::string, ScanDepsSourceInfo>;
+
+struct ValidatedScanDepsOutput {
+    ScanDepsInfoBySource sources;
+};
 
 std::optional<std::string> extract_clang_version_suffix(std::string_view compiler_path) {
     const std::string name = basename_without_extension(compiler_path);
@@ -3089,19 +3092,27 @@ std::string resolve_clang_scan_deps_executable(std::string_view explicit_path, s
     return {};
 }
 
-std::vector<std::string> collect_scan_deps_string_array(const llvm::json::Object &obj, llvm::StringRef key) {
-    std::vector<std::string> values;
-    const auto              *array = obj.getArray(key);
-    if (!array) {
-        return values;
+bool collect_scan_deps_string_array(const llvm::json::Object &obj, llvm::StringRef key, bool required, std::vector<std::string> &values,
+                                    std::string &error_message) {
+    const auto *array = obj.getArray(key);
+    if (array == nullptr) {
+        if (!required && obj.get(key) == nullptr) {
+            return true;
+        }
+        error_message = required ? fmt::format("clang-scan-deps command did not contain a valid required '{}' array", key.str())
+                                 : fmt::format("clang-scan-deps command contained an invalid optional '{}' array", key.str());
+        return false;
     }
     values.reserve(array->size());
     for (const auto &entry : *array) {
-        if (const auto value = entry.getAsString(); value.has_value()) {
-            values.emplace_back(value->str());
+        const auto value = entry.getAsString();
+        if (!value.has_value() || value->empty()) {
+            error_message = fmt::format("clang-scan-deps command contained a non-string or empty '{}' entry", key.str());
+            return false;
         }
+        values.emplace_back(value->str());
     }
-    return values;
+    return true;
 }
 
 std::vector<std::string> collect_module_file_args_from_command_line(std::span<const std::string> command_line) {
@@ -3237,13 +3248,26 @@ std::vector<std::string> normalize_module_file_args(std::vector<std::string> arg
     return normalized_args;
 }
 
-std::optional<ScanDepsInfoBySource>
+std::optional<ValidatedScanDepsOutput>
 run_clang_scan_deps(std::span<const ScanDepsPreparedCommand> prepared_commands, std::string_view explicit_scan_deps_path,
                     std::string                                            &error_message,
                     std::vector<gentest::codegen::TimingJsonProtectedPath> *resolved_timing_protected_paths = nullptr) {
     error_message.clear();
     if (prepared_commands.empty()) {
-        return ScanDepsInfoBySource{};
+        return ValidatedScanDepsOutput{};
+    }
+
+    std::unordered_set<std::string>              expected_sources;
+    std::unordered_map<std::string, std::string> expected_source_working_directories;
+    expected_sources.reserve(prepared_commands.size());
+    expected_source_working_directories.reserve(prepared_commands.size());
+    for (const auto &prepared : prepared_commands) {
+        const std::string key = normalize_compdb_lookup_path(prepared.source_file, prepared.working_directory);
+        if (key.empty() || !expected_sources.insert(key).second) {
+            error_message = fmt::format("clang-scan-deps input source '{}' is empty or duplicated", prepared.source_file);
+            return std::nullopt;
+        }
+        expected_source_working_directories.emplace(key, prepared.working_directory);
     }
 
     const std::string compiler_path =
@@ -3364,7 +3388,11 @@ run_clang_scan_deps(std::span<const ScanDepsPreparedCommand> prepared_commands, 
         return std::nullopt;
     }
 
-    const auto *root              = parsed_json->getAsObject();
+    const auto *root = parsed_json->getAsObject();
+    if (root == nullptr) {
+        error_message = "clang-scan-deps output root was not an object";
+        return std::nullopt;
+    }
     const auto *translation_units = root ? root->getArray("translation-units") : nullptr;
     if (!translation_units) {
         error_message = "clang-scan-deps output did not contain a 'translation-units' array";
@@ -3374,82 +3402,112 @@ run_clang_scan_deps(std::span<const ScanDepsPreparedCommand> prepared_commands, 
     ScanDepsInfoBySource results;
     for (const auto &translation_unit_value : *translation_units) {
         const auto *translation_unit = translation_unit_value.getAsObject();
-        if (!translation_unit) {
-            continue;
+        if (translation_unit == nullptr) {
+            error_message = "clang-scan-deps 'translation-units' contained a non-object entry";
+            return std::nullopt;
         }
         const auto *commands = translation_unit->getArray("commands");
-        if (!commands) {
-            continue;
+        if (commands == nullptr || commands->empty()) {
+            error_message = "clang-scan-deps translation unit omitted a non-empty 'commands' array";
+            return std::nullopt;
         }
         for (const auto &command_value : *commands) {
             const auto *command = command_value.getAsObject();
-            if (!command) {
-                continue;
+            if (command == nullptr) {
+                error_message = "clang-scan-deps 'commands' contained a non-object entry";
+                return std::nullopt;
             }
             const auto input_file = command->getString("input-file");
             if (!input_file.has_value() || input_file->empty()) {
-                continue;
+                error_message = "clang-scan-deps command omitted a non-empty string 'input-file'";
+                return std::nullopt;
             }
 
-            auto                                &info = results[normalize_compdb_lookup_path(input_file->str())];
-            clang::tooling::CommandLineArguments scan_command_line;
-            if (const auto *command_line = command->getArray("command-line"); command_line != nullptr) {
-                scan_command_line.reserve(command_line->size());
-                for (const auto &argument : *command_line) {
-                    const auto text = argument.getAsString();
-                    if (!text.has_value()) {
-                        info.ambiguous_command = true;
-                        scan_command_line.clear();
-                        break;
-                    }
-                    scan_command_line.emplace_back(text->str());
+            std::string source_key = normalize_compdb_lookup_path(input_file->str());
+            if (!expected_sources.contains(source_key)) {
+                const auto expected = std::ranges::find_if(expected_source_working_directories, [&](const auto &entry) {
+                    return normalize_compdb_lookup_path(input_file->str(), entry.second) == entry.first;
+                });
+                if (expected != expected_source_working_directories.end()) {
+                    source_key = expected->first;
                 }
             }
-            if (!scan_command_line.empty() && info.command_line.empty()) {
-                info.command_line = std::move(scan_command_line);
-            } else if (scan_command_line.empty() || info.command_line != scan_command_line) {
-                info.ambiguous_command = true;
+            if (!expected_sources.contains(source_key)) {
+                error_message = fmt::format("clang-scan-deps reported an unexpected command for '{}'", input_file->str());
+                return std::nullopt;
             }
-            if (const auto named_module = command->getString("named-module"); named_module.has_value() && !named_module->empty()) {
+            if (results.contains(source_key)) {
+                error_message = fmt::format("clang-scan-deps reported more than one command for '{}'", input_file->str());
+                return std::nullopt;
+            }
+
+            ScanDepsSourceInfo                   info;
+            clang::tooling::CommandLineArguments scan_command_line;
+            const auto                          *command_line = command->getArray("command-line");
+            if (command_line == nullptr || command_line->empty()) {
+                error_message = fmt::format("clang-scan-deps command for '{}' omitted a non-empty 'command-line' array", input_file->str());
+                return std::nullopt;
+            }
+            scan_command_line.reserve(command_line->size());
+            for (const auto &argument : *command_line) {
+                const auto text = argument.getAsString();
+                if (!text.has_value() || text->empty()) {
+                    error_message =
+                        fmt::format("clang-scan-deps command for '{}' contained a non-string or empty argument", input_file->str());
+                    return std::nullopt;
+                }
+                scan_command_line.emplace_back(text->str());
+            }
+            info.command_line = std::move(scan_command_line);
+
+            if (const auto *named_module_value = command->get("named-module"); named_module_value != nullptr) {
+                const auto named_module = named_module_value->getAsString();
+                if (!named_module.has_value() || named_module->empty()) {
+                    error_message = fmt::format("clang-scan-deps command for '{}' contained an invalid 'named-module'", input_file->str());
+                    return std::nullopt;
+                }
                 info.provided_module_name = named_module->str();
             }
 
-            auto named_module_deps = collect_scan_deps_string_array(*command, "named-module-deps");
-            info.named_module_deps.insert(info.named_module_deps.end(), std::make_move_iterator(named_module_deps.begin()),
-                                          std::make_move_iterator(named_module_deps.end()));
+            if (!collect_scan_deps_string_array(*command, "named-module-deps", false, info.named_module_deps, error_message) ||
+                !collect_scan_deps_string_array(*command, "file-deps", true, info.file_dependencies, error_message)) {
+                error_message = fmt::format("{} (input '{}')", error_message, input_file->str());
+                return std::nullopt;
+            }
+            if (info.file_dependencies.empty()) {
+                error_message = fmt::format("clang-scan-deps command for '{}' reported an empty file-deps closure", input_file->str());
+                return std::nullopt;
+            }
 
-            auto module_file_args = collect_module_file_args_from_scan_deps_command(*command);
-            info.module_file_args.insert(info.module_file_args.end(), std::make_move_iterator(module_file_args.begin()),
-                                         std::make_move_iterator(module_file_args.end()));
-            auto file_dependencies = collect_scan_deps_string_array(*command, "file-deps");
-            info.file_dependencies.insert(info.file_dependencies.end(), std::make_move_iterator(file_dependencies.begin()),
-                                          std::make_move_iterator(file_dependencies.end()));
-
+            info.module_file_args = normalize_module_file_args(collect_module_file_args_from_scan_deps_command(*command));
             std::ranges::sort(info.named_module_deps);
-            const auto dep_tail = std::ranges::unique(info.named_module_deps);
-            info.named_module_deps.erase(dep_tail.begin(), dep_tail.end());
-            info.module_file_args = normalize_module_file_args(std::move(info.module_file_args));
+            info.named_module_deps.erase(std::ranges::unique(info.named_module_deps).begin(), info.named_module_deps.end());
             std::ranges::sort(info.file_dependencies);
-            const auto file_tail = std::ranges::unique(info.file_dependencies);
-            info.file_dependencies.erase(file_tail.begin(), file_tail.end());
+            info.file_dependencies.erase(std::ranges::unique(info.file_dependencies).begin(), info.file_dependencies.end());
+            results.emplace(source_key, std::move(info));
+        }
+    }
+
+    if (results.size() != expected_sources.size()) {
+        error_message =
+            fmt::format("clang-scan-deps reported {} command(s) for {} requested source(s)", results.size(), expected_sources.size());
+        return std::nullopt;
+    }
+    for (const auto &expected : expected_sources) {
+        if (!results.contains(expected)) {
+            error_message = fmt::format("clang-scan-deps omitted the requested source '{}'", expected);
+            return std::nullopt;
         }
     }
 
     for (auto &[source, info] : results) {
-        // The command list can contain multiple records for one input. Build
-        // the cache artifact only after their aggregate closure is canonical.
-        std::ranges::sort(info.named_module_deps);
-        info.named_module_deps.erase(std::ranges::unique(info.named_module_deps).begin(), info.named_module_deps.end());
-        info.module_file_args = normalize_module_file_args(std::move(info.module_file_args));
-        std::ranges::sort(info.file_dependencies);
-        info.file_dependencies.erase(std::ranges::unique(info.file_dependencies).begin(), info.file_dependencies.end());
         // The file closure and module PCM mappings are separately keyed from
         // their current logical paths/content and transitive cache keys. Do
         // not duplicate their raw build-local spellings here or a relocated
         // build tree could never reuse an otherwise valid artifact.
         std::string artifact = info.provided_module_name;
         artifact.push_back('\0');
-        artifact += info.ambiguous_command ? "ambiguous" : "complete";
+        artifact += "validated";
         artifact.push_back('\0');
         for (const auto &value : info.named_module_deps) {
             artifact += value;
@@ -3458,7 +3516,7 @@ run_clang_scan_deps(std::span<const ScanDepsPreparedCommand> prepared_commands, 
         info.artifact = std::move(artifact);
     }
 
-    return results;
+    return ValidatedScanDepsOutput{.sources = std::move(results)};
 }
 
 std::string normalize_compdb_lookup_path(std::string_view path, std::string_view directory) {
@@ -5934,7 +5992,20 @@ int main(int argc, const char **argv) {
         clang::tooling::CommandLineArguments scan_deps_command;
         std::filesystem::path                pcm_path;
         std::string                          pcm_cache_key;
+        bool                                 authoritative_scan_plan = false;
     };
+
+    struct ValidatedScanPlan {
+        std::vector<NamedModuleSourceInfo>                        named_module_sources;
+        std::unordered_map<std::string, std::size_t>              named_module_index_by_name;
+        std::unordered_set<std::string>                           known_named_modules;
+        std::vector<std::vector<std::string>>                     imports_by_source;
+        std::unordered_map<std::string, std::vector<std::string>> module_args_by_source;
+    };
+    struct LocalFallbackPlan {
+        std::string reason;
+    };
+    using ModuleDiscoveryPlan = std::variant<ValidatedScanPlan, LocalFallbackPlan>;
 
     std::vector<NamedModuleSourceInfo>                        named_module_sources;
     std::unordered_map<std::string, std::size_t>              named_module_index_by_name;
@@ -5961,9 +6032,9 @@ int main(int argc, const char **argv) {
         return true;
     };
 
-    const auto  scan_deps_started = TimingRecorder::Clock::now();
-    bool        used_scan_deps    = false;
-    std::string scan_deps_error;
+    const auto          scan_deps_started = TimingRecorder::Clock::now();
+    std::string         scan_deps_error;
+    ModuleDiscoveryPlan module_discovery_plan = LocalFallbackPlan{};
     if (options.module_dependency_scan_mode != ModuleDependencyScanMode::Off) {
         std::vector<ScanDepsPreparedCommand> prepared_scan_deps_commands;
         prepared_scan_deps_commands.reserve(options.sources.size());
@@ -6021,41 +6092,45 @@ int main(int argc, const char **argv) {
 
                 bool scan_deps_complete = true;
                 for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
-                    const std::string source_key = normalize_compdb_lookup_path(options.sources[idx]);
-                    const auto        info_it    = scan_deps_results->find(source_key);
-                    if (info_it == scan_deps_results->end()) {
+                    const std::string source_key =
+                        normalize_compdb_lookup_path(options.sources[idx], prepared_scan_deps_commands[idx].working_directory);
+                    const auto info_it = scan_deps_results->sources.find(source_key);
+                    if (info_it == scan_deps_results->sources.end()) {
                         scan_deps_error    = fmt::format("clang-scan-deps did not report dependency data for '{}'", options.sources[idx]);
                         scan_deps_complete = false;
                         break;
                     }
 
-                    const auto &info                 = info_it->second;
-                    std::string provided_module_name = info.provided_module_name;
-                    if (provided_module_name.empty()) {
-                        if (const auto source_scan_module_name = named_module_name_from_source_file(
-                                std::filesystem::path{options.sources[idx]}, scan_include_search_paths[idx],
-                                std::span<const std::string>(scan_command_lines[idx].data(), scan_command_lines[idx].size()));
-                            source_scan_module_name.has_value()) {
-                            provided_module_name = *source_scan_module_name;
-                        }
+                    const auto &info                    = info_it->second;
+                    const auto  source_scan_module_name = named_module_name_from_source_file(
+                        std::filesystem::path{options.sources[idx]}, scan_include_search_paths[idx],
+                        std::span<const std::string>(scan_command_lines[idx].data(), scan_command_lines[idx].size()));
+                    if (source_scan_module_name.value_or(std::string{}) != info.provided_module_name) {
+                        scan_deps_error =
+                            fmt::format("clang-scan-deps module identity for '{}' was missing or conflicted with the source declaration",
+                                        options.sources[idx]);
+                        scan_deps_complete = false;
+                        break;
                     }
 
-                    if (!provided_module_name.empty()) {
+                    if (!info.provided_module_name.empty()) {
                         if (!register_named_module_source(scan_deps_named_module_sources, scan_deps_named_module_index_by_name,
                                                           scan_deps_known_named_modules, idx, std::filesystem::path{options.sources[idx]},
-                                                          provided_module_name)) {
+                                                          info.provided_module_name)) {
                             return 1;
                         }
-                        scan_deps_module_names[idx] = std::move(provided_module_name);
+                        scan_deps_named_module_sources.back().authoritative_scan_plan = true;
+                        scan_deps_module_names[idx]                                   = info.provided_module_name;
                     }
                     scan_deps_module_args_by_source.emplace(source_key, info.module_file_args);
                 }
 
                 if (scan_deps_complete) {
                     for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
-                        const std::string source_key = normalize_compdb_lookup_path(options.sources[idx]);
-                        const auto        info_it    = scan_deps_results->find(source_key);
-                        if (info_it == scan_deps_results->end()) {
+                        const std::string source_key =
+                            normalize_compdb_lookup_path(options.sources[idx], prepared_scan_deps_commands[idx].working_directory);
+                        const auto info_it = scan_deps_results->sources.find(source_key);
+                        if (info_it == scan_deps_results->sources.end()) {
                             scan_deps_error = fmt::format("clang-scan-deps did not report dependency data for '{}'", options.sources[idx]);
                             scan_deps_complete = false;
                             break;
@@ -6073,11 +6148,14 @@ int main(int argc, const char **argv) {
                             source_scan_imports.insert(source_scan_imports.end(), wrapped_imports.begin(), wrapped_imports.end());
                         }
 
-                        imports.insert(imports.end(), source_scan_imports.begin(), source_scan_imports.end());
-
-                        std::ranges::sort(imports);
-                        const auto import_tail = std::ranges::unique(imports);
-                        imports.erase(import_tail.begin(), import_tail.end());
+                        const bool scanner_omitted_visible_import = std::ranges::any_of(
+                            source_scan_imports, [&](const std::string &name) { return !std::ranges::binary_search(imports, name); });
+                        if (scanner_omitted_visible_import) {
+                            scan_deps_error =
+                                fmt::format("clang-scan-deps omitted a named-module import visible in '{}'", options.sources[idx]);
+                            scan_deps_complete = false;
+                            break;
+                        }
                         scan_deps_imports[idx] = std::move(imports);
                         const auto module_it =
                             std::ranges::find_if(scan_deps_named_module_sources,
@@ -6085,35 +6163,47 @@ int main(int argc, const char **argv) {
                         if (module_it != scan_deps_named_module_sources.end()) {
                             module_it->file_dependencies  = info_it->second.file_dependencies;
                             module_it->scan_deps_artifact = info_it->second.artifact;
-                            if (!info_it->second.ambiguous_command) {
-                                module_it->scan_deps_command = info_it->second.command_line;
-                            }
+                            module_it->scan_deps_command  = info_it->second.command_line;
                         }
                     }
                 }
 
                 if (scan_deps_complete) {
-                    named_module_sources                     = std::move(scan_deps_named_module_sources);
-                    named_module_index_by_name               = std::move(scan_deps_named_module_index_by_name);
-                    known_named_modules                      = std::move(scan_deps_known_named_modules);
-                    imported_named_modules_by_source         = std::move(scan_deps_imports);
-                    resolved_scan_deps_module_args_by_source = std::move(scan_deps_module_args_by_source);
-                    used_scan_deps                           = true;
-                    if (should_log_scan_deps_decisions()) {
-                        gentest::codegen::log_err("gentest_codegen: info: using clang-scan-deps for named-module dependency discovery\n");
-                    }
+                    module_discovery_plan = ValidatedScanPlan{
+                        .named_module_sources       = std::move(scan_deps_named_module_sources),
+                        .named_module_index_by_name = std::move(scan_deps_named_module_index_by_name),
+                        .known_named_modules        = std::move(scan_deps_known_named_modules),
+                        .imports_by_source          = std::move(scan_deps_imports),
+                        .module_args_by_source      = std::move(scan_deps_module_args_by_source),
+                    };
                 }
             }
         }
 
-        if (!used_scan_deps && options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
-            gentest::codegen::log_err("gentest_codegen: failed to resolve named-module dependencies via clang-scan-deps (mode=ON): {}\n",
-                                      scan_deps_error.empty() ? std::string{"unknown error"} : scan_deps_error);
-            return 1;
+        if (auto *fallback = std::get_if<LocalFallbackPlan>(&module_discovery_plan); fallback != nullptr) {
+            fallback->reason = scan_deps_error;
+            if (options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: failed to resolve named-module dependencies via clang-scan-deps (mode=ON): {}\n",
+                    fallback->reason.empty() ? std::string{"unknown error"} : fallback->reason);
+                return 1;
+            }
+            if (should_log_scan_deps_decisions()) {
+                gentest::codegen::log_err("gentest_codegen: info: falling back to source-scan named-module discovery{}\n",
+                                          fallback->reason.empty() ? std::string{} : fmt::format(" ({})", fallback->reason));
+            }
         }
-        if (!used_scan_deps && options.module_dependency_scan_mode != ModuleDependencyScanMode::Off && should_log_scan_deps_decisions()) {
-            gentest::codegen::log_err("gentest_codegen: info: falling back to source-scan named-module discovery{}\n",
-                                      scan_deps_error.empty() ? std::string{} : fmt::format(" ({})", scan_deps_error));
+    }
+
+    const bool used_scan_deps = std::holds_alternative<ValidatedScanPlan>(module_discovery_plan);
+    if (auto *validated = std::get_if<ValidatedScanPlan>(&module_discovery_plan); validated != nullptr) {
+        named_module_sources                     = std::move(validated->named_module_sources);
+        named_module_index_by_name               = std::move(validated->named_module_index_by_name);
+        known_named_modules                      = std::move(validated->known_named_modules);
+        imported_named_modules_by_source         = std::move(validated->imports_by_source);
+        resolved_scan_deps_module_args_by_source = std::move(validated->module_args_by_source);
+        if (should_log_scan_deps_decisions()) {
+            gentest::codegen::log_err("gentest_codegen: info: using validated clang-scan-deps named-module dependency plan\n");
         }
     }
 
@@ -6380,6 +6470,7 @@ int main(int argc, const char **argv) {
             ModuleResolutionContext              resolution_context;
             std::filesystem::path                pcm_path;
             std::string                          pcm_cache_key;
+            bool                                 authoritative_scan_plan = false;
         };
         using ExternalModuleCacheKey = std::pair<std::string, std::string>;
         std::map<ExternalModuleCacheKey, ExternalNamedModuleSourceInfo> external_named_module_sources;
@@ -6394,6 +6485,7 @@ int main(int argc, const char **argv) {
         std::map<ExternalModuleCacheKey, ModuleBuildState> external_module_build_states;
         bool                                               external_scan_deps_hard_failure = false;
         std::unordered_map<std::string, std::string>       pcm_cache_keys_by_local_path;
+        std::unordered_set<std::string>                    pcm_cache_ineligible_local_paths;
         std::unordered_map<std::string, std::string>       executable_hashes;
         std::unordered_map<std::string, std::string>       executable_versions;
 
@@ -6420,141 +6512,144 @@ int main(int argc, const char **argv) {
             bool                                             timing_collision = false;
         };
 
-        auto try_pcm_artifact_cache = [&](std::string_view module_name, const std::filesystem::path &source_path,
-                                          std::span<const std::string> file_dependencies, std::string_view scan_deps_artifact,
-                                          const clang::tooling::CommandLineArguments &scan_deps_command,
-                                          const clang::tooling::CommandLineArguments &precompile_command,
-                                          std::string_view working_directory, const std::filesystem::path &destination) {
-            PcmCacheAttempt attempt;
-            if (pcm_artifact_cache == nullptr) {
-                return attempt;
-            }
-            attempt.state     = "bypass";
-            const auto bypass = [&](std::string_view reason) {
-                if (should_log_scan_deps_decisions()) {
-                    gentest::codegen::log_err("gentest_codegen: info: PCM cache bypassed for '{}': {}\n", module_name, reason);
+        auto try_pcm_artifact_cache =
+            [&](std::string_view module_name, const std::filesystem::path &source_path, std::span<const std::string> file_dependencies,
+                std::string_view scan_deps_artifact, const clang::tooling::CommandLineArguments &scan_deps_command,
+                const clang::tooling::CommandLineArguments &precompile_command, std::string_view working_directory,
+                const std::filesystem::path &destination, bool authoritative_scan_plan) {
+                PcmCacheAttempt attempt;
+                if (pcm_artifact_cache == nullptr) {
+                    return attempt;
                 }
-                return attempt;
-            };
-            if (!used_scan_deps) {
-                return bypass("clang-scan-deps did not provide the dependency plan");
-            }
-            if (file_dependencies.empty()) {
-                return bypass("clang-scan-deps did not provide a complete file-deps closure");
-            }
-            if (scan_deps_artifact.empty() || scan_deps_command.empty()) {
-                return bypass("clang-scan-deps did not provide an unambiguous module command");
-            }
-            if (precompile_command.empty()) {
-                return bypass("the module precompile command is empty");
-            }
-            if (contains_prebuilt_module_path_arg(precompile_command) || contains_prebuilt_module_path_arg(scan_deps_command)) {
-                if (should_log_scan_deps_decisions()) {
-                    gentest::codegen::log_err(
-                        "gentest_codegen: info: prebuilt module search paths are not safe to enumerate for the PCM cache\n");
-                    for (const auto &arg : scan_deps_command) {
-                        if (arg == "-fprebuilt-module-path" || llvm::StringRef{arg}.starts_with("-fprebuilt-module-path=")) {
-                            gentest::codegen::log_err("  scan-deps: {}\n", arg);
+                attempt.state     = "bypass";
+                const auto bypass = [&](std::string_view reason) {
+                    if (should_log_scan_deps_decisions()) {
+                        gentest::codegen::log_err("gentest_codegen: info: PCM cache bypassed for '{}': {}\n", module_name, reason);
+                    }
+                    return attempt;
+                };
+                if (!authoritative_scan_plan) {
+                    return bypass("clang-scan-deps did not provide the dependency plan");
+                }
+                if (file_dependencies.empty()) {
+                    return bypass("clang-scan-deps did not provide a complete file-deps closure");
+                }
+                if (scan_deps_artifact.empty() || scan_deps_command.empty()) {
+                    return bypass("clang-scan-deps did not provide an unambiguous module command");
+                }
+                if (precompile_command.empty()) {
+                    return bypass("the module precompile command is empty");
+                }
+                if (contains_prebuilt_module_path_arg(precompile_command) || contains_prebuilt_module_path_arg(scan_deps_command)) {
+                    if (should_log_scan_deps_decisions()) {
+                        gentest::codegen::log_err(
+                            "gentest_codegen: info: prebuilt module search paths are not safe to enumerate for the PCM cache\n");
+                        for (const auto &arg : scan_deps_command) {
+                            if (arg == "-fprebuilt-module-path" || llvm::StringRef{arg}.starts_with("-fprebuilt-module-path=")) {
+                                gentest::codegen::log_err("  scan-deps: {}\n", arg);
+                            }
                         }
                     }
+                    return bypass("a prebuilt module search path is active");
                 }
-                return bypass("a prebuilt module search path is active");
-            }
-            if (const auto unsupported = gentest::codegen::pcm_cache_unsupported_semantic_input(precompile_command);
-                unsupported.has_value()) {
-                return bypass(*unsupported);
-            }
-            if (const auto unsupported = gentest::codegen::pcm_cache_unsupported_semantic_input(scan_deps_command);
-                unsupported.has_value()) {
-                return bypass(*unsupported);
-            }
-            const std::string source_key = normalize_compdb_lookup_path(source_path.string(), working_directory);
-            if (source_key.empty() || !std::ranges::any_of(file_dependencies, [&](const std::string &dependency) {
-                    return normalize_compdb_lookup_path(dependency, working_directory) == source_key;
-                })) {
-                return bypass("the current file-deps closure does not contain the module source");
-            }
-            const std::string compiler = resolve_program_invocation_path(precompile_command.front());
-            if (compiler.empty() || !is_clang_like_compiler(compiler)) {
-                return bypass("the module compiler could not be resolved as Clang");
-            }
-            const std::string &compiler_hash     = cached_executable_hash(compiler);
-            const std::string &compiler_version  = cached_executable_version(compiler);
-            const auto         resource_dir      = find_option_value(precompile_command, "-resource-dir", "-resource-dir=");
-            const auto         sysroot           = find_option_value(precompile_command, "-isysroot", "-isysroot");
-            const auto         joined_sysroot    = find_option_value(precompile_command, "--sysroot", "--sysroot=");
-            const std::string  effective_sysroot = sysroot.has_value() ? *sysroot : joined_sysroot.value_or(std::string{});
-            const std::string  scan_deps         = resolve_clang_scan_deps_executable(
-                options.clang_scan_deps_executable ? options.clang_scan_deps_executable->string() : std::string{}, compiler);
-            const std::string scan_deps_hash    = scan_deps.empty() ? std::string{} : cached_executable_hash(scan_deps);
-            const std::string scan_deps_version = scan_deps.empty() ? std::string{} : cached_executable_version(scan_deps);
-            if (pcm_codegen_identity.empty() || compiler_hash.empty() || compiler_version.empty() || !resource_dir.has_value() ||
-                resource_dir->empty() || scan_deps_hash.empty() || scan_deps_version.empty()) {
-                return bypass("a bounded compiler, resource-dir, or clang-scan-deps identity is unavailable");
-            }
-            std::vector<std::string> transitive_keys;
-            std::vector<std::string> external_pcm_dependencies;
-            for (const auto &arg : precompile_command) {
-                if (!llvm::StringRef{arg}.starts_with("-fmodule-file=")) {
-                    continue;
+                if (const auto unsupported = gentest::codegen::pcm_cache_unsupported_semantic_input(precompile_command);
+                    unsupported.has_value()) {
+                    return bypass(*unsupported);
                 }
-                const std::size_t name_end = arg.find('=', std::string_view{"-fmodule-file="}.size());
-                if (name_end == std::string::npos || name_end + 1 >= arg.size()) {
-                    return bypass("an imported module mapping is malformed");
+                if (const auto unsupported = gentest::codegen::pcm_cache_unsupported_semantic_input(scan_deps_command);
+                    unsupported.has_value()) {
+                    return bypass(*unsupported);
                 }
-                const std::string local_path = normalize_compdb_lookup_path(arg.substr(name_end + 1), working_directory);
-                const auto        cache_key  = pcm_cache_keys_by_local_path.find(local_path);
-                if (cache_key != pcm_cache_keys_by_local_path.end() && !cache_key->second.empty()) {
-                    transitive_keys.push_back(cache_key->second);
-                    continue;
+                const std::string source_key = normalize_compdb_lookup_path(source_path.string(), working_directory);
+                if (source_key.empty() || !std::ranges::any_of(file_dependencies, [&](const std::string &dependency) {
+                        return normalize_compdb_lookup_path(dependency, working_directory) == source_key;
+                    })) {
+                    return bypass("the current file-deps closure does not contain the module source");
                 }
-                // Imported public/package modules may be materialized by this
-                // invocation but intentionally have no validated cache key.
-                // Keep their paths typed so every prepare/load/store pass
-                // re-fingerprints the current PCM bytes and physical identity.
-                external_pcm_dependencies.push_back(local_path);
-            }
-            attempt.context.emplace(gentest::codegen::PcmCacheContext{
-                .module_name               = std::string(module_name),
-                .source                    = source_path.string(),
-                .normalized_command        = normalize_module_precompile_command_for_cache(precompile_command, working_directory),
-                .working_directory         = std::string(working_directory),
-                .include_roots             = module_cache_include_roots(scan_deps_command),
-                .file_dependencies         = std::vector<std::string>(file_dependencies.begin(), file_dependencies.end()),
-                .external_pcm_dependencies = std::move(external_pcm_dependencies),
-                .transitive_module_keys    = std::move(transitive_keys),
-                .compiler_identity         = compiler_hash,
-                .compiler_version          = compiler_version,
-                .resource_dir              = *resource_dir,
-                .sysroot                   = effective_sysroot,
-                .scan_deps_identity        = fmt::format("path={};sha256={};version={}", scan_deps, scan_deps_hash, scan_deps_version),
-                .scan_deps_artifact        = fmt::format("{};cc1={}", scan_deps_artifact,
-                                                         normalize_module_precompile_command_for_cache(scan_deps_command, working_directory)),
-                .options                   = fmt::format("{};scan_deps_mode={};module_language=named", pcm_codegen_identity,
-                                                         static_cast<int>(options.module_dependency_scan_mode)),
-                .salt                      = options.pcm_cache_salt,
-            });
-            const auto key = pcm_artifact_cache->prepare(*attempt.context);
-            if (!key.has_value()) {
-                attempt.context.reset();
-                return bypass("a source or dependency fingerprint could not be validated");
-            }
-            attempt.key                       = *key;
-            const std::filesystem::path entry = *options.pcm_cache_dir / attempt.key;
-            std::string                 timing_collision_error;
-            if (!gentest::codegen::validate_timing_json_dependency_collision(
-                    options, {},
-                    {{.path = entry / "module.pcm", .description = "validated PCM cache artifact"},
-                     {.path = entry / "entry.json", .description = "validated PCM cache metadata"}},
-                    timing_collision_error)) {
-                gentest::codegen::log_err("gentest_codegen: {}\n", timing_collision_error);
-                attempt.timing_collision = true;
+                const std::string compiler = resolve_program_invocation_path(precompile_command.front());
+                if (compiler.empty() || !is_clang_like_compiler(compiler)) {
+                    return bypass("the module compiler could not be resolved as Clang");
+                }
+                const std::string &compiler_hash     = cached_executable_hash(compiler);
+                const std::string &compiler_version  = cached_executable_version(compiler);
+                const auto         resource_dir      = find_option_value(precompile_command, "-resource-dir", "-resource-dir=");
+                const auto         sysroot           = find_option_value(precompile_command, "-isysroot", "-isysroot");
+                const auto         joined_sysroot    = find_option_value(precompile_command, "--sysroot", "--sysroot=");
+                const std::string  effective_sysroot = sysroot.has_value() ? *sysroot : joined_sysroot.value_or(std::string{});
+                const std::string  scan_deps         = resolve_clang_scan_deps_executable(
+                    options.clang_scan_deps_executable ? options.clang_scan_deps_executable->string() : std::string{}, compiler);
+                const std::string scan_deps_hash    = scan_deps.empty() ? std::string{} : cached_executable_hash(scan_deps);
+                const std::string scan_deps_version = scan_deps.empty() ? std::string{} : cached_executable_version(scan_deps);
+                if (pcm_codegen_identity.empty() || compiler_hash.empty() || compiler_version.empty() || !resource_dir.has_value() ||
+                    resource_dir->empty() || scan_deps_hash.empty() || scan_deps_version.empty()) {
+                    return bypass("a bounded compiler, resource-dir, or clang-scan-deps identity is unavailable");
+                }
+                std::vector<std::string> transitive_keys;
+                std::vector<std::string> external_pcm_dependencies;
+                for (const auto &arg : precompile_command) {
+                    if (!llvm::StringRef{arg}.starts_with("-fmodule-file=")) {
+                        continue;
+                    }
+                    const std::size_t name_end = arg.find('=', std::string_view{"-fmodule-file="}.size());
+                    if (name_end == std::string::npos || name_end + 1 >= arg.size()) {
+                        return bypass("an imported module mapping is malformed");
+                    }
+                    const std::string local_path = normalize_compdb_lookup_path(arg.substr(name_end + 1), working_directory);
+                    if (pcm_cache_ineligible_local_paths.contains(local_path)) {
+                        return bypass("an imported module does not have a validated transitive scan plan");
+                    }
+                    const auto cache_key = pcm_cache_keys_by_local_path.find(local_path);
+                    if (cache_key != pcm_cache_keys_by_local_path.end() && !cache_key->second.empty()) {
+                        transitive_keys.push_back(cache_key->second);
+                        continue;
+                    }
+                    // Imported public/package modules may be materialized by this
+                    // invocation but intentionally have no validated cache key.
+                    // Keep their paths typed so every prepare/load/store pass
+                    // re-fingerprints the current PCM bytes and physical identity.
+                    external_pcm_dependencies.push_back(local_path);
+                }
+                attempt.context.emplace(gentest::codegen::PcmCacheContext{
+                    .module_name               = std::string(module_name),
+                    .source                    = source_path.string(),
+                    .normalized_command        = normalize_module_precompile_command_for_cache(precompile_command, working_directory),
+                    .working_directory         = std::string(working_directory),
+                    .include_roots             = module_cache_include_roots(scan_deps_command),
+                    .file_dependencies         = std::vector<std::string>(file_dependencies.begin(), file_dependencies.end()),
+                    .external_pcm_dependencies = std::move(external_pcm_dependencies),
+                    .transitive_module_keys    = std::move(transitive_keys),
+                    .compiler_identity         = compiler_hash,
+                    .compiler_version          = compiler_version,
+                    .resource_dir              = *resource_dir,
+                    .sysroot                   = effective_sysroot,
+                    .scan_deps_identity        = fmt::format("path={};sha256={};version={}", scan_deps, scan_deps_hash, scan_deps_version),
+                    .scan_deps_artifact = fmt::format("{};cc1={}", scan_deps_artifact,
+                                                      normalize_module_precompile_command_for_cache(scan_deps_command, working_directory)),
+                    .options            = fmt::format("{};scan_deps_mode={};module_language=named", pcm_codegen_identity,
+                                                      static_cast<int>(options.module_dependency_scan_mode)),
+                    .salt               = options.pcm_cache_salt,
+                });
+                const auto key = pcm_artifact_cache->prepare(*attempt.context);
+                if (!key.has_value()) {
+                    attempt.context.reset();
+                    return bypass("a source or dependency fingerprint could not be validated");
+                }
+                attempt.key                       = *key;
+                const std::filesystem::path entry = *options.pcm_cache_dir / attempt.key;
+                std::string                 timing_collision_error;
+                if (!gentest::codegen::validate_timing_json_dependency_collision(
+                        options, {},
+                        {{.path = entry / "module.pcm", .description = "validated PCM cache artifact"},
+                         {.path = entry / "entry.json", .description = "validated PCM cache metadata"}},
+                        timing_collision_error)) {
+                    gentest::codegen::log_err("gentest_codegen: {}\n", timing_collision_error);
+                    attempt.timing_collision = true;
+                    return attempt;
+                }
+                attempt.hit   = pcm_artifact_cache->load_prepared(attempt.key, destination);
+                attempt.state = attempt.hit ? "hit" : "miss";
                 return attempt;
-            }
-            attempt.hit   = pcm_artifact_cache->load_prepared(attempt.key, destination);
-            attempt.state = attempt.hit ? "hit" : "miss";
-            return attempt;
-        };
+            };
 
         struct PcmSemanticProbeInput {
             std::string_view      module_name;
@@ -6713,15 +6808,31 @@ int main(int argc, const char **argv) {
                         timing.record("scan-deps", external_scan_deps_started, std::nullopt, candidate.string(), {},
                                       std::string{module_name});
                         if (scan_deps_results.has_value()) {
-                            if (const auto scan_deps_it = scan_deps_results->find(normalize_compdb_lookup_path(candidate.string()));
-                                scan_deps_it != scan_deps_results->end()) {
-                                external_scan_deps_succeeded   = true;
-                                imported_modules               = scan_deps_it->second.named_module_deps;
-                                file_dependencies              = scan_deps_it->second.file_dependencies;
-                                external_scan_deps_module_args = scan_deps_it->second.module_file_args;
-                                external_scan_deps_artifact    = scan_deps_it->second.artifact;
-                                if (!scan_deps_it->second.ambiguous_command) {
-                                    external_scan_deps_command = scan_deps_it->second.command_line;
+                            const std::string external_source_key =
+                                normalize_compdb_lookup_path(candidate.string(), candidate_source_commands.front().Directory.empty()
+                                                                                     ? compdb_dir
+                                                                                     : candidate_source_commands.front().Directory);
+                            if (const auto scan_deps_it = scan_deps_results->sources.find(external_source_key);
+                                scan_deps_it != scan_deps_results->sources.end()) {
+                                const auto &scan_info = scan_deps_it->second;
+                                const bool  closure_contains_source =
+                                    std::ranges::any_of(scan_info.file_dependencies, [&](const std::string &dependency) {
+                                        return normalize_compdb_lookup_path(dependency, external_working_directory) == external_source_key;
+                                    });
+                                if (scan_info.provided_module_name == module_name && closure_contains_source) {
+                                    external_scan_deps_succeeded   = true;
+                                    imported_modules               = scan_info.named_module_deps;
+                                    file_dependencies              = scan_info.file_dependencies;
+                                    external_scan_deps_module_args = scan_info.module_file_args;
+                                    external_scan_deps_artifact    = scan_info.artifact;
+                                    external_scan_deps_command     = scan_info.command_line;
+                                } else if (options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
+                                    note_external_scan_deps_failure(
+                                        module_name, candidate,
+                                        scan_info.provided_module_name != module_name
+                                            ? "clang-scan-deps module identity was missing or conflicting"
+                                            : "clang-scan-deps file-deps closure omitted the external module source");
+                                    return nullptr;
                                 }
                             } else if (options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
                                 note_external_scan_deps_failure(module_name, candidate,
@@ -6743,6 +6854,11 @@ int main(int argc, const char **argv) {
                         note_external_scan_deps_failure(module_name, candidate, "clang-scan-deps did not provide module dependency data");
                         return nullptr;
                     }
+                    if (used_scan_deps && should_log_scan_deps_decisions()) {
+                        gentest::codegen::log_err("gentest_codegen: info: external module '{}' uses local source fallback; PCM cache "
+                                                  "authority is disabled for it\n",
+                                                  module_name);
+                    }
                 }
 
                 auto source_scanned_imports = parse_imported_named_modules_from_source(
@@ -6759,8 +6875,6 @@ int main(int argc, const char **argv) {
 
                 if (!external_scan_deps_succeeded) {
                     imported_modules = std::move(source_scanned_imports);
-                } else {
-                    imported_modules.insert(imported_modules.end(), source_scanned_imports.begin(), source_scanned_imports.end());
                 }
                 std::ranges::sort(imported_modules);
                 const auto import_tail = std::ranges::unique(imported_modules);
@@ -6785,6 +6899,7 @@ int main(int argc, const char **argv) {
                                        },
                                    .pcm_path = module_cache_dir / fmt::format("ext_{}_{}.pcm", stable_hash_hex(context.owner_key),
                                                                               stable_hash_hex(candidate.generic_string())),
+                                   .authoritative_scan_plan = external_scan_deps_succeeded,
                                });
                 return &it->second;
             };
@@ -6937,9 +7052,10 @@ int main(int argc, const char **argv) {
                 adjusted_command, module_source.source_path.string(),
                 source_commands.empty() ? compdb_dir : source_commands.front().Directory, module_source.pcm_path, true);
             const std::string working_directory = source_commands.empty() ? compdb_dir : source_commands.front().Directory;
-            auto              pcm_cache_attempt = try_pcm_artifact_cache(
-                module_source.module_name, module_source.source_path, module_source.file_dependencies, module_source.scan_deps_artifact,
-                module_source.scan_deps_command, precompile_command, working_directory, module_source.pcm_path);
+            auto              pcm_cache_attempt =
+                try_pcm_artifact_cache(module_source.module_name, module_source.source_path, module_source.file_dependencies,
+                                       module_source.scan_deps_artifact, module_source.scan_deps_command, precompile_command,
+                                       working_directory, module_source.pcm_path, module_source.authoritative_scan_plan);
             if (pcm_cache_attempt.timing_collision) {
                 state = ModuleBuildState::Failed;
                 return false;
@@ -6973,6 +7089,8 @@ int main(int argc, const char **argv) {
                 module_source.pcm_cache_key = pcm_cache_attempt.key;
                 pcm_cache_keys_by_local_path.emplace(normalize_compdb_lookup_path(module_source.pcm_path.string(), working_directory),
                                                      module_source.pcm_cache_key);
+            } else {
+                pcm_cache_ineligible_local_paths.insert(normalize_compdb_lookup_path(module_source.pcm_path.string(), working_directory));
             }
 
             state = ModuleBuildState::Built;
@@ -7044,17 +7162,18 @@ int main(int argc, const char **argv) {
                                             explicit_host_clang_path, module_source->resolution_context.forced_compiler_path);
             const auto precompile_command = build_module_precompile_command(adjusted_command, module_source->source_path.string(),
                                                                             external_working_directory, module_source->pcm_path, true);
-            auto       pcm_cache_attempt = try_pcm_artifact_cache(module_name, module_source->source_path, module_source->file_dependencies,
-                                                                  module_source->scan_deps_artifact, module_source->scan_deps_command,
-                                                                  precompile_command, external_working_directory, module_source->pcm_path);
+            auto       pcm_cache_attempt =
+                try_pcm_artifact_cache(module_name, module_source->source_path, module_source->file_dependencies,
+                                       module_source->scan_deps_artifact, module_source->scan_deps_command, precompile_command,
+                                       external_working_directory, module_source->pcm_path, module_source->authoritative_scan_plan);
             if (pcm_cache_attempt.timing_collision) {
                 state = ModuleBuildState::Failed;
                 return false;
             }
             const auto pcm_record_started = TimingRecorder::Clock::now();
             bool       precompiled        = pcm_cache_attempt.hit && cached_pcm_is_compiler_consumable(
-                                                            precompile_command, module_source->pcm_path,
-                                                            {.module_name = module_name, .working_directory = external_working_directory});
+                                                                         precompile_command, module_source->pcm_path,
+                                                                         {.module_name = module_name, .working_directory = external_working_directory});
             if (pcm_cache_attempt.hit && !precompiled) {
                 pcm_cache_attempt.state = "miss";
             }
@@ -7083,6 +7202,9 @@ int main(int argc, const char **argv) {
                 }
                 pcm_cache_keys_by_local_path.emplace(
                     normalize_compdb_lookup_path(module_source->pcm_path.string(), external_working_directory), pcm_cache_attempt.key);
+            } else {
+                pcm_cache_ineligible_local_paths.insert(
+                    normalize_compdb_lookup_path(module_source->pcm_path.string(), external_working_directory));
             }
 
             state = ModuleBuildState::Built;

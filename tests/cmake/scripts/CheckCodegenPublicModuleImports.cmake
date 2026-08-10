@@ -338,7 +338,7 @@ gentest_check_run_or_fail(
   OUTPUT_VARIABLE _on_codegen_output
   STRIP_TRAILING_WHITESPACE)
 
-string(FIND "${_on_codegen_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _on_scan_deps_pos)
+string(FIND "${_on_codegen_output}" "gentest_codegen: info: using validated clang-scan-deps named-module dependency plan" _on_scan_deps_pos)
 if(_on_scan_deps_pos EQUAL -1)
   message(FATAL_ERROR
     "Expected build-time gentest_codegen ON leg to report actual clang-scan-deps usage. Output:\n${_on_codegen_output}")
@@ -358,7 +358,7 @@ gentest_check_run_or_fail(
 set(ENV{GENTEST_CODEGEN_LOG_SCAN_DEPS} "${_old_log_scan_deps}")
 set(ENV{PATH} "${_old_path}")
 
-string(FIND "${_on_bare_codegen_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _on_bare_scan_deps_pos)
+string(FIND "${_on_bare_codegen_output}" "gentest_codegen: info: using validated clang-scan-deps named-module dependency plan" _on_bare_scan_deps_pos)
 if(_on_bare_scan_deps_pos EQUAL -1)
   message(FATAL_ERROR
     "Expected build-time gentest_codegen ON bare-name leg to report actual clang-scan-deps usage. Output:\n${_on_bare_codegen_output}")
@@ -413,7 +413,7 @@ gentest_check_run_or_fail(
   OUTPUT_VARIABLE _auto_codegen_output
   STRIP_TRAILING_WHITESPACE)
 
-string(FIND "${_auto_codegen_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _auto_scan_deps_pos)
+string(FIND "${_auto_codegen_output}" "gentest_codegen: info: using validated clang-scan-deps named-module dependency plan" _auto_scan_deps_pos)
 if(_auto_scan_deps_pos EQUAL -1)
   message(FATAL_ERROR
     "Expected build-time gentest_codegen AUTO leg to report actual clang-scan-deps usage. Output:\n${_auto_codegen_output}")

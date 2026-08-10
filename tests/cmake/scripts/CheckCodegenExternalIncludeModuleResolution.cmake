@@ -130,7 +130,7 @@ void resolves_public_module_import() {
   endif()
 
   if(expect_scan_deps)
-    string(FIND "${_output}" "using clang-scan-deps for named-module dependency discovery" _scan_deps_pos)
+    string(FIND "${_output}" "using validated clang-scan-deps named-module dependency plan" _scan_deps_pos)
     if(_scan_deps_pos EQUAL -1)
       message(FATAL_ERROR
         "Expected default scan-deps AUTO path to use clang-scan-deps for ${case_name}. Output:\n${_output}")

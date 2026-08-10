@@ -140,20 +140,24 @@ int main(int argc, char **argv) {
     const auto                         context = context_for(source, dependency, external_pcm);
     gentest::codegen::PcmArtifactCache cache(root / "cache");
     const auto                         key = cache.prepare(context);
-    if (!require(key.has_value(), "prepare cacheable closure")) {
+    if (!key.has_value()) {
+        require(false, "prepare cacheable closure");
         return 1;
     }
+    const std::string &cache_key = *key;
 
     auto empty_dependency_context = context;
     empty_dependency_context.file_dependencies.push_back(empty_header.string());
     empty_dependency_context.salt = "unit-empty-dependency";
     gentest::codegen::PcmArtifactCache empty_dependency_cache(root / "empty-dependency-cache");
     const auto                         empty_dependency_key = empty_dependency_cache.prepare(empty_dependency_context);
-    if (!require(empty_dependency_key.has_value(), "accept an empty regular header dependency")) {
+    if (!empty_dependency_key.has_value()) {
+        require(false, "accept an empty regular header dependency");
         return 1;
     }
-    empty_dependency_cache.store(empty_dependency_context, source_pcm, *empty_dependency_key);
-    if (!require(empty_dependency_cache.load_prepared(*empty_dependency_key, destination),
+    const std::string &empty_dependency_cache_key = *empty_dependency_key;
+    empty_dependency_cache.store(empty_dependency_context, source_pcm, empty_dependency_cache_key);
+    if (!require(empty_dependency_cache.load_prepared(empty_dependency_cache_key, destination),
                  "load a PCM keyed by an empty header dependency") ||
         !require(read_file(destination) == "validated-pcm-bytes", "materialize PCM with empty header dependency")) {
         return 1;
@@ -161,16 +165,21 @@ int main(int argc, char **argv) {
     fs::remove(destination, ec);
     if (!require(!ec, "remove PCM materialized for empty dependency") ||
         !require(write_file(empty_header, "#pragma once\n"), "make empty dependency nonempty") ||
-        !require(!empty_dependency_cache.load_prepared(*empty_dependency_key, destination),
+        !require(!empty_dependency_cache.load_prepared(empty_dependency_cache_key, destination),
                  "invalidate an empty dependency when content appears") ||
         !require(!fs::exists(destination), "leave destination absent after empty dependency mutation") ||
         !require(write_file(empty_header, ""), "restore empty dependency")) {
         return 1;
     }
-    cache.store(context, source_pcm, *key);
+    cache.store(context, source_pcm, cache_key);
     const auto prepared_again = cache.prepare(context);
-    if (!require(prepared_again == key, "prepare existing cache entry") ||
-        !require(cache.load_prepared(*prepared_again, destination), "load prepared entry before mutation") ||
+    if (!prepared_again.has_value()) {
+        require(false, "prepare existing cache entry");
+        return 1;
+    }
+    const std::string &prepared_cache_key = *prepared_again;
+    if (!require(prepared_cache_key == cache_key, "prepare existing cache entry") ||
+        !require(cache.load_prepared(prepared_cache_key, destination), "load prepared entry before mutation") ||
         !require(read_file(destination) == "validated-pcm-bytes", "materialize exact cached PCM bytes")) {
         return 1;
     }
@@ -185,8 +194,7 @@ int main(int argc, char **argv) {
     }
     const auto mtime_key = cache.prepare(context);
     if (!require(mtime_key.has_value() && mtime_key != key, "write-time-only change produces a distinct key") ||
-        !require(!cache.load_prepared(*prepared_again, destination), "write-time-only change rejects the prepared entry") ||
-        !require(!fs::exists(destination), "leave destination absent after write-time-only change") ||
+        !require(!cache.load_prepared(prepared_cache_key, destination), "write-time-only change rejects the prepared entry") ||
         !require(!fs::exists(destination), "leave destination absent after write-time-only change")) {
         return 1;
     }
@@ -194,7 +202,7 @@ int main(int argc, char **argv) {
     if (!require(!ec, "restore dependency write time") ||
         !require(cache.prepare(context) == key, "restored write time restores the original key") ||
         !require(write_file(dependency, "inline constexpr int value = 2;\n"), "mutate dependency after prepare") ||
-        !require(!cache.load_prepared(*prepared_again, destination), "re-fingerprint closure immediately before materialization") ||
+        !require(!cache.load_prepared(prepared_cache_key, destination), "re-fingerprint closure immediately before materialization") ||
         !require(!fs::exists(destination), "leave destination absent after stale prepared lookup")) {
         return 1;
     }
@@ -203,18 +211,20 @@ int main(int argc, char **argv) {
         return 1;
     }
     const auto source_race_key = cache.prepare(context);
-    if (!require(source_race_key.has_value(), "prepare closure before source mutation")) {
+    if (!source_race_key.has_value()) {
+        require(false, "prepare closure before source mutation");
         return 1;
     }
-    cache.store(context, source_pcm, *source_race_key);
-    if (!require(cache.load_prepared(*source_race_key, destination), "load current entry before source mutation") ||
+    const std::string &source_race_cache_key = *source_race_key;
+    cache.store(context, source_pcm, source_race_cache_key);
+    if (!require(cache.load_prepared(source_race_cache_key, destination), "load current entry before source mutation") ||
         !require(read_file(destination) == "validated-pcm-bytes", "materialize current PCM before source mutation")) {
         return 1;
     }
     fs::remove(destination, ec);
     if (!require(!ec, "remove PCM materialized before source mutation") ||
         !require(write_file(source, "export module gentest.test.changed;\n"), "mutate source after prepare") ||
-        !require(!cache.load_prepared(*source_race_key, destination), "re-fingerprint source immediately before materialization") ||
+        !require(!cache.load_prepared(source_race_cache_key, destination), "re-fingerprint source immediately before materialization") ||
         !require(!fs::exists(destination), "leave destination absent after stale source lookup")) {
         return 1;
     }
@@ -226,29 +236,36 @@ int main(int argc, char **argv) {
     external_store_context.salt = "unit-external-store-race";
     gentest::codegen::PcmArtifactCache external_store_cache(root / "external-store-race-cache");
     const auto                         external_store_key = external_store_cache.prepare(external_store_context);
-    if (!require(external_store_key.has_value(), "prepare closure before external PCM store race") ||
-        !require(write_file(external_pcm, "external-pcm-v2"), "mutate external PCM before store")) {
+    if (!external_store_key.has_value()) {
+        require(false, "prepare closure before external PCM store race");
         return 1;
     }
-    external_store_cache.store(external_store_context, source_pcm, *external_store_key);
-    if (!require(!fs::exists(root / "external-store-race-cache" / *external_store_key),
+    const std::string &external_store_cache_key = *external_store_key;
+    if (!require(write_file(external_pcm, "external-pcm-v2"), "mutate external PCM before store")) {
+        return 1;
+    }
+    external_store_cache.store(external_store_context, source_pcm, external_store_cache_key);
+    if (!require(!fs::exists(root / "external-store-race-cache" / external_store_cache_key),
                  "do not publish an entry after external PCM changes before store") ||
         !require(write_file(external_pcm, "external-pcm-v1"), "restore external PCM before load race")) {
         return 1;
     }
     const auto external_load_key = cache.prepare(context);
-    if (!require(external_load_key.has_value(), "prepare closure before external PCM mutation")) {
+    if (!external_load_key.has_value()) {
+        require(false, "prepare closure before external PCM mutation");
         return 1;
     }
-    cache.store(context, source_pcm, *external_load_key);
-    if (!require(cache.load_prepared(*external_load_key, destination), "load current entry before external PCM mutation") ||
+    const std::string &external_load_cache_key = *external_load_key;
+    cache.store(context, source_pcm, external_load_cache_key);
+    if (!require(cache.load_prepared(external_load_cache_key, destination), "load current entry before external PCM mutation") ||
         !require(read_file(destination) == "validated-pcm-bytes", "materialize current PCM before external PCM mutation")) {
         return 1;
     }
     fs::remove(destination, ec);
     if (!require(!ec, "remove PCM materialized before external PCM mutation") ||
         !require(write_file(external_pcm, "external-pcm-v2"), "mutate external PCM after prepare") ||
-        !require(!cache.load_prepared(*external_load_key, destination), "re-fingerprint external PCM immediately before materialization") ||
+        !require(!cache.load_prepared(external_load_cache_key, destination),
+                 "re-fingerprint external PCM immediately before materialization") ||
         !require(!fs::exists(destination), "leave destination absent after stale external PCM lookup")) {
         return 1;
     }
@@ -286,8 +303,13 @@ int main(int argc, char **argv) {
     }
     gentest::codegen::PcmArtifactCache concurrent_reader(root / "concurrent-cache");
     const auto                         concurrent_key = concurrent_reader.prepare(race_context);
+    if (!concurrent_key.has_value()) {
+        require(false, "prepare concurrently published entry");
+        return 1;
+    }
+    const std::string &concurrent_cache_key = *concurrent_key;
     if (!require(concurrent_key == writer_keys.front(), "prepare concurrently published entry") ||
-        !require(concurrent_reader.load_prepared(*concurrent_key, destination), "load concurrently published entry") ||
+        !require(concurrent_reader.load_prepared(concurrent_cache_key, destination), "load concurrently published entry") ||
         !require(read_file(destination) == "validated-pcm-bytes", "concurrent publication preserved exact PCM bytes")) {
         return 1;
     }
