@@ -215,9 +215,20 @@ file(APPEND "${_project_dir}/tests/consumer/cases.cpp"
   "[[using gentest: test(\"xmake/config_on\")]] void xmake_config_case() {}\n"
   "#else\n"
   "[[using gentest: test(\"xmake/config_off\")]] void xmake_config_case() {}\n"
+  "#endif\n"
+  "#if GENTEST_XMAKE_TARGET_CONFIG_VARIANT\n"
+  "[[using gentest: test(\"xmake/target_config_on\")]] void xmake_target_config_case() {}\n"
+  "#else\n"
+  "[[using gentest: test(\"xmake/target_config_off\")]] void xmake_target_config_case() {}\n"
+  "#endif\n"
+  "#if __has_include(<xmake_configured_root_probe.hpp>)\n"
+  "[[using gentest: test(\"xmake/configured_root_on\")]] void xmake_configured_root_case() {}\n"
   "#endif\n")
 set(_config_file "${_project_dir}/xmake_codegen.cfg")
 file(WRITE "${_config_file}" "-DGENTEST_XMAKE_CONFIG_VARIANT=0\n")
+set(_target_config_file "${_project_dir}/xmake_target_codegen.cfg")
+file(WRITE "${_target_config_file}" "-DGENTEST_XMAKE_TARGET_CONFIG_VARIANT=0\n")
+set(_configured_system_root "${_project_dir}/xmake_configured_system_root")
 file(READ "${_project_dir}/xmake.lua" _indirect_args_xmake)
 string(REPLACE
   [=[clang_args = {"-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1"},]=]
@@ -225,6 +236,16 @@ string(REPLACE
                 "-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1",
                 "--config=" .. path.join(os.projectdir(), "xmake_codegen.cfg"),
             },]=]
+  _indirect_args_xmake "${_indirect_args_xmake}")
+string(REPLACE
+  [=[target("gentest_consumer_textual_xmake")
+    set_kind("binary")
+    gentest_apply_windows_llvm_toolchain()]=]
+  [=[target("gentest_consumer_textual_xmake")
+    set_kind("binary")
+    gentest_apply_windows_llvm_toolchain()
+    add_cxxflags("--config=" .. path.join(os.projectdir(), "xmake_target_codegen.cfg"), {force = true})
+    add_cxxflags("-cxx-isystem", path.join(os.projectdir(), "xmake_configured_system_root"), {force = true})]=]
   _indirect_args_xmake "${_indirect_args_xmake}")
 file(WRITE "${_project_dir}/xmake.lua" "${_indirect_args_xmake}")
 
@@ -551,6 +572,43 @@ set(_config_build_log "${_config_build_out}\n${_config_build_err}")
 string(FIND "${_config_build_log}" "gentest-codegen-cache-miss" _config_codegen_pos)
 if(NOT _config_build_rc EQUAL 0 OR _config_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Changing a Clang config file did not invalidate Xmake codegen.\n${_config_build_log}")
+endif()
+
+# Indirect inputs can also arrive through ordinary target flags rather than
+# Gentest's explicit clang_args. Their referenced files must be static Xmake
+# snapshot dependencies.
+file(WRITE "${_target_config_file}" "-DGENTEST_XMAKE_TARGET_CONFIG_VARIANT=1\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _target_config_build_rc
+  OUTPUT_VARIABLE _target_config_build_out
+  ERROR_VARIABLE _target_config_build_err)
+set(_target_config_build_log "${_target_config_build_out}\n${_target_config_build_err}")
+string(FIND "${_target_config_build_log}" "gentest-codegen-cache-miss" _target_config_codegen_pos)
+if(NOT _target_config_build_rc EQUAL 0 OR _target_config_codegen_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Changing a target cxxflags config file did not invalidate Xmake codegen.\n${_target_config_build_log}")
+endif()
+
+# Missing roots configured through Clang's C++ system include flags are
+# tracked by existence only. Creating the root must invalidate the sidecar;
+# Xmake does not resolve any header candidates itself.
+file(MAKE_DIRECTORY "${_configured_system_root}")
+file(WRITE "${_configured_system_root}/xmake_configured_root_probe.hpp" "#pragma once\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _configured_root_build_rc
+  OUTPUT_VARIABLE _configured_root_build_out
+  ERROR_VARIABLE _configured_root_build_err)
+set(_configured_root_build_log "${_configured_root_build_out}\n${_configured_root_build_err}")
+string(FIND "${_configured_root_build_log}" "gentest-codegen-cache-miss" _configured_root_codegen_pos)
+if(NOT _configured_root_build_rc EQUAL 0 OR _configured_root_codegen_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Creating a configured C++ system include root did not invalidate Xmake codegen.\n${_configured_root_build_log}")
 endif()
 
 file(WRITE "${_project_dir}/tests/xmake_shadow.hpp" "#pragma once\n")
@@ -1238,7 +1296,10 @@ foreach(_expected IN ITEMS
       "stdout:\n${_list_out}")
   endif()
 endforeach()
-foreach(_expected_indirect_case IN ITEMS "xmake/config_on")
+foreach(_expected_indirect_case IN ITEMS
+    "xmake/config_on"
+    "xmake/target_config_on"
+    "xmake/configured_root_on")
   string(FIND "${_list_out}" "${_expected_indirect_case}" _expected_indirect_case_pos)
   if(_expected_indirect_case_pos EQUAL -1)
     message(FATAL_ERROR
