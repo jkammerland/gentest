@@ -1769,7 +1769,9 @@ class DependencyRecorder final : public clang::PPCallbacks {
             mark_uncacheable();
         }
 #if CLANG_VERSION_MAJOR < 22
-        if (cacheable_ != nullptr && *cacheable_) {
+        const bool parse_cache_needs_embed_scan  = cacheable_ != nullptr && *cacheable_;
+        const bool lookup_guards_need_embed_scan = lookup_guards_complete_ != nullptr && *lookup_guards_complete_;
+        if (parse_cache_needs_embed_scan || lookup_guards_need_embed_scan) {
             bool       invalid = false;
             const auto buffer  = source_manager_.getBufferData(current_file_id, &invalid);
             if (!invalid && source_buffer_mentions_embed(buffer)) {
@@ -1784,11 +1786,10 @@ class DependencyRecorder final : public clang::PPCallbacks {
                             llvm::StringRef relative_path, const clang::Module *suggested_module, bool,
                             clang::SrcMgr::CharacteristicKind) override {
         if (suggested_module != nullptr) {
-            // Module-backed inclusions are not eligible for textual parse
-            // caching. Their module artifacts are explicit build inputs,
-            // however, so they do not make the independent header lookup
-            // guard sidecar incomplete.
-            mark_uncacheable();
+            // The module artifact is explicit, but this callback cannot
+            // represent earlier textual candidates that could shadow the
+            // modular header. Do not authorize build-system snapshot reuse.
+            mark_lookup_guards_incomplete();
             return;
         }
         if (const auto *identifier = include_token.getIdentifierInfo(); identifier != nullptr && identifier->getName() == "include_next") {
@@ -6342,9 +6343,9 @@ int main(int argc, const char **argv) {
     const bool                        cache_tu_mode = allow_includes && textual_parse_cache != nullptr && textual_parse_cache->enabled();
     const bool        has_cacheable_textual_source  = cache_tu_mode && std::ranges::any_of(options.sources, [&](const std::string &source) {
                                                   return !module_interface_sources.contains(source);
-                                                     });
-    const bool        per_tu_parse                 = multi_tu || has_cacheable_textual_source;
-    const std::string parse_cache_policy           = fmt::format(
+                                                      });
+    const bool        per_tu_parse                  = multi_tu || has_cacheable_textual_source;
+    const std::string parse_cache_policy            = fmt::format(
         "strict_fixture={};discover_mocks={};quiet_clang={};mock_manifest_discovery_only={};skip_function_bodies={};allow_includes={};"
         "mock_backend={};check_only={};normalized_module_source_overlay={}",
         options.strict_fixture, options.discover_mocks, options.quiet_clang, mock_manifest_discovery_only, skip_function_bodies,
