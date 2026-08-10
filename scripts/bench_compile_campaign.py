@@ -20,6 +20,7 @@ and ``summary.md`` and never invents results for an unavailable compiler.
 from __future__ import annotations
 
 import argparse
+import collections
 import hashlib
 import json
 import os
@@ -358,17 +359,28 @@ add_custom_target(campaign_eight_binary DEPENDS {binary_names})
     }
 
 
-def ninja_log_snapshot(build: Path) -> dict[str, tuple[str, str, str, str]]:
+NinjaLogRecord = tuple[str, str, str, str, str]
+
+
+def ninja_log_snapshot(build: Path) -> collections.Counter[NinjaLogRecord]:
     path = build / ".ninja_log"
-    records: dict[str, tuple[str, str, str, str]] = {}
+    records: collections.Counter[NinjaLogRecord] = collections.Counter()
     if not path.exists():
         return records
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         fields = line.split("\t")
         if len(fields) < 5 or line.startswith("#"):
             continue
-        records[fields[3]] = (fields[0], fields[1], fields[2], fields[4])
+        records[(fields[3], fields[0], fields[1], fields[2], fields[4])] += 1
     return records
+
+
+def recompact_ninja_log(source: Path, build: Path, env: dict[str, str]) -> None:
+    # Ninja may compact its log when the next build opens it. Compact before
+    # taking the snapshot so every record appended by the measured invocation
+    # remains observable, including an identical repeated edge whose changed-
+    # only output kept the same mtime.
+    run(["ninja", "-C", str(build), "-t", "recompact"], cwd=source, env=env, capture=True)
 
 
 def classify(outputs: list[str], executable_targets: tuple[str, ...] = ()) -> str:
@@ -391,16 +403,17 @@ def classify(outputs: list[str], executable_targets: tuple[str, ...] = ()) -> st
 
 def summarize_new_ninja_edges(
     build: Path,
-    before: dict[str, tuple[str, str, str, str]],
+    before: collections.Counter[NinjaLogRecord],
     executable_targets: tuple[str, ...] = (),
 ) -> dict[str, object]:
     categories: dict[str, int] = {}
-    edges: dict[tuple[str, str, str], list[str]] = {}
-    for output, record in ninja_log_snapshot(build).items():
-        if before.get(output) == record:
-            continue
-        key = (record[0], record[1], record[3])
-        edges.setdefault(key, []).append(output)
+    edges: dict[tuple[str, str, str, int], list[str]] = {}
+    new_records = ninja_log_snapshot(build)
+    new_records.subtract(before)
+    for (output, start, end, _mtime, command_hash), count in new_records.items():
+        for occurrence in range(max(0, count)):
+            key = (start, end, command_hash, occurrence)
+            edges.setdefault(key, []).append(output)
     for outputs in edges.values():
         category = classify(outputs, executable_targets)
         categories[category] = categories.get(category, 0) + 1
@@ -408,6 +421,7 @@ def summarize_new_ninja_edges(
 
 
 def build_target(source: Path, build: Path, targets: list[str], jobs: int, env: dict[str, str]) -> tuple[float, dict[str, object]]:
+    recompact_ninja_log(source, build, env)
     before = ninja_log_snapshot(build)
     command = ["cmake", "--build", str(build), "--target", *targets, "-j", str(jobs)]
     start = time.perf_counter()

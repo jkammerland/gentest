@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import hashlib
 import io
 import json
@@ -213,6 +214,39 @@ class CampaignContractTests(unittest.TestCase):
             summary = campaign.summarize_new_ninja_edges(build_dir, before)
         self.assertEqual(summary["unique_edges"], 1)
         self.assertEqual(summary["categories"], {"compile": 1})
+
+    def test_ninja_log_snapshot_counts_repeated_identical_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            build_dir = Path(temporary_directory)
+            ninja_log = build_dir / ".ninja_log"
+            record = "1\t2\t3\ttu_case.gentest.h\tcodegen-hash\n"
+            ninja_log.write_text(f"# ninja log v5\n{record}", encoding="utf-8")
+            before = campaign.ninja_log_snapshot(build_dir)
+            ninja_log.write_text(f"# ninja log v5\n{record}{record}", encoding="utf-8")
+            summary = campaign.summarize_new_ninja_edges(build_dir, before)
+        self.assertEqual(summary["unique_edges"], 1)
+        self.assertEqual(summary["categories"], {"codegen": 1})
+
+    def test_build_recompacts_log_before_snapshot_and_timing(self) -> None:
+        events: list[str] = []
+
+        def fake_recompact(*_args, **_kwargs):
+            events.append("recompact")
+
+        def fake_snapshot(*_args, **_kwargs):
+            events.append("snapshot")
+            return collections.Counter()
+
+        def fake_run(*_args, **_kwargs):
+            events.append("build")
+
+        with (
+            mock.patch.object(campaign, "recompact_ninja_log", side_effect=fake_recompact),
+            mock.patch.object(campaign, "ninja_log_snapshot", side_effect=fake_snapshot),
+            mock.patch.object(campaign, "run", side_effect=fake_run),
+        ):
+            campaign.build_target(Path("/source"), Path("/build"), ["fixture"], 1, {})
+        self.assertEqual(events, ["recompact", "snapshot", "build", "snapshot"])
 
     def test_cache_mode_and_dirty_checkout_validation_are_explicit(self) -> None:
         self.assertIsNone(resolve_cache_tool("off", lambda _: None))
