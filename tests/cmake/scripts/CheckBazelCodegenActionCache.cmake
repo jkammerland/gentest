@@ -279,9 +279,23 @@ else()
 endif()
 string(JOIN ",\n        " _system_root_labels_text ${_system_root_labels})
 
-file(MAKE_DIRECTORY "${_tool_repo}/MacOSX.sdk/usr/include")
-file(WRITE "${_tool_repo}/MacOSX.sdk/SDKSettings.json" "{}\n")
-file(WRITE "${_tool_repo}/MacOSX.sdk/usr/include/gentest_sdk_sentinel.h" "#pragma once\n")
+set(_staged_macos_sdk "${_tool_repo}/MacOSX.sdk")
+if(APPLE)
+  if(NOT DEFINED ENV{SDKROOT} OR "$ENV{SDKROOT}" STREQUAL "" OR NOT IS_DIRECTORY "$ENV{SDKROOT}")
+    message(FATAL_ERROR "Bazel action-cache fixture requires the selected macOS SDK in SDKROOT")
+  endif()
+  get_filename_component(_selected_macos_sdk "$ENV{SDKROOT}" REALPATH)
+  file(MAKE_DIRECTORY "${_staged_macos_sdk}")
+  # The generated actions parse libc++ and therefore consume the actual SDK
+  # closure. A marker-only sysroot would make the cache fixture fail before it
+  # reaches its action-key assertions on macOS.
+  file(COPY "${_selected_macos_sdk}/" DESTINATION "${_staged_macos_sdk}")
+else()
+  file(MAKE_DIRECTORY "${_staged_macos_sdk}/usr/include")
+  file(WRITE "${_staged_macos_sdk}/SDKSettings.json" "{}\n")
+endif()
+file(MAKE_DIRECTORY "${_staged_macos_sdk}/usr/include")
+file(WRITE "${_staged_macos_sdk}/usr/include/gentest_sdk_sentinel.h" "#pragma once\n")
 execute_process(
   COMMAND "${_tool_repo}/bin/clang++" -print-resource-dir
   RESULT_VARIABLE _staged_resource_dir_rc
