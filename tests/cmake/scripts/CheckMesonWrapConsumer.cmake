@@ -319,6 +319,67 @@ if(_unrelated_no_work_pos EQUAL -1)
     "stderr:\n${_unrelated_plan_err}")
 endif()
 
+# A successful __has_include probe affects generated annotations even when the
+# discovered file is never included. Clang's preprocessing callback must place
+# that positive probe in the codegen depfile so removing it schedules codegen.
+file(REMOVE "${_fixture_tests_dir}/positive_has_include.hpp")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_meson_env} "${_meson}" compile -C "${_out_dir}" -v "--ninja-args=-n"
+          gentest_downstream_textual
+  WORKING_DIRECTORY "${_scratch_root}/workspace"
+  RESULT_VARIABLE _has_include_plan_rc
+  OUTPUT_VARIABLE _has_include_plan_out
+  ERROR_VARIABLE _has_include_plan_err)
+if(NOT _has_include_plan_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Meson positive __has_include removal dry run failed.\n"
+    "stdout:\n${_has_include_plan_out}\n"
+    "stderr:\n${_has_include_plan_err}")
+endif()
+set(_has_include_plan_log "${_has_include_plan_out}\n${_has_include_plan_err}")
+foreach(_has_include_expected IN ITEMS
+    "gentest_codegen"
+    "tests/cases.cpp"
+    " -c "
+    " -o ")
+  string(FIND "${_has_include_plan_log}" "${_has_include_expected}" _has_include_expected_pos)
+  if(_has_include_expected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Removing a positive __has_include probe did not plan expected edge '${_has_include_expected}'.\n"
+      "stdout:\n${_has_include_plan_out}\n"
+      "stderr:\n${_has_include_plan_err}")
+  endif()
+endforeach()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_meson_env} "${_meson}" compile -C "${_out_dir}" -j 1 -v gentest_downstream_textual
+  WORKING_DIRECTORY "${_scratch_root}/workspace"
+  RESULT_VARIABLE _has_include_build_rc
+  OUTPUT_VARIABLE _has_include_build_out
+  ERROR_VARIABLE _has_include_build_err)
+if(NOT _has_include_build_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Meson positive __has_include removal rebuild failed.\n"
+    "stdout:\n${_has_include_build_out}\n"
+    "stderr:\n${_has_include_build_err}")
+endif()
+set(_has_include_consumer_bin "${_meson_textual_dir}/gentest_downstream_textual")
+execute_process(
+  COMMAND "${_has_include_consumer_bin}" --list
+  RESULT_VARIABLE _has_include_list_rc
+  OUTPUT_VARIABLE _has_include_list_out
+  ERROR_VARIABLE _has_include_list_err)
+if(NOT _has_include_list_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Meson positive __has_include removal listing failed.\n"
+    "stdout:\n${_has_include_list_out}\n"
+    "stderr:\n${_has_include_list_err}")
+endif()
+string(FIND "${_has_include_list_out}" "downstream/positive_has_include" _stale_has_include_case_pos)
+if(NOT _stale_has_include_case_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Meson rebuild retained the removed positive __has_include case.\n${_has_include_list_out}")
+endif()
+
 file(APPEND "${_fixture_tests_dir}/private_case_value.hpp" "\n// used private-header edit\n")
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_meson_env} "${_meson}" compile -C "${_out_dir}" -v "--ninja-args=-n"

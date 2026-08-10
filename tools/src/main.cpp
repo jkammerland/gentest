@@ -1716,6 +1716,12 @@ class DependencyRecorder final : public clang::PPCallbacks {
 
     void HasInclude(clang::SourceLocation loc, llvm::StringRef file_name, bool is_angled, clang::OptionalFileEntryRef file,
                     clang::SrcMgr::CharacteristicKind) override {
+        if (file.has_value()) {
+            const std::string normalized = normalize_dependency_path(file->getName().str());
+            if (!normalized.empty()) {
+                dependencies_.push_back(normalized);
+            }
+        }
         const auto spelling_loc = source_manager_.getSpellingLoc(loc);
         const auto file_id      = source_manager_.getFileID(spelling_loc);
         bool       invalid      = false;
