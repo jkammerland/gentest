@@ -160,6 +160,50 @@ if(NOT _root_appeared_output MATCHES "cache/root_early")
 endif()
 unset(_cache_test_include_prefix)
 
+# C++-specific system roots are driver-level lookup inputs too. A root that
+# appears later must invalidate a hit even though Clang omitted the missing
+# directory from the earlier HeaderSearch instance.
+set(_cxx_appearing_root "${_work_dir}/cxx_appearing")
+set(_cxx_late_root "${_work_dir}/cxx_late")
+file(MAKE_DIRECTORY "${_cxx_late_root}")
+file(TO_CMAKE_PATH "${_cxx_appearing_root}" _cxx_appearing_root_norm)
+file(TO_CMAKE_PATH "${_cxx_late_root}" _cxx_late_root_norm)
+set(_cxx_root_source "${_work_dir}/cxx_root_cases.cpp")
+gentest_fixture_write_file("${_cxx_late_root}/cxx_root_appearance.hpp"
+  "#define GENTEST_CXX_ROOT_EARLY 0\n")
+gentest_fixture_write_file("${_cxx_root_source}" [=[
+#include <cxx_root_appearance.hpp>
+#if GENTEST_CXX_ROOT_EARLY
+[[using gentest: test("cache/cxx_root_early")]]
+#else
+[[using gentest: test("cache/cxx_root_late")]]
+#endif
+void cache_cxx_root_case() {}
+]=])
+set(_cache_test_include_prefix
+  "-cxx-isystem" "${_cxx_appearing_root_norm}"
+  "-cxx-isystem" "${_cxx_late_root_norm}")
+_write_compdb("${_cxx_root_source}")
+_run("${_cxx_root_source}" cxx_root_missing_cold miss)
+_run("${_cxx_root_source}" cxx_root_missing_hit hit)
+file(MAKE_DIRECTORY "${_cxx_appearing_root}")
+gentest_fixture_write_file("${_cxx_appearing_root}/cxx_root_appearance.hpp"
+  "#define GENTEST_CXX_ROOT_EARLY 1\n")
+_run("${_cxx_root_source}" cxx_root_appeared miss)
+execute_process(
+  COMMAND "${_clang_norm}" "${CODEGEN_STD}"
+    -cxx-isystem "${_cxx_appearing_root_norm}"
+    -cxx-isystem "${_cxx_late_root_norm}"
+    -E "${_cxx_root_source}"
+  RESULT_VARIABLE _cxx_root_preprocess_rc
+  OUTPUT_VARIABLE _cxx_root_preprocess_output
+  ERROR_VARIABLE _cxx_root_preprocess_error)
+if(NOT _cxx_root_preprocess_rc EQUAL 0 OR NOT _cxx_root_preprocess_output MATCHES "cache/cxx_root_early")
+  message(FATAL_ERROR
+    "Appearing -cxx-isystem root did not replace the later header.\n${_cxx_root_preprocess_output}\n${_cxx_root_preprocess_error}")
+endif()
+unset(_cache_test_include_prefix)
+
 # include_next and __has_include_next do not have a complete generic lookup
 # callback. They deliberately bypass and never store a cache result.
 gentest_fixture_write_file("${_work_dir}/early/next.hpp" "#pragma once\n#include_next <next.hpp>\n")

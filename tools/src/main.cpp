@@ -6233,7 +6233,10 @@ int main(int argc, const char **argv) {
             // the cached invocation. Clang's callbacks remain the dependency
             // authority, so bypass rather than reconstructing those roots.
             if (arg.starts_with("-isysroot") || arg.starts_with("--sysroot") || arg.starts_with("-iwithsysroot") ||
-                arg.starts_with("/clang:-isysroot") || arg.starts_with("/clang:--sysroot") || arg.starts_with("/clang:-iwithsysroot")) {
+                arg.starts_with("-iframeworkwithsysroot") || arg.starts_with("-iprefix") || arg.starts_with("-iwithprefix") ||
+                arg.starts_with("/clang:-isysroot") || arg.starts_with("/clang:--sysroot") || arg.starts_with("/clang:-iwithsysroot") ||
+                arg.starts_with("/clang:-iframeworkwithsysroot") || arg.starts_with("/clang:-iprefix") ||
+                arg.starts_with("/clang:-iwithprefix")) {
                 return false;
             }
             // Record-layout seed files are semantic compiler inputs, not
@@ -6366,16 +6369,9 @@ int main(int argc, const char **argv) {
         return fmt::format("{};state={}", normalized, state);
     };
     const auto effective_include_roots = [&](std::span<const std::string> command_line, std::string_view working_directory) {
-        static constexpr std::array<std::string_view, 9> split_flags = {
-            "-I",
-            "-isystem",
-            "-iquote",
-            "-idirafter",
-            "-F",
-            "-iframework",
-            "-internal-isystem",
-            "-internal-externc-isystem",
-            "-internal-iframework",
+        static constexpr std::array<std::string_view, 12> split_flags = {
+            "-I", "-isystem",    "-cxx-isystem",      "-stdlib++-isystem",         "-isystem-after",       "-iquote", "-idirafter",
+            "-F", "-iframework", "-internal-isystem", "-internal-externc-isystem", "-internal-iframework",
         };
         std::vector<std::string> roots;
         for (std::size_t index = 0; index < command_line.size(); ++index) {
