@@ -613,13 +613,15 @@ function(_gentest_add_artifact_manifest_validation_command)
     set(multi_value_args COMMAND_LAUNCHER VALIDATION_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
-    add_custom_command(
+    set(_gentest_validation_command_args
         OUTPUT "${GENTEST_STAMP}"
         COMMAND ${GENTEST_COMMAND_LAUNCHER} ${GENTEST_VALIDATION_ARGS}
         COMMAND_EXPAND_LISTS
         DEPENDS ${GENTEST_DEPENDS}
         COMMENT "${GENTEST_COMMENT}"
         VERBATIM)
+    _gentest_append_codegen_build_pool(_gentest_validation_command_args)
+    add_custom_command(${_gentest_validation_command_args})
 endfunction()
 
 function(_gentest_attach_tu_wrapper_sources)
