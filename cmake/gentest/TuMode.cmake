@@ -1275,8 +1275,10 @@ function(gentest_attach_codegen target)
         # every gentest_codegen output appear stale.
         set(_gentest_config_compdb "${_gentest_output_dir}/compdb/compile_commands.json")
         set(_gentest_config_compdb_stamp "${_gentest_output_dir}/compdb/compile_commands.staged")
+        set(_gentest_config_compdb_check_stamp "${_gentest_output_dir}/compdb/compile_commands.checked")
         set(_gentest_compdb_stage_target "gentest_compdb_stage_${_gentest_target_id}")
         get_filename_component(_gentest_codegen_compdb_dir "${_gentest_config_compdb}" DIRECTORY)
+        set(_gentest_compdb_stage_script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/StageCompileCommands.cmake")
         add_custom_command(
             OUTPUT "${_gentest_config_compdb}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gentest_codegen_compdb_dir}"
@@ -1286,18 +1288,24 @@ function(gentest_attach_codegen target)
             COMMENT "Recovering staged compile commands for gentest target ${target}"
             VERBATIM)
         add_custom_command(
-            OUTPUT "${_gentest_config_compdb_stamp}"
-            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gentest_codegen_compdb_dir}"
-            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "${CMAKE_BINARY_DIR}/compile_commands.json"
-                "${_gentest_config_compdb}"
-            COMMAND "${CMAKE_COMMAND}" -E touch "${_gentest_config_compdb_stamp}"
+            OUTPUT "${_gentest_config_compdb_check_stamp}"
+            BYPRODUCTS "${_gentest_config_compdb_stamp}"
+            COMMAND "${CMAKE_COMMAND}"
+                "-DINPUT=${CMAKE_BINARY_DIR}/compile_commands.json"
+                "-DOUTPUT=${_gentest_config_compdb}"
+                "-DSTAMP=${_gentest_config_compdb_stamp}"
+                "-DCHECK_STAMP=${_gentest_config_compdb_check_stamp}"
+                -P "${_gentest_compdb_stage_script}"
             DEPENDS
                 "${CMAKE_BINARY_DIR}/compile_commands.json"
                 "${_gentest_config_compdb}"
+                "${_gentest_compdb_stage_script}"
             COMMENT "Staging compile commands for gentest target ${target}"
             VERBATIM)
-        add_custom_target(${_gentest_compdb_stage_target} DEPENDS "${_gentest_config_compdb_stamp}" "${_gentest_config_compdb}")
+        add_custom_target(${_gentest_compdb_stage_target}
+            DEPENDS
+                "${_gentest_config_compdb_check_stamp}"
+                "${_gentest_config_compdb}")
     elseif(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
         # Preserve the historic compiler-database lookup/fallback behavior for
         # consumers that intentionally leave CMAKE_EXPORT_COMPILE_COMMANDS off.
@@ -1348,7 +1356,7 @@ function(gentest_attach_codegen target)
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS "")
     _gentest_append_external_module_source_args_property(${target} ${_gentest_external_module_source_mappings})
     if(_gentest_config_compdb)
-        list(APPEND _gentest_codegen_deps "${_gentest_config_compdb}")
+        list(APPEND _gentest_codegen_deps "${_gentest_config_compdb_stamp}")
     endif()
 
     _gentest_make_codegen_command_launcher("${_gentest_codegen_executable}" _command_launcher)
