@@ -46,6 +46,7 @@ function(_run source label expected_cache)
       --jobs=1
       --parse-cache-dir "${_cache_dir}"
       --timing-json "${_timing}"
+      --depfile "${_output_dir}/cases.d"
       --tu-out-dir "${_output_dir}"
       --tu-header-output "${_output_dir}/cases.gentest.h"
       ${ARGN}
@@ -274,6 +275,10 @@ inline constexpr bool cache_embed_present = false;
 ]=])
   _write_compdb("${_embed_source}")
   _run_uncacheable_twice("${_embed_source}" embed)
+  file(READ "${_work_dir}/generated/embed_second/cases.d" _has_embed_depfile)
+  if(NOT _has_embed_depfile MATCHES "embed_payload\\.bin")
+    message(FATAL_ERROR "Expected __has_embed payload in generated depfile.\n${_has_embed_depfile}")
+  endif()
   gentest_fixture_write_file("${_embed_payload}" "b")
   _run("${_embed_source}" embed_changed bypass)
 
@@ -286,6 +291,10 @@ constexpr unsigned char cache_digraph_embed[] = {
 ]=])
   _write_compdb("${_digraph_embed_source}")
   _run_uncacheable_twice("${_digraph_embed_source}" digraph_embed)
+  file(READ "${_work_dir}/generated/digraph_embed_second/cases.d" _embed_depfile)
+  if(NOT _embed_depfile MATCHES "embed_payload\\.bin")
+    message(FATAL_ERROR "Expected #embed payload in generated depfile.\n${_embed_depfile}")
+  endif()
 
   set(_trigraph_embed_source "${_work_dir}/trigraph_embed_cases.cpp")
   gentest_fixture_write_file("${_trigraph_embed_source}" [=[
