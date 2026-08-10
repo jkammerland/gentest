@@ -74,6 +74,7 @@ toolchain(
     name = "gentest_exec_toolchain",
     toolchain = ":impl",
     toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
+    exec_compatible_with = ["@platforms//os:osx"],
 )
 """.format(sdk_marker = sdk_marker))
         return
@@ -92,6 +93,7 @@ toolchain(
     name = "gentest_exec_toolchain",
     toolchain = ":impl",
     toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
+    exec_compatible_with = ["@platforms//os:linux"],
 )
 """)
 

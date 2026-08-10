@@ -359,6 +359,7 @@ toolchain(
     name = "gentest_exec_toolchain",
     toolchain = ":impl",
     toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
+    exec_compatible_with = ["@platforms//os:@EXEC_OS_CONSTRAINT@"],
 )
 
 gentest_codegen_toolchain(
@@ -409,6 +410,12 @@ gentest_attach_codegen_textual(
 string(REPLACE "@CXX_STANDARD_LIBRARY_ROOT_LABELS@" "${_cxx_root_labels_text}" _tool_build "${_tool_build}")
 string(REPLACE "@SYSTEM_INCLUDE_ROOT_LABELS@" "${_system_root_labels_text}" _tool_build "${_tool_build}")
 string(REPLACE "@EXEC_OS@" "${_exec_os}" _tool_build "${_tool_build}")
+if(_exec_os STREQUAL "macos")
+  set(_exec_os_constraint "osx")
+else()
+  set(_exec_os_constraint "${_exec_os}")
+endif()
+string(REPLACE "@EXEC_OS_CONSTRAINT@" "${_exec_os_constraint}" _tool_build "${_tool_build}")
 file(WRITE "${_tool_repo}/BUILD.bazel" "${_tool_build}")
 file(WRITE "${_tool_repo}/legacy_cases.cpp" "// Analysis must reject codegen_host_clang before this source is parsed.\n")
 
