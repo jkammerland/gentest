@@ -118,20 +118,22 @@ set(_output_one "${_root}/output-one")
 set(_output_two "${_root}/output-two")
 set(_output_three "${_root}/output-three")
 set(_output_four "${_root}/output-four")
+set(_output_five "${_root}/output-five")
 set(_output_migration "${_root}/output-migration")
 set(_output_local "${_root}/output-local")
 file(REMOVE_RECURSE "${_root}")
 file(MAKE_DIRECTORY "${_tool_repo}" "${_disk_cache}" "${_repo_contents_cache}")
 
-# Discover the C++ standard-library roots selected by this Clang driver, then
-# stage them under declared Bazel labels. The packaged toolchain disables
-# ambient C++ include discovery, so the cache proof cannot fall back to the
-# executor's /usr/include/c++ tree.
+# Discover the standard include roots selected by this Clang driver, then stage
+# them under declared Bazel labels. Linux packaged toolchains disable all
+# ambient standard include discovery, so the cache proof cannot fall back to
+# the executor's resource, C++, architecture, or /usr/include trees.
 set(_include_probe "${_root}/include-probe.cpp")
 set(_include_probe_output "${_root}/include-probe.i")
+set(_include_probe_depfile "${_root}/include-probe.d")
 file(WRITE "${_include_probe}" "#include <string>\n#include <vector>\n")
 execute_process(
-  COMMAND "${_clang}" -E -x c++ -v "${_include_probe}" -o "${_include_probe_output}"
+  COMMAND "${_clang}" -E -x c++ -v -MD -MF "${_include_probe_depfile}" "${_include_probe}" -o "${_include_probe_output}"
   RESULT_VARIABLE _include_probe_rc
   OUTPUT_VARIABLE _include_probe_out
   ERROR_VARIABLE _include_probe_err)
@@ -144,6 +146,7 @@ string(REPLACE "\r\n" "\n" _include_probe_text "${_include_probe_out}\n${_includ
 string(REPLACE "\n" ";" _include_probe_lines "${_include_probe_text}")
 set(_in_include_search FALSE)
 set(_cxx_include_roots "")
+set(_system_include_roots "")
 foreach(_include_probe_line IN LISTS _include_probe_lines)
   string(STRIP "${_include_probe_line}" _include_probe_line)
   if(_include_probe_line STREQUAL "#include <...> search starts here:")
@@ -152,12 +155,17 @@ foreach(_include_probe_line IN LISTS _include_probe_lines)
     set(_in_include_search FALSE)
   elseif(_in_include_search)
     file(TO_CMAKE_PATH "${_include_probe_line}" _include_probe_path)
-    if(IS_DIRECTORY "${_include_probe_path}" AND _include_probe_path MATCHES "/include/c\\+\\+(/|$)")
-      list(APPEND _cxx_include_roots "${_include_probe_path}")
+    if(IS_DIRECTORY "${_include_probe_path}")
+      if(_include_probe_path MATCHES "/include/c\\+\\+(/|$)")
+        list(APPEND _cxx_include_roots "${_include_probe_path}")
+      elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+        list(APPEND _system_include_roots "${_include_probe_path}")
+      endif()
     endif()
   endif()
 endforeach()
 list(REMOVE_DUPLICATES _cxx_include_roots)
+list(REMOVE_DUPLICATES _system_include_roots)
 if(NOT _cxx_include_roots)
   message(STATUS "GENTEST_SKIP_TEST: Clang reported no C++ standard-library include roots")
   file(REMOVE_RECURSE "${_root}")
@@ -202,6 +210,74 @@ file(COPY_FILE "${_clang}" "${_tool_repo}/bin/clang++")
 file(CHMOD "${_tool_repo}/bin/clang++"
   PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 file(COPY "${_clang_resource_dir}/" DESTINATION "${_tool_repo}/lib/clang/${_clang_resource_version}")
+file(WRITE "${_tool_repo}/lib/clang/${_clang_resource_version}/include/gentest_root.marker"
+  "declared Clang resource include root\n")
+
+set(_system_root_labels "")
+set(_staged_system_header_relative "")
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+  set(_exec_os "linux")
+  if(NOT _system_include_roots)
+    message(FATAL_ERROR "Clang reported no Linux resource/C system include roots")
+  endif()
+
+  if(NOT EXISTS "${_include_probe_depfile}")
+    message(FATAL_ERROR "Clang did not emit the include-closure depfile ${_include_probe_depfile}")
+  endif()
+  file(READ "${_include_probe_depfile}" _include_probe_dependencies)
+  string(REPLACE "\\\n" " " _include_probe_dependencies "${_include_probe_dependencies}")
+  separate_arguments(_include_probe_dependencies UNIX_COMMAND "${_include_probe_dependencies}")
+
+  get_filename_component(_resource_include_real "${_clang_resource_dir}/include" REALPATH)
+  set(_system_root_index 0)
+  foreach(_system_include_root IN LISTS _system_include_roots)
+    get_filename_component(_system_include_root_real "${_system_include_root}" REALPATH)
+    if(_system_include_root_real STREQUAL _resource_include_real)
+      set(_staged_system_root_relative "lib/clang/${_clang_resource_version}/include")
+    else()
+      set(_staged_system_root_relative "system-include/root-${_system_root_index}")
+      set(_staged_system_root "${_tool_repo}/${_staged_system_root_relative}")
+      file(MAKE_DIRECTORY "${_staged_system_root}")
+      file(COPY "${_system_include_root_real}/" DESTINATION "${_staged_system_root}")
+      file(WRITE "${_staged_system_root}/gentest_root.marker" "declared Linux system include root\n")
+      math(EXPR _system_root_index "${_system_root_index} + 1")
+    endif()
+    list(APPEND _system_root_labels "\"${_staged_system_root_relative}/gentest_root.marker\"")
+
+    if(_staged_system_header_relative STREQUAL "" AND
+       NOT _system_include_root_real STREQUAL _resource_include_real)
+      string(LENGTH "${_system_include_root_real}/" _system_root_prefix_length)
+      foreach(_include_probe_dependency IN LISTS _include_probe_dependencies)
+        if(NOT IS_ABSOLUTE "${_include_probe_dependency}" OR NOT EXISTS "${_include_probe_dependency}")
+          continue()
+        endif()
+        get_filename_component(_include_probe_dependency_real "${_include_probe_dependency}" REALPATH)
+        string(FIND "${_include_probe_dependency_real}" "${_system_include_root_real}/" _system_dependency_pos)
+        if(_system_dependency_pos EQUAL 0)
+          string(SUBSTRING "${_include_probe_dependency_real}" ${_system_root_prefix_length} -1 _system_header_within_root)
+          set(_staged_system_header_relative "${_staged_system_root_relative}/${_system_header_within_root}")
+          break()
+        endif()
+      endforeach()
+    endif()
+  endforeach()
+  if(_staged_system_header_relative STREQUAL "")
+    message(FATAL_ERROR
+      "The <string>/<vector> probe did not consume a non-resource Linux system header.\n"
+      "roots: ${_system_include_roots}\ndepfile: ${_include_probe_dependencies}")
+  endif()
+elseif(APPLE)
+  set(_exec_os "macos")
+else()
+  set(_exec_os "")
+endif()
+if(_exec_os STREQUAL "linux")
+  set(_standard_discovery_flag "-nostdinc")
+else()
+  set(_standard_discovery_flag "-nostdinc++")
+endif()
+string(JOIN ",\n        " _system_root_labels_text ${_system_root_labels})
+
 file(MAKE_DIRECTORY "${_tool_repo}/MacOSX.sdk/usr/include")
 file(WRITE "${_tool_repo}/MacOSX.sdk/SDKSettings.json" "{}\n")
 file(WRITE "${_tool_repo}/MacOSX.sdk/usr/include/gentest_sdk_sentinel.h" "#pragma once\n")
@@ -240,17 +316,26 @@ filegroup(
 )
 
 filegroup(
+    name = "system_include_files",
+    srcs = glob(["system-include/**"]),
+)
+
+filegroup(
     name = "macos_sdk_files",
     srcs = glob(["MacOSX.sdk/**"]),
 )
 
 gentest_codegen_toolchain(
     name = "impl",
+    exec_os = "@EXEC_OS@",
     codegen = ":gentest_codegen",
     clang = ":bin/clang++",
-    runtime_files = [":clang_runtime_files", ":cxx_standard_library_files", ":macos_sdk_files"],
+    runtime_files = [":clang_runtime_files", ":cxx_standard_library_files", ":system_include_files", ":macos_sdk_files"],
     cxx_standard_library_roots = [
         @CXX_STANDARD_LIBRARY_ROOT_LABELS@
+    ],
+    system_include_roots = [
+        @SYSTEM_INCLUDE_ROOT_LABELS@
     ],
     macos_sdk_root = "MacOSX.sdk/SDKSettings.json",
 )
@@ -270,6 +355,8 @@ gentest_attach_codegen_textual(
 )
 ]=])
 string(REPLACE "@CXX_STANDARD_LIBRARY_ROOT_LABELS@" "${_cxx_root_labels_text}" _tool_build "${_tool_build}")
+string(REPLACE "@SYSTEM_INCLUDE_ROOT_LABELS@" "${_system_root_labels_text}" _tool_build "${_tool_build}")
+string(REPLACE "@EXEC_OS@" "${_exec_os}" _tool_build "${_tool_build}")
 file(WRITE "${_tool_repo}/BUILD.bazel" "${_tool_build}")
 file(WRITE "${_tool_repo}/legacy_cases.cpp" "// Analysis must reject codegen_host_clang before this source is parsed.\n")
 
@@ -339,7 +426,7 @@ foreach(_required IN ITEMS
     "bin/clang++"
     "lib/clang/${_clang_resource_version}/include/stddef.h"
     "${_staged_cxx_header_relative}"
-    "-nostdinc++"
+    "${_standard_discovery_flag}"
     "MacOSX.sdk/usr/include/gentest_sdk_sentinel.h"
     "SDKROOT"
     "tests/consumer/cases.cpp"
@@ -354,6 +441,17 @@ foreach(_required IN ITEMS
     message(FATAL_ERROR "Bazel codegen aquery is missing declared exec-tool contract token '${_required}'.\n${_aquery_out}")
   endif()
 endforeach()
+if(_exec_os STREQUAL "linux")
+  foreach(_required_linux_token IN ITEMS
+      "${_staged_system_header_relative}"
+      "lib/clang/${_clang_resource_version}/include/gentest_root.marker")
+    string(FIND "${_aquery_out}" "${_required_linux_token}" _required_linux_token_pos)
+    if(_required_linux_token_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Bazel codegen aquery is missing declared Linux system closure token '${_required_linux_token}'.\n${_aquery_out}")
+    endif()
+  endforeach()
+endif()
 string(FIND "${_aquery_out}" "no-remote" _staged_no_remote_pos)
 string(FIND "${_aquery_out}" "no-cache" _staged_no_cache_pos)
 if(NOT _staged_no_remote_pos EQUAL -1 OR NOT _staged_no_cache_pos EQUAL -1)
@@ -422,7 +520,7 @@ foreach(_required_module_action_token IN ITEMS
     "bin/clang++"
     "lib/clang/${_clang_resource_version}/include/stddef.h"
     "${_staged_cxx_header_relative}"
-    "-nostdinc++"
+    "${_standard_discovery_flag}"
     "MacOSX.sdk/usr/include/gentest_sdk_sentinel.h"
     "SDKROOT"
     "tests/consumer/bazel_private_case_value.hpp"
@@ -436,6 +534,14 @@ foreach(_required_module_action_token IN ITEMS
       "Bazel module codegen action is missing '${_required_module_action_token}'.\n${_module_aquery_out}")
   endif()
 endforeach()
+if(_exec_os STREQUAL "linux")
+  string(FIND "${_module_aquery_out}" "${_staged_system_header_relative}" _module_system_header_pos)
+  if(_module_system_header_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Bazel module codegen action is missing declared Linux system header '${_staged_system_header_relative}'.\n"
+      "${_module_aquery_out}")
+  endif()
+endif()
 string(FIND "${_module_aquery_out}" "no-remote" _module_staged_no_remote_pos)
 string(FIND "${_module_aquery_out}" "no-cache" _module_staged_no_cache_pos)
 if(NOT _module_staged_no_remote_pos EQUAL -1 OR NOT _module_staged_no_cache_pos EQUAL -1)
@@ -541,7 +647,7 @@ if(_module_compdb_exec_clang STREQUAL "")
   message(FATAL_ERROR
     "Module compile_commands.json does not use the declared exec-platform clang label.\n${_module_compdb_content}")
 endif()
-foreach(_module_compdb_required IN ITEMS "-nostdinc++" "${_staged_cxx_first_root_relative}")
+foreach(_module_compdb_required IN ITEMS "${_standard_discovery_flag}" "${_staged_cxx_first_root_relative}")
   string(FIND "${_module_compdb_content}" "${_module_compdb_required}" _module_compdb_required_pos)
   if(_module_compdb_required_pos EQUAL -1)
     message(FATAL_ERROR
@@ -578,8 +684,25 @@ if(_changed_cxx_codegen_pos EQUAL -1)
 endif()
 _gentest_assert_codegen_cache_state("${_changed_cxx_execution_log}" FALSE "declared-C++-stdlib-input change")
 
+if(_exec_os STREQUAL "linux")
+  # This header was observed in the same <string>/<vector> preprocessing
+  # closure used by the consumer. It proves that changing a declared Linux C
+  # system input invalidates every codegen action rather than merely testing
+  # an unused marker file.
+  file(APPEND "${_tool_repo}/${_staged_system_header_relative}" "\n// staged Linux system input changed\n")
+  _gentest_disk_cache_build("${_output_five}" _changed_system_build_log)
+  string(FIND "${_changed_system_build_log}" "--textual-wrapper-output" _changed_system_codegen_pos)
+  file(READ "${_output_five}/execution-log.json" _changed_system_execution_log)
+  if(_changed_system_codegen_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Changing a declared Linux system header did not rerun Gentest textual codegen.\n${_changed_system_build_log}")
+  endif()
+  _gentest_assert_codegen_cache_state("${_changed_system_execution_log}" FALSE "declared-Linux-system-input change")
+endif()
+
 foreach(_output_root IN ITEMS
-    "${_output_one}" "${_output_two}" "${_output_three}" "${_output_four}" "${_output_migration}" "${_output_local}")
+    "${_output_one}" "${_output_two}" "${_output_three}" "${_output_four}" "${_output_five}"
+    "${_output_migration}" "${_output_local}")
   _gentest_shutdown_bazel("${_output_root}")
 endforeach()
 file(REMOVE_RECURSE "${_root}")

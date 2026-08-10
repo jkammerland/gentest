@@ -117,10 +117,16 @@ def _gentest_add_exec_tool_args(args, tools):
 def _gentest_exec_driver_args(tools):
     if not tools.cxx_standard_library_root_paths:
         return []
-    return ["-nostdinc++"] + [
+    cxx_roots = [
         "-isystem{}".format(root)
         for root in tools.cxx_standard_library_root_paths
     ]
+    if tools.exec_os == "linux":
+        return ["-nostdinc"] + cxx_roots + [
+            "-isystem{}".format(root)
+            for root in tools.system_include_root_paths
+        ]
+    return ["-nostdinc++"] + cxx_roots
 
 def _gentest_run_codegen(ctx, tools, inputs, outputs, args, mnemonic):
     action_tools = [tools.codegen, tools.clang]

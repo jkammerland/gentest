@@ -50,6 +50,7 @@ load("@gentest//bazel:defs.bzl", "gentest_codegen_toolchain")
 
 gentest_codegen_toolchain(
     name = "impl",
+    exec_os = "linux",
     codegen = "@gentest_tool_bundle//:gentest_codegen",
     clang = "@llvm_exec_bundle//:clangxx",
     # Optional. If omitted, Gentest uses its deterministic source scanner.
@@ -66,9 +67,12 @@ gentest_codegen_toolchain(
     cxx_standard_library_roots = [
         "@llvm_exec_bundle//:libcxx/include/c++/v1/gentest_root.marker",
     ],
-    # macOS only: a tree artifact, or a marker file directly under the SDK
-    # root. The complete SDK remains declared through runtime_files.
-    macos_sdk_root = "@llvm_exec_bundle//:MacOSX.sdk/SDKSettings.json",
+    # Linux only: ordered markers for Clang's resource headers and every C
+    # system include root. The corresponding trees remain in runtime_files.
+    system_include_roots = [
+        "@llvm_exec_bundle//:lib/clang/22/include/gentest_root.marker",
+        "@llvm_exec_bundle//:sysroot/usr/include/gentest_root.marker",
+    ],
 )
 
 toolchain(
@@ -89,10 +93,14 @@ codegen action, retaining runfiles-tree layout for wrappers and packaged tools.
 It also declares their files/runfiles plus `runtime_files` in every action.
 Package Clang's resource directory, shared libraries, scan-deps closure, and
 the complete C++ standard-library header trees. Packaged toolchains must set
-`cxx_standard_library_roots` to ordered marker files located directly in those
-include roots; Gentest disables ambient C++ include discovery with
-`-nostdinc++` and re-adds only the declared execroot paths.
-On macOS, package the SDK closure too and set `macos_sdk_root`; Gentest passes
+`exec_os` and set `cxx_standard_library_roots` to ordered marker files located
+directly in those include roots. Linux packages must also set
+`system_include_roots` to ordered marker files for the Clang resource and C
+system header roots. Gentest passes `-nostdinc` on Linux and re-adds only those
+declared C++/system execroot paths, so ambient `/usr/local/include`,
+architecture include roots, and `/usr/include` cannot enter the action.
+On macOS, use `exec_os = "macos"`, package the SDK closure, and set
+`macos_sdk_root`; Gentest passes
 that declared exec-path as `SDKROOT` without restoring ambient `PATH` or the
 client's action environment. An absolute system path or a ccache wrapper is
 not remotely portable and is not an accepted substitute for this contract.
