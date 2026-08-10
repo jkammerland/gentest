@@ -323,6 +323,26 @@ else()
     "Skipping OpenMP host-IR parse-cache probe because the compiler could not create host IR: ${_openmp_host_err}")
 endif()
 
+# Sysroot-derived include roots are resolved by Clang, not reconstructed by a
+# parallel scanner. Until preprocessing callbacks run, these command shapes
+# therefore bypass textual caching conservatively.
+_write_compdb("${_forced_source}" "--sysroot=/")
+_run_uncacheable_twice("${_forced_source}" sysroot_joined)
+_write_compdb("${_forced_source}" "-isysroot" "/")
+_run_uncacheable_twice("${_forced_source}" sysroot_split)
+_write_compdb("${_forced_source}" "-iwithsysroot" "/usr/include")
+_run_uncacheable_twice("${_forced_source}" include_with_sysroot)
+
+# Randomized-record-layout seed files are semantic cc1 inputs but are not
+# preprocessing dependencies. A syntactically valid seed must never authorize
+# a parse-cache hit after the file changes in place.
+set(_layout_seed "${_work_dir}/layout.seed")
+gentest_fixture_write_file("${_layout_seed}" "gentest-layout-seed\n")
+_write_compdb("${_forced_source}" "-frandomize-layout-seed-file=${_layout_seed}")
+_run_uncacheable_twice("${_forced_source}" randomize_layout_seed)
+gentest_fixture_write_file("${_layout_seed}" "replacement-layout-seed\n")
+_run("${_forced_source}" randomize_layout_seed_replaced bypass)
+
 # Profile-guided commands can consume data files that Clang does not report
 # through preprocessing callbacks. Keep every profile mode conservative, and
 # prove that replacing a previously valid indexed profile is observed by a
