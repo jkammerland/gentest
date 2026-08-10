@@ -1391,6 +1391,7 @@ local codegen_environment_identity_names = {
     "OBJCPLUS_INCLUDE_PATH",
     "INCLUDE",
     "SDKROOT",
+    "MACOSX_DEPLOYMENT_TARGET",
 }
 
 local function codegen_environment_identity()

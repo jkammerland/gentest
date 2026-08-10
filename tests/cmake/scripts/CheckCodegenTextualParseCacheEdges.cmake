@@ -256,6 +256,32 @@ void cache_volatile() {}
 _write_compdb("${_volatile_source}")
 _run_uncacheable_twice("${_volatile_source}" volatile)
 
+# Xmake consumes this sidecar as an invalidation snapshot. Volatile inputs are
+# intentionally uncacheable, so the sidecar must say its lookup model is
+# incomplete instead of authorizing build-system reuse.
+set(_volatile_guard_dir "${_work_dir}/generated/volatile_guard")
+set(_volatile_guard_output "${_volatile_guard_dir}/lookup_guards.json")
+file(MAKE_DIRECTORY "${_volatile_guard_dir}")
+execute_process(
+  COMMAND "${PROG}"
+    --jobs=1
+    --lookup-guard-output "${_volatile_guard_output}"
+    --tu-out-dir "${_volatile_guard_dir}"
+    --tu-header-output "${_volatile_guard_dir}/cases.gentest.h"
+    --compdb "${_work_dir}"
+    "${_volatile_source}"
+  RESULT_VARIABLE _volatile_guard_rc
+  OUTPUT_VARIABLE _volatile_guard_out
+  ERROR_VARIABLE _volatile_guard_err)
+if(NOT _volatile_guard_rc EQUAL 0)
+  message(FATAL_ERROR "Volatile lookup-guard probe failed.\n${_volatile_guard_out}\n${_volatile_guard_err}")
+endif()
+file(READ "${_volatile_guard_output}" _volatile_guard_json)
+string(JSON _volatile_guard_complete GET "${_volatile_guard_json}" complete)
+if(_volatile_guard_complete)
+  message(FATAL_ERROR "Volatile input incorrectly published a reusable lookup-guard sidecar.\n${_volatile_guard_json}")
+endif()
+
 # Clang 22 exposes dedicated embed callbacks. Supported older Clang releases
 # do not, so Gentest conservatively bypasses caching and records the inputs
 # that Clang itself successfully opened or probed while preprocessing.

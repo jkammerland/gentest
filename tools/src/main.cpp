@@ -1836,9 +1836,7 @@ class DependencyRecorder final : public clang::PPCallbacks {
             if (needs_opened_preprocessor_inputs_ != nullptr) {
                 *needs_opened_preprocessor_inputs_ = true;
             }
-            if (cacheable_ != nullptr && *cacheable_) {
-                mark_uncacheable();
-            }
+            mark_lookup_guards_incomplete();
         }
 #endif
     }
@@ -1887,7 +1885,7 @@ class DependencyRecorder final : public clang::PPCallbacks {
         const auto *identifier = macro_name_token.getIdentifierInfo();
         if (identifier != nullptr &&
             (identifier->getName() == "__DATE__" || identifier->getName() == "__TIME__" || identifier->getName() == "__TIMESTAMP__")) {
-            mark_uncacheable();
+            mark_lookup_guards_incomplete();
         }
     }
 
@@ -1895,12 +1893,12 @@ class DependencyRecorder final : public clang::PPCallbacks {
     void EmbedDirective(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef file,
                         const clang::LexEmbedParametersResult &) override {
         record_resolved_dependency(file);
-        mark_uncacheable();
+        mark_lookup_guards_incomplete();
     }
 
     void HasEmbed(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef file) override {
         record_resolved_dependency(file);
-        mark_uncacheable();
+        mark_lookup_guards_incomplete();
     }
 #endif
 

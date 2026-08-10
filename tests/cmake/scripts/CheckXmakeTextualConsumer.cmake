@@ -747,6 +747,43 @@ if(NOT _resource_dir_noop_codegen_pos EQUAL -1)
 endif()
 list(APPEND _xmake_env "${_resource_dir_env}")
 
+# Apple's driver consumes this environment variable outside the visible
+# compile argv, so it must participate in Xmake's codegen snapshot identity.
+set(_deployment_target_env "MACOSX_DEPLOYMENT_TARGET=10.15")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_deployment_target_env}"
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _deployment_target_rc
+  OUTPUT_VARIABLE _deployment_target_out
+  ERROR_VARIABLE _deployment_target_err)
+if(NOT _deployment_target_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake build failed after changing MACOSX_DEPLOYMENT_TARGET.\n${_deployment_target_out}\n${_deployment_target_err}")
+endif()
+set(_deployment_target_log "${_deployment_target_out}\n${_deployment_target_err}")
+string(FIND "${_deployment_target_log}" "gentest-codegen-cache-miss" _deployment_target_codegen_pos)
+if(_deployment_target_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Changing MACOSX_DEPLOYMENT_TARGET did not rerun gentest_codegen.\n${_deployment_target_log}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_deployment_target_env}"
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _deployment_target_noop_rc
+  OUTPUT_VARIABLE _deployment_target_noop_out
+  ERROR_VARIABLE _deployment_target_noop_err)
+if(NOT _deployment_target_noop_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake no-op failed with stable MACOSX_DEPLOYMENT_TARGET.\n${_deployment_target_noop_out}\n${_deployment_target_noop_err}")
+endif()
+set(_deployment_target_noop_log "${_deployment_target_noop_out}\n${_deployment_target_noop_err}")
+string(FIND "${_deployment_target_noop_log}" "gentest-codegen-cache-miss" _deployment_target_noop_codegen_pos)
+if(NOT _deployment_target_noop_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Stable MACOSX_DEPLOYMENT_TARGET did not produce a no-op build.\n${_deployment_target_noop_log}")
+endif()
+list(APPEND _xmake_env "${_deployment_target_env}")
+
 set(_strict_fixture_env "GENTEST_STRICT_FIXTURE=1")
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_strict_fixture_env}"
