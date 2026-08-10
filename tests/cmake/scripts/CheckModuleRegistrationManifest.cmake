@@ -270,9 +270,9 @@ endforeach()
 
 if(GENERATOR STREQUAL "Ninja Multi-Config")
   # A no-op reconfigure rewrites CMake's raw compile database and the generated
-  # filter script. The first subsequent build may refresh the content-stable
-  # filtered database, but the separately tracked stamp must let the next build
-  # settle completely.
+  # filter script. The first subsequent build may refresh the staging stamp,
+  # but the content-stable filtered database must keep codegen and all of its
+  # downstream consumers out of the build plan.
   execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 1)
   gentest_check_run_or_fail(
     COMMAND
@@ -283,10 +283,29 @@ if(GENERATOR STREQUAL "Ninja Multi-Config")
       ${_cmake_cache_args}
     WORKING_DIRECTORY "${_work_dir}"
     STRIP_TRAILING_WHITESPACE)
-  gentest_check_run_or_fail(
-    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" ${_build_config_args} --target module_registration_manifest_tests
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" ${_build_config_args} --target module_registration_manifest_tests --verbose
     WORKING_DIRECTORY "${_work_dir}"
-    STRIP_TRAILING_WHITESPACE)
+    RESULT_VARIABLE _refresh_rc
+    OUTPUT_VARIABLE _refresh_out
+    ERROR_VARIABLE _refresh_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT _refresh_rc EQUAL 0)
+    message(FATAL_ERROR "Multi-config refresh build failed.\n${_refresh_out}\n${_refresh_err}")
+  endif()
+  set(_refresh_text "${_refresh_out}\n${_refresh_err}")
+  foreach(_unexpected_marker IN ITEMS
+      "Inspecting gentest mocks for target module_registration_manifest_tests"
+      "Running gentest_codegen for target module_registration_manifest_tests"
+      "Building CXX object"
+      "Linking CXX executable")
+    string(FIND "${_refresh_text}" "${_unexpected_marker}" _unexpected_marker_pos)
+    if(NOT _unexpected_marker_pos EQUAL -1)
+      message(FATAL_ERROR
+        "No-op multi-config refresh scheduled downstream work '${_unexpected_marker}'.\n${_refresh_text}")
+    endif()
+  endforeach()
   execute_process(
     COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" ${_build_config_args} --target module_registration_manifest_tests --verbose
     WORKING_DIRECTORY "${_work_dir}"
