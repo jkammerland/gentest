@@ -513,12 +513,12 @@ def validate_contract(
         raise RuntimeError(
             f"shared-header-edit invalidation contract failed: expected codegen and {active_tus} generated compile edges, got {profile}"
         )
-    if name == "equivalent-compdb-rewrite" and content_stable_compdb_stage:
+    if name in {"equivalent-compdb-rewrite", "unrelated-compdb-rewrite"} and content_stable_compdb_stage:
         compiled = int(categories.get("compile", 0))
         linked = int(categories.get("link_or_archive", 0))
         if edges < 1 or generated or compiled or linked:
             raise RuntimeError(
-                "equivalent-compdb-rewrite invalidation contract failed: expected staging/codegen without downstream work, "
+                f"{name} invalidation contract failed: expected staging/codegen without downstream work, "
                 f"got {profile}"
             )
     elif name in {"equivalent-compdb-rewrite", "unrelated-compdb-rewrite"} and codegen < 1:
@@ -646,7 +646,8 @@ def run_scenarios(
                     active_tus,
                     expects_codegen,
                     strict_downstream_noop,
-                    scenario == "equivalent-compdb-rewrite" and uses_content_stable_compdb_stage(build),
+                    scenario in {"equivalent-compdb-rewrite", "unrelated-compdb-rewrite"}
+                    and uses_content_stable_compdb_stage(build),
                 )
                 _, settling_profile = build_target(source, build, targets, jobs, env)
                 if strict_downstream_noop and int(settling_profile["unique_edges"]) != 0:

@@ -522,11 +522,13 @@ class CampaignContractTests(unittest.TestCase):
         self.assertEqual(campaign.classify([staging_output], ("campaign_eight_tu",)), "other")
         self.assertEqual(campaign.classify(["/tmp/build/campaign_eight_tu"], ("campaign_eight_tu",)), "link_or_archive")
 
-    def test_equivalent_compdb_rewrite_accepts_staging_or_codegen_without_downstream_work(self) -> None:
+    def test_stable_compdb_rewrites_accept_staging_or_codegen_without_downstream_work(self) -> None:
         staging_only = {"unique_edges": 1, "categories": {"other": 1}}
         campaign.validate_contract("equivalent-compdb-rewrite", staging_only, 8, True, True, True)
+        campaign.validate_contract("unrelated-compdb-rewrite", staging_only, 8, True, True, True)
         codegen_only = {"unique_edges": 2, "categories": {"other": 1, "codegen": 1}}
         campaign.validate_contract("equivalent-compdb-rewrite", codegen_only, 8, True, True, True)
+        campaign.validate_contract("unrelated-compdb-rewrite", codegen_only, 8, True, True, True)
         with self.assertRaisesRegex(RuntimeError, "without downstream work"):
             campaign.validate_contract(
                 "equivalent-compdb-rewrite",
@@ -536,8 +538,15 @@ class CampaignContractTests(unittest.TestCase):
                 True,
                 True,
             )
-        with self.assertRaisesRegex(RuntimeError, "expected codegen edge"):
-            campaign.validate_contract("unrelated-compdb-rewrite", staging_only, 8, True, True, True)
+        with self.assertRaisesRegex(RuntimeError, "without downstream work"):
+            campaign.validate_contract(
+                "unrelated-compdb-rewrite",
+                {"unique_edges": 3, "categories": {"other": 1, "codegen": 1, "generated_tu_compile": 1}},
+                8,
+                True,
+                True,
+                True,
+            )
 
     def test_codegen_cap_validation_rejects_ambiguous_sweeps(self) -> None:
         self.assertEqual(parse_codegen_caps("1,auto,4"), [("1", 1), ("auto", 0), ("4", 4)])
