@@ -303,6 +303,23 @@ if(NOT _ast_replace_rc EQUAL 0)
 endif()
 _run("${_ast_merge_source}" ast_merge_replaced bypass)
 
+# cc1 file remapping consumes the replacement as a semantic input without a
+# preprocessing dependency callback, so it must never authorize a cache hit.
+set(_remap_source "${_work_dir}/remap_cases.cpp")
+set(_remap_replacement "${_work_dir}/remap_replacement.cpp")
+gentest_fixture_write_file("${_remap_source}"
+  "[[using gentest: test(\"cache/remap\")]] void cache_remap() {}\n")
+gentest_fixture_write_file("${_remap_replacement}"
+  "[[using gentest: test(\"cache/remap\")]] void cache_remap() {}\n")
+_write_compdb("${_remap_source}" "-Xclang" "-remap-file" "-Xclang" "__GENTEST_REMAP_PAIR__")
+file(READ "${_work_dir}/compile_commands.json" _remap_compdb)
+string(REPLACE "__GENTEST_REMAP_PAIR__" "${_remap_source};${_remap_replacement}" _remap_compdb "${_remap_compdb}")
+file(WRITE "${_work_dir}/compile_commands.json" "${_remap_compdb}")
+_run_uncacheable_twice("${_remap_source}" remap_file)
+gentest_fixture_write_file("${_remap_replacement}"
+  "[[using gentest: test(\"cache/remap_changed\")]] void cache_remap_changed() {}\n")
+_run("${_remap_source}" remap_file_replaced bypass)
+
 # OpenMP device compilation may consume a host IR file directly in cc1. That
 # file is not a preprocessing dependency, so this command shape must bypass
 # even while the IR is valid and the real parse succeeds.
