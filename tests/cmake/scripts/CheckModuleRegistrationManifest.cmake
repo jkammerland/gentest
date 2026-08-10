@@ -269,10 +269,43 @@ foreach(_expected_entry IN ITEMS
 endforeach()
 
 if(GENERATOR STREQUAL "Ninja Multi-Config")
-  # CMake's multi-config phony target first refreshes a manually modified
-  # custom-command output before it reaches the validation byproduct. The
-  # configured artifact contract above is the regression this configuration
-  # covers; mutation validation remains covered by the single-config lane.
+  # A no-op reconfigure rewrites CMake's raw compile database and the generated
+  # filter script. The first subsequent build may refresh the content-stable
+  # filtered database, but the separately tracked stamp must let the next build
+  # settle completely.
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep 1)
+  gentest_check_run_or_fail(
+    COMMAND
+      "${CMAKE_COMMAND}"
+      ${_cmake_gen_args}
+      -S "${_src_dir}"
+      -B "${_build_dir}"
+      ${_cmake_cache_args}
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE)
+  gentest_check_run_or_fail(
+    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" ${_build_config_args} --target module_registration_manifest_tests
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" ${_build_config_args} --target module_registration_manifest_tests --verbose
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _settled_rc
+    OUTPUT_VARIABLE _settled_out
+    ERROR_VARIABLE _settled_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT _settled_rc EQUAL 0)
+    message(FATAL_ERROR "Settled multi-config build failed.\n${_settled_out}\n${_settled_err}")
+  endif()
+  set(_settled_text "${_settled_out}\n${_settled_err}")
+  string(FIND "${_settled_text}" "Selecting ${_build_config} compile commands" _filter_edge_pos)
+  if(NOT _filter_edge_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Multi-config compile database filter did not settle after a no-op reconfigure.\n${_settled_text}")
+  endif()
+
+  # Mutation validation remains covered by the single-config lane.
   message(STATUS "Module registration manifest multi-config regression passed")
   return()
 endif()

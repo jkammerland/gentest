@@ -1250,18 +1250,23 @@ function(gentest_attach_codegen target)
     if(CMAKE_GENERATOR STREQUAL "Ninja Multi-Config")
         _gentest_write_multi_config_compdb_filter_script("${_gentest_target_id}" _gentest_compdb_filter_script)
         set(_gentest_config_compdb "${_gentest_output_dir}/compdb/compile_commands.json")
+        set(_gentest_config_compdb_stamp "${_gentest_output_dir}/compdb/compile_commands.filtered")
+        set(_gentest_compdb_stage_target "gentest_compdb_stage_${_gentest_target_id}")
         add_custom_command(
-            OUTPUT "${_gentest_config_compdb}"
+            OUTPUT "${_gentest_config_compdb_stamp}"
+            BYPRODUCTS "${_gentest_config_compdb}"
             COMMAND "${CMAKE_COMMAND}"
                 "-DINPUT=${CMAKE_BINARY_DIR}/compile_commands.json"
                 "-DOUTPUT=${_gentest_config_compdb}"
                 "-DCONFIG=$<CONFIG>"
                 -P "${_gentest_compdb_filter_script}"
+            COMMAND "${CMAKE_COMMAND}" -E touch "${_gentest_config_compdb_stamp}"
             DEPENDS
                 "${CMAKE_BINARY_DIR}/compile_commands.json"
                 "${_gentest_compdb_filter_script}"
             COMMENT "Selecting $<CONFIG> compile commands for gentest target ${target}"
             VERBATIM)
+        add_custom_target(${_gentest_compdb_stage_target} DEPENDS "${_gentest_config_compdb_stamp}")
         get_filename_component(_gentest_codegen_compdb_dir "${_gentest_config_compdb}" DIRECTORY)
     elseif((CMAKE_GENERATOR MATCHES "Ninja|Makefiles" AND CMAKE_EXPORT_COMPILE_COMMANDS) OR
            EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
