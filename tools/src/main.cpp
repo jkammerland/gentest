@@ -6223,6 +6223,11 @@ int main(int argc, const char **argv) {
             if (arg.starts_with("-ast-merge") || arg.starts_with("/clang:-ast-merge")) {
                 return false;
             }
+            // File remapping reads replacement content outside preprocessing
+            // dependency callbacks. A changed replacement must force a parse.
+            if (arg.starts_with("-remap-file") || arg.starts_with("/clang:-remap-file")) {
+                return false;
+            }
             // Sysroot-relative search paths can make an absent SDK/header
             // directory appear without producing a preprocessing callback on
             // the cached invocation. Clang's callbacks remain the dependency
