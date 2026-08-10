@@ -117,10 +117,76 @@ set(_repo_contents_cache "${_root}/repo-cache")
 set(_output_one "${_root}/output-one")
 set(_output_two "${_root}/output-two")
 set(_output_three "${_root}/output-three")
+set(_output_four "${_root}/output-four")
 set(_output_migration "${_root}/output-migration")
 set(_output_local "${_root}/output-local")
 file(REMOVE_RECURSE "${_root}")
 file(MAKE_DIRECTORY "${_tool_repo}" "${_disk_cache}" "${_repo_contents_cache}")
+
+# Discover the C++ standard-library roots selected by this Clang driver, then
+# stage them under declared Bazel labels. The packaged toolchain disables
+# ambient C++ include discovery, so the cache proof cannot fall back to the
+# executor's /usr/include/c++ tree.
+set(_include_probe "${_root}/include-probe.cpp")
+set(_include_probe_output "${_root}/include-probe.i")
+file(WRITE "${_include_probe}" "#include <string>\n#include <vector>\n")
+execute_process(
+  COMMAND "${_clang}" -E -x c++ -v "${_include_probe}" -o "${_include_probe_output}"
+  RESULT_VARIABLE _include_probe_rc
+  OUTPUT_VARIABLE _include_probe_out
+  ERROR_VARIABLE _include_probe_err)
+if(NOT _include_probe_rc EQUAL 0)
+  message(STATUS "GENTEST_SKIP_TEST: could not discover Clang C++ include roots: ${_include_probe_err}")
+  file(REMOVE_RECURSE "${_root}")
+  return()
+endif()
+string(REPLACE "\r\n" "\n" _include_probe_text "${_include_probe_out}\n${_include_probe_err}")
+string(REPLACE "\n" ";" _include_probe_lines "${_include_probe_text}")
+set(_in_include_search FALSE)
+set(_cxx_include_roots "")
+foreach(_include_probe_line IN LISTS _include_probe_lines)
+  string(STRIP "${_include_probe_line}" _include_probe_line)
+  if(_include_probe_line STREQUAL "#include <...> search starts here:")
+    set(_in_include_search TRUE)
+  elseif(_include_probe_line STREQUAL "End of search list.")
+    set(_in_include_search FALSE)
+  elseif(_in_include_search)
+    file(TO_CMAKE_PATH "${_include_probe_line}" _include_probe_path)
+    if(IS_DIRECTORY "${_include_probe_path}" AND _include_probe_path MATCHES "/include/c\\+\\+(/|$)")
+      list(APPEND _cxx_include_roots "${_include_probe_path}")
+    endif()
+  endif()
+endforeach()
+list(REMOVE_DUPLICATES _cxx_include_roots)
+if(NOT _cxx_include_roots)
+  message(STATUS "GENTEST_SKIP_TEST: Clang reported no C++ standard-library include roots")
+  file(REMOVE_RECURSE "${_root}")
+  return()
+endif()
+
+set(_cxx_root_labels "")
+set(_staged_cxx_header_relative "")
+set(_staged_cxx_first_root_relative "")
+set(_cxx_root_index 0)
+foreach(_cxx_include_root IN LISTS _cxx_include_roots)
+  set(_staged_cxx_root_relative "cxx-stdlib/root-${_cxx_root_index}")
+  set(_staged_cxx_root "${_tool_repo}/${_staged_cxx_root_relative}")
+  file(MAKE_DIRECTORY "${_staged_cxx_root}")
+  file(COPY "${_cxx_include_root}/" DESTINATION "${_staged_cxx_root}")
+  file(WRITE "${_staged_cxx_root}/gentest_root.marker" "declared C++ standard-library root\n")
+  list(APPEND _cxx_root_labels "\"${_staged_cxx_root_relative}/gentest_root.marker\"")
+  if(_staged_cxx_first_root_relative STREQUAL "")
+    set(_staged_cxx_first_root_relative "${_staged_cxx_root_relative}")
+  endif()
+  if(_staged_cxx_header_relative STREQUAL "" AND EXISTS "${_staged_cxx_root}/string")
+    set(_staged_cxx_header_relative "${_staged_cxx_root_relative}/string")
+  endif()
+  math(EXPR _cxx_root_index "${_cxx_root_index} + 1")
+endforeach()
+if(_staged_cxx_header_relative STREQUAL "")
+  message(FATAL_ERROR "Staged C++ standard-library roots do not contain the used <string> header: ${_cxx_include_roots}")
+endif()
+string(JOIN ",\n        " _cxx_root_labels_text ${_cxx_root_labels})
 
 # The staged tools model the label shape of a prebuilt distribution: every
 # executable is a label, the generator is not built by a shell/genrule action,
@@ -156,7 +222,7 @@ if(NOT _staged_resource_dir_rc EQUAL 0 OR
     "actual: ${_staged_resource_dir}\n${_staged_resource_dir_err}")
 endif()
 file(WRITE "${_tool_repo}/MODULE.bazel" "module(name = \"gentest_local_exec_tools\")\n")
-file(WRITE "${_tool_repo}/BUILD.bazel" [=[
+set(_tool_build [=[
 load(
     "@gentest//bazel:defs.bzl",
     "gentest_attach_codegen_textual",
@@ -169,6 +235,11 @@ filegroup(
 )
 
 filegroup(
+    name = "cxx_standard_library_files",
+    srcs = glob(["cxx-stdlib/**"]),
+)
+
+filegroup(
     name = "macos_sdk_files",
     srcs = glob(["MacOSX.sdk/**"]),
 )
@@ -177,7 +248,10 @@ gentest_codegen_toolchain(
     name = "impl",
     codegen = ":gentest_codegen",
     clang = ":bin/clang++",
-    runtime_files = [":clang_runtime_files", ":macos_sdk_files"],
+    runtime_files = [":clang_runtime_files", ":cxx_standard_library_files", ":macos_sdk_files"],
+    cxx_standard_library_roots = [
+        @CXX_STANDARD_LIBRARY_ROOT_LABELS@
+    ],
     macos_sdk_root = "MacOSX.sdk/SDKSettings.json",
 )
 
@@ -195,6 +269,8 @@ gentest_attach_codegen_textual(
     codegen_host_clang = "/legacy/clang++",
 )
 ]=])
+string(REPLACE "@CXX_STANDARD_LIBRARY_ROOT_LABELS@" "${_cxx_root_labels_text}" _tool_build "${_tool_build}")
+file(WRITE "${_tool_repo}/BUILD.bazel" "${_tool_build}")
 file(WRITE "${_tool_repo}/legacy_cases.cpp" "// Analysis must reject codegen_host_clang before this source is parsed.\n")
 
 set(_common_args
@@ -262,6 +338,8 @@ foreach(_required IN ITEMS
     "gentest_codegen"
     "bin/clang++"
     "lib/clang/${_clang_resource_version}/include/stddef.h"
+    "${_staged_cxx_header_relative}"
+    "-nostdinc++"
     "MacOSX.sdk/usr/include/gentest_sdk_sentinel.h"
     "SDKROOT"
     "tests/consumer/cases.cpp"
@@ -343,6 +421,8 @@ foreach(_required_module_action_token IN ITEMS
     "gentest_codegen"
     "bin/clang++"
     "lib/clang/${_clang_resource_version}/include/stddef.h"
+    "${_staged_cxx_header_relative}"
+    "-nostdinc++"
     "MacOSX.sdk/usr/include/gentest_sdk_sentinel.h"
     "SDKROOT"
     "tests/consumer/bazel_private_case_value.hpp"
@@ -461,6 +541,14 @@ if(_module_compdb_exec_clang STREQUAL "")
   message(FATAL_ERROR
     "Module compile_commands.json does not use the declared exec-platform clang label.\n${_module_compdb_content}")
 endif()
+foreach(_module_compdb_required IN ITEMS "-nostdinc++" "${_staged_cxx_first_root_relative}")
+  string(FIND "${_module_compdb_content}" "${_module_compdb_required}" _module_compdb_required_pos)
+  if(_module_compdb_required_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Module compile_commands.json is missing declared standard-library token '${_module_compdb_required}'.\n"
+      "${_module_compdb_content}")
+  endif()
+endforeach()
 
 _gentest_disk_cache_build("${_output_two}" _second_build_log)
 file(READ "${_output_two}/execution-log.json" _second_execution_log)
@@ -477,7 +565,21 @@ if(_changed_codegen_pos EQUAL -1)
 endif()
 _gentest_assert_codegen_cache_state("${_changed_execution_log}" FALSE "declared-runtime-input change")
 
-foreach(_output_root IN ITEMS "${_output_one}" "${_output_two}" "${_output_three}" "${_output_migration}" "${_output_local}")
+# A C++ standard-library header is both declared and actively parsed by the
+# consumer (<string>/<vector>). Replacing it must produce a distinct action
+# key and rerun all codegen actions in a fresh output base.
+file(APPEND "${_tool_repo}/${_staged_cxx_header_relative}" "\n// staged C++ standard-library input changed\n")
+_gentest_disk_cache_build("${_output_four}" _changed_cxx_build_log)
+string(FIND "${_changed_cxx_build_log}" "--textual-wrapper-output" _changed_cxx_codegen_pos)
+file(READ "${_output_four}/execution-log.json" _changed_cxx_execution_log)
+if(_changed_cxx_codegen_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Changing a declared C++ standard-library input did not rerun Gentest textual codegen.\n${_changed_cxx_build_log}")
+endif()
+_gentest_assert_codegen_cache_state("${_changed_cxx_execution_log}" FALSE "declared-C++-stdlib-input change")
+
+foreach(_output_root IN ITEMS
+    "${_output_one}" "${_output_two}" "${_output_three}" "${_output_four}" "${_output_migration}" "${_output_local}")
   _gentest_shutdown_bazel("${_output_root}")
 endforeach()
 file(REMOVE_RECURSE "${_root}")
