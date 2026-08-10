@@ -44,8 +44,9 @@ For example, `-DGENTEST_CODEGEN_BUILD_POOL=2 -DGENTEST_CODEGEN_JOBS=3` permits
 at most two expensive codegen processes, each with up to three internal parse
 workers (a budget of six). `GENTEST_CODEGEN_JOBS=0` requests each admitted
 process's auto thread count, so choose that combination only deliberately.
-The pool also covers explicit-mock inspection/emission codegen commands; it
-does not constrain lightweight manifest validation commands.
+The pool also covers explicit-mock inspection/emission and artifact-manifest
+validation commands. Even lightweight validation processes therefore consume
+one pool slot when the build pool is enabled.
 
 ## When parallelism is used
 
