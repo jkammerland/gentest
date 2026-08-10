@@ -3907,6 +3907,7 @@ struct ModuleMacroProbeResult {
     bool volatile_time                = false;
     bool non_primary_file_spelling    = false;
     bool non_primary_location_builtin = false;
+    bool header_presence_lookup       = false;
 };
 
 class ModuleMacroRecorder final : public clang::PPCallbacks {
@@ -3930,6 +3931,16 @@ class ModuleMacroRecorder final : public clang::PPCallbacks {
             }
         }
     }
+
+    void HasInclude(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef, clang::SrcMgr::CharacteristicKind) override {
+        result_.header_presence_lookup = true;
+    }
+
+#if CLANG_VERSION_MAJOR >= 22
+    void HasEmbed(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef) override {
+        result_.header_presence_lookup = true;
+    }
+#endif
 
   private:
     clang::SourceManager   &source_manager_;
@@ -6540,6 +6551,22 @@ int main(int argc, const char **argv) {
                 if (precompile_command.empty()) {
                     return bypass("the module precompile command is empty");
                 }
+                const auto semantic_probe = probe_module_macros(precompile_command, source_path.string(), working_directory);
+                if (!semantic_probe.has_value()) {
+                    return bypass("predefined macro semantics could not be verified");
+                }
+                if (semantic_probe->volatile_time) {
+                    return bypass("a volatile predefined date/time macro is active");
+                }
+                if (semantic_probe->non_primary_file_spelling) {
+                    return bypass("__FILE__ expanded outside the primary module source");
+                }
+                if (semantic_probe->non_primary_location_builtin) {
+                    return bypass("a file-location builtin is active outside the primary module source");
+                }
+                if (semantic_probe->header_presence_lookup) {
+                    return bypass("an active header-presence operator is not represented by clang-scan-deps");
+                }
                 if (contains_prebuilt_module_path_arg(precompile_command) || contains_prebuilt_module_path_arg(scan_deps_command)) {
                     if (should_log_scan_deps_decisions()) {
                         gentest::codegen::log_err(
@@ -6665,7 +6692,7 @@ int main(int argc, const char **argv) {
             }
             const auto macro_probe = probe_module_macros(precompile_command, input.source_file, input.working_directory);
             if (!macro_probe.has_value() || macro_probe->volatile_time || macro_probe->non_primary_file_spelling ||
-                macro_probe->non_primary_location_builtin) {
+                macro_probe->non_primary_location_builtin || macro_probe->header_presence_lookup) {
                 if (should_log_scan_deps_decisions()) {
                     std::string_view reason = "a file-location builtin is active outside the primary module source";
                     if (!macro_probe.has_value()) {
@@ -6674,6 +6701,8 @@ int main(int argc, const char **argv) {
                         reason = "a volatile predefined date/time macro is active";
                     } else if (macro_probe->non_primary_file_spelling) {
                         reason = "__FILE__ expanded outside the primary module source";
+                    } else if (macro_probe->header_presence_lookup) {
+                        reason = "an active header-presence operator is not represented by clang-scan-deps";
                     }
                     gentest::codegen::log_err("gentest_codegen: info: PCM cache bypassed for '{}': {}\n", input.module_name, reason);
                 }
