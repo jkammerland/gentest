@@ -49,6 +49,24 @@ std::string sha256_hex(std::string_view content) {
     return out;
 }
 
+template <typename Integer> std::string decimal_integer(Integer value) {
+    const bool  negative = value < 0;
+    std::string out;
+    do {
+        auto digit = value % 10;
+        if (digit < 0) {
+            digit = -digit;
+        }
+        out.push_back(static_cast<char>('0' + static_cast<unsigned>(digit)));
+        value /= 10;
+    } while (value != 0);
+    if (negative) {
+        out.push_back('-');
+    }
+    std::ranges::reverse(out);
+    return out;
+}
+
 std::optional<std::string> sha256_file(const fs::path &path, std::uintmax_t max_size, std::uintmax_t *size_out = nullptr,
                                        bool allow_empty = false) {
     std::error_code ec;
@@ -337,7 +355,7 @@ std::optional<PcmArtifactCache::FileFingerprint> fingerprint_file(std::string_vi
     if (ec) {
         return std::nullopt;
     }
-    fingerprint.write_time = std::to_string(write_time.time_since_epoch().count());
+    fingerprint.write_time = decimal_integer(write_time.time_since_epoch().count());
     std::string memo_key;
     append_length_prefixed(memo_key, fingerprint.path);
     append_length_prefixed(memo_key, fingerprint.identity);
