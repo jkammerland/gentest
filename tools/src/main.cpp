@@ -3937,8 +3937,26 @@ class ModuleMacroRecorder final : public clang::PPCallbacks {
     }
 
 #if CLANG_VERSION_MAJOR >= 22
+    void EmbedDirective(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef,
+                        const clang::LexEmbedParametersResult &) override {
+        result_.header_presence_lookup = true;
+    }
+
     void HasEmbed(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef) override {
         result_.header_presence_lookup = true;
+    }
+#else
+    void FileChanged(clang::SourceLocation loc, clang::PPCallbacks::FileChangeReason reason, clang::SrcMgr::CharacteristicKind,
+                     clang::FileID) override {
+        if (reason != clang::PPCallbacks::FileChangeReason::EnterFile) {
+            return;
+        }
+        const auto file_id = source_manager_.getFileID(source_manager_.getFileLoc(loc));
+        bool       invalid = false;
+        const auto buffer  = source_manager_.getBufferData(file_id, &invalid);
+        if (!invalid && source_buffer_mentions_embed(buffer)) {
+            result_.header_presence_lookup = true;
+        }
     }
 #endif
 
@@ -6565,7 +6583,7 @@ int main(int argc, const char **argv) {
                     return bypass("a file-location builtin is active outside the primary module source");
                 }
                 if (semantic_probe->header_presence_lookup) {
-                    return bypass("an active header-presence operator is not represented by clang-scan-deps");
+                    return bypass("an active header/embed lookup is not represented by clang-scan-deps");
                 }
                 if (contains_prebuilt_module_path_arg(precompile_command) || contains_prebuilt_module_path_arg(scan_deps_command)) {
                     if (should_log_scan_deps_decisions()) {
@@ -6702,7 +6720,7 @@ int main(int argc, const char **argv) {
                     } else if (macro_probe->non_primary_file_spelling) {
                         reason = "__FILE__ expanded outside the primary module source";
                     } else if (macro_probe->header_presence_lookup) {
-                        reason = "an active header-presence operator is not represented by clang-scan-deps";
+                        reason = "an active header/embed lookup is not represented by clang-scan-deps";
                     }
                     gentest::codegen::log_err("gentest_codegen: info: PCM cache bypassed for '{}': {}\n", input.module_name, reason);
                 }
