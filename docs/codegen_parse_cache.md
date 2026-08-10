@@ -37,8 +37,10 @@ new shadowing header produces a miss. Header maps, frameworks, and
 and module imports conservatively bypass caching. The effective Clang driver
 command fingerprints default and explicit config expansion. Commands using VFS
 overlays, plugins, PCHs, header modules, profile-guided optimization inputs, or
-relative forced includes and macros also bypass; absolute direct
-`-include`/`-imacros` inputs are guarded. Clang 22
+relative forced includes and macros also bypass. Sysroot-derived include roots
+(`-isysroot`, `--sysroot`, and `-iwithsysroot`) and record-layout seed files
+bypass as well; Gentest does not implement a second header-discovery algorithm
+for them. Absolute direct `-include`/`-imacros` inputs are guarded. Clang 22
 provides direct embed callbacks; on Clang 20 and 21 Gentest conservatively
 scans every entered source buffer and bypasses a TU containing `#embed` or
 `__has_embed`.

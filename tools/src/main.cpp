@@ -6223,6 +6223,19 @@ int main(int argc, const char **argv) {
             if (arg.starts_with("-ast-merge") || arg.starts_with("/clang:-ast-merge")) {
                 return false;
             }
+            // Sysroot-relative search paths can make an absent SDK/header
+            // directory appear without producing a preprocessing callback on
+            // the cached invocation. Clang's callbacks remain the dependency
+            // authority, so bypass rather than reconstructing those roots.
+            if (arg.starts_with("-isysroot") || arg.starts_with("--sysroot") || arg.starts_with("-iwithsysroot") ||
+                arg.starts_with("/clang:-isysroot") || arg.starts_with("/clang:--sysroot") || arg.starts_with("/clang:-iwithsysroot")) {
+                return false;
+            }
+            // Record-layout seed files are semantic compiler inputs, not
+            // preprocessing dependencies. Replacing one must force a parse.
+            if (arg.starts_with("-frandomize-layout-seed-file") || arg.starts_with("/clang:-frandomize-layout-seed-file")) {
+                return false;
+            }
             // PGO/profile options can name externally updated data that does
             // not participate in preprocessing dependency callbacks. Even a
             // diagnostics-only profile change must force a real parse.
