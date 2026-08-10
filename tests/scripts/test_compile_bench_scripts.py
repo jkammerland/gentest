@@ -232,14 +232,32 @@ class CampaignContractTests(unittest.TestCase):
                 mock.patch.object(campaign, "version", return_value={"path": "/bin/true"}),
             ):
                 ccache_env, _ = campaign.cache_environment("ccache", Path(temporary_directory) / "ccache")
-                sccache_env, _ = campaign.cache_environment("sccache", Path(temporary_directory) / "sccache")
         self.assertNotIn("CCACHE_DISABLE", ccache_env)
         self.assertEqual(ccache_env["SCCACHE_DISABLE"], "1")
+        self.assertNotIn("CMAKE_C_COMPILER_LAUNCHER", ccache_env)
+        self.assertNotIn("CMAKE_CXX_COMPILER_LAUNCHER", ccache_env)
+
+    @unittest.skipIf(os.name == "nt", "isolated sccache campaigns use Unix-domain sockets")
+    def test_selected_sccache_clears_its_inherited_disable_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "SCCACHE_DISABLE": "1",
+                        "CMAKE_C_COMPILER_LAUNCHER": "ambient-c-launcher",
+                        "CMAKE_CXX_COMPILER_LAUNCHER": "ambient-cxx-launcher",
+                    },
+                ),
+                mock.patch.object(campaign, "resolve_cache_tool", return_value="/bin/true"),
+                mock.patch.object(campaign, "run_output", return_value="empty stats"),
+                mock.patch.object(campaign, "version", return_value={"path": "/bin/true"}),
+            ):
+                sccache_env, _ = campaign.cache_environment("sccache", Path(temporary_directory) / "sccache")
         self.assertNotIn("SCCACHE_DISABLE", sccache_env)
         self.assertEqual(sccache_env["CCACHE_DISABLE"], "1")
-        for cache_env in (ccache_env, sccache_env):
-            self.assertNotIn("CMAKE_C_COMPILER_LAUNCHER", cache_env)
-            self.assertNotIn("CMAKE_CXX_COMPILER_LAUNCHER", cache_env)
+        self.assertNotIn("CMAKE_C_COMPILER_LAUNCHER", sccache_env)
+        self.assertNotIn("CMAKE_CXX_COMPILER_LAUNCHER", sccache_env)
 
     def test_cache_off_clears_launchers_in_environment_and_cmake_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
