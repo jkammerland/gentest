@@ -412,7 +412,8 @@ set(_bazel_env
   "HOME=$ENV{HOME}")
 set(_local_bazel_env
   ${_bazel_env}
-  "GENTEST_BAZEL_LOCAL_CLANG=${_clang}")
+  "GENTEST_BAZEL_LOCAL_CLANG=${_clang}"
+  "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}")
 
 # The source-package fallback remains usable for local development, but its
 # tool closure is deliberately not a remote bundle. Its actions must carry
