@@ -80,6 +80,31 @@ function(_run_uncacheable_twice source label)
   endif()
 endfunction()
 
+function(_assert_lookup_guards_incomplete source label)
+  set(_output_dir "${_work_dir}/generated/${label}_lookup_guards")
+  set(_lookup_guard_output "${_output_dir}/lookup_guards.json")
+  file(MAKE_DIRECTORY "${_output_dir}")
+  execute_process(
+    COMMAND "${PROG}"
+      --jobs=1
+      --lookup-guard-output "${_lookup_guard_output}"
+      --tu-out-dir "${_output_dir}"
+      --tu-header-output "${_output_dir}/cases.gentest.h"
+      --compdb "${_work_dir}"
+      "${source}"
+    RESULT_VARIABLE _guard_rc
+    OUTPUT_VARIABLE _guard_out
+    ERROR_VARIABLE _guard_err)
+  if(NOT _guard_rc EQUAL 0)
+    message(FATAL_ERROR "Lookup-guard probe '${label}' failed.\n${_guard_out}\n${_guard_err}")
+  endif()
+  file(READ "${_lookup_guard_output}" _guard_json)
+  string(JSON _guard_complete GET "${_guard_json}" complete)
+  if(_guard_complete)
+    message(FATAL_ERROR "Unsafe lookup '${label}' published a reusable lookup-guard sidecar.\n${_guard_json}")
+  endif()
+endfunction()
+
 # Physical identity participates in a fingerprint even when the header bytes
 # are unchanged: a symlink target or inode/hard-link replacement can change
 # Clang FileEntry / pragma-once behavior.
@@ -240,6 +265,39 @@ _write_compdb("${_forced_source}" "-include" "forced.hpp")
 _run("${_forced_source}" forced_relative bypass)
 _write_compdb("${_forced_source}" "-fmodules")
 _run("${_forced_source}" modules_bypass bypass)
+
+# A modular header still participates in an include lookup. The module
+# artifact alone cannot represent a future higher-priority textual shadow, so
+# Xmake must not reuse this lookup snapshot.
+set(_header_module_source "${_work_dir}/header_module_cases.cpp")
+set(_header_module_map "${_work_dir}/early/module.modulemap")
+set(_header_module_pcm "${_work_dir}/CacheHeaderModule.pcm")
+gentest_fixture_write_file("${_work_dir}/early/module_header.hpp" "#pragma once\ninline constexpr int module_header_value = 1;\n")
+gentest_fixture_write_file("${_header_module_map}"
+  "module CacheHeaderModule { header \"module_header.hpp\" export * }\n")
+gentest_fixture_write_file("${_header_module_source}"
+  "#include <module_header.hpp>\n[[using gentest: test(\"cache/header_module\")]] void cache_header_module() {}\n")
+gentest_normalize_std_flag_for_compiler(_header_module_std "${_clang_norm}" "${CODEGEN_STD}")
+set(_header_module_compile_args "${_header_module_std}")
+if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+  list(APPEND _header_module_compile_args "${TARGET_ARG}")
+endif()
+list(APPEND _header_module_compile_args
+  -fmodules -fmodule-name=CacheHeaderModule -Xclang -emit-module -x c++ -c
+  "${_header_module_map}" "-I${_work_dir_norm}/early" -o "${_header_module_pcm}")
+execute_process(
+  COMMAND "${_clang_norm}" ${_header_module_compile_args}
+  RESULT_VARIABLE _header_module_compile_rc
+  OUTPUT_VARIABLE _header_module_compile_out
+  ERROR_VARIABLE _header_module_compile_err)
+if(NOT _header_module_compile_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Could not prebuild the header-module lookup fixture.\n${_header_module_compile_out}\n${_header_module_compile_err}")
+endif()
+_write_compdb("${_header_module_source}"
+  -fmodules "-fmodule-map-file=${_header_module_map}" "-fmodule-file=CacheHeaderModule=${_header_module_pcm}")
+_assert_lookup_guards_incomplete("${_header_module_source}" header_module)
+
 _write_compdb("${_forced_source}" "-Xclang" "-chain-include" "-Xclang" "${_forced_header}")
 _run("${_forced_source}" chain_include_bypass bypass)
 
@@ -353,6 +411,25 @@ inline constexpr bool cache_trigraph_spliced_embed_present = false;
     message(FATAL_ERROR
       "Expected trigraph-spliced __has_embed payload in generated depfile.\n${_trigraph_spliced_embed_depfile}")
   endif()
+
+  # An earlier include_next bypasses textual caching but is still representable
+  # by conservative lookup guards. A later entered buffer containing embed
+  # syntax must independently make the Xmake sidecar incomplete on Clang 20/21.
+  gentest_fixture_write_file("${_work_dir}/early/embed_sequence.hpp" "#include_next <embed_sequence.hpp>\n")
+  gentest_fixture_write_file("${_work_dir}/late/embed_sequence.hpp" "#pragma once\n")
+  gentest_fixture_write_file("${_work_dir}/embed_after_bypass.hpp" [=[
+#if __has_embed("embed_payload.bin")
+inline constexpr bool cache_embed_after_bypass = true;
+#endif
+]=])
+  set(_embed_after_bypass_source "${_work_dir}/embed_after_bypass_cases.cpp")
+  gentest_fixture_write_file("${_embed_after_bypass_source}" [=[
+#include <embed_sequence.hpp>
+#include "embed_after_bypass.hpp"
+[[using gentest: test("cache/embed_after_bypass")]] void cache_embed_after_bypass_case() {}
+]=])
+  _write_compdb("${_embed_after_bypass_source}")
+  _assert_lookup_guards_incomplete("${_embed_after_bypass_source}" embed_after_bypass)
 endif()
 
 set(_overlay "${_work_dir}/empty-overlay.yaml")
