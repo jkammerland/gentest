@@ -74,8 +74,8 @@ gentest_make_public_api_include_args(
   APPLE_SYSROOT)
 list(APPEND _clang_args "${_codegen_std}" ${_public_include_args} "-I${_source_dir}" "-DGENTEST_CODEGEN=1")
 
-gentest_check_run_or_fail(
-  COMMAND "${PROG}"
+set(_direct_codegen_command
+  "${PROG}"
     --tu-out-dir "${_generated_dir}"
     --tu-header-output "${_header}"
     --artifact-owner-source "${_owner_source}"
@@ -84,7 +84,9 @@ gentest_check_run_or_fail(
     --depfile "${_depfile}"
     "${_wrapper_source}"
     --
-    ${_clang_args}
+    ${_clang_args})
+gentest_check_run_or_fail(
+  COMMAND ${_direct_codegen_command}
   STRIP_TRAILING_WHITESPACE)
 
 foreach(_expected_file IN ITEMS "${_header}" "${_manifest}" "${_depfile}")
@@ -92,6 +94,25 @@ foreach(_expected_file IN ITEMS "${_header}" "${_manifest}" "${_depfile}")
     message(FATAL_ERROR "Expected direct protocol output '${_expected_file}'")
   endif()
 endforeach()
+
+# The wrapper probes the generated header with __has_include. On a repeat
+# invocation that header already exists, but an output must never be emitted as
+# its own depfile input (Ninja would reject the resulting self-cycle).
+gentest_check_run_or_fail(
+  COMMAND ${_direct_codegen_command}
+  STRIP_TRAILING_WHITESPACE)
+file(READ "${_depfile}" _repeat_depfile_text)
+string(FIND "${_repeat_depfile_text}" " : " _repeat_dep_separator)
+if(_repeat_dep_separator EQUAL -1)
+  message(FATAL_ERROR "Direct protocol depfile has no target/dependency separator.\n${_repeat_depfile_text}")
+endif()
+math(EXPR _repeat_dep_start "${_repeat_dep_separator} + 3")
+string(SUBSTRING "${_repeat_depfile_text}" ${_repeat_dep_start} -1 _repeat_dependencies)
+get_filename_component(_header_name "${_header}" NAME)
+string(FIND "${_repeat_dependencies}" "${_header_name}" _self_dependency_pos)
+if(NOT _self_dependency_pos EQUAL -1)
+  message(FATAL_ERROR "Generated header was emitted as its own depfile dependency.\n${_repeat_depfile_text}")
+endif()
 
 file(READ "${_header}" _header_text)
 string(FIND "${_header_text}" "protocol/direct_textual" _case_name_pos)
