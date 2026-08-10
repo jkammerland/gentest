@@ -249,6 +249,15 @@ bool materialize_file(const MaterializationPaths &paths, std::string_view expect
         fs::remove(temporary, ignored);
         return false;
     }
+    // Cache entries are intentionally read-only. copy_file can preserve that
+    // attribute (notably on NTFS), but invocation-local PCMs are ordinary
+    // compiler outputs and must remain replaceable by later codegen runs.
+    fs::permissions(temporary, fs::perms::owner_write, fs::perm_options::add, ec);
+    if (ec) {
+        std::error_code ignored;
+        fs::remove(temporary, ignored);
+        return false;
+    }
     std::uintmax_t copied_size = 0;
     const auto     copied_hash = sha256_file(temporary, kMaxPcmBytes, &copied_size);
     if (!copied_hash.has_value() || copied_size != expected_size || *copied_hash != expected_hash || !validate_before_publish() ||
