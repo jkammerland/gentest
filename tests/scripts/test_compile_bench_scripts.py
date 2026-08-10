@@ -397,6 +397,11 @@ class CampaignContractTests(unittest.TestCase):
         self.assertEqual(campaign.classify(["tests/gentest_unit_tests"], ("gentest_unit_tests",)), "link_or_archive")
         self.assertEqual(campaign.classify(["tests/gentest_unit_tests"]), "other")
 
+    def test_target_named_output_directory_is_not_a_link_edge(self) -> None:
+        staging_output = "generated/campaign_eight_tu/compdb/compile_commands.checked"
+        self.assertEqual(campaign.classify([staging_output], ("campaign_eight_tu",)), "other")
+        self.assertEqual(campaign.classify(["/tmp/build/campaign_eight_tu"], ("campaign_eight_tu",)), "link_or_archive")
+
     def test_codegen_cap_validation_rejects_ambiguous_sweeps(self) -> None:
         self.assertEqual(parse_codegen_caps("1,auto,4"), [("1", 1), ("auto", 0), ("4", 4)])
         with self.assertRaisesRegex(ValueError, "repeat a cap label"):

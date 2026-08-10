@@ -393,7 +393,6 @@ def classify(outputs: list[str], executable_targets: tuple[str, ...] = ()) -> st
     target_names = {Path(target).name.removesuffix(".exe") for target in executable_targets}
     if any(
         output.endswith((".a", ".lib", ".exe"))
-        or "/campaign_" in output
         or Path(output).name.removesuffix(".exe") in target_names
         for output in outputs
     ):
