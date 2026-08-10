@@ -6685,7 +6685,7 @@ int main(int argc, const char **argv) {
         }
     };
     const auto effective_configured_include_root_paths = [](std::span<const std::string> command_line, std::string_view working_directory) {
-        static constexpr std::array<std::string_view, 9> split_flags = {
+        static constexpr std::array<std::string_view, 11> split_flags = {
             "-I",
             "-isystem",
             "-iquote",
@@ -6695,6 +6695,8 @@ int main(int argc, const char **argv) {
             "-internal-isystem",
             "-internal-externc-isystem",
             "-internal-iframework",
+            "-cxx-isystem",
+            "-stdlib++-isystem",
         };
         std::vector<std::string> roots;
         bool                     complete = true;

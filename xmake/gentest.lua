@@ -1275,6 +1275,7 @@ local function mock_codegen_args(compdb_dir, host_clang, scan_deps, config)
     end
     append_parse_cache_args(args)
     append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args, config.forced_includes)
+    append_raw_user_clang_args(args, config.target_clang_args)
     return args
 end
 
@@ -1333,6 +1334,7 @@ local function suite_codegen_args(compdb_dir, host_clang, scan_deps, config)
     end
     append_parse_cache_args(args)
     append_common_codegen_driver_args(args, config.extra_includes, config.defines, config.clang_args)
+    append_raw_user_clang_args(args, config.target_clang_args)
     return args
 end
 
@@ -1460,7 +1462,29 @@ local function target_codegen_identity(target, config, codegen, compdb_dir, host
     return table.concat(target_values, "\30")
 end
 
+local function collect_target_codegen_clang_args(target, config)
+    local target_clang_args = {}
+    local seen_target_clang_args = {}
+    for _, known in ipairs(gentest_common_cxxflags()) do
+        seen_target_clang_args[tostring(known)] = true
+    end
+    for _, known in ipairs(config.clang_args or {}) do
+        seen_target_clang_args[tostring(known)] = true
+    end
+    for _, flag_group in ipairs({target:get("cxflags") or {}, target:get("cxxflags") or {}}) do
+        for _, flag in ipairs(flag_group) do
+            local text = tostring(flag)
+            if text ~= "" and not seen_target_clang_args[text] then
+                seen_target_clang_args[text] = true
+                table.insert(target_clang_args, text)
+            end
+        end
+    end
+    return target_clang_args
+end
+
 local function prepare_mock_codegen_inputs(target, config)
+    config.target_clang_args = collect_target_codegen_clang_args(target, config)
     config.extra_includes = collect_target_package_include_dirs(target)
     local dep_include_dirs = resolve_dep_inputs(config.deps)
     local dep_metadata_include_dirs, dep_module_sources, support_headers = collect_mock_metadata_inputs(config.deps)
@@ -1485,6 +1509,7 @@ local function prepare_mock_codegen_inputs(target, config)
 end
 
 local function prepare_suite_codegen_inputs(target, config)
+    config.target_clang_args = collect_target_codegen_clang_args(target, config)
     local seen_extra_includes = {}
     for _, include_dir in ipairs(config.extra_includes) do
         seen_extra_includes[include_dir] = true
@@ -1522,6 +1547,7 @@ local function codegen_static_dependencies(target, config, codegen, compdb_dir, 
     -- any headers described by those files ourselves.
     append_indirect_clang_inputs(files, seen, gentest_common_cxxflags())
     append_indirect_clang_inputs(files, seen, config.clang_args)
+    append_indirect_clang_inputs(files, seen, config.target_clang_args)
     if config.kind == "modules" then
         for _, module_source in ipairs(default_external_module_sources()) do
             append_external_module_source_path(files, seen, module_source)
