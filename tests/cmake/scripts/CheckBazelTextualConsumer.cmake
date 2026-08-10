@@ -340,6 +340,7 @@ set(_gentest_bazel_build_args
   --repo_env=LLVM_DIR
   --repo_env=Clang_DIR
   --repo_env=GENTEST_BAZEL_LOCAL_CLANG
+  --repo_env=GENTEST_BAZEL_LOCAL_SDKROOT
   --repo_env=HOME
   --action_env=HOME
   --verbose_failures
@@ -357,6 +358,7 @@ execute_process(
           "LLVM_DIR=${_llvm_dir}"
           "Clang_DIR=${_clang_dir}"
           "GENTEST_BAZEL_LOCAL_CLANG=${_clang_cxx}"
+          "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}"
           "HOME=$ENV{HOME}"
           ${_bazel_command}
           ${_gentest_bazel_build_args}
@@ -390,6 +392,7 @@ execute_process(
           "LLVM_DIR=${_llvm_dir}"
           "Clang_DIR=${_clang_dir}"
           "GENTEST_BAZEL_LOCAL_CLANG=${_clang_cxx}"
+          "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}"
           "HOME=$ENV{HOME}"
           ${_bazel_command}
           --output_user_root=${_bazel_output_root}
@@ -443,6 +446,7 @@ execute_process(
           "LLVM_DIR=${_llvm_dir}"
           "Clang_DIR=${_clang_dir}"
           "GENTEST_BAZEL_LOCAL_CLANG=${_clang_cxx}"
+          "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}"
           "HOME=$ENV{HOME}"
           ${_bazel_command}
           --output_user_root=${_bazel_output_root}
