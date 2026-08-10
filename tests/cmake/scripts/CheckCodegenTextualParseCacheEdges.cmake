@@ -30,7 +30,8 @@ function(_write_compdb source)
     list(APPEND _args "${TARGET_ARG}")
   endif()
   gentest_normalize_std_flag_for_compiler(_std "${_compiler}" "${CODEGEN_STD}")
-  list(APPEND _args "${_std}" "-I${_work_dir_norm}/early" "-I${_work_dir_norm}/late" "-I${_work_dir_norm}" ${ARGN}
+  list(APPEND _args "${_std}" ${_cache_test_include_prefix} "-I${_work_dir_norm}/early" "-I${_work_dir_norm}/late"
+    "-I${_work_dir_norm}" ${ARGN}
     "-c" "${source}" "-o" "${_work_dir}/object.o")
   gentest_fixture_make_compdb_entry(_entry DIRECTORY "${_work_dir_norm}" FILE "${source}" ARGUMENTS ${_args})
   gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_entry}")
@@ -134,6 +135,30 @@ _run("${_probe_source}" probe_cold miss)
 _run("${_probe_source}" probe_hit hit)
 gentest_fixture_write_file("${_work_dir}/early/optional_probe.hpp" "#pragma once\ninline constexpr int optional_probe = 1;\n")
 _run("${_probe_source}" probe_shadow miss)
+
+# Clang drops nonexistent include roots from HeaderSearch, so preprocessing
+# callbacks cannot emit lookup guards below them. Their existence state is
+# part of the cache context: creating an earlier configured root must force a
+# miss before that root can shadow a later header.
+set(_appearing_root "${_work_dir}/appearing")
+file(TO_CMAKE_PATH "${_appearing_root}" _appearing_root_norm)
+set(_root_source "${_work_dir}/root_cases.cpp")
+gentest_fixture_write_file("${_work_dir}/late/root_appearance.hpp"
+  "[[using gentest: test(\"cache/root_late\")]] inline void cache_root_case() {}\n")
+gentest_fixture_write_file("${_root_source}" "#include <root_appearance.hpp>\n")
+set(_cache_test_include_prefix "-I${_appearing_root_norm}")
+_write_compdb("${_root_source}")
+_run("${_root_source}" root_missing_cold miss)
+_run("${_root_source}" root_missing_hit hit)
+file(MAKE_DIRECTORY "${_appearing_root}")
+gentest_fixture_write_file("${_appearing_root}/root_appearance.hpp"
+  "[[using gentest: test(\"cache/root_early\")]] inline void cache_root_case() {}\n")
+_run("${_root_source}" root_appeared miss)
+file(READ "${_work_dir}/generated/root_appeared/cases.gentest.h" _root_appeared_output)
+if(NOT _root_appeared_output MATCHES "cache/root_early")
+  message(FATAL_ERROR "Appearing include root did not replace the later header.\n${_root_appeared_output}")
+endif()
+unset(_cache_test_include_prefix)
 
 # include_next and __has_include_next do not have a complete generic lookup
 # callback. They deliberately bypass and never store a cache result.

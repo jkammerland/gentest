@@ -6320,7 +6320,21 @@ int main(int argc, const char **argv) {
         }
         return key;
     };
-    const auto effective_include_roots = [](std::span<const std::string> command_line, std::string_view working_directory) {
+    const auto include_root_metadata = [](const std::filesystem::path &path) {
+        const std::string normalized = normalize_dependency_path(path.generic_string());
+        std::error_code   ec;
+        const auto        status = std::filesystem::status(path, ec);
+        std::string_view  state  = "other";
+        if (ec) {
+            state = ec == std::errc::no_such_file_or_directory ? "missing" : "unreadable";
+        } else if (!std::filesystem::exists(status)) {
+            state = "missing";
+        } else if (std::filesystem::is_directory(status)) {
+            state = "directory";
+        }
+        return fmt::format("{};state={}", normalized, state);
+    };
+    const auto effective_include_roots = [&](std::span<const std::string> command_line, std::string_view working_directory) {
         static constexpr std::array<std::string_view, 9> split_flags = {
             "-I",
             "-isystem",
@@ -6356,11 +6370,11 @@ int main(int argc, const char **argv) {
             if (path.is_relative() && !working_directory.empty()) {
                 path = std::filesystem::path{std::string{working_directory}} / path;
             }
-            roots.push_back(fmt::format("{}={}", flag, normalize_dependency_path(path.generic_string())));
+            roots.push_back(fmt::format("{}={}", flag, include_root_metadata(path)));
         }
         return roots;
     };
-    const auto append_ambient_include_metadata = [](std::vector<std::string> &roots, std::string_view working_directory) {
+    const auto append_ambient_include_metadata = [&](std::vector<std::string> &roots, std::string_view working_directory) {
         static constexpr std::array<std::string_view, 7> names = {
             "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH", "OBJCPLUS_INCLUDE_PATH", "INCLUDE", "SDKROOT",
         };
@@ -6384,13 +6398,14 @@ int main(int argc, const char **argv) {
                 if (root.empty()) {
                     // An empty compiler include-path component means the
                     // driver's working directory, not an inert marker.
-                    roots.push_back(fmt::format("env:{}=<empty:{}>", name, normalize_dependency_path(working_directory)));
+                    roots.push_back(
+                        fmt::format("env:{}=<empty:{}>", name, include_root_metadata(std::filesystem::path{working_directory})));
                 } else {
                     std::filesystem::path path{std::string{root}};
                     if (path.is_relative() && !working_directory.empty()) {
                         path = std::filesystem::path{std::string{working_directory}} / path;
                     }
-                    roots.push_back(fmt::format("env:{}={}", name, normalize_dependency_path(path.generic_string())));
+                    roots.push_back(fmt::format("env:{}={}", name, include_root_metadata(path)));
                 }
                 if (end == std::string::npos) {
                     break;
