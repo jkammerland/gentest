@@ -478,6 +478,7 @@ def validate_contract(
     active_tus: int,
     expects_codegen: bool,
     strict_downstream_noop: bool,
+    content_stable_compdb_stage: bool = False,
 ) -> None:
     edges = int(profile.get("unique_edges", 0))
     categories = profile.get("categories", {})
@@ -499,7 +500,15 @@ def validate_contract(
         raise RuntimeError(
             f"shared-header-edit invalidation contract failed: expected codegen and {active_tus} generated compile edges, got {profile}"
         )
-    if name in {"equivalent-compdb-rewrite", "unrelated-compdb-rewrite"} and codegen < 1:
+    if name == "equivalent-compdb-rewrite" and content_stable_compdb_stage:
+        compiled = int(categories.get("compile", 0))
+        linked = int(categories.get("link_or_archive", 0))
+        if edges < 1 or codegen or generated or compiled or linked:
+            raise RuntimeError(
+                "equivalent-compdb-rewrite invalidation contract failed: expected a staging-only edge, "
+                f"got {profile}"
+            )
+    elif name in {"equivalent-compdb-rewrite", "unrelated-compdb-rewrite"} and codegen < 1:
         raise RuntimeError(f"{name} invalidation contract failed: expected codegen edge, got {profile}")
 
 
@@ -584,7 +593,14 @@ def run_scenarios(
                     else:
                         append_change(changed_path, scenario)
                     elapsed, profile = build_target(source, build, targets, jobs, env)
-                    validate_contract(scenario, profile, active_tus, expects_codegen, strict_downstream_noop)
+                    validate_contract(
+                        scenario,
+                        profile,
+                        active_tus,
+                        expects_codegen,
+                        strict_downstream_noop,
+                        scenario == "equivalent-compdb-rewrite" and uses_content_stable_compdb_stage(build),
+                    )
                 finally:
                     restore_file(changed_path, original, original_stat)
                 _, settling_profile = build_target(source, build, targets, jobs, env)

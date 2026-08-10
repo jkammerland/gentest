@@ -402,6 +402,21 @@ class CampaignContractTests(unittest.TestCase):
         self.assertEqual(campaign.classify([staging_output], ("campaign_eight_tu",)), "other")
         self.assertEqual(campaign.classify(["/tmp/build/campaign_eight_tu"], ("campaign_eight_tu",)), "link_or_archive")
 
+    def test_equivalent_compdb_rewrite_accepts_only_staging_with_stable_snapshot(self) -> None:
+        staging_only = {"unique_edges": 1, "categories": {"other": 1}}
+        campaign.validate_contract("equivalent-compdb-rewrite", staging_only, 8, True, True, True)
+        with self.assertRaisesRegex(RuntimeError, "staging-only edge"):
+            campaign.validate_contract(
+                "equivalent-compdb-rewrite",
+                {"unique_edges": 2, "categories": {"other": 1, "codegen": 1}},
+                8,
+                True,
+                True,
+                True,
+            )
+        with self.assertRaisesRegex(RuntimeError, "expected codegen edge"):
+            campaign.validate_contract("unrelated-compdb-rewrite", staging_only, 8, True, True, True)
+
     def test_codegen_cap_validation_rejects_ambiguous_sweeps(self) -> None:
         self.assertEqual(parse_codegen_caps("1,auto,4"), [("1", 1), ("auto", 0), ("4", 4)])
         with self.assertRaisesRegex(ValueError, "repeat a cap label"):
