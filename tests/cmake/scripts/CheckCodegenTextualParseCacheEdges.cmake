@@ -724,6 +724,7 @@ gentest_fixture_make_compdb_entry(_multi_command_zero_entry DIRECTORY "${_work_d
 gentest_fixture_make_compdb_entry(_multi_command_one_entry DIRECTORY "${_work_dir_norm}" FILE "${_multi_command_source}"
   ARGUMENTS ${_multi_command_one})
 gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_multi_command_zero_entry}" "${_multi_command_one_entry}")
+_assert_lookup_guards_incomplete("${_multi_command_source}" multi_command)
 _run("${_multi_command_source}" multi_command_one bypass)
 
 set(_multi_command_two ${_multi_command_common})

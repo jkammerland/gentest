@@ -7173,8 +7173,11 @@ int main(int argc, const char **argv) {
             (mock_collector.has_value() && mock_collector->has_errors())) {
             return 1;
         }
-        depfile_dependencies   = std::move(depfile_dependencies_local);
-        lookup_guards_complete = lookup_state_complete;
+        depfile_dependencies = std::move(depfile_dependencies_local);
+        // Preserve any incompleteness found while preflighting configured
+        // roots (for example, more than one compile command for a source).
+        // The callback result can only make that state more conservative.
+        lookup_guards_complete = lookup_guards_complete && lookup_state_complete;
     }
 
     const auto merge_started = TimingRecorder::Clock::now();
