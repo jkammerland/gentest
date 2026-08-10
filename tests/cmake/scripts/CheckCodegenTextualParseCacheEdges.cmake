@@ -293,6 +293,15 @@ gentest_fixture_write_file("${_overlay}" "{ 'version': 0, 'roots': [] }\n")
 _write_compdb("${_forced_source}" "-ivfsoverlay" "${_overlay}")
 _run("${_forced_source}" overlay_bypass bypass)
 
+# XRay attribute/always/never list files are semantic cc1 inputs, not
+# preprocessing dependencies. Cover joined driver and split forwarded forms.
+set(_xray_list "${_work_dir}/xray-attributes.txt")
+gentest_fixture_write_file("${_xray_list}" "")
+_write_compdb("${_forced_source}" "-fxray-attr-list=${_xray_list}")
+_run_uncacheable_twice("${_forced_source}" xray_attr_list)
+_write_compdb("${_forced_source}" "-Xclang" "-fxray-always-instrument=${_xray_list}")
+_run_uncacheable_twice("${_forced_source}" xray_forwarded_list)
+
 # Sanitizer/coverage ignorelists are driver inputs rather than preprocessing
 # dependencies. Replacing one must be observed by a cold parse.
 set(_sanitize_ignorelist "${_work_dir}/sanitize-ignorelist.txt")
