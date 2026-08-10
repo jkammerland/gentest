@@ -166,10 +166,44 @@ class CampaignContractTests(unittest.TestCase):
                     "collect_outputs",
                     side_effect=[[baseline_output], [baseline_output, extra_output]],
                 ),
+                mock.patch.object(verifier, "remove_outputs"),
                 mock.patch.object(sys, "stdout", io.StringIO()),
                 mock.patch.object(sys, "stderr", io.StringIO()),
             ):
                 self.assertEqual(verifier.main(), 1)
+
+    def test_parallel_verifier_detects_missing_reemission_after_removing_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            build_dir = Path(temporary_directory)
+            (build_dir / "build.ninja").write_text("# fixture\n", encoding="utf-8")
+            output_dir = build_dir / "generated"
+            output_dir.mkdir()
+            baseline_output = output_dir / "tu_0000.gentest.h"
+            baseline_output.write_text("serial baseline\n", encoding="utf-8")
+            command = f"gentest_codegen --jobs=1 --tu-out-dir {output_dir}"
+            with (
+                mock.patch.object(sys, "argv", ["verify_codegen_parallel.py", "--build-dir", str(build_dir), "--repeats", "1"]),
+                mock.patch.object(verifier, "parse_codegen_commands", return_value={"gentest_codegen_parallel_bench_obj": command}),
+                mock.patch.object(verifier, "run_codegen", return_value={"effective": 1}),
+                mock.patch.object(sys, "stdout", io.StringIO()),
+                mock.patch.object(sys, "stderr", io.StringIO()),
+            ):
+                self.assertEqual(verifier.main(), 1)
+                self.assertFalse(baseline_output.exists())
+
+    def test_ninja_log_snapshot_survives_compaction(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            build_dir = Path(temporary_directory)
+            ninja_log = build_dir / ".ninja_log"
+            ninja_log.write_text(
+                "# ninja log v5\n1\t2\t3\ta.o\thash-a\n1\t2\t3\tb.o\thash-b\n1\t2\t3\tc.o\thash-c\n",
+                encoding="utf-8",
+            )
+            before = campaign.ninja_log_snapshot(build_dir)
+            ninja_log.write_text("# ninja log v5\n4\t5\t6\ta.o\thash-a\n", encoding="utf-8")
+            summary = campaign.summarize_new_ninja_edges(build_dir, before)
+        self.assertEqual(summary["unique_edges"], 1)
+        self.assertEqual(summary["categories"], {"compile": 1})
 
     def test_cache_mode_and_dirty_checkout_validation_are_explicit(self) -> None:
         self.assertIsNone(resolve_cache_tool("off", lambda _: None))

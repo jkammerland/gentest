@@ -92,6 +92,11 @@ def hash_outputs(paths: list[Path]) -> dict[str, str]:
     return {str(p): sha256_file(p) for p in paths}
 
 
+def remove_outputs(paths: list[Path]) -> None:
+    for path in paths:
+        path.unlink(missing_ok=True)
+
+
 def run_codegen(command: str, jobs: str | int) -> dict[str, object]:
     rewritten, cap = rewrite_codegen_jobs(command, jobs)
     proc = subprocess.run(rewritten, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=os.environ.copy(), text=False)
@@ -171,6 +176,7 @@ def main() -> int:
     parallel_caps: list[dict[str, object]] = []
     for i in range(args.repeats):
         print(f"[verify] Running parallel (iteration {i + 1}/{args.repeats}) ...")
+        remove_outputs(outputs)
         try:
             parallel_caps.append(run_codegen(command, args.parallel_jobs))
         except CodegenCommandError as error:

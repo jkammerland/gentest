@@ -353,9 +353,17 @@ add_custom_target(campaign_eight_binary DEPENDS {binary_names})
     }
 
 
-def ninja_log_lines(build: Path) -> int:
+def ninja_log_snapshot(build: Path) -> dict[str, tuple[str, str, str, str]]:
     path = build / ".ninja_log"
-    return len(path.read_text(encoding="utf-8", errors="replace").splitlines()) if path.exists() else 0
+    records: dict[str, tuple[str, str, str, str]] = {}
+    if not path.exists():
+        return records
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        fields = line.split("\t")
+        if len(fields) < 5 or line.startswith("#"):
+            continue
+        records[fields[3]] = (fields[0], fields[1], fields[2], fields[4])
+    return records
 
 
 def classify(outputs: list[str], executable_targets: tuple[str, ...] = ()) -> str:
@@ -376,18 +384,18 @@ def classify(outputs: list[str], executable_targets: tuple[str, ...] = ()) -> st
     return "other"
 
 
-def summarize_new_ninja_edges(build: Path, start_line: int, executable_targets: tuple[str, ...] = ()) -> dict[str, object]:
-    path = build / ".ninja_log"
+def summarize_new_ninja_edges(
+    build: Path,
+    before: dict[str, tuple[str, str, str, str]],
+    executable_targets: tuple[str, ...] = (),
+) -> dict[str, object]:
     categories: dict[str, int] = {}
     edges: dict[tuple[str, str, str], list[str]] = {}
-    if not path.exists():
-        return {"unique_edges": 0, "categories": categories}
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines()[start_line:]:
-        fields = line.split("\t")
-        if len(fields) < 5 or line.startswith("#"):
+    for output, record in ninja_log_snapshot(build).items():
+        if before.get(output) == record:
             continue
-        key = (fields[0], fields[1], fields[4])
-        edges.setdefault(key, []).append(fields[3])
+        key = (record[0], record[1], record[3])
+        edges.setdefault(key, []).append(output)
     for outputs in edges.values():
         category = classify(outputs, executable_targets)
         categories[category] = categories.get(category, 0) + 1
@@ -395,11 +403,11 @@ def summarize_new_ninja_edges(build: Path, start_line: int, executable_targets: 
 
 
 def build_target(source: Path, build: Path, targets: list[str], jobs: int, env: dict[str, str]) -> tuple[float, dict[str, object]]:
-    start_line = ninja_log_lines(build)
+    before = ninja_log_snapshot(build)
     command = ["cmake", "--build", str(build), "--target", *targets, "-j", str(jobs)]
     start = time.perf_counter()
     run(command, cwd=source, env=env, capture=True)
-    return time.perf_counter() - start, summarize_new_ninja_edges(build, start_line, tuple(targets))
+    return time.perf_counter() - start, summarize_new_ninja_edges(build, before, tuple(targets))
 
 
 def reconfigure(source: Path, build: Path, configure: list[str], env: dict[str, str]) -> float:
