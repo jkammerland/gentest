@@ -66,9 +66,10 @@ build sample.
 The reconfigure and equivalent-compdb-rewrite scenarios preserve CMake's newly
 written `compile_commands.json` timestamp. Before content-stable compdb staging
 exists, the harness records the real codegen-only baseline. With staging
-present it permits the staging edge itself but rejects codegen, compile, and
-link work. The unrelated-compdb rewrite changes staged content and must still
-rerun codegen.
+present, reconfigure permits only the staging edge. An equivalent JSON rewrite
+may first normalize bytes and rerun codegen or may be byte-identical and remain
+staging-only; both forms must avoid downstream compile/link work. The unrelated
+compdb rewrite changes staged content and must still rerun codegen.
 The repository E2E lane separately records its current persistent codegen-only
 depfile edge (and rejects any compile or link edge) so the campaign reports
 real invalidation behavior instead of mislabelling it as a clean no-op.

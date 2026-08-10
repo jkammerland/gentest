@@ -503,9 +503,9 @@ def validate_contract(
     if name == "equivalent-compdb-rewrite" and content_stable_compdb_stage:
         compiled = int(categories.get("compile", 0))
         linked = int(categories.get("link_or_archive", 0))
-        if edges < 1 or codegen or generated or compiled or linked:
+        if edges < 1 or generated or compiled or linked:
             raise RuntimeError(
-                "equivalent-compdb-rewrite invalidation contract failed: expected a staging-only edge, "
+                "equivalent-compdb-rewrite invalidation contract failed: expected staging/codegen without downstream work, "
                 f"got {profile}"
             )
     elif name in {"equivalent-compdb-rewrite", "unrelated-compdb-rewrite"} and codegen < 1:

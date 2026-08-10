@@ -402,13 +402,15 @@ class CampaignContractTests(unittest.TestCase):
         self.assertEqual(campaign.classify([staging_output], ("campaign_eight_tu",)), "other")
         self.assertEqual(campaign.classify(["/tmp/build/campaign_eight_tu"], ("campaign_eight_tu",)), "link_or_archive")
 
-    def test_equivalent_compdb_rewrite_accepts_only_staging_with_stable_snapshot(self) -> None:
+    def test_equivalent_compdb_rewrite_accepts_staging_or_codegen_without_downstream_work(self) -> None:
         staging_only = {"unique_edges": 1, "categories": {"other": 1}}
         campaign.validate_contract("equivalent-compdb-rewrite", staging_only, 8, True, True, True)
-        with self.assertRaisesRegex(RuntimeError, "staging-only edge"):
+        codegen_only = {"unique_edges": 2, "categories": {"other": 1, "codegen": 1}}
+        campaign.validate_contract("equivalent-compdb-rewrite", codegen_only, 8, True, True, True)
+        with self.assertRaisesRegex(RuntimeError, "without downstream work"):
             campaign.validate_contract(
                 "equivalent-compdb-rewrite",
-                {"unique_edges": 2, "categories": {"other": 1, "codegen": 1}},
+                {"unique_edges": 3, "categories": {"other": 1, "codegen": 1, "link_or_archive": 1}},
                 8,
                 True,
                 True,
