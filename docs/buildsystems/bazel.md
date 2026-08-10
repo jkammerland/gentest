@@ -79,6 +79,7 @@ toolchain(
     name = "registered",
     toolchain = ":impl",
     toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
+    exec_compatible_with = ["@platforms//os:linux"],
 )
 ```
 
@@ -109,6 +110,13 @@ On macOS, use `exec_os = "macos"`, package the SDK closure, and set
 that declared exec-path as `SDKROOT` without restoring ambient `PATH` or the
 client's action environment. An absolute system path or a ccache wrapper is
 not remotely portable and is not an accepted substitute for this contract.
+
+`exec_os` controls Gentest's invocation contract; it does not constrain Bazel
+toolchain resolution. Every enclosing `toolchain(...)` must set the matching
+`exec_compatible_with` value: `@platforms//os:linux`,
+`@platforms//os:osx`, or `@platforms//os:windows`. Otherwise Bazel can select
+a packaged toolchain for the wrong execution platform before Gentest sees
+`exec_os`.
 
 The legacy `codegen_host_clang` parameter remains syntactically accepted for
 source compatibility, but a nonempty value fails analysis with this migration
