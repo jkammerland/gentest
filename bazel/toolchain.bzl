@@ -5,8 +5,10 @@ runtime closure that their executables need. In particular, an LLVM package
 must include the Clang resource directory, shared libraries, and (when used)
 the clang-scan-deps runtime closure. Packaged toolchains also provide ordered
 marker files directly inside their C++ standard-library include roots and
-include those header trees in ``runtime_files``. macOS packages provide a marker file
-directly under the declared SDK root and include the full SDK in
+include those header trees in ``runtime_files``. Linux packages additionally
+provide ordered markers for Clang's resource and C system include roots; the
+actions disable all ambient standard include discovery. macOS packages provide
+a marker file directly under the declared SDK root and include the full SDK in
 ``runtime_files``. The codegen rules add the returned ``files`` depset to every
 action's declared tools.
 """
@@ -32,6 +34,7 @@ def _gentest_codegen_toolchain_impl(ctx):
     if scan_deps:
         files.append(_runfiles_files(ctx.attr.clang_scan_deps))
     cxx_standard_library_roots = ctx.files.cxx_standard_library_roots
+    system_include_roots = ctx.files.system_include_roots
     if not ctx.attr.local_only and not cxx_standard_library_roots:
         return [platform_common.ToolchainInfo(
             error = "Packaged Gentest codegen toolchains must declare cxx_standard_library_roots. " +
@@ -39,8 +42,24 @@ def _gentest_codegen_toolchain_impl(ctx):
                     "must contain the corresponding header closure. Local host bootstrap toolchains are exempt because " +
                     "their actions are forced off remote execution/cache.",
         )]
+    if not ctx.attr.local_only and not ctx.attr.exec_os:
+        return [platform_common.ToolchainInfo(
+            error = "Packaged Gentest codegen toolchains must set exec_os to linux, macos, or windows.",
+        )]
+    if not ctx.attr.local_only and ctx.attr.exec_os == "linux" and not system_include_roots:
+        return [platform_common.ToolchainInfo(
+            error = "Packaged Linux Gentest codegen toolchains must declare system_include_roots. " +
+                    "Each label must be a marker directly inside an ordered Clang resource/C system include root, and " +
+                    "runtime_files must contain the corresponding header closure.",
+        )]
+    if not ctx.attr.local_only and ctx.attr.exec_os == "macos" and not ctx.file.macos_sdk_root:
+        return [platform_common.ToolchainInfo(
+            error = "Packaged macOS Gentest codegen toolchains must declare macos_sdk_root and its runtime closure.",
+        )]
     if cxx_standard_library_roots:
         files.append(depset(cxx_standard_library_roots))
+    if system_include_roots:
+        files.append(depset(system_include_roots))
     if ctx.files.runtime_files:
         files.append(depset(ctx.files.runtime_files))
     macos_sdk_root = ctx.file.macos_sdk_root
@@ -58,6 +77,10 @@ def _gentest_codegen_toolchain_impl(ctx):
             root.path if root.is_directory else root.dirname
             for root in cxx_standard_library_roots
         ],
+        system_include_root_paths = [
+            root.path if root.is_directory else root.dirname
+            for root in system_include_roots
+        ],
         macos_sdk_root_path = (
             macos_sdk_root.path if macos_sdk_root and macos_sdk_root.is_directory else
             macos_sdk_root.dirname if macos_sdk_root else
@@ -67,6 +90,7 @@ def _gentest_codegen_toolchain_impl(ctx):
         # lane explicitly off remote execution/cache while allowing packaged
         # toolchains to retain Bazel's normal portable action-cache behavior.
         local_only = ctx.attr.local_only,
+        exec_os = ctx.attr.exec_os,
     )]
 
 gentest_codegen_toolchain = rule(
@@ -93,6 +117,11 @@ gentest_codegen_toolchain = rule(
             cfg = "exec",
             doc = "Ordered marker files located directly inside declared C++ standard-library include roots.",
         ),
+        "system_include_roots": attr.label_list(
+            allow_files = True,
+            cfg = "exec",
+            doc = "Ordered marker files inside declared Clang resource/C system include roots (required for packaged Linux tools).",
+        ),
         "macos_sdk_root": attr.label(
             allow_single_file = True,
             cfg = "exec",
@@ -101,6 +130,10 @@ gentest_codegen_toolchain = rule(
         "local_only": attr.bool(
             default = False,
             doc = "Disables remote execution/cache for actions using this local host-tool bootstrap.",
+        ),
+        "exec_os": attr.string(
+            values = ["", "linux", "macos", "windows"],
+            doc = "Execution operating system; required for packaged toolchains and omitted by the local-only bootstrap.",
         ),
     },
     doc = "Packages the complete exec-platform gentest_codegen/Clang tool closure.",
