@@ -90,15 +90,16 @@ def _gentest_exec_tools(ctx):
         fail((
             "{}: missing Gentest exec codegen toolchain. Register a toolchain of type {} with " +
             "gentest_codegen_toolchain(codegen = ..., clang = ...). The executable labels must package " +
-            "their complete runtime closure. The automatic local fallback is disabled on Windows; package " +
-            "gentest_codegen, Clang resource headers, and every required LLVM/Clang DLL as runtime_files."
+            "their complete runtime closure and declare cxx_standard_library_roots. The automatic local fallback is disabled on " +
+            "Windows; package gentest_codegen, Clang resource headers, C++ standard-library headers, and every required " +
+            "LLVM/Clang DLL as runtime_files."
         ).format(ctx.label, _GENTEST_CODEGEN_TOOLCHAIN_TYPE))
     if hasattr(tools, "error"):
         fail("{}: {}".format(ctx.label, tools.error))
     if not hasattr(tools, "codegen") or not hasattr(tools, "clang") or not hasattr(tools, "files"):
         fail((
             "{}: registered {} is not a gentest_codegen_toolchain. " +
-            "Use gentest_codegen_toolchain(codegen = ..., clang = ...)."
+            "Use gentest_codegen_toolchain(codegen = ..., clang = ..., cxx_standard_library_roots = ...)."
         ).format(ctx.label, _GENTEST_CODEGEN_TOOLCHAIN_TYPE))
     return tools
 
@@ -112,6 +113,14 @@ def _gentest_add_exec_tool_args(args, tools):
         # Do not let the generator discover clang-scan-deps through PATH. The
         # source scanner is the deterministic fallback for this toolchain.
         args.add("--scan-deps-mode=OFF")
+
+def _gentest_exec_driver_args(tools):
+    if not tools.cxx_standard_library_root_paths:
+        return []
+    return ["-nostdinc++"] + [
+        "-isystem{}".format(root)
+        for root in tools.cxx_standard_library_root_paths
+    ]
 
 def _gentest_run_codegen(ctx, tools, inputs, outputs, args, mnemonic):
     action_tools = [tools.codegen, tools.clang]
@@ -348,7 +357,7 @@ def _gentest_textual_codegen_impl(ctx):
     args.add("--")
     args.add_all(_gentest_driver_args(
         ctx.attr.defines + codegen_support.defines,
-        ["-include", "gentest/mock.h"] + ctx.attr.clang_args,
+        _gentest_exec_driver_args(exec_tools) + ["-include", "gentest/mock.h"] + ctx.attr.clang_args,
         codegen_support.include_dirs + public_include_roots + [ctx.file.defs.dirname],
         codegen_support.quote_include_dirs,
         codegen_support.system_include_dirs,
@@ -460,7 +469,7 @@ def _gentest_textual_suite_codegen_impl(ctx):
     args.add("--")
     args.add_all(_gentest_driver_args(
         ctx.attr.defines + dep_defines,
-        ctx.attr.clang_args,
+        _gentest_exec_driver_args(exec_tools) + ctx.attr.clang_args,
         dep_include_dirs,
         dep_quote_include_dirs,
         dep_system_include_dirs,
@@ -565,7 +574,7 @@ def _gentest_module_mocks_codegen_impl(ctx):
     args.add("--")
     args.add_all(_gentest_driver_args(
         ctx.attr.defines + codegen_support.defines,
-        ctx.attr.clang_args,
+        _gentest_exec_driver_args(exec_tools) + ctx.attr.clang_args,
         codegen_support.include_dirs + public_include_roots,
         codegen_support.quote_include_dirs,
         codegen_support.system_include_dirs,
@@ -752,7 +761,7 @@ def _gentest_module_suite_codegen_impl(ctx):
             dep_system_include_dirs,
             dep_framework_include_dirs,
             ctx.attr.defines + dep_defines,
-            ctx.attr.clang_args,
+            _gentest_exec_driver_args(exec_tools) + ctx.attr.clang_args,
             exec_tools.clang.executable.path,
         ),
     )
@@ -772,7 +781,7 @@ def _gentest_module_suite_codegen_impl(ctx):
     args.add("--")
     args.add_all(_gentest_driver_args(
         ctx.attr.defines + dep_defines,
-        ctx.attr.clang_args,
+        _gentest_exec_driver_args(exec_tools) + ctx.attr.clang_args,
         dep_include_dirs,
         dep_quote_include_dirs,
         dep_system_include_dirs,
