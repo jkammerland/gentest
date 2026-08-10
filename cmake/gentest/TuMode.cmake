@@ -1334,10 +1334,18 @@ function(gentest_attach_codegen target)
                 COMMENT "Staging compile commands for gentest target ${target}"
                 VERBATIM)
         endif()
+        set(_gentest_compdb_stage_dependencies
+            "${_gentest_config_compdb_check_stamp}"
+            "${_gentest_config_compdb}")
+        if(CMAKE_GENERATOR MATCHES "Makefiles")
+            # Unlike Ninja, Make does not recover an undeclared side effect.
+            # Keep the content stamp on the ordering target so deleting it
+            # invokes its missing-file-only rule. Codegen still depends only
+            # on the changed-only staged database and remains a no-op.
+            list(APPEND _gentest_compdb_stage_dependencies "${_gentest_config_compdb_stamp}")
+        endif()
         add_custom_target(${_gentest_compdb_stage_target}
-            DEPENDS
-                "${_gentest_config_compdb_check_stamp}"
-                "${_gentest_config_compdb}")
+            DEPENDS ${_gentest_compdb_stage_dependencies})
     elseif(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
         # Preserve the historic compiler-database lookup/fallback behavior for
         # consumers that intentionally leave CMAKE_EXPORT_COMPILE_COMMANDS off.
