@@ -6230,6 +6230,11 @@ int main(int argc, const char **argv) {
                 arg.starts_with("/clang:-fauto-profile")) {
                 return false;
             }
+            // OpenMP device compilation can consume host IR without exposing
+            // it through preprocessing dependency callbacks.
+            if (arg.starts_with("-fopenmp-host-ir-file-path") || arg.starts_with("/clang:-fopenmp-host-ir-file-path")) {
+                return false;
+            }
             // Sanitizer and coverage ignorelists are external semantic inputs
             // parsed by the driver/cc1, not preprocessing dependencies.
             if (arg.starts_with("-fsanitize-ignorelist") || arg.starts_with("/clang:-fsanitize-ignorelist") ||

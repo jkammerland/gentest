@@ -303,6 +303,26 @@ if(NOT _ast_replace_rc EQUAL 0)
 endif()
 _run("${_ast_merge_source}" ast_merge_replaced bypass)
 
+# OpenMP device compilation may consume a host IR file directly in cc1. That
+# file is not a preprocessing dependency, so this command shape must bypass
+# even while the IR is valid and the real parse succeeds.
+set(_openmp_host_source "${_work_dir}/openmp_host.cpp")
+set(_openmp_host_ir "${_work_dir}/openmp_host.bc")
+gentest_fixture_write_file("${_openmp_host_source}" "int gentest_openmp_host_value() { return 1; }\n")
+execute_process(
+  COMMAND "${_clang_norm}" "${_ast_std}" -fopenmp -emit-llvm -c "${_openmp_host_source}" -o "${_openmp_host_ir}"
+  RESULT_VARIABLE _openmp_host_rc
+  OUTPUT_VARIABLE _openmp_host_out
+  ERROR_VARIABLE _openmp_host_err)
+if(_openmp_host_rc EQUAL 0)
+  _write_compdb("${_forced_source}"
+    -fopenmp -Xclang -fopenmp-host-ir-file-path -Xclang "${_openmp_host_ir}")
+  _run_uncacheable_twice("${_forced_source}" openmp_host_ir)
+else()
+  message(STATUS
+    "Skipping OpenMP host-IR parse-cache probe because the compiler could not create host IR: ${_openmp_host_err}")
+endif()
+
 # Profile-guided commands can consume data files that Clang does not report
 # through preprocessing callbacks. Keep every profile mode conservative, and
 # prove that replacing a previously valid indexed profile is observed by a
