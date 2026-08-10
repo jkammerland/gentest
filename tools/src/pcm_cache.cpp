@@ -453,6 +453,14 @@ std::optional<std::string_view> pcm_cache_unsupported_semantic_input(std::span<c
             arg.starts_with("/Yu") || arg.starts_with("/Yc") || arg.starts_with("/Fp")) {
             return "a precompiled-header input is active";
         }
+        if (arg == "-fmodules" || arg == "-fimplicit-modules" || arg == "-fimplicit-module-maps" || arg == "-fmodule-map-file" ||
+            arg == "-fmodules-cache-path" || arg == "-fmodule-header" || arg.starts_with("-fmodules=") ||
+            arg.starts_with("-fmodule-map-file=") || arg.starts_with("-fmodules-cache-path=") || arg.starts_with("-fmodule-header=")) {
+            return "a Clang header-module input is active";
+        }
+        if (arg == "-ast-merge" || arg.starts_with("-ast-merge=")) {
+            return "a serialized AST merge input is active";
+        }
         if (arg == "-fplugin" || arg == "-fpass-plugin" || arg == "-load" || arg == "-load-pass-plugin" || arg == "-plugin" ||
             arg == "-add-plugin" || arg.starts_with("-fplugin=") || arg.starts_with("-fpass-plugin=") ||
             arg.starts_with("-load-pass-plugin=")) {

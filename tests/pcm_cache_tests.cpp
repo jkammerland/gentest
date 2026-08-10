@@ -119,6 +119,14 @@ int main(int argc, char **argv) {
                                  "bypass chained PCH inputs") ||
         !require_semantic_bypass({"clang-cl", "/clang:/Yuprior.hpp"}, "a precompiled-header input is active",
                                  "bypass clang-cl PCH inputs") ||
+        !require_semantic_bypass({"clang++", "-fmodules", "-fimplicit-modules"}, "a Clang header-module input is active",
+                                 "bypass implicit Clang header modules") ||
+        !require_semantic_bypass({"clang-cl", "/clang:-fmodule-map-file=module.modulemap"}, "a Clang header-module input is active",
+                                 "bypass explicit Clang module maps") ||
+        !require_semantic_bypass({"clang++", "-Xclang", "-ast-merge", "-Xclang", "merged.ast"}, "a serialized AST merge input is active",
+                                 "bypass split serialized AST merge inputs") ||
+        !require_semantic_bypass({"clang-cl", "/clang:-ast-merge=merged.ast"}, "a serialized AST merge input is active",
+                                 "bypass joined serialized AST merge inputs") ||
         !require_semantic_bypass({"clang++", "-Xclang", "-load", "plugin.so"}, "a compiler plugin is active", "bypass compiler plugins")) {
         return 1;
     }
