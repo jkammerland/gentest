@@ -753,6 +753,8 @@ def parse_csv(value: str, allowed: tuple[str, ...], flag: str) -> list[str]:
     invalid = [entry for entry in entries if entry not in allowed]
     if not entries or invalid:
         raise ValueError(f"{flag} must contain only {', '.join(allowed)} (invalid: {', '.join(invalid) or 'none'})")
+    if len(set(entries)) != len(entries):
+        raise ValueError(f"{flag} must not repeat an entry")
     return entries
 
 

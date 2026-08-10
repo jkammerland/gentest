@@ -26,6 +26,7 @@ from compile_bench_common import (  # noqa: E402
     codegen_argument,
     codegen_job_values,
     median_mad,
+    ninja_codegen_command_file,
     parse_codegen_jobs,
     rewrite_codegen_jobs,
     rewrite_ninja_codegen_commands,
@@ -121,6 +122,23 @@ class CodegenCommandRewriteTests(unittest.TestCase):
             self.assertEqual(build_ninja.read_bytes(), original)
             self.assertEqual(build_ninja.stat().st_mtime_ns, original_mtime)
 
+    def test_multi_config_rewrite_selects_active_implementation_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            build_dir = Path(temporary_directory)
+            top_level = build_dir / "build.ninja"
+            implementation = build_dir / "CMakeFiles" / "impl-Debug.ninja"
+            implementation.parent.mkdir()
+            top_level.write_text("include CMakeFiles/common.ninja\n", encoding="utf-8")
+            implementation.write_text("  COMMAND = gentest_codegen --jobs=1 source.cpp\n", encoding="utf-8")
+
+            selected = ninja_codegen_command_file(top_level, "Debug")
+            self.assertEqual(selected, implementation)
+            with temporary_ninja_codegen_commands(selected, 8):
+                self.assertEqual(codegen_job_values(implementation.read_text(encoding="utf-8")), [8])
+                self.assertNotIn("--jobs", top_level.read_text(encoding="utf-8"))
+
+            self.assertEqual(ninja_codegen_command_file(top_level, "Release"), top_level)
+
 
 class StatisticsAndOrderTests(unittest.TestCase):
     def test_median_and_mad_retain_raw_seven_samples(self) -> None:
@@ -141,6 +159,10 @@ class StatisticsAndOrderTests(unittest.TestCase):
 
 
 class CampaignContractTests(unittest.TestCase):
+    def test_csv_lanes_reject_duplicates(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must not repeat"):
+            campaign.parse_csv("one-tu,one-tu", campaign.DEFAULT_LANES, "--lanes")
+
     def test_provenance_hashes_file_tools(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             tool = Path(temporary_directory) / "cmake"

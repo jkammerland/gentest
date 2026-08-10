@@ -236,6 +236,21 @@ def rewrite_ninja_codegen_commands(build_ninja: Path, requested: str | int) -> l
     return rewritten
 
 
+def ninja_codegen_command_file(build_ninja: Path, config: str | None = None) -> Path:
+    """Resolve the Ninja file that owns custom commands for one configuration.
+
+    CMake's Ninja Multi-Config generator keeps the actual ``COMMAND``
+    assignments in ``CMakeFiles/impl-<Config>.ninja``.  The top-level
+    ``build.ninja`` only dispatches to a default configuration, so rewriting it
+    would silently leave ``cmake --build --config <Config>`` unchanged.
+    """
+    if config:
+        implementation = build_ninja.parent / "CMakeFiles" / f"impl-{config}.ninja"
+        if implementation.exists():
+            return implementation
+    return build_ninja
+
+
 def ninja_codegen_job_values(build_ninja: Path) -> list[int]:
     """Collect configured parse/emit caps without changing the Ninja file."""
     values: list[int] = []

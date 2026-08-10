@@ -37,6 +37,7 @@ from compile_bench_common import (
     CodegenCommandError,
     codegen_job_values,
     median_mad,
+    ninja_codegen_command_file,
     parse_codegen_jobs,
     rewrite_codegen_jobs,
     temporary_ninja_codegen_commands,
@@ -137,7 +138,7 @@ def main():
         build_dir = None
 
     configured_build = Path(args.build_dir) if args.build_dir else Path("build") / args.preset
-    build_ninja = configured_build / "build.ninja"
+    build_ninja = ninja_codegen_command_file(configured_build / "build.ninja", args.config)
     ninja_cap_rewrites = []
     if args.codegen_jobs is not None:
         try:
@@ -214,7 +215,9 @@ def main():
 
     # Stage 2: time code generation by executing the exact gentest_codegen commands from build.ninja
     def parse_generation_commands(bdir: Path):
-        buildfile = (bdir / "build.ninja") if bdir else (Path("build") / args.preset / "build.ninja")
+        buildfile = ninja_codegen_command_file(
+            (bdir / "build.ninja") if bdir else (Path("build") / args.preset / "build.ninja"), args.config
+        )
         if not buildfile.exists():
             return {}
         lines = buildfile.read_text().splitlines()
