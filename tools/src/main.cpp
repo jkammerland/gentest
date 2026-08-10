@@ -3970,7 +3970,7 @@ class ModuleSourceLocationVisitor final : public clang::RecursiveASTVisitor<Modu
   private:
     void note_location(clang::SourceLocation location) {
         location = source_manager_.getExpansionLoc(location);
-        if (location.isInvalid() || source_manager_.isWrittenInMainFile(location) || source_manager_.isInSystemHeader(location)) {
+        if (location.isInvalid() || source_manager_.isWrittenInMainFile(location)) {
             return;
         }
         result_.non_primary_location_builtin = true;
