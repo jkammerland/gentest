@@ -161,6 +161,10 @@ def main() -> int:
     print(f"[verify] Parallel jobs: {args.parallel_jobs}")
     print(f"[verify] Repeats:       {args.repeats}")
 
+    # A reused build tree can retain outputs for sources that disappeared at
+    # reconfigure time.  Start both the serial baseline and every parallel run
+    # from the same empty generated-output set.
+    remove_outputs(collect_outputs(command))
     try:
         print("[verify] Running serial baseline ...")
         serial_cap = run_codegen(command, args.serial_jobs)

@@ -189,6 +189,15 @@ def cleanup_sccache_endpoint(metadata: dict[str, object]) -> None:
         shutil.rmtree(temporary_directory, ignore_errors=True)
 
 
+def shutdown_sccache(
+    env: dict[str, str], root: Path, metadata: dict[str, object], tool: str | None = None, *, check: bool
+) -> None:
+    try:
+        stop_sccache_server(env, root, tool, check=check)
+    finally:
+        cleanup_sccache_endpoint(metadata)
+
+
 def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, object]]:
     env = os.environ.copy()
     env.pop("CMAKE_C_COMPILER_LAUNCHER", None)
@@ -232,8 +241,7 @@ def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, 
             run_output([tool, "--start-server"], cwd=root, env=env)
             metadata["before"] = run_output([tool, "--show-stats"], cwd=root, env=env)
         except (OSError, subprocess.CalledProcessError):
-            stop_sccache_server(env, root, tool, check=False)
-            cleanup_sccache_endpoint(metadata)
+            shutdown_sccache(env, root, metadata, tool, check=False)
             raise
     metadata["tool"] = version(tool)
     return env, metadata
@@ -248,10 +256,7 @@ def finish_cache_metadata(mode: str, env: dict[str, str], root: Path, metadata: 
             metadata["after"] = run_output([tool, "--show-stats"], cwd=root, env=env)
         finally:
             if mode == "sccache":
-                try:
-                    stop_sccache_server(env, root, tool, check=True)
-                finally:
-                    cleanup_sccache_endpoint(metadata)
+                shutdown_sccache(env, root, metadata, tool, check=True)
 
 
 def cmake_arguments(cc: str, cxx: str, build_type: str, cache: str) -> list[str]:
@@ -742,6 +747,7 @@ def main() -> int:
     worktree: Path | None = None
     worktree_added = False
     env: dict[str, str] | None = None
+    cache_metadata: dict[str, object] | None = None
     cache_finished = False
     try:
         env, cache_metadata = cache_environment(args.cache, output)
@@ -887,8 +893,8 @@ def main() -> int:
         print(f"error: {error}", file=sys.stderr)
         return 1
     finally:
-        if args.cache == "sccache" and env is not None and not cache_finished:
-            stop_sccache_server(env, output, check=False)
+        if args.cache == "sccache" and env is not None and cache_metadata is not None and not cache_finished:
+            shutdown_sccache(env, output, cache_metadata, check=False)
 
 
 if __name__ == "__main__":

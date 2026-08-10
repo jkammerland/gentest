@@ -164,7 +164,7 @@ class CampaignContractTests(unittest.TestCase):
                 mock.patch.object(
                     verifier,
                     "collect_outputs",
-                    side_effect=[[baseline_output], [baseline_output, extra_output]],
+                    side_effect=[[baseline_output], [baseline_output], [baseline_output, extra_output]],
                 ),
                 mock.patch.object(verifier, "remove_outputs"),
                 mock.patch.object(sys, "stdout", io.StringIO()),
@@ -181,10 +181,19 @@ class CampaignContractTests(unittest.TestCase):
             baseline_output = output_dir / "tu_0000.gentest.h"
             baseline_output.write_text("serial baseline\n", encoding="utf-8")
             command = f"gentest_codegen --jobs=1 --tu-out-dir {output_dir}"
+            invocations = 0
+
+            def fake_run_codegen(_command, _jobs):  # noqa: ANN001, ANN202
+                nonlocal invocations
+                invocations += 1
+                if invocations == 1:
+                    baseline_output.write_text("serial baseline\n", encoding="utf-8")
+                return {"effective": 1}
+
             with (
                 mock.patch.object(sys, "argv", ["verify_codegen_parallel.py", "--build-dir", str(build_dir), "--repeats", "1"]),
                 mock.patch.object(verifier, "parse_codegen_commands", return_value={"gentest_codegen_parallel_bench_obj": command}),
-                mock.patch.object(verifier, "run_codegen", return_value={"effective": 1}),
+                mock.patch.object(verifier, "run_codegen", side_effect=fake_run_codegen),
                 mock.patch.object(sys, "stdout", io.StringIO()),
                 mock.patch.object(sys, "stderr", io.StringIO()),
             ):
@@ -334,6 +343,21 @@ class CampaignContractTests(unittest.TestCase):
                 campaign.finish_cache_metadata("sccache", second_env, root, second_metadata)
             self.assertFalse(first_temporary_directory.exists())
             self.assertFalse(second_temporary_directory.exists())
+
+    @unittest.skipIf(os.name == "nt", "isolated sccache UDS is a POSIX campaign contract")
+    def test_sccache_failure_shutdown_removes_long_endpoint_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / ("deep" * 30)
+            with (
+                mock.patch.object(campaign, "resolve_cache_tool", return_value="/tools/sccache"),
+                mock.patch.object(campaign, "run_output", return_value="stats"),
+                mock.patch.object(campaign, "version", return_value={"path": "/tools/sccache"}),
+            ):
+                cache_env, metadata = campaign.cache_environment("sccache", root)
+                temporary_endpoint = Path(metadata["_server_temporary_directory"])
+                self.assertTrue(temporary_endpoint.is_dir())
+                campaign.shutdown_sccache(cache_env, root, metadata, check=False)
+            self.assertFalse(temporary_endpoint.exists())
 
     def test_extensionless_repository_executable_is_a_link_edge(self) -> None:
         self.assertEqual(campaign.classify(["tests/gentest_unit_tests"], ("gentest_unit_tests",)), "link_or_archive")
