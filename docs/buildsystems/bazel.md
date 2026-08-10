@@ -57,7 +57,14 @@ gentest_codegen_toolchain(
     # Files not already supplied by executable DefaultInfo files/runfiles.
     runtime_files = [
         "@llvm_exec_bundle//:clang_runtime_files",
+        "@llvm_exec_bundle//:cxx_standard_library_files",
         "@llvm_exec_bundle//:macos_sdk_files",
+    ],
+    # Ordered marker files located directly inside each C++ standard-library
+    # include root. Gentest passes -nostdinc++ and re-adds only these declared
+    # execroot paths. Include every corresponding header tree in runtime_files.
+    cxx_standard_library_roots = [
+        "@llvm_exec_bundle//:libcxx/include/c++/v1/gentest_root.marker",
     ],
     # macOS only: a tree artifact, or a marker file directly under the SDK
     # root. The complete SDK remains declared through runtime_files.
@@ -80,7 +87,11 @@ register_toolchains("//tools/gentest_codegen:registered")
 exec configuration. Gentest passes their `FilesToRunProvider` objects to every
 codegen action, retaining runfiles-tree layout for wrappers and packaged tools.
 It also declares their files/runfiles plus `runtime_files` in every action.
-Package Clang's resource directory, shared libraries, and scan-deps closure.
+Package Clang's resource directory, shared libraries, scan-deps closure, and
+the complete C++ standard-library header trees. Packaged toolchains must set
+`cxx_standard_library_roots` to ordered marker files located directly in those
+include roots; Gentest disables ambient C++ include discovery with
+`-nostdinc++` and re-adds only the declared execroot paths.
 On macOS, package the SDK closure too and set `macos_sdk_root`; Gentest passes
 that declared exec-path as `SDKROOT` without restoring ambient `PATH` or the
 client's action environment. An absolute system path or a ccache wrapper is

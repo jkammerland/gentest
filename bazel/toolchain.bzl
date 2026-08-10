@@ -3,7 +3,9 @@
 The targets passed to ``gentest_codegen_toolchain`` must package the complete
 runtime closure that their executables need. In particular, an LLVM package
 must include the Clang resource directory, shared libraries, and (when used)
-the clang-scan-deps runtime closure. macOS packages also provide a marker file
+the clang-scan-deps runtime closure. Packaged toolchains also provide ordered
+marker files directly inside their C++ standard-library include roots and
+include those header trees in ``runtime_files``. macOS packages provide a marker file
 directly under the declared SDK root and include the full SDK in
 ``runtime_files``. The codegen rules add the returned ``files`` depset to every
 action's declared tools.
@@ -29,6 +31,16 @@ def _gentest_codegen_toolchain_impl(ctx):
     files = [_runfiles_files(ctx.attr.codegen), _runfiles_files(ctx.attr.clang)]
     if scan_deps:
         files.append(_runfiles_files(ctx.attr.clang_scan_deps))
+    cxx_standard_library_roots = ctx.files.cxx_standard_library_roots
+    if not ctx.attr.local_only and not cxx_standard_library_roots:
+        return [platform_common.ToolchainInfo(
+            error = "Packaged Gentest codegen toolchains must declare cxx_standard_library_roots. " +
+                    "Each label must be a marker directly inside a C++ standard-library include root, and runtime_files " +
+                    "must contain the corresponding header closure. Local host bootstrap toolchains are exempt because " +
+                    "their actions are forced off remote execution/cache.",
+        )]
+    if cxx_standard_library_roots:
+        files.append(depset(cxx_standard_library_roots))
     if ctx.files.runtime_files:
         files.append(depset(ctx.files.runtime_files))
     macos_sdk_root = ctx.file.macos_sdk_root
@@ -42,6 +54,10 @@ def _gentest_codegen_toolchain_impl(ctx):
         clang = ctx.attr.clang[DefaultInfo].files_to_run,
         clang_scan_deps = ctx.attr.clang_scan_deps[DefaultInfo].files_to_run if scan_deps else None,
         files = depset(transitive = files),
+        cxx_standard_library_root_paths = [
+            root.path if root.is_directory else root.dirname
+            for root in cxx_standard_library_roots
+        ],
         macos_sdk_root_path = (
             macos_sdk_root.path if macos_sdk_root and macos_sdk_root.is_directory else
             macos_sdk_root.dirname if macos_sdk_root else
@@ -72,6 +88,11 @@ gentest_codegen_toolchain = rule(
             executable = True,
         ),
         "runtime_files": attr.label_list(allow_files = True, cfg = "exec"),
+        "cxx_standard_library_roots": attr.label_list(
+            allow_files = True,
+            cfg = "exec",
+            doc = "Ordered marker files located directly inside declared C++ standard-library include roots.",
+        ),
         "macos_sdk_root": attr.label(
             allow_single_file = True,
             cfg = "exec",

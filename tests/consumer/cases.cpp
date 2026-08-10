@@ -9,12 +9,14 @@
 #include <stddef.h>
 #include <string>
 #include <string_view>
+#include <vector>
 
 using namespace gentest::asserts;
 
 namespace {
 
 static_assert(sizeof(size_t) > 0);
+static_assert(sizeof(std::vector<int>) > 0);
 static_assert(gentest_bazel_private_case_value == 23);
 static_assert(gentest_bazel_dep_case_value == 29);
 
