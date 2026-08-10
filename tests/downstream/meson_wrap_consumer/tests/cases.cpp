@@ -83,4 +83,9 @@ void meson_compile_flag() {}
 void meson_compile_flag() {}
 #endif
 
+#if __has_include("positive_has_include.hpp")
+[[using gentest: test("positive_has_include")]]
+void meson_positive_has_include() {}
+#endif
+
 } // namespace downstream
