@@ -936,6 +936,7 @@ _gentest_expect_dot_module_cache_state("${_relocated_timing}" "hit")
 # changes across relocated trees. Such PCMs remain local and are never
 # published into the shared cache.
 function(_gentest_check_header_location_builtin test_name define_name header_name)
+  cmake_parse_arguments(ARG "SYSTEM" "" "" ${ARGN})
   set(_original_header_dir "${_build_dir}/pcm-location-${test_name}")
   set(_relocated_header_dir "${_relocated_build_dir}/pcm-location-${test_name}")
   file(MAKE_DIRECTORY "${_original_header_dir}" "${_relocated_header_dir}")
@@ -945,6 +946,13 @@ function(_gentest_check_header_location_builtin test_name define_name header_nam
   set(_builtin_cache "${_work_dir}/pcm-location-cache-${test_name}")
   set(_original_output "${_generated_dir}/pcm-location-${test_name}")
   set(_original_timing "${_original_output}/timing.json")
+  if(ARG_SYSTEM)
+    set(_original_include_arg "-isystem${_original_header_dir}")
+    set(_relocated_include_arg "-isystem${_relocated_header_dir}")
+  else()
+    set(_original_include_arg "-I${_original_header_dir}")
+    set(_relocated_include_arg "-I${_relocated_header_dir}")
+  endif()
   _gentest_run_codegen_fixture(
     "pcm_location_${test_name}_original"
     PCM_CACHE ON
@@ -953,7 +961,7 @@ function(_gentest_check_header_location_builtin test_name define_name header_nam
     OUTPUT_ROOT "${_original_output}"
     TIMING_JSON "${_original_timing}"
     OUTPUT_VARIABLE _original_log
-    EXTRA_ARGS "-I${_original_header_dir}" "-D${define_name}=1"
+    EXTRA_ARGS "${_original_include_arg}" "-D${define_name}=1"
     SOURCES
       "${_src_dir}/alpha_dot_provider.cppm"
       "${_src_dir}/alpha_dot_consumer.cppm")
@@ -977,7 +985,7 @@ function(_gentest_check_header_location_builtin test_name define_name header_nam
     OUTPUT_ROOT "${_relocated_output}"
     TIMING_JSON "${_relocated_builtin_timing}"
     OUTPUT_VARIABLE _relocated_log
-    EXTRA_ARGS "-I${_relocated_header_dir}" "-D${define_name}=1"
+    EXTRA_ARGS "${_relocated_include_arg}" "-D${define_name}=1"
     SOURCES
       "${_src_dir}/alpha_dot_provider.cppm"
       "${_src_dir}/alpha_dot_consumer.cppm")
@@ -1007,6 +1015,16 @@ _gentest_check_header_location_builtin(
   "source-location"
   "PCM_CACHE_HEADER_SOURCE_LOCATION"
   "pcm_cache_source_location.hpp")
+_gentest_check_header_location_builtin(
+  "system-builtin-file"
+  "PCM_CACHE_HEADER_BUILTIN_FILE"
+  "pcm_cache_builtin_file.hpp"
+  SYSTEM)
+_gentest_check_header_location_builtin(
+  "system-source-location"
+  "PCM_CACHE_HEADER_SOURCE_LOCATION"
+  "pcm_cache_source_location.hpp"
+  SYSTEM)
 
 # Relocation only ignores structural module-output/build-metadata paths; the
 # source spelling remains semantic. A macro containing the build directory
