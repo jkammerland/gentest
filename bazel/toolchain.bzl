@@ -5,12 +5,12 @@ runtime closure that their executables need. In particular, an LLVM package
 must include the Clang resource directory, shared libraries, and (when used)
 the clang-scan-deps runtime closure. Packaged toolchains also provide ordered
 marker files directly inside their C++ standard-library include roots and
-include those header trees in ``runtime_files``. Linux packages additionally
-provide ordered markers for Clang's resource and C system include roots; the
-actions disable all ambient standard include discovery. macOS packages provide
-a marker file directly under the declared SDK root and include the full SDK in
-``runtime_files``. The codegen rules add the returned ``files`` depset to every
-action's declared tools.
+include those header trees in ``runtime_files``. Linux and Windows packages
+additionally provide ordered markers for Clang's resource and C/SDK system
+include roots; the actions disable all ambient standard include discovery.
+macOS packages provide a marker file directly under the declared SDK root and
+include the full SDK in ``runtime_files``. The codegen rules add the returned
+``files`` depset to every action's declared tools.
 """
 
 def _runfiles_files(target):
@@ -46,10 +46,10 @@ def _gentest_codegen_toolchain_impl(ctx):
         return [platform_common.ToolchainInfo(
             error = "Packaged Gentest codegen toolchains must set exec_os to linux, macos, or windows.",
         )]
-    if not ctx.attr.local_only and ctx.attr.exec_os == "linux" and not system_include_roots:
+    if not ctx.attr.local_only and ctx.attr.exec_os in ["linux", "windows"] and not system_include_roots:
         return [platform_common.ToolchainInfo(
-            error = "Packaged Linux Gentest codegen toolchains must declare system_include_roots. " +
-                    "Each label must be a marker directly inside an ordered Clang resource/C system include root, and " +
+            error = "Packaged Linux/Windows Gentest codegen toolchains must declare system_include_roots. " +
+                    "Each label must be a marker directly inside an ordered Clang resource/C or SDK system include root, and " +
                     "runtime_files must contain the corresponding header closure.",
         )]
     if not ctx.attr.local_only and ctx.attr.exec_os == "macos" and not ctx.file.macos_sdk_root:
@@ -120,7 +120,7 @@ gentest_codegen_toolchain = rule(
         "system_include_roots": attr.label_list(
             allow_files = True,
             cfg = "exec",
-            doc = "Ordered marker files inside declared Clang resource/C system include roots (required for packaged Linux tools).",
+            doc = "Ordered marker files inside declared Clang resource/C or SDK system include roots (required for packaged Linux/Windows tools).",
         ),
         "macos_sdk_root": attr.label(
             allow_single_file = True,

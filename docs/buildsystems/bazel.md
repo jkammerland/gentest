@@ -99,6 +99,11 @@ directly in those include roots. Linux packages must also set
 system header roots. Gentest passes `-nostdinc` on Linux and re-adds only those
 declared C++/system execroot paths, so ambient `/usr/local/include`,
 architecture include roots, and `/usr/include` cannot enter the action.
+Windows packages follow the same `-nostdinc` contract: set
+`exec_os = "windows"` and declare ordered markers for the Clang resource,
+MSVC/UCRT, and Windows SDK include roots, with all corresponding trees in
+`runtime_files`. Ambient Visual Studio or SDK installations are never an
+implicit action input.
 On macOS, use `exec_os = "macos"`, package the SDK closure, and set
 `macos_sdk_root`; Gentest passes
 that declared exec-path as `SDKROOT` without restoring ambient `PATH` or the

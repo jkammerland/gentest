@@ -92,14 +92,15 @@ def _gentest_exec_tools(ctx):
             "gentest_codegen_toolchain(codegen = ..., clang = ...). The executable labels must package " +
             "their complete runtime closure and declare cxx_standard_library_roots. The automatic local fallback is disabled on " +
             "Windows; package gentest_codegen, Clang resource headers, C++ standard-library headers, and every required " +
-            "LLVM/Clang DLL as runtime_files."
+            "LLVM/Clang DLL as runtime_files, then declare both cxx_standard_library_roots and system_include_roots."
         ).format(ctx.label, _GENTEST_CODEGEN_TOOLCHAIN_TYPE))
     if hasattr(tools, "error"):
         fail("{}: {}".format(ctx.label, tools.error))
     if not hasattr(tools, "codegen") or not hasattr(tools, "clang") or not hasattr(tools, "files"):
         fail((
             "{}: registered {} is not a gentest_codegen_toolchain. " +
-            "Use gentest_codegen_toolchain(codegen = ..., clang = ..., cxx_standard_library_roots = ...)."
+            "Use gentest_codegen_toolchain(codegen = ..., clang = ..., cxx_standard_library_roots = ..., " +
+            "system_include_roots = ...)."
         ).format(ctx.label, _GENTEST_CODEGEN_TOOLCHAIN_TYPE))
     return tools
 
@@ -121,7 +122,7 @@ def _gentest_exec_driver_args(tools):
         "-isystem{}".format(root)
         for root in tools.cxx_standard_library_root_paths
     ]
-    if tools.exec_os == "linux":
+    if tools.exec_os in ["linux", "windows"]:
         return ["-nostdinc"] + cxx_roots + [
             "-isystem{}".format(root)
             for root in tools.system_include_root_paths
