@@ -5497,14 +5497,19 @@ int main(int argc, const char **argv) {
                 .path        = module_source->pcm_path,
                 .description = "generated external named-module PCM",
             };
+            const gentest::codegen::TimingJsonProtectedPath external_source_path{
+                .path        = module_source->source_path,
+                .description = "resolved external named-module source",
+            };
             std::string external_pcm_timing_collision_error;
-            if (!gentest::codegen::validate_timing_json_dependency_collision(options, {}, {external_pcm_path},
+            if (!gentest::codegen::validate_timing_json_dependency_collision(options, {}, {external_pcm_path, external_source_path},
                                                                              external_pcm_timing_collision_error)) {
                 gentest::codegen::log_err("gentest_codegen: {}\n", external_pcm_timing_collision_error);
                 state = ModuleBuildState::Failed;
                 return false;
             }
             add_timing_protected_path(timing_protected_paths, external_pcm_path.path, external_pcm_path.description);
+            add_timing_protected_path(timing_protected_paths, external_source_path.path, external_source_path.description);
 
             state = ModuleBuildState::Building;
             std::vector<std::string> module_file_args;
