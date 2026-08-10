@@ -16,6 +16,11 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
+add_executable(fake_clang_scan_deps EXCLUDE_FROM_ALL fake_clang_scan_deps.cpp)
+file(GENERATE
+    OUTPUT "${CMAKE_BINARY_DIR}/fake_clang_scan_deps_path_$<CONFIG>.txt"
+    CONTENT "$<TARGET_FILE:fake_clang_scan_deps>")
+
 function(_gentest_add_pcm_cache_target target_name output_stem)
     set(multi_value_args MODULE_SOURCES)
     cmake_parse_arguments(GENTEST "" "" "${multi_value_args}" ${ARGN})
@@ -38,6 +43,7 @@ _gentest_add_pcm_cache_target(
     MODULE_SOURCES
       "${CMAKE_CURRENT_SOURCE_DIR}/alpha_dot_provider.cppm"
       "${CMAKE_CURRENT_SOURCE_DIR}/alpha_dot_consumer.cppm"
+      "${CMAKE_CURRENT_SOURCE_DIR}/alpha_dot_unrelated.cppm"
       "${CMAKE_CURRENT_SOURCE_DIR}/alpha_dot_root.cppm")
 
 _gentest_add_pcm_cache_target(
