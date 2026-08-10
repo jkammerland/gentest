@@ -1725,12 +1725,7 @@ class DependencyRecorder final : public clang::PPCallbacks {
 
     void HasInclude(clang::SourceLocation loc, llvm::StringRef file_name, bool is_angled, clang::OptionalFileEntryRef file,
                     clang::SrcMgr::CharacteristicKind) override {
-        if (file.has_value()) {
-            const std::string normalized = normalize_dependency_path(file->getName().str());
-            if (!normalized.empty()) {
-                dependencies_.push_back(normalized);
-            }
-        }
+        record_resolved_dependency(file);
         const auto spelling_loc = source_manager_.getSpellingLoc(loc);
         const auto file_id      = source_manager_.getFileID(spelling_loc);
         bool       invalid      = false;
@@ -1753,15 +1748,29 @@ class DependencyRecorder final : public clang::PPCallbacks {
     }
 
 #if CLANG_VERSION_MAJOR >= 22
-    void EmbedDirective(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef,
+    void EmbedDirective(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef file,
                         const clang::LexEmbedParametersResult &) override {
+        record_resolved_dependency(file);
         mark_uncacheable();
     }
 
-    void HasEmbed(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef) override { mark_uncacheable(); }
+    void HasEmbed(clang::SourceLocation, llvm::StringRef, bool, clang::OptionalFileEntryRef file) override {
+        record_resolved_dependency(file);
+        mark_uncacheable();
+    }
 #endif
 
   private:
+    void record_resolved_dependency(clang::OptionalFileEntryRef file) {
+        if (!file.has_value()) {
+            return;
+        }
+        const std::string normalized = normalize_dependency_path(file->getName().str());
+        if (!normalized.empty()) {
+            dependencies_.push_back(normalized);
+        }
+    }
+
     void mark_uncacheable() {
         if (cacheable_ != nullptr) {
             *cacheable_ = false;
