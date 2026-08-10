@@ -196,7 +196,7 @@ if(_scan_deps)
     OUTPUT_VARIABLE _on_real_output
     STRIP_TRAILING_WHITESPACE)
 
-  string(FIND "${_on_real_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _on_real_scan_deps_pos)
+  string(FIND "${_on_real_output}" "gentest_codegen: info: using validated clang-scan-deps named-module dependency plan" _on_real_scan_deps_pos)
   if(_on_real_scan_deps_pos EQUAL -1)
     message(FATAL_ERROR
       "Expected gentest_codegen scan-deps ON leg to report actual clang-scan-deps usage. Output:\n${_on_real_output}")

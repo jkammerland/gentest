@@ -103,7 +103,13 @@ off state must sanitize that command environment.
 
 The PCM cache is deliberately stricter than the textual cache. Reuse requires
 a current successful `clang-scan-deps` `experimental-full` closure, including
-the current `file-deps` set and scanner command. The key includes the resolved
+the current `file-deps` set and one unambiguous scanner command per requested
+source. The scanner JSON is validated structurally: missing/wrongly typed
+records, omitted requested inputs, duplicate commands, conflicting module
+identity, or a closure that omits its module source reject the complete scan
+plan. Scanner-provided module identities and named-module imports are used as
+reported; Gentest never fills or unions them with its source fallback scanner.
+The key includes the resolved
 compiler content identity and version, resource directory, sysroot, normalized
 effective precompile command, ordered scanner command/include metadata, the raw
 compiler-visible primary-source spelling, source and dependency content hashes
@@ -126,6 +132,21 @@ module search directory does not identify the exact selected PCM mapping, so
 it is never assumed cache-safe. Scanner output varies by platform and release;
 for example, Clang 21 on Windows can report distinct command records for one
 module source, which deliberately selects this safe-bypass path.
+
+The source scanner still supports normal local module generation in `AUTO` or
+`OFF` mode, but it can never authorize a PCM-cache lookup or publication.
+Likewise, an external module source may be found by configured path/compdb
+enumeration and locally precompiled, yet it is cache-authoritative only when a
+fresh scanner record validates that exact module identity and closure. This
+property propagates through imports: a module depending on a fallback/bypassed
+local PCM also bypasses, while unrelated modules with validated scan plans
+remain independently cacheable. `scan-deps-mode=ON` fails instead of falling
+back when the requested plan is unavailable or invalid.
+
+These authority rules do not serialize execution. Existing Ninja/Xmake target
+parallelism, clang-scan-deps behavior, and `gentest_codegen --jobs` concurrency
+remain unchanged; “single authority” refers to dependency information, not to
+the number of worker threads or processes.
 
 After a cold local precompile, Gentest runs a syntax-only preprocessor/AST
 verification with the same effective module command. Actual expansion of `__DATE__`,
