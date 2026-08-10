@@ -1278,17 +1278,26 @@ function(gentest_attach_codegen target)
         set(_gentest_compdb_stage_target "gentest_compdb_stage_${_gentest_target_id}")
         get_filename_component(_gentest_codegen_compdb_dir "${_gentest_config_compdb}" DIRECTORY)
         add_custom_command(
+            OUTPUT "${_gentest_config_compdb}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gentest_codegen_compdb_dir}"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${CMAKE_BINARY_DIR}/compile_commands.json"
+                "${_gentest_config_compdb}"
+            COMMENT "Recovering staged compile commands for gentest target ${target}"
+            VERBATIM)
+        add_custom_command(
             OUTPUT "${_gentest_config_compdb_stamp}"
-            BYPRODUCTS "${_gentest_config_compdb}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gentest_codegen_compdb_dir}"
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 "${CMAKE_BINARY_DIR}/compile_commands.json"
                 "${_gentest_config_compdb}"
             COMMAND "${CMAKE_COMMAND}" -E touch "${_gentest_config_compdb_stamp}"
-            DEPENDS "${CMAKE_BINARY_DIR}/compile_commands.json"
+            DEPENDS
+                "${CMAKE_BINARY_DIR}/compile_commands.json"
+                "${_gentest_config_compdb}"
             COMMENT "Staging compile commands for gentest target ${target}"
             VERBATIM)
-        add_custom_target(${_gentest_compdb_stage_target} DEPENDS "${_gentest_config_compdb_stamp}")
+        add_custom_target(${_gentest_compdb_stage_target} DEPENDS "${_gentest_config_compdb_stamp}" "${_gentest_config_compdb}")
     elseif(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
         # Preserve the historic compiler-database lookup/fallback behavior for
         # consumers that intentionally leave CMAKE_EXPORT_COMPILE_COMMANDS off.

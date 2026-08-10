@@ -209,6 +209,36 @@ foreach(_forbidden_edge IN ITEMS "Staging compile commands" "${PROG}" "Building 
 endforeach()
 _gentest_expect_same_mtimes("${_initial_mtimes}" "settled explicit mock no-op build")
 
+# A staged compilation database is a required generated input, not an
+# incidental byproduct.  Removing it alone must recreate it on both Ninja and
+# Makefile generators instead of leaving Make with an input that has no rule.
+set(_staged_compdb "${_consumer_output_dir}/compdb/compile_commands.json")
+if(NOT EXISTS "${_staged_compdb}")
+  message(FATAL_ERROR "Expected staged compilation database: ${_staged_compdb}")
+endif()
+file(REMOVE "${_staged_compdb}")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target timestamp_consumer --verbose
+  WORKING_DIRECTORY "${_work_dir}"
+  RESULT_VARIABLE _compdb_recovery_rc
+  OUTPUT_VARIABLE _compdb_recovery_out
+  ERROR_VARIABLE _compdb_recovery_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _compdb_recovery_rc EQUAL 0 OR NOT EXISTS "${_staged_compdb}")
+  message(FATAL_ERROR
+    "Missing staged compilation database was not recovered.\n"
+    "--- stdout ---\n${_compdb_recovery_out}\n--- stderr ---\n${_compdb_recovery_err}")
+endif()
+set(_compdb_recovery_text "${_compdb_recovery_out}\n${_compdb_recovery_err}")
+foreach(_forbidden_edge IN ITEMS "Building CXX object" "Linking CXX")
+  string(FIND "${_compdb_recovery_text}" "${_forbidden_edge}" _forbidden_edge_pos)
+  if(NOT _forbidden_edge_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Compilation-database recovery unexpectedly ran '${_forbidden_edge}'.\n${_compdb_recovery_text}")
+  endif()
+endforeach()
+
 # Content changes must still be published to the staged source surface.
 file(READ "${_src_dir}/timestamp_mock_defs.hpp" _timestamp_defs_source)
 string(APPEND _timestamp_defs_source "\n// timestamp preservation content change\n")
