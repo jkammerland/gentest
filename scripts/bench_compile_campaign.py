@@ -201,6 +201,11 @@ def shutdown_sccache(
 
 def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, object]]:
     env = os.environ.copy()
+    # CMake consumes these only while initializing its cache.  Letting ambient
+    # shell flags leak into a campaign would change the measured command lines
+    # without making that difference part of the campaign configuration.
+    for key in ("CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS"):
+        env.pop(key, None)
     env.pop("CMAKE_C_COMPILER_LAUNCHER", None)
     env.pop("CMAKE_CXX_COMPILER_LAUNCHER", None)
     cache_dir = root / "compiler-cache"
@@ -222,7 +227,9 @@ def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, 
         env["CCACHE_CONFIGPATH"] = os.devnull
         metadata["before"] = run_output([tool, "--show-stats"], cwd=root, env=env)
     else:
-        env.pop("SCCACHE_DISABLE", None)
+        for key in tuple(env):
+            if key.startswith("SCCACHE_"):
+                env.pop(key)
         env["CCACHE_DISABLE"] = "1"
         env["SCCACHE_DIR"] = str(cache_dir)
         env.pop("SCCACHE_SERVER_PORT", None)

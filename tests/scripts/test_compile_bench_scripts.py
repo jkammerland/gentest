@@ -290,6 +290,21 @@ class CampaignContractTests(unittest.TestCase):
         self.assertNotIn("CMAKE_C_COMPILER_LAUNCHER", ccache_env)
         self.assertNotIn("CMAKE_CXX_COMPILER_LAUNCHER", ccache_env)
 
+    def test_campaign_clears_ambient_compiler_and_linker_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "CFLAGS": "-march=native",
+                    "CXXFLAGS": "-ftime-trace",
+                    "CPPFLAGS": "-DLOCAL_ONLY=1",
+                    "LDFLAGS": "-fuse-ld=gold",
+                },
+            ):
+                cache_env, _ = campaign.cache_environment("off", Path(temporary_directory))
+        for key in ("CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS"):
+            self.assertNotIn(key, cache_env)
+
     @unittest.skipIf(os.name == "nt", "isolated sccache campaigns use Unix-domain sockets")
     def test_selected_sccache_clears_its_inherited_disable_flag(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -298,6 +313,9 @@ class CampaignContractTests(unittest.TestCase):
                     os.environ,
                     {
                         "SCCACHE_DISABLE": "1",
+                        "SCCACHE_BUCKET": "ambient-bucket",
+                        "SCCACHE_ENDPOINT": "https://cache.invalid",
+                        "SCCACHE_REDIS": "redis://ambient-cache",
                         "CMAKE_C_COMPILER_LAUNCHER": "ambient-c-launcher",
                         "CMAKE_CXX_COMPILER_LAUNCHER": "ambient-cxx-launcher",
                     },
@@ -308,6 +326,9 @@ class CampaignContractTests(unittest.TestCase):
             ):
                 sccache_env, _ = campaign.cache_environment("sccache", Path(temporary_directory) / "sccache")
         self.assertNotIn("SCCACHE_DISABLE", sccache_env)
+        self.assertNotIn("SCCACHE_BUCKET", sccache_env)
+        self.assertNotIn("SCCACHE_ENDPOINT", sccache_env)
+        self.assertNotIn("SCCACHE_REDIS", sccache_env)
         self.assertEqual(sccache_env["CCACHE_DISABLE"], "1")
         self.assertNotIn("CMAKE_C_COMPILER_LAUNCHER", sccache_env)
         self.assertNotIn("CMAKE_CXX_COMPILER_LAUNCHER", sccache_env)
