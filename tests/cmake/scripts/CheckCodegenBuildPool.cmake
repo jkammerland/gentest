@@ -80,6 +80,8 @@ _gentest_assert_one_codegen_pool_definition("${_ninja_rules_text}" "Default Ninj
 if(NOT _ninja_text MATCHES "pool = gentest_codegen_build_pool")
   message(FATAL_ERROR "Expected gentest_codegen custom command to use the Ninja process pool:\n${_ninja_text}")
 endif()
+_gentest_assert_codegen_command_has_pool("${_ninja_text}" "validate-artifact-manifest"
+  "Textual artifact-manifest validation edge")
 
 set(_ninja_disabled_dir "${_work_dir}/ninja_disabled")
 _gentest_configure_pool_fixture("${_ninja_disabled_dir}" "Ninja" 0 _rc _text)
@@ -208,6 +210,8 @@ endif()
 _gentest_assert_codegen_command_has_pool("${_module_pool_text}" "inspect-mocks" "Module-registration inspect-mocks edge")
 _gentest_assert_codegen_command_has_pool("${_module_pool_text}" "--mock-registration-manifest"
   "Module-registration main-codegen edge")
+_gentest_assert_codegen_command_has_pool("${_module_pool_text}" "validate-artifact-manifest"
+  "Module-registration artifact-manifest validation edge")
 
 find_program(_make NAMES make gmake)
 if(NOT _make)
