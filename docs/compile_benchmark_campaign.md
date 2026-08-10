@@ -50,6 +50,10 @@ The default campaign runs two warmups then seven timed samples. It covers:
 - a standalone `gentest_runtime` build;
 - codegen caps `1,2,4,8,auto` (`auto` is tool value `0`).
 
+A runtime-only campaign does not configure or build the host
+`gentest_codegen`; it therefore needs the selected C/C++ compiler but not LLVM
+or Clang tooling packages.
+
 For every codegen-cap sweep, sample rounds alternate forward/reverse order to
 reduce thermal and ordering bias. Synthetic fixture scenarios are cold build,
 no-op, CMake reconfigure, source edit, private-header edit, shared-header

@@ -423,6 +423,29 @@ class CampaignContractTests(unittest.TestCase):
         self.assertEqual(parse_codegen_caps("1,auto,4"), [("1", 1), ("auto", 0), ("4", 4)])
         with self.assertRaisesRegex(ValueError, "repeat a cap label"):
             parse_codegen_caps("1,1")
+
+    def test_runtime_only_campaign_does_not_require_host_codegen(self) -> None:
+        self.assertFalse(campaign.requires_host_codegen(["runtime"]))
+        self.assertTrue(campaign.requires_host_codegen(["runtime", "repo-e2e"]))
+        self.assertTrue(campaign.requires_host_codegen(["eight-tu-one-binary"]))
+
+    def test_runtime_reconfigure_accepts_zero_ninja_edges(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source"
+            build = root / "build"
+            source.mkdir()
+            build.mkdir()
+            no_edges = (0.01, {"unique_edges": 0, "categories": {}})
+            with (
+                mock.patch.object(campaign, "reconfigure", return_value=0.02),
+                mock.patch.object(campaign, "build_target", return_value=no_edges),
+            ):
+                result = campaign.run_scenarios(
+                    source, build, [], ["gentest_runtime"], ("reconfigure",), 1, 0, 1, {}, False, 0, False, True
+                )
+            profile = result["reconfigure"]["profiles"][0]
+            self.assertEqual(profile["contract"], "cmake-reconfigure-no-codegen-lane")
         with self.assertRaisesRegex(ValueError, "repeat an effective cap"):
             parse_codegen_caps("auto,0")
         with self.assertRaises(ValueError):

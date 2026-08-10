@@ -294,6 +294,10 @@ def fresh_repository_build_root(source: Path) -> Path:
     return Path(tempfile.mkdtemp(prefix="compile-campaign-", dir=parent))
 
 
+def requires_host_codegen(lanes: list[str]) -> bool:
+    return any(lane != "runtime" for lane in lanes)
+
+
 def configure_host_codegen(source: Path, output: Path, cc: str, cxx: str, jobs: int, cache: str, env: dict[str, str]) -> Path:
     # Deliberately Release even when the consumer fixture is Debug.
     build = output / "host-codegen-release"
@@ -564,7 +568,11 @@ def run_scenarios(
                 codegen = int(categories.get("codegen", 0))
                 if generated or compiled or linked:
                     raise RuntimeError(f"reconfigure invalidation contract failed: downstream compile/link work ran, got {profile}")
-                if uses_content_stable_compdb_stage(build):
+                if not expects_codegen:
+                    if codegen:
+                        raise RuntimeError(f"reconfigure invalidation contract failed: non-codegen lane ran codegen, got {profile}")
+                    profile["contract"] = "cmake-reconfigure-no-codegen-lane"
+                elif uses_content_stable_compdb_stage(build):
                     if codegen:
                         raise RuntimeError(f"reconfigure invalidation contract failed: stable compdb staging reran codegen, got {profile}")
                     profile["contract"] = "cmake-reconfigure-followed-by-compdb-staging-only-build"
@@ -818,12 +826,14 @@ def main() -> int:
             add_worktree(root, worktree, str(provenance["git"]["head"]))  # type: ignore[index]
             source_input = worktree
             worktree_added = True
-        host_codegen = configure_host_codegen(source_input, output, args.cc, args.cxx, args.jobs, args.cache, env)
         configure = [
             *cmake_arguments(args.cc, args.cxx, args.build_type, args.cache),
             "-DGENTEST_BUILD_CODEGEN=OFF",
-            f"-DGENTEST_CODEGEN_EXECUTABLE={host_codegen}",
         ]
+        host_codegen: Path | None = None
+        if requires_host_codegen(lanes):
+            host_codegen = configure_host_codegen(source_input, output, args.cc, args.cxx, args.jobs, args.cache, env)
+            configure.append(f"-DGENTEST_CODEGEN_EXECUTABLE={host_codegen}")
         fixture_source = output / "fixture-source"
         fixture_targets = write_fixture(fixture_source, source_input)
         repository_build_root = fresh_repository_build_root(source_input) if "repo-e2e" in lanes else None
@@ -941,7 +951,8 @@ def main() -> int:
             final_lanes.append(item)
         finish_cache_metadata(args.cache, env, output, cache_metadata)
         cache_finished = True
-        provenance["tools"]["host_codegen"] = version(host_codegen)  # type: ignore[index]
+        if host_codegen is not None:
+            provenance["tools"]["host_codegen"] = version(host_codegen)  # type: ignore[index]
         result: dict[str, object] = {
             "status": "ok",
             "schema_version": 1,
