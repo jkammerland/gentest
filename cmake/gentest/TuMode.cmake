@@ -1388,7 +1388,11 @@ function(gentest_attach_codegen target)
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS "")
     _gentest_append_external_module_source_args_property(${target} ${_gentest_external_module_source_mappings})
     if(_gentest_config_compdb)
-        list(APPEND _gentest_codegen_deps "${_gentest_config_compdb_stamp}")
+        # The refresh stamp orders the staging target, but is intentionally
+        # touched whenever the raw database/filter script is reconsidered.
+        # Codegen depends on the changed-only staged database so an equivalent
+        # refresh cannot invalidate generated consumers.
+        list(APPEND _gentest_codegen_deps "${_gentest_config_compdb}")
     endif()
 
     _gentest_make_codegen_command_launcher("${_gentest_codegen_executable}" _command_launcher)
