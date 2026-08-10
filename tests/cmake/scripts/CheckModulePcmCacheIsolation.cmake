@@ -1583,6 +1583,7 @@ endif()
 # probed header is not subsequently included. Such modules conservatively
 # bypass the PCM cache before both lookup and publication; source scanning is
 # used only to deny reuse, never to authorize it.
+file(READ "${_src_dir}/alpha_dot_provider.cppm" _provider_before_lookup_operators)
 file(APPEND "${_src_dir}/alpha_dot_provider.cppm" [=[
 
 #if __has_include("pcm_cache_optional.hpp")
@@ -1609,7 +1610,7 @@ foreach(_lookup_step IN ITEMS absent_first absent_second)
     "bypass"
     "gentest.pcm_cache.alpha.beta.provider")
   string(FIND "${_lookup_log}"
-    "an active header-presence operator is not represented by clang-scan-deps"
+    "an active header/embed lookup is not represented by clang-scan-deps"
     _lookup_bypass_diagnostic)
   if(_lookup_bypass_diagnostic EQUAL -1)
     message(FATAL_ERROR "PCM header-presence bypass was not diagnosed for ${_lookup_step}.\n${_lookup_log}")
@@ -1632,6 +1633,46 @@ _gentest_expect_pcm_cache_state(
 file(GLOB_RECURSE _lookup_operator_entries LIST_DIRECTORIES FALSE "${_lookup_operator_cache}/*/module.pcm")
 if(_lookup_operator_entries)
   message(FATAL_ERROR "Header-presence operator bypass published PCM cache entries: ${_lookup_operator_entries}")
+endif()
+
+# clang-scan-deps does not consistently report #embed payloads on every
+# supported Clang release. The preprocessing probe is the conservative deny
+# authority: an active payload must never authorize a PCM cache hit/store.
+file(WRITE "${_src_dir}/pcm_cache_payload.bin" "payload")
+file(WRITE "${_src_dir}/alpha_dot_provider.cppm" "${_provider_before_lookup_operators}")
+file(APPEND "${_src_dir}/alpha_dot_provider.cppm" [=[
+
+export inline constexpr unsigned char gentest_pcm_payload[] = {
+#embed "pcm_cache_payload.bin"
+};
+]=])
+set(_embed_operator_cache "${_work_dir}/pcm-embed-operator-cache")
+foreach(_embed_step IN ITEMS first second)
+  set(_embed_timing "${_generated_dir}/pcm_embed_${_embed_step}_timing.json")
+  _gentest_run_codegen_fixture(
+    "pcm_embed_${_embed_step}"
+    PCM_CACHE ON
+    PCM_CACHE_DIR "${_embed_operator_cache}"
+    LOG_SCAN_DEPS
+    OUTPUT_VARIABLE _embed_log
+    TIMING_JSON "${_embed_timing}"
+    SOURCES
+      "${_src_dir}/alpha_dot_provider.cppm"
+      "${_src_dir}/alpha_dot_consumer.cppm")
+  _gentest_expect_pcm_cache_state(
+    "${_embed_timing}"
+    "bypass"
+    "gentest.pcm_cache.alpha.beta.provider")
+  string(FIND "${_embed_log}"
+    "an active header/embed lookup is not represented by clang-scan-deps"
+    _embed_bypass_diagnostic)
+  if(_embed_bypass_diagnostic EQUAL -1)
+    message(FATAL_ERROR "PCM #embed bypass was not diagnosed for ${_embed_step}.\n${_embed_log}")
+  endif()
+endforeach()
+file(GLOB_RECURSE _embed_operator_entries LIST_DIRECTORIES FALSE "${_embed_operator_cache}/*/module.pcm")
+if(_embed_operator_entries)
+  message(FATAL_ERROR "#embed bypass published PCM cache entries: ${_embed_operator_entries}")
 endif()
 
 message(STATUS "Shared-build-tree PCM cache isolation regression passed")
