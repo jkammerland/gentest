@@ -120,7 +120,7 @@ set(_consumer_output_dir "${_generated_root}/consumer artifacts")
 file(GLOB_RECURSE _generated_outputs LIST_DIRECTORIES false
   "${_mock_output_dir}/*"
   "${_consumer_output_dir}/*")
-list(FILTER _generated_outputs EXCLUDE REGEX "/compdb/compile_commands\\.staged$")
+list(FILTER _generated_outputs EXCLUDE REGEX "/compdb/compile_commands\\.(staged|checked)$")
 if(NOT _generated_outputs)
   message(FATAL_ERROR "Expected generated outputs below '${_generated_root}'")
 endif()
