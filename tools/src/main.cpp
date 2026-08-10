@@ -254,7 +254,30 @@ class TimingRecorder {
     std::vector<Record>                  records_;
 };
 
-[[nodiscard]] bool write_lookup_guard_output(const CollectorOptions &options, std::vector<std::string> guards, bool complete) {
+struct LookupConfiguredRoot {
+    std::string path;
+    std::string state;
+};
+
+[[nodiscard]] std::string lookup_configured_root_state(const std::filesystem::path &path) {
+    std::error_code ec;
+    const auto      link_status = std::filesystem::symlink_status(path, ec);
+    if (ec) {
+        return ec == std::errc::no_such_file_or_directory ? "missing" : "other";
+    }
+    if (!std::filesystem::exists(link_status)) {
+        return "missing";
+    }
+    ec.clear();
+    const auto target_status = std::filesystem::status(path, ec);
+    if (ec) {
+        return "other";
+    }
+    return std::filesystem::is_directory(target_status) ? "directory" : "other";
+}
+
+[[nodiscard]] bool write_lookup_guard_output(const CollectorOptions &options, std::vector<std::string> guards,
+                                             std::vector<LookupConfiguredRoot> configured_roots, bool complete) {
     if (!options.lookup_guard_output_path.has_value() || options.lookup_guard_output_path->empty()) {
         return true;
     }
@@ -266,10 +289,34 @@ class TimingRecorder {
     for (auto &guard : guards) {
         guard_values.push_back(std::move(guard));
     }
+
+    std::ranges::sort(configured_roots, {}, &LookupConfiguredRoot::path);
+    llvm::json::Array root_values;
+    root_values.reserve(configured_roots.size());
+    std::string previous_root;
+    std::string previous_state;
+    for (const auto &root : configured_roots) {
+        if (root.path.empty() || (root.state != "missing" && root.state != "directory")) {
+            complete = false;
+        }
+        if (root.path == previous_root) {
+            if (root.state != previous_state) {
+                complete = false;
+            }
+            continue;
+        }
+        if (lookup_configured_root_state(root.path) != root.state) {
+            complete = false;
+        }
+        root_values.emplace_back(llvm::json::Object{{"path", root.path}, {"state", root.state}});
+        previous_root  = root.path;
+        previous_state = root.state;
+    }
     llvm::json::Object report;
-    report["schema"]   = "gentest.lookup_guards.v1";
-    report["complete"] = complete;
-    report["guards"]   = std::move(guard_values);
+    report["schema"]           = "gentest.lookup_guards.v2";
+    report["complete"]         = complete;
+    report["guards"]           = std::move(guard_values);
+    report["configured_roots"] = std::move(root_values);
     std::string              json;
     llvm::raw_string_ostream json_stream(json);
     json_stream << llvm::formatv("{0:2}\n", llvm::json::Value(std::move(report)));
@@ -6525,10 +6572,11 @@ int main(int argc, const char **argv) {
     using ParseResult = gentest::codegen::TextualParseResult;
 
     const bool collect_lookup_guards = options.lookup_guard_output_path.has_value() && !options.lookup_guard_output_path->empty();
-    std::vector<std::string> lookup_guards;
-    bool                     lookup_guards_complete = true;
-    const bool               multi_tu               = allow_includes && options.sources.size() > 1;
-    const bool               cache_tu_mode          = allow_includes && textual_parse_cache != nullptr && textual_parse_cache->enabled();
+    std::vector<std::string>          lookup_guards;
+    std::vector<LookupConfiguredRoot> lookup_configured_roots;
+    bool                              lookup_guards_complete = true;
+    const bool                        multi_tu               = allow_includes && options.sources.size() > 1;
+    const bool                        cache_tu_mode = allow_includes && textual_parse_cache != nullptr && textual_parse_cache->enabled();
     const bool        has_cacheable_textual_source  = cache_tu_mode && std::ranges::any_of(options.sources, [&](const std::string &source) {
                                                   return !module_interface_sources.contains(source);
                                                       });
@@ -6635,6 +6683,122 @@ int main(int argc, const char **argv) {
             }
         }
     };
+    const auto effective_configured_include_root_paths = [](std::span<const std::string> command_line, std::string_view working_directory) {
+        static constexpr std::array<std::string_view, 9> split_flags = {
+            "-I",
+            "-isystem",
+            "-iquote",
+            "-idirafter",
+            "-F",
+            "-iframework",
+            "-internal-isystem",
+            "-internal-externc-isystem",
+            "-internal-iframework",
+        };
+        std::vector<std::string> roots;
+        bool                     complete = true;
+        for (std::size_t index = 0; index < command_line.size(); ++index) {
+            const std::string_view arg = command_line[index];
+            std::string_view       value;
+            for (const auto candidate : split_flags) {
+                if (arg == candidate) {
+                    if (index + 1 >= command_line.size()) {
+                        complete = false;
+                        break;
+                    }
+                    value = command_line[++index];
+                    break;
+                }
+                if ((candidate == "-I" || candidate == "-F") && arg.starts_with(candidate) && arg.size() > candidate.size()) {
+                    value = arg.substr(candidate.size());
+                    break;
+                }
+            }
+            if (value.empty()) {
+                continue;
+            }
+            std::filesystem::path path{std::string{value}};
+            if (path.is_relative() && !working_directory.empty()) {
+                path = std::filesystem::path{std::string{working_directory}} / path;
+            }
+            const std::string normalized = normalize_dependency_path(path.generic_string());
+            if (normalized.empty()) {
+                complete = false;
+            } else {
+                roots.push_back(normalized);
+            }
+        }
+        return std::pair{std::move(roots), complete};
+    };
+    const auto append_ambient_configured_include_roots = [](std::vector<std::string> &roots, std::string_view working_directory) {
+        static constexpr std::array<std::string_view, 7> names = {
+            "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH", "OBJC_INCLUDE_PATH", "OBJCPLUS_INCLUDE_PATH", "INCLUDE", "SDKROOT",
+        };
+        const char separator =
+#if defined(_WIN32)
+            ';';
+#else
+            ':';
+#endif
+        for (const auto name : names) {
+            const auto value = get_env_value(name);
+            if (!value.has_value()) {
+                continue;
+            }
+            std::size_t start = 0;
+            while (start <= value->size()) {
+                const std::size_t      end = value->find(separator, start);
+                const std::string_view raw_root =
+                    end == std::string::npos ? std::string_view{*value}.substr(start) : std::string_view{*value}.substr(start, end - start);
+                std::filesystem::path path =
+                    raw_root.empty() ? std::filesystem::path{std::string{working_directory}} : std::filesystem::path{std::string{raw_root}};
+                if (path.is_relative() && !working_directory.empty()) {
+                    path = std::filesystem::path{std::string{working_directory}} / path;
+                }
+                const std::string normalized = normalize_dependency_path(path.generic_string());
+                if (!normalized.empty()) {
+                    roots.push_back(normalized);
+                }
+                if (end == std::string::npos) {
+                    break;
+                }
+                start = end + 1;
+            }
+        }
+    };
+    if (collect_lookup_guards) {
+        std::vector<std::string> configured_root_paths;
+        for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+            if (tool_compile_commands[idx].size() != 1) {
+                lookup_guards_complete = false;
+                continue;
+            }
+            const std::string &working_directory = tool_compile_commands[idx].front().Directory.empty()
+                                                       ? parse_cache_default_working_directory
+                                                       : tool_compile_commands[idx].front().Directory;
+            const auto         adjusted_command =
+                args_adjuster(tool_compile_commands[idx].front().CommandLine, llvm::StringRef{options.sources[idx]});
+            const auto effective_command = effective_parse_command(adjusted_command, options.sources[idx], working_directory);
+            if (!effective_command.has_value()) {
+                lookup_guards_complete = false;
+                continue;
+            }
+            auto [roots, complete] = effective_configured_include_root_paths(
+                std::span<const std::string>(effective_command->data(), effective_command->size()), working_directory);
+            lookup_guards_complete = lookup_guards_complete && complete;
+            configured_root_paths.insert(configured_root_paths.end(), std::make_move_iterator(roots.begin()),
+                                         std::make_move_iterator(roots.end()));
+            append_ambient_configured_include_roots(configured_root_paths, working_directory);
+        }
+        std::ranges::sort(configured_root_paths);
+        configured_root_paths.erase(std::ranges::unique(configured_root_paths).begin(), configured_root_paths.end());
+        lookup_configured_roots.reserve(configured_root_paths.size());
+        for (auto &root : configured_root_paths) {
+            const std::string state = lookup_configured_root_state(root);
+            lookup_guards_complete  = lookup_guards_complete && state != "other";
+            lookup_configured_roots.push_back(LookupConfiguredRoot{.path = std::move(root), .state = state});
+        }
+    }
     std::size_t parse_jobs          = gentest::codegen::resolve_concurrency(options.sources.size(), options.jobs);
     const auto  serial_parse_reason = forced_serial_parse_reason();
     if (parse_jobs > 1 && serial_parse_reason.has_value()) {
@@ -7139,7 +7303,7 @@ int main(int argc, const char **argv) {
         return 1;
     }
     if (options.check_only) {
-        if (!write_lookup_guard_output(final_options, lookup_guards, lookup_guards_complete)) {
+        if (!write_lookup_guard_output(final_options, lookup_guards, lookup_configured_roots, lookup_guards_complete)) {
             return 1;
         }
         return finish_success();
@@ -7160,7 +7324,7 @@ int main(int argc, const char **argv) {
             }
             timing.record("depfile", depfile_started, std::nullopt, {},
                           final_options.depfile_path.has_value() ? final_options.depfile_path->generic_string() : std::string{});
-            if (!write_lookup_guard_output(final_options, lookup_guards, lookup_guards_complete)) {
+            if (!write_lookup_guard_output(final_options, lookup_guards, lookup_configured_roots, lookup_guards_complete)) {
                 return 1;
             }
             return finish_success();
@@ -7203,7 +7367,7 @@ int main(int argc, const char **argv) {
     }
     timing.record("depfile", depfile_started, std::nullopt, {},
                   final_options.depfile_path.has_value() ? final_options.depfile_path->generic_string() : std::string{});
-    if (!write_lookup_guard_output(final_options, lookup_guards, lookup_guards_complete)) {
+    if (!write_lookup_guard_output(final_options, lookup_guards, lookup_configured_roots, lookup_guards_complete)) {
         return 1;
     }
     return finish_success();

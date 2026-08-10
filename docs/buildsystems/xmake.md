@@ -311,10 +311,16 @@ not yet separate non-CMake CI lanes.
 - The current package shape is validated through the checked-in fixture-local
   xrepo repository, not a published external xrepo registry entry yet.
 - Textual and module codegen write an exact lookup-guard sidecar in addition to
-  the ordinary depfile. It includes wholly missing `__has_include` candidates
-  as well as earlier shadows for resolved headers. Their absent/present state
-  participates in Xmake's native dependency value, so creating either kind
-  invalidates the snapshot once while unrelated files remain outside the
-  discovered closure. If Clang reports a lookup mechanism that cannot be
-  represented safely, the snapshot is not published and the next build
-  regenerates conservatively.
+  the ordinary depfile. Clang preprocessing callbacks are the only authority
+  for header lookup: Xmake consumes the reported candidates and configured
+  include-root state, but never reconstructs headers by combining depfile
+  entries with include roots. The depfile supplies positive dependencies; the
+  sidecar supplies exact missing/earlier candidates and root existence or
+  symlink-target state. A per-target runner holds the cache lock while checking
+  the immutable snapshot, invoking codegen, and publishing the replacement.
+  If the sidecar is missing, corrupt, incomplete, or contains a lookup that
+  cannot be represented safely, no snapshot is published or reused and the
+  next build regenerates conservatively.
+- Invoke Xmake through the normal target build (`xmake build <target>`). Direct
+  source-file builds such as `xmake build --files ...` bypass target preparation
+  and therefore are not supported for Gentest-generated targets.

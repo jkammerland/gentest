@@ -76,6 +76,53 @@ if(NOT _dep_parser_rc EQUAL 0)
     "stdout:\n${_dep_parser_out}\nstderr:\n${_dep_parser_err}")
 endif()
 
+execute_process(
+  COMMAND "${_xmake}" lua "${SOURCE_DIR}/tests/xmake/check_codegen_dep_cache.lua"
+          lookup-metadata "${SOURCE_DIR}/xmake/scripts/update_codegen_dep_cache.lua"
+          "${_dep_cache_unit_dir}/lookup-metadata"
+  RESULT_VARIABLE _lookup_metadata_rc
+  OUTPUT_VARIABLE _lookup_metadata_out
+  ERROR_VARIABLE _lookup_metadata_err)
+if(NOT _lookup_metadata_rc EQUAL 0)
+  message(FATAL_ERROR
+    "The Xmake lookup-metadata cache contract failed.\n"
+    "stdout:\n${_lookup_metadata_out}\nstderr:\n${_lookup_metadata_err}")
+endif()
+
+foreach(_lookup_state IN ITEMS corrupt incomplete)
+  set(_invalid_dir "${_dep_cache_unit_dir}/${_lookup_state}-lookup")
+  set(_invalid_cache "${_invalid_dir}/snapshot")
+  set(_invalid_output "${_invalid_dir}/generated.txt")
+  set(_invalid_depfile "${_invalid_dir}/generated.d")
+  set(_invalid_sidecar "${_invalid_dir}/lookup.json")
+  set(_invalid_count "${_invalid_dir}/count.txt")
+  file(MAKE_DIRECTORY "${_invalid_dir}")
+  foreach(_attempt RANGE 1 2)
+    execute_process(
+      COMMAND "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/run_codegen_with_dep_cache.lua"
+              "${_invalid_cache}" "${_invalid_depfile}" "${_invalid_sidecar}" invalid-lookup
+              "${_invalid_dir}" 1 "${_xmake}" "${_invalid_output}"
+              lua "${SOURCE_DIR}/tests/xmake/fake_codegen_cache_writer.lua"
+              "${_invalid_output}" "${_invalid_depfile}" invalid-lookup 0
+              "${_invalid_sidecar}" "${_lookup_state}" "${_invalid_count}"
+      RESULT_VARIABLE _invalid_lookup_rc
+      OUTPUT_VARIABLE _invalid_lookup_out
+      ERROR_VARIABLE _invalid_lookup_err)
+    if(NOT _invalid_lookup_rc EQUAL 0)
+      message(FATAL_ERROR
+        "The ${_lookup_state} lookup-sidecar conservative regeneration failed.\n"
+        "stdout:\n${_invalid_lookup_out}\nstderr:\n${_invalid_lookup_err}")
+    endif()
+  endforeach()
+  file(READ "${_invalid_count}" _invalid_count_value)
+  file(GLOB _invalid_snapshots "${_invalid_cache}.v.*")
+  if(NOT "${_invalid_count_value}" STREQUAL "2" OR _invalid_snapshots)
+    message(FATAL_ERROR
+      "A ${_lookup_state} lookup sidecar was published or reused instead of regenerating conservatively.\n"
+      "invocations=${_invalid_count_value}; snapshots=${_invalid_snapshots}")
+  endif()
+endforeach()
+
 if(NOT WIN32)
   find_program(_sh NAMES sh)
   if(_sh)
@@ -120,12 +167,12 @@ if(NOT WIN32)
     file(MAKE_DIRECTORY "${_owner_dir}")
     gentest_fixture_join_posix_shell_command(_owner_writer_a
       "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/run_codegen_with_dep_cache.lua"
-      "${_owner_cache}" "${_owner_depfile}" "" identity-a "${_owner_dir}" 1 0 "${_xmake}"
+      "${_owner_cache}" "${_owner_depfile}" "" identity-a "${_owner_dir}" 1 "${_xmake}"
       "${_owner_output}" lua "${SOURCE_DIR}/tests/xmake/fake_codegen_cache_writer.lua"
       "${_owner_output}" "${_owner_depfile}" identity-a 50)
     gentest_fixture_join_posix_shell_command(_owner_writer_b
       "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/run_codegen_with_dep_cache.lua"
-      "${_owner_cache}" "${_owner_depfile}" "" identity-b "${_owner_dir}" 1 0 "${_xmake}"
+      "${_owner_cache}" "${_owner_depfile}" "" identity-b "${_owner_dir}" 1 "${_xmake}"
       "${_owner_output}" lua "${SOURCE_DIR}/tests/xmake/fake_codegen_cache_writer.lua"
       "${_owner_output}" "${_owner_depfile}" identity-b 0)
     execute_process(
@@ -380,7 +427,7 @@ if(NOT _namespaced_rc EQUAL 0)
     "stderr:\n${_namespaced_err}")
 endif()
 set(_namespaced_log "${_namespaced_out}\n${_namespaced_err}")
-string(FIND "${_namespaced_log}" "--source-root" _namespaced_codegen_pos)
+string(FIND "${_namespaced_log}" "gentest-codegen-cache-miss" _namespaced_codegen_pos)
 if(_namespaced_codegen_pos EQUAL -1)
   message(FATAL_ERROR "The namespaced textual helper target did not run gentest_codegen.\n${_namespaced_log}")
 endif()
@@ -457,7 +504,7 @@ if(NOT _noop_rc EQUAL 0)
 endif()
 
 set(_noop_log "${_mock_noop_out}\n${_mock_noop_err}\n${_noop_out}\n${_noop_err}")
-string(FIND "${_noop_log}" "--source-root" _noop_codegen_pos)
+string(FIND "${_noop_log}" "gentest-codegen-cache-miss" _noop_codegen_pos)
 if(NOT _noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR
     "An unchanged Xmake textual build reran gentest_codegen.\n"
@@ -480,7 +527,7 @@ execute_process(
   OUTPUT_VARIABLE _shadow_out
   ERROR_VARIABLE _shadow_err)
 set(_shadow_log "${_shadow_out}\n${_shadow_err}")
-string(FIND "${_shadow_log}" "--source-root" _shadow_codegen_pos)
+string(FIND "${_shadow_log}" "gentest-codegen-cache-miss" _shadow_codegen_pos)
 if(NOT _shadow_rc EQUAL 0 OR _shadow_codegen_pos EQUAL -1)
   message(FATAL_ERROR
     "Creating a previously missing earlier include did not rerun Xmake codegen.\n${_shadow_log}")
@@ -492,7 +539,7 @@ execute_process(
   OUTPUT_VARIABLE _shadow_noop_out
   ERROR_VARIABLE _shadow_noop_err)
 set(_shadow_noop_log "${_shadow_noop_out}\n${_shadow_noop_err}")
-string(FIND "${_shadow_noop_log}" "--source-root" _shadow_noop_codegen_pos)
+string(FIND "${_shadow_noop_log}" "gentest-codegen-cache-miss" _shadow_noop_codegen_pos)
 if(NOT _shadow_noop_rc EQUAL 0 OR NOT _shadow_noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Stable shadow-header membership did not produce an Xmake no-op.\n${_shadow_noop_log}")
 endif()
@@ -511,7 +558,7 @@ execute_process(
   OUTPUT_VARIABLE _optional_probe_out
   ERROR_VARIABLE _optional_probe_err)
 set(_optional_probe_log "${_optional_probe_out}\n${_optional_probe_err}")
-string(FIND "${_optional_probe_log}" "--source-root" _optional_probe_codegen_pos)
+string(FIND "${_optional_probe_log}" "gentest-codegen-cache-miss" _optional_probe_codegen_pos)
 if(NOT _optional_probe_rc EQUAL 0 OR _optional_probe_codegen_pos EQUAL -1)
   message(FATAL_ERROR
     "Creating a previously missing __has_include candidate did not rerun Xmake codegen.\n${_optional_probe_log}")
@@ -526,7 +573,7 @@ execute_process(
   OUTPUT_VARIABLE _optional_probe_noop_out
   ERROR_VARIABLE _optional_probe_noop_err)
 set(_optional_probe_noop_log "${_optional_probe_noop_out}\n${_optional_probe_noop_err}")
-string(FIND "${_optional_probe_noop_log}" "--source-root" _optional_probe_noop_codegen_pos)
+string(FIND "${_optional_probe_noop_log}" "gentest-codegen-cache-miss" _optional_probe_noop_codegen_pos)
 if(NOT _optional_probe_noop_rc EQUAL 0 OR NOT _optional_probe_noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Stable __has_include membership did not produce an Xmake no-op.\n${_optional_probe_noop_log}")
 endif()
@@ -556,7 +603,7 @@ execute_process(
   OUTPUT_VARIABLE _incdir_build_out
   ERROR_VARIABLE _incdir_build_err)
 set(_incdir_build_log "${_incdir_build_out}\n${_incdir_build_err}")
-string(FIND "${_incdir_build_log}" "--source-root" _incdir_codegen_pos)
+string(FIND "${_incdir_build_log}" "gentest-codegen-cache-miss" _incdir_codegen_pos)
 string(FIND "${_incdir_build_log}" "${_identity_include_dir}" _incdir_path_pos)
 if(NOT _incdir_config_rc EQUAL 0 OR NOT _incdir_build_rc EQUAL 0 OR _incdir_codegen_pos EQUAL -1 OR _incdir_path_pos EQUAL -1)
   message(FATAL_ERROR
@@ -571,7 +618,7 @@ execute_process(
   OUTPUT_VARIABLE _incdir_noop_out
   ERROR_VARIABLE _incdir_noop_err)
 set(_incdir_noop_log "${_incdir_noop_out}\n${_incdir_noop_err}")
-string(FIND "${_incdir_noop_log}" "--source-root" _incdir_noop_codegen_pos)
+string(FIND "${_incdir_noop_log}" "gentest-codegen-cache-miss" _incdir_noop_codegen_pos)
 if(NOT _incdir_noop_rc EQUAL 0 OR NOT _incdir_noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Stable configured incdirs did not produce an Xmake no-op.\n${_incdir_noop_log}")
 endif()
@@ -601,7 +648,7 @@ execute_process(
   OUTPUT_VARIABLE _root_build_out
   ERROR_VARIABLE _root_build_err)
 set(_root_build_log "${_root_build_out}\n${_root_build_err}")
-string(FIND "${_root_build_log}" "--source-root" _root_codegen_pos)
+string(FIND "${_root_build_log}" "gentest-codegen-cache-miss" _root_codegen_pos)
 string(FIND "${_root_build_log}" "${_alternate_gentest_root}/include" _root_path_pos)
 if(NOT _root_config_rc EQUAL 0 OR NOT _root_build_rc EQUAL 0 OR _root_codegen_pos EQUAL -1 OR _root_path_pos EQUAL -1)
   message(FATAL_ERROR
@@ -616,7 +663,7 @@ execute_process(
   OUTPUT_VARIABLE _root_noop_out
   ERROR_VARIABLE _root_noop_err)
 set(_root_noop_log "${_root_noop_out}\n${_root_noop_err}")
-string(FIND "${_root_noop_log}" "--source-root" _root_noop_codegen_pos)
+string(FIND "${_root_noop_log}" "gentest-codegen-cache-miss" _root_noop_codegen_pos)
 if(NOT _root_noop_rc EQUAL 0 OR NOT _root_noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Stable gentest_root did not produce an Xmake no-op.\n${_root_noop_log}")
 endif()
@@ -637,7 +684,7 @@ if(NOT _scan_mode_rc EQUAL 0)
   message(FATAL_ERROR "xmake build failed after changing GENTEST_CODEGEN_SCAN_DEPS_MODE.\n${_scan_mode_out}\n${_scan_mode_err}")
 endif()
 set(_scan_mode_log "${_scan_mode_out}\n${_scan_mode_err}")
-string(FIND "${_scan_mode_log}" "--source-root" _scan_mode_codegen_pos)
+string(FIND "${_scan_mode_log}" "gentest-codegen-cache-miss" _scan_mode_codegen_pos)
 if(_scan_mode_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Changing GENTEST_CODEGEN_SCAN_DEPS_MODE did not rerun gentest_codegen.\n${_scan_mode_log}")
 endif()
@@ -652,7 +699,7 @@ if(NOT _scan_mode_noop_rc EQUAL 0)
   message(FATAL_ERROR "xmake no-op failed with stable GENTEST_CODEGEN_SCAN_DEPS_MODE.\n${_scan_mode_noop_out}\n${_scan_mode_noop_err}")
 endif()
 set(_scan_mode_noop_log "${_scan_mode_noop_out}\n${_scan_mode_noop_err}")
-string(FIND "${_scan_mode_noop_log}" "--source-root" _scan_mode_noop_codegen_pos)
+string(FIND "${_scan_mode_noop_log}" "gentest-codegen-cache-miss" _scan_mode_noop_codegen_pos)
 if(NOT _scan_mode_noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Stable GENTEST_CODEGEN_SCAN_DEPS_MODE did not produce a no-op build.\n${_scan_mode_noop_log}")
 endif()
@@ -679,7 +726,7 @@ if(NOT _resource_dir_build_rc EQUAL 0)
   message(FATAL_ERROR "xmake build failed after changing GENTEST_CODEGEN_RESOURCE_DIR.\n${_resource_dir_build_out}\n${_resource_dir_build_err}")
 endif()
 set(_resource_dir_build_log "${_resource_dir_build_out}\n${_resource_dir_build_err}")
-string(FIND "${_resource_dir_build_log}" "--source-root" _resource_dir_codegen_pos)
+string(FIND "${_resource_dir_build_log}" "gentest-codegen-cache-miss" _resource_dir_codegen_pos)
 if(_resource_dir_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Changing GENTEST_CODEGEN_RESOURCE_DIR did not rerun gentest_codegen.\n${_resource_dir_build_log}")
 endif()
@@ -694,7 +741,7 @@ if(NOT _resource_dir_noop_rc EQUAL 0)
   message(FATAL_ERROR "xmake no-op failed with stable GENTEST_CODEGEN_RESOURCE_DIR.\n${_resource_dir_noop_out}\n${_resource_dir_noop_err}")
 endif()
 set(_resource_dir_noop_log "${_resource_dir_noop_out}\n${_resource_dir_noop_err}")
-string(FIND "${_resource_dir_noop_log}" "--source-root" _resource_dir_noop_codegen_pos)
+string(FIND "${_resource_dir_noop_log}" "gentest-codegen-cache-miss" _resource_dir_noop_codegen_pos)
 if(NOT _resource_dir_noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Stable GENTEST_CODEGEN_RESOURCE_DIR did not produce a no-op build.\n${_resource_dir_noop_log}")
 endif()
@@ -713,7 +760,7 @@ if(NOT _strict_fixture_rc EQUAL 0)
     "xmake build failed after changing GENTEST_STRICT_FIXTURE.\n${_strict_fixture_out}\n${_strict_fixture_err}")
 endif()
 set(_strict_fixture_log "${_strict_fixture_out}\n${_strict_fixture_err}")
-string(FIND "${_strict_fixture_log}" "--source-root" _strict_fixture_codegen_pos)
+string(FIND "${_strict_fixture_log}" "gentest-codegen-cache-miss" _strict_fixture_codegen_pos)
 if(_strict_fixture_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Changing GENTEST_STRICT_FIXTURE did not rerun gentest_codegen.\n${_strict_fixture_log}")
 endif()
@@ -729,7 +776,7 @@ if(NOT _strict_fixture_noop_rc EQUAL 0)
     "xmake no-op failed with stable GENTEST_STRICT_FIXTURE.\n${_strict_fixture_noop_out}\n${_strict_fixture_noop_err}")
 endif()
 set(_strict_fixture_noop_log "${_strict_fixture_noop_out}\n${_strict_fixture_noop_err}")
-string(FIND "${_strict_fixture_noop_log}" "--source-root" _strict_fixture_noop_codegen_pos)
+string(FIND "${_strict_fixture_noop_log}" "gentest-codegen-cache-miss" _strict_fixture_noop_codegen_pos)
 if(NOT _strict_fixture_noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Stable GENTEST_STRICT_FIXTURE did not produce a no-op build.\n${_strict_fixture_noop_log}")
 endif()
@@ -748,7 +795,7 @@ if(NOT _unrelated_rc EQUAL 0)
   message(FATAL_ERROR "xmake build failed after an unrelated fixture file edit.\n${_unrelated_out}\n${_unrelated_err}")
 endif()
 set(_unrelated_log "${_unrelated_out}\n${_unrelated_err}")
-string(FIND "${_unrelated_log}" "--source-root" _unrelated_codegen_pos)
+string(FIND "${_unrelated_log}" "gentest-codegen-cache-miss" _unrelated_codegen_pos)
 if(NOT _unrelated_codegen_pos EQUAL -1)
   message(FATAL_ERROR "An unrelated fixture file edit reran textual codegen.\n${_unrelated_log}")
 endif()
@@ -768,7 +815,7 @@ if(NOT _source_edit_rc EQUAL 0)
   message(FATAL_ERROR "xmake build failed after the textual source edit.\n${_source_edit_out}\n${_source_edit_err}")
 endif()
 set(_source_edit_log "${_source_edit_out}\n${_source_edit_err}")
-string(FIND "${_source_edit_log}" "--source-root" _source_edit_codegen_pos)
+string(FIND "${_source_edit_log}" "gentest-codegen-cache-miss" _source_edit_codegen_pos)
 if(_source_edit_codegen_pos EQUAL -1)
   message(FATAL_ERROR "A textual source edit did not rerun gentest_codegen.\n${_source_edit_log}")
 endif()
@@ -785,7 +832,7 @@ if(NOT _private_header_rc EQUAL 0)
   message(FATAL_ERROR "xmake build failed after the private mock header edit.\n${_private_header_out}\n${_private_header_err}")
 endif()
 set(_private_header_log "${_private_header_out}\n${_private_header_err}")
-string(FIND "${_private_header_log}" "--source-root" _private_header_codegen_pos)
+string(FIND "${_private_header_log}" "gentest-codegen-cache-miss" _private_header_codegen_pos)
 if(_private_header_codegen_pos EQUAL -1)
   message(FATAL_ERROR "A private mock header edit did not rerun gentest_codegen.\n${_private_header_log}")
 endif()
@@ -804,7 +851,7 @@ if(NOT _additional_defs_rc EQUAL 0)
     "xmake build failed after the additional mock defs edit.\n${_additional_defs_out}\n${_additional_defs_err}")
 endif()
 set(_additional_defs_log "${_additional_defs_out}\n${_additional_defs_err}")
-string(FIND "${_additional_defs_log}" "--source-root" _additional_defs_codegen_pos)
+string(FIND "${_additional_defs_log}" "gentest-codegen-cache-miss" _additional_defs_codegen_pos)
 if(_additional_defs_codegen_pos EQUAL -1)
   message(FATAL_ERROR "An additional mock defs edit did not rerun gentest_codegen.\n${_additional_defs_log}")
 endif()
@@ -821,7 +868,7 @@ if(NOT _shared_header_rc EQUAL 0)
   message(FATAL_ERROR "xmake build failed after the shared mock header edit.\n${_shared_header_out}\n${_shared_header_err}")
 endif()
 set(_shared_header_log "${_shared_header_out}\n${_shared_header_err}")
-string(FIND "${_shared_header_log}" "--source-root" _shared_header_codegen_pos)
+string(FIND "${_shared_header_log}" "gentest-codegen-cache-miss" _shared_header_codegen_pos)
 if(_shared_header_codegen_pos EQUAL -1)
   message(FATAL_ERROR "A shared mock header edit did not rerun gentest_codegen.\n${_shared_header_log}")
 endif()
@@ -853,7 +900,7 @@ if(NOT _flag_edit_rc EQUAL 0)
   message(FATAL_ERROR "xmake build failed after the codegen flag edit.\n${_flag_edit_out}\n${_flag_edit_err}")
 endif()
 set(_flag_edit_log "${_flag_edit_out}\n${_flag_edit_err}")
-string(FIND "${_flag_edit_log}" "--source-root" _flag_edit_codegen_pos)
+string(FIND "${_flag_edit_log}" "gentest-codegen-cache-miss" _flag_edit_codegen_pos)
 if(_flag_edit_codegen_pos EQUAL -1)
   message(FATAL_ERROR "A relevant codegen flag edit did not rerun gentest_codegen.\n${_flag_edit_log}")
 endif()
@@ -980,7 +1027,7 @@ if(NOT _corrupt_sidecar_rc EQUAL 0)
     "stderr:\n${_corrupt_sidecar_err}")
 endif()
 set(_corrupt_sidecar_log "${_corrupt_sidecar_out}\n${_corrupt_sidecar_err}")
-string(FIND "${_corrupt_sidecar_log}" "--source-root" _corrupt_sidecar_codegen_pos)
+string(FIND "${_corrupt_sidecar_log}" "gentest-codegen-cache-miss" _corrupt_sidecar_codegen_pos)
 if(_corrupt_sidecar_codegen_pos EQUAL -1)
   message(FATAL_ERROR
     "A corrupt textual codegen sidecar did not force gentest_codegen.\n"
@@ -1004,7 +1051,7 @@ if(NOT _recovered_noop_rc EQUAL 0)
   message(FATAL_ERROR "xmake no-op build failed after sidecar recovery.\n${_recovered_noop_out}\n${_recovered_noop_err}")
 endif()
 set(_recovered_noop_log "${_recovered_noop_out}\n${_recovered_noop_err}")
-string(FIND "${_recovered_noop_log}" "--source-root" _recovered_noop_codegen_pos)
+string(FIND "${_recovered_noop_log}" "gentest-codegen-cache-miss" _recovered_noop_codegen_pos)
 if(NOT _recovered_noop_codegen_pos EQUAL -1)
   message(FATAL_ERROR
     "A recovered textual sidecar did not suppress the subsequent unchanged codegen run.\n"
@@ -1041,7 +1088,7 @@ if(NOT _manifest_restore_rc EQUAL 0)
     "stderr:\n${_manifest_restore_err}")
 endif()
 set(_manifest_restore_log "${_manifest_restore_out}\n${_manifest_restore_err}")
-string(FIND "${_manifest_restore_log}" "--source-root" _manifest_restore_codegen_pos)
+string(FIND "${_manifest_restore_log}" "gentest-codegen-cache-miss" _manifest_restore_codegen_pos)
 if(_manifest_restore_codegen_pos EQUAL -1 OR NOT EXISTS "${_manifest}")
   message(FATAL_ERROR
     "Deleting a textual artifact manifest did not regenerate the complete codegen output set.\n"

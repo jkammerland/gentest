@@ -75,16 +75,109 @@ local function validate_snapshot(cache_path, identity)
     local candidates = os.files(cache_path .. ".v.*") or {}
     require_equal(#candidates, 1, "published snapshot count")
     local loaded = io.load(candidates[1])
-    if type(loaded) ~= "table" or loaded.schema ~= 2 or loaded.identity ~= identity or type(loaded.files) ~= "table" then
+    if type(loaded) ~= "table" or loaded.schema ~= 3 or loaded.identity ~= identity or type(loaded.files) ~= "table" then
         fail("published snapshot is invalid")
     end
     for _, entry in ipairs(loaded.files) do
-        if type(entry) ~= "table" or type(entry.path) ~= "string" or entry.kind ~= "file" or entry.mtime ~= os.mtime(entry.path) then
+        if type(entry) ~= "table" or type(entry.path) ~= "string" then
             fail("published snapshot contains an invalid file fingerprint")
+        end
+        if entry.kind == "file" and (not os.isfile(entry.path) or entry.mtime ~= os.mtime(entry.path)) then
+            fail("published snapshot contains a stale file fingerprint")
+        elseif entry.kind == "absent" and os.exists(entry.path) then
+            fail("published snapshot contains a stale absent-path guard")
+        elseif entry.kind ~= "file" and entry.kind ~= "absent" and entry.kind ~= "root" then
+            fail("published snapshot contains an unknown entry kind")
         end
     end
     for _, temporary in ipairs(os.files(cache_path .. ".next.*") or {}) do
         fail("temporary snapshot leaked after concurrent publication: " .. temporary)
+    end
+end
+
+local function run_lookup_metadata_check(helper, work_dir)
+    import("update_codegen_dep_cache", {rootdir = path.directory(helper)})
+
+    os.mkdir(work_dir)
+    local dependency = path.join(work_dir, "late", "picked.hpp")
+    local early_root = path.join(work_dir, "early")
+    local late_root = path.join(work_dir, "late")
+    os.mkdir(early_root)
+    os.mkdir(late_root)
+    io.writefile(dependency, "#pragma once\n")
+
+    local cache = path.join(work_dir, "no-reconstruction", "snapshot")
+    local identity = "lookup-authority"
+    local published = update_codegen_dep_cache.save_snapshot_locked(cache, identity, {dependency}, {
+        guards = {},
+        configured_roots = {
+            {path = early_root, state = "directory"},
+            {path = late_root, state = "directory"},
+        },
+    })
+    if published ~= true or not update_codegen_dep_cache.snapshot_current(cache, identity) then
+        fail("configured-root snapshot was not reusable")
+    end
+    local candidates = os.files(cache .. ".v.*") or {}
+    require_equal(#candidates, 1, "lookup-authority snapshot count")
+    local loaded = io.load(candidates[1])
+    local invented_shadow = path.absolute(path.join(early_root, "picked.hpp"))
+    for _, entry in ipairs(loaded.files or {}) do
+        if entry.path == invented_shadow then
+            fail("Xmake reconstructed an absent header from depfile files x include roots")
+        end
+    end
+
+    local missing_root = path.join(work_dir, "missing-root")
+    local missing_cache = path.join(work_dir, "missing-transition", "snapshot")
+    update_codegen_dep_cache.save_snapshot_locked(missing_cache, identity, {dependency}, {
+        guards = {},
+        configured_roots = {{path = missing_root, state = "missing"}},
+    })
+    if not update_codegen_dep_cache.snapshot_current(missing_cache, identity) then
+        fail("missing configured-root snapshot was not initially reusable")
+    end
+    os.mkdir(missing_root)
+    if update_codegen_dep_cache.snapshot_current(missing_cache, identity) then
+        fail("missing-to-directory include-root transition did not invalidate the snapshot")
+    end
+
+    local other_root = path.join(work_dir, "other-root")
+    local other_cache = path.join(work_dir, "other-transition", "snapshot")
+    os.mkdir(other_root)
+    update_codegen_dep_cache.save_snapshot_locked(other_cache, identity, {dependency}, {
+        guards = {},
+        configured_roots = {{path = other_root, state = "directory"}},
+    })
+    if not update_codegen_dep_cache.snapshot_current(other_cache, identity) then
+        fail("directory configured-root snapshot was not initially reusable")
+    end
+    os.rm(other_root)
+    io.writefile(other_root, "not a directory\n")
+    if update_codegen_dep_cache.snapshot_current(other_cache, identity) then
+        fail("directory-to-file include-root transition did not invalidate the snapshot")
+    end
+
+    if not is_host("windows") then
+        local target_a = path.join(work_dir, "root-target-a")
+        local target_b = path.join(work_dir, "root-target-b")
+        local linked_root = path.join(work_dir, "linked-root")
+        local linked_cache = path.join(work_dir, "link-transition", "snapshot")
+        os.mkdir(target_a)
+        os.mkdir(target_b)
+        os.vrunv("ln", {"-s", target_a, linked_root})
+        update_codegen_dep_cache.save_snapshot_locked(linked_cache, identity, {dependency}, {
+            guards = {},
+            configured_roots = {{path = linked_root, state = "directory"}},
+        })
+        if not update_codegen_dep_cache.snapshot_current(linked_cache, identity) then
+            fail("symlinked configured-root snapshot was not initially reusable")
+        end
+        os.rm(linked_root)
+        os.vrunv("ln", {"-s", target_b, linked_root})
+        if update_codegen_dep_cache.snapshot_current(linked_cache, identity) then
+            fail("configured include-root symlink retarget did not invalidate the snapshot")
+        end
     end
 end
 
@@ -101,6 +194,8 @@ end
 function main(mode, ...)
     if mode == "parser" then
         run_parser_check(...)
+    elseif mode == "lookup-metadata" then
+        run_lookup_metadata_check(...)
     elseif mode == "validate" then
         validate_snapshot(...)
     elseif mode == "validate-output" then

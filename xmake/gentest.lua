@@ -1519,96 +1519,8 @@ local function codegen_static_dependencies(target, config, codegen, compdb_dir, 
     return files
 end
 
-local function codegen_include_roots(config)
-    local roots = {}
-    local seen_roots = {}
-    for _, include_dir in ipairs(resolved_incdirs()) do
-        append_path_unique(roots, seen_roots, include_dir)
-    end
-    for _, include_dir in ipairs(config.extra_includes or {}) do
-        append_path_unique(roots, seen_roots, project_path(include_dir))
-    end
-
-    return roots
-end
-
-local function combined_dependency_files(primary, secondary)
-    local files = {}
-    local seen = {}
-    for _, filepath in ipairs(primary or {}) do
-        append_path_unique(files, seen, filepath)
-    end
-    for _, filepath in ipairs(secondary or {}) do
-        append_path_unique(files, seen, filepath)
-    end
-    return files
-end
-
 local function generation_cache_path(config)
     return config.depcache_anchor .. ".gentest_codegen_deps"
-end
-
-local function cached_generation_state(cache_path, identity)
-    local candidates = os.files(cache_path .. ".v.*") or {}
-    local latest_entries = {}
-    for _, candidate in ipairs(candidates) do
-        -- Xmake's dependency loader safely treats a corrupt or unreadable
-        -- serialized state file as absent.
-        local depend_loader = gentest_state["_depend_loader"]
-        local cached = depend_loader and depend_loader.load(candidate) or nil
-        if type(cached) == "table" and cached.schema == 2 and cached.identity == identity and type(cached.files) == "table" then
-            latest_entries = cached.files
-            local current = true
-            for _, entry in ipairs(cached.files) do
-                if type(entry) ~= "table" or type(entry.path) ~= "string" or
-                    (entry.kind == "file" and (not os.isfile(entry.path) or os.mtime(entry.path) ~= entry.mtime)) or
-                    (entry.kind == "absent" and os.exists(entry.path)) or (entry.kind ~= "file" and entry.kind ~= "absent") then
-                    current = false
-                    break
-                end
-            end
-            if current then
-                return true, cached.files
-            end
-        end
-    end
-    return false, latest_entries
-end
-
-local function cached_file_paths(entries)
-    local result = {}
-    local seen = {}
-    for _, entry in ipairs(entries or {}) do
-        if type(entry) == "table" then
-            if entry.kind == "file" then
-                append_path_unique(result, seen, entry.path)
-            end
-        end
-    end
-    return result
-end
-
-local function dependency_fingerprint(files)
-    local parts = {}
-    for _, filepath in ipairs(files) do
-        table.insert(parts, filepath .. "=" .. tostring(os.mtime(filepath)))
-    end
-    return table.concat(parts, "\31")
-end
-
-local function absent_guard_fingerprint(entries)
-    local parts = {}
-    for _, entry in ipairs(entries or {}) do
-        if type(entry) == "table" and entry.kind == "absent" and type(entry.path) == "string" then
-            local state = "absent"
-            if os.exists(entry.path) then
-                state = "present:" .. tostring(os.mtime(entry.path))
-            end
-            table.insert(parts, entry.path .. "=" .. state)
-        end
-    end
-    table.sort(parts)
-    return table.concat(parts, "\31")
 end
 
 local function run_cached_codegen(target, batchcmds, config)
@@ -1621,30 +1533,8 @@ local function run_cached_codegen(target, batchcmds, config)
         compdb_dir = config.fallback_compdb_dir
     end
     local static_dependencies = codegen_static_dependencies(target, config, codegen, compdb_dir, host_clang, scan_deps)
-    local include_roots = codegen_include_roots(config)
     local identity = target_codegen_identity(target, config, codegen, compdb_dir, host_clang, scan_deps)
     local cache_path = generation_cache_path(config)
-    local is_current, cached_entries = cached_generation_state(cache_path, identity)
-    if is_current then
-        return
-    end
-
-    -- Native depcache mirrors the sidecar closure. The sidecar is required
-    -- because gentest_codegen discovers headers only after it has run; its
-    -- closure fingerprint ensures Xmake also invalidates an old native cache
-    -- when that discovered set changes.
-    local native_dependencies = combined_dependency_files(cached_file_paths(cached_entries), static_dependencies)
-    if #cached_entries > 0 then
-        -- A stale but readable sidecar contributes its previous dynamic
-        -- closure; the fingerprint makes the native cache run this batch when
-        -- any of those headers changed.
-        batchcmds:add_depfiles(table.unpack(native_dependencies))
-        batchcmds:add_depvalues(identity, dependency_fingerprint(native_dependencies), absent_guard_fingerprint(cached_entries))
-        batchcmds:set_depcache(target:dependfile(config.depcache_anchor))
-    end
-    -- No sidecar closure means no trustworthy native dependency cache. Leave
-    -- this batch uncached so missing/corrupt/read-only sidecar state always
-    -- regenerates instead of being skipped by a prior static-only depcache.
     local codegen_args = nil
     if config.codegen_kind == "mocks" then
         codegen_args = mock_codegen_args(compdb_dir, host_clang, scan_deps, config)
@@ -1658,14 +1548,10 @@ local function run_cached_codegen(target, batchcmds, config)
         identity,
         project_root(),
         tostring(#static_dependencies),
-        tostring(#include_roots),
         codegen,
     }
     for _, filepath in ipairs(static_dependencies) do
         table.insert(cache_args, filepath)
-    end
-    for _, include_root in ipairs(include_roots) do
-        table.insert(cache_args, include_root)
     end
     for _, argument in ipairs(codegen_args) do
         table.insert(cache_args, argument)
@@ -1951,7 +1837,6 @@ function gentest_add_mocks(opts)
         end
     end)
     on_load(function (target)
-        gentest_state["_depend_loader"] = import("core.project.depend")
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         for _, include_dir in ipairs(dep_include_dirs) do
             target:add("includedirs", include_dir)
@@ -2126,7 +2011,6 @@ function gentest_attach_codegen(opts)
         ensure_materialized_public_modules(config.public_module_entries, os)
     end)
     on_load(function (target)
-        gentest_state["_depend_loader"] = import("core.project.depend")
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         for _, include_dir in ipairs(extra_includes) do
             target:add("includedirs", include_dir)
