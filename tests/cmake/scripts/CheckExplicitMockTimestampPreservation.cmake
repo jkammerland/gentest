@@ -239,6 +239,35 @@ foreach(_forbidden_edge IN ITEMS "Building CXX object" "Linking CXX")
   endif()
 endforeach()
 
+# The content stamp is also a declared generated input. It must have its own
+# recovery rule rather than being an untracked BYPRODUCT under Makefiles.
+set(_staged_compdb_stamp "${_consumer_output_dir}/compdb/compile_commands.staged")
+if(NOT EXISTS "${_staged_compdb_stamp}")
+  message(FATAL_ERROR "Expected staged compilation-database content stamp: ${_staged_compdb_stamp}")
+endif()
+file(REMOVE "${_staged_compdb_stamp}")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target timestamp_consumer --verbose
+  WORKING_DIRECTORY "${_work_dir}"
+  RESULT_VARIABLE _compdb_stamp_recovery_rc
+  OUTPUT_VARIABLE _compdb_stamp_recovery_out
+  ERROR_VARIABLE _compdb_stamp_recovery_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(NOT _compdb_stamp_recovery_rc EQUAL 0 OR NOT EXISTS "${_staged_compdb_stamp}")
+  message(FATAL_ERROR
+    "Missing compilation-database content stamp was not recovered.\n"
+    "--- stdout ---\n${_compdb_stamp_recovery_out}\n--- stderr ---\n${_compdb_stamp_recovery_err}")
+endif()
+set(_compdb_stamp_recovery_text "${_compdb_stamp_recovery_out}\n${_compdb_stamp_recovery_err}")
+foreach(_forbidden_edge IN ITEMS "Building CXX object" "Linking CXX")
+  string(FIND "${_compdb_stamp_recovery_text}" "${_forbidden_edge}" _forbidden_edge_pos)
+  if(NOT _forbidden_edge_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Compilation-database stamp recovery unexpectedly ran '${_forbidden_edge}'.\n${_compdb_stamp_recovery_text}")
+  endif()
+endforeach()
+
 # Content changes must still be published to the staged source surface.
 file(READ "${_src_dir}/timestamp_mock_defs.hpp" _timestamp_defs_source)
 string(APPEND _timestamp_defs_source "\n// timestamp preservation content change\n")

@@ -1279,6 +1279,7 @@ function(gentest_attach_codegen target)
         set(_gentest_compdb_stage_target "gentest_compdb_stage_${_gentest_target_id}")
         get_filename_component(_gentest_codegen_compdb_dir "${_gentest_config_compdb}" DIRECTORY)
         set(_gentest_compdb_stage_script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/StageCompileCommands.cmake")
+        set(_gentest_compdb_stamp_recovery_script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/RecoverCompileCommandsStamp.cmake")
         add_custom_command(
             OUTPUT "${_gentest_config_compdb}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gentest_codegen_compdb_dir}"
@@ -1287,21 +1288,52 @@ function(gentest_attach_codegen target)
                 "${_gentest_config_compdb}"
             COMMENT "Recovering staged compile commands for gentest target ${target}"
             VERBATIM)
-        add_custom_command(
-            OUTPUT "${_gentest_config_compdb_check_stamp}"
-            BYPRODUCTS "${_gentest_config_compdb_stamp}"
-            COMMAND "${CMAKE_COMMAND}"
-                "-DINPUT=${CMAKE_BINARY_DIR}/compile_commands.json"
-                "-DOUTPUT=${_gentest_config_compdb}"
-                "-DSTAMP=${_gentest_config_compdb_stamp}"
-                "-DCHECK_STAMP=${_gentest_config_compdb_check_stamp}"
-                -P "${_gentest_compdb_stage_script}"
-            DEPENDS
-                "${CMAKE_BINARY_DIR}/compile_commands.json"
-                "${_gentest_config_compdb}"
-                "${_gentest_compdb_stage_script}"
-            COMMENT "Staging compile commands for gentest target ${target}"
-            VERBATIM)
+        if(CMAKE_GENERATOR MATCHES "Makefiles")
+            # Makefile generators do not create a recovery rule for
+            # BYPRODUCTS. Keep the content-stable stamp as an undeclared side
+            # effect of staging, plus a separate missing-file-only rule. The
+            # target-level dependency makes staging finish before Make enters
+            # the codegen sub-target and evaluates this file prerequisite.
+            add_custom_command(
+                OUTPUT "${_gentest_config_compdb_check_stamp}"
+                COMMAND "${CMAKE_COMMAND}"
+                    "-DINPUT=${CMAKE_BINARY_DIR}/compile_commands.json"
+                    "-DOUTPUT=${_gentest_config_compdb}"
+                    "-DSTAMP=${_gentest_config_compdb_stamp}"
+                    "-DCHECK_STAMP=${_gentest_config_compdb_check_stamp}"
+                    -P "${_gentest_compdb_stage_script}"
+                DEPENDS
+                    "${CMAKE_BINARY_DIR}/compile_commands.json"
+                    "${_gentest_config_compdb}"
+                    "${_gentest_compdb_stage_script}"
+                COMMENT "Staging compile commands for gentest target ${target}"
+                VERBATIM)
+            add_custom_command(
+                OUTPUT "${_gentest_config_compdb_stamp}"
+                COMMAND "${CMAKE_COMMAND}"
+                    "-DINPUT=${CMAKE_BINARY_DIR}/compile_commands.json"
+                    "-DSTAMP=${_gentest_config_compdb_stamp}"
+                    -P "${_gentest_compdb_stamp_recovery_script}"
+                DEPENDS "${_gentest_compdb_stamp_recovery_script}"
+                COMMENT "Recovering compile-command content stamp for gentest target ${target}"
+                VERBATIM)
+        else()
+            add_custom_command(
+                OUTPUT "${_gentest_config_compdb_check_stamp}"
+                BYPRODUCTS "${_gentest_config_compdb_stamp}"
+                COMMAND "${CMAKE_COMMAND}"
+                    "-DINPUT=${CMAKE_BINARY_DIR}/compile_commands.json"
+                    "-DOUTPUT=${_gentest_config_compdb}"
+                    "-DSTAMP=${_gentest_config_compdb_stamp}"
+                    "-DCHECK_STAMP=${_gentest_config_compdb_check_stamp}"
+                    -P "${_gentest_compdb_stage_script}"
+                DEPENDS
+                    "${CMAKE_BINARY_DIR}/compile_commands.json"
+                    "${_gentest_config_compdb}"
+                    "${_gentest_compdb_stage_script}"
+                COMMENT "Staging compile commands for gentest target ${target}"
+                VERBATIM)
+        endif()
         add_custom_target(${_gentest_compdb_stage_target}
             DEPENDS
                 "${_gentest_config_compdb_check_stamp}"
