@@ -22,13 +22,16 @@ set(_generated_off_dir "${_work_dir}/generated_off")
 set(_generated_auto_dir "${_work_dir}/generated_auto")
 set(_generated_on_real_dir "${_work_dir}/generated_on_real")
 set(_generated_on_bad_dir "${_work_dir}/generated_on_bad")
+set(_generated_collision_dir "${_work_dir}/generated_collision")
 set(_on_real_timing "${_work_dir}/scan_deps_timing.json")
 file(TO_CMAKE_PATH "${_generated_off_dir}/tu_0000_consumer.module.gentest.cppm" _off_wrapper_abs)
 file(TO_CMAKE_PATH "${_generated_auto_dir}/tu_0000_consumer.module.gentest.cppm" _auto_wrapper_abs)
 file(TO_CMAKE_PATH "${_generated_on_real_dir}/tu_0000_consumer.module.gentest.cppm" _on_real_wrapper_abs)
 file(TO_CMAKE_PATH "${_generated_on_bad_dir}/tu_0000_consumer.module.gentest.cppm" _on_bad_wrapper_abs)
+file(TO_CMAKE_PATH "${_generated_collision_dir}/tu_0000_consumer.module.gentest.cppm" _collision_wrapper_abs)
 file(REMOVE_RECURSE "${_work_dir}")
-file(MAKE_DIRECTORY "${_work_dir}" "${_generated_off_dir}" "${_generated_auto_dir}" "${_generated_on_real_dir}" "${_generated_on_bad_dir}")
+file(MAKE_DIRECTORY "${_work_dir}" "${_generated_off_dir}" "${_generated_auto_dir}" "${_generated_on_real_dir}" "${_generated_on_bad_dir}"
+  "${_generated_collision_dir}")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
@@ -233,6 +236,34 @@ if(_scan_deps)
   if(_on_real_scan_deps_count LESS 2 OR NOT _on_real_external_scan_deps_found)
     message(FATAL_ERROR
       "Expected timing JSON to contain aggregate and external-module scan-deps records.\n${_on_real_timing_json}")
+  endif()
+
+  file(SHA256 "${_provider}" _provider_hash_before_collision)
+  execute_process(
+    COMMAND
+      "${PROG}"
+      --compdb "${_work_dir}"
+      --scan-deps-mode=ON
+      --clang-scan-deps "${_scan_deps}"
+      --timing-json "${_provider}"
+      --tu-out-dir "${_generated_collision_dir}"
+      --module-wrapper-output "${_collision_wrapper_abs}"
+      "${_consumer}"
+    WORKING_DIRECTORY "${_work_dir}"
+    RESULT_VARIABLE _external_source_collision_rc
+    OUTPUT_VARIABLE _external_source_collision_out
+    ERROR_VARIABLE _external_source_collision_err)
+  file(SHA256 "${_provider}" _provider_hash_after_collision)
+  if(_external_source_collision_rc EQUAL 0 OR
+     NOT _provider_hash_after_collision STREQUAL _provider_hash_before_collision)
+    message(FATAL_ERROR
+      "Timing JSON collision with an auto-resolved external module source did not fail safely.\n"
+      "--- stdout ---\n${_external_source_collision_out}\n--- stderr ---\n${_external_source_collision_err}")
+  endif()
+  set(_external_source_collision_all "${_external_source_collision_out}\n${_external_source_collision_err}")
+  if(NOT _external_source_collision_all MATCHES "resolved external named-module source")
+    message(FATAL_ERROR
+      "Expected external module source collision diagnostic. Output:\n${_external_source_collision_all}")
   endif()
 endif()
 
