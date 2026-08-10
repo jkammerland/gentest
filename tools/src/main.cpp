@@ -1778,6 +1778,75 @@ std::vector<std::string> read_response_file_arguments(const std::filesystem::pat
     return args;
 }
 
+std::vector<std::filesystem::path> compilation_database_response_file_inputs(const std::filesystem::path &database_path) {
+    const auto buffer = llvm::MemoryBuffer::getFile(database_path.string());
+    if (!buffer) {
+        return {};
+    }
+    auto parsed = llvm::json::parse((*buffer)->getBuffer());
+    if (!parsed) {
+        llvm::consumeError(parsed.takeError());
+        return {};
+    }
+    const auto *entries = parsed->getAsArray();
+    if (entries == nullptr) {
+        return {};
+    }
+
+    std::vector<std::filesystem::path> inputs;
+    const auto                         append_arguments = [&](const auto &self, std::span<const std::string> arguments,
+                                                              std::string_view working_directory) -> void {
+        for (const auto &argument : arguments) {
+            if (!llvm::StringRef{argument}.starts_with("@")) {
+                continue;
+            }
+            const std::string resolved = normalize_compdb_lookup_path(std::string_view{argument}.substr(1), working_directory);
+            if (resolved.empty() || !std::filesystem::exists(resolved)) {
+                continue;
+            }
+            const std::filesystem::path path{resolved};
+            if (std::ranges::find(inputs, path) != inputs.end()) {
+                continue;
+            }
+            inputs.push_back(path);
+            const auto nested_arguments = read_response_file_arguments(path);
+            self(self, std::span<const std::string>{nested_arguments.data(), nested_arguments.size()}, working_directory);
+        }
+    };
+
+    for (const auto &entry_value : *entries) {
+        const auto *entry = entry_value.getAsObject();
+        if (entry == nullptr) {
+            continue;
+        }
+        const std::string        working_directory = entry->getString("directory").value_or("").str();
+        std::vector<std::string> arguments;
+        if (const auto *argument_values = entry->getArray("arguments"); argument_values != nullptr) {
+            arguments.reserve(argument_values->size());
+            for (const auto &argument_value : *argument_values) {
+                if (const auto argument = argument_value.getAsString(); argument.has_value()) {
+                    arguments.push_back(argument->str());
+                }
+            }
+        } else if (const auto command = entry->getString("command"); command.has_value()) {
+            llvm::BumpPtrAllocator          allocator;
+            llvm::StringSaver               saver(allocator);
+            llvm::SmallVector<const char *> tokenized;
+#if defined(_WIN32)
+            llvm::cl::TokenizeWindowsCommandLine(*command, saver, tokenized);
+#else
+            llvm::cl::TokenizeGNUCommandLine(*command, saver, tokenized);
+#endif
+            arguments.reserve(tokenized.size());
+            for (const char *argument : tokenized) {
+                arguments.emplace_back(argument);
+            }
+        }
+        append_arguments(append_arguments, std::span<const std::string>{arguments.data(), arguments.size()}, working_directory);
+    }
+    return inputs;
+}
+
 std::string normalize_compdb_lookup_path(std::string_view path, std::string_view directory = {});
 
 bool is_shell_control_token(std::string_view arg) { return arg == "&&" || arg == "||" || arg == ";" || arg == "|"; }
@@ -1827,11 +1896,11 @@ clang::tooling::CommandLineArguments expand_compile_command_response_files(const
             expanded_command_line.push_back(arg);
             continue;
         }
+        const std::string resolved = normalize_compdb_lookup_path(std::string_view(arg).substr(1), working_directory);
         if (skip_module_map_response_files && is_module_map_response_file) {
             expanded_command_line.push_back(arg);
             continue;
         }
-        const std::string resolved = normalize_compdb_lookup_path(std::string_view(arg).substr(1), working_directory);
         if (resolved.empty() || !std::filesystem::exists(resolved)) {
             if (is_module_map_response_file) {
                 continue;
@@ -4385,6 +4454,10 @@ int main(int argc, const char **argv) {
     std::unique_ptr<clang::tooling::CompilationDatabase> database;
     std::string                                          db_error;
     if (options.compilation_database) {
+        for (const auto &response_file :
+             compilation_database_response_file_inputs(*options.compilation_database / "compile_commands.json")) {
+            add_timing_protected_path(timing_protected_paths, response_file, "compilation response-file input");
+        }
         database = clang::tooling::CompilationDatabase::loadFromDirectory(options.compilation_database->string(), db_error);
         if (!database) {
             gentest::codegen::log_err("gentest_codegen: failed to load compilation database at '{}': {}\n",
@@ -5148,18 +5221,21 @@ int main(int argc, const char **argv) {
                                                         resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args,
                                                         compdb_dir, {}, explicit_host_clang_path, external_forced_compiler_path, true);
                         std::string external_scan_deps_error;
-                        if (const auto scan_deps_results = run_clang_scan_deps(
-                                std::array<ScanDepsPreparedCommand, 1>{ScanDepsPreparedCommand{
-                                    .source_file       = candidate.string(),
-                                    .output_file       = candidate_source_commands.front().Output,
-                                    .working_directory = candidate_source_commands.front().Directory.empty()
-                                                             ? compdb_dir
-                                                             : candidate_source_commands.front().Directory,
-                                    .command_line      = std::move(adjusted_scan_deps_command),
-                                }},
-                                options.clang_scan_deps_executable ? options.clang_scan_deps_executable->string() : std::string{},
-                                external_scan_deps_error, &timing_protected_paths);
-                            scan_deps_results.has_value()) {
+                        const auto  external_scan_deps_started = TimingRecorder::Clock::now();
+                        const auto  scan_deps_results          = run_clang_scan_deps(
+                            std::array<ScanDepsPreparedCommand, 1>{ScanDepsPreparedCommand{
+                                .source_file       = candidate.string(),
+                                .output_file       = candidate_source_commands.front().Output,
+                                .working_directory = candidate_source_commands.front().Directory.empty()
+                                                         ? compdb_dir
+                                                         : candidate_source_commands.front().Directory,
+                                .command_line      = std::move(adjusted_scan_deps_command),
+                            }},
+                            options.clang_scan_deps_executable ? options.clang_scan_deps_executable->string() : std::string{},
+                            external_scan_deps_error, &timing_protected_paths);
+                        timing.record("scan-deps", external_scan_deps_started, std::nullopt, candidate.string(), {},
+                                      std::string{module_name});
+                        if (scan_deps_results.has_value()) {
                             if (const auto scan_deps_it = scan_deps_results->find(normalize_compdb_lookup_path(candidate.string()));
                                 scan_deps_it != scan_deps_results->end()) {
                                 external_scan_deps_succeeded   = true;

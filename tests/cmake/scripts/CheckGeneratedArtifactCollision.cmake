@@ -192,6 +192,29 @@ _gentest_expect_artifact_failure(
     "role 'timing JSON'"
     "compilation database input")
 
+set(_response_compdb_dir "${_work_dir}/response_compdb")
+set(_response_file "${_response_compdb_dir}/flags.rsp")
+file(MAKE_DIRECTORY "${_response_compdb_dir}")
+file(WRITE "${_response_file}" "-DGENTEST_RESPONSE_FILE_SENTINEL=1\n")
+file(READ "${_compile_commands}" _response_compdb_json)
+string(JSON _response_command GET "${_response_compdb_json}" 0 command)
+string(APPEND _response_command " @${_response_file}")
+string(REPLACE "\\" "\\\\" _response_command_json "${_response_command}")
+string(REPLACE "\"" "\\\"" _response_command_json "${_response_command_json}")
+string(JSON _response_compdb_json SET "${_response_compdb_json}" 0 command "\"${_response_command_json}\"")
+file(WRITE "${_response_compdb_dir}/compile_commands.json" "${_response_compdb_json}\n")
+_gentest_expect_artifact_failure(
+  "timing JSON/compilation response-file collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_response_file"
+    --timing-json "${_response_file}"
+    --compdb "${_response_compdb_dir}"
+    "${_source}"
+  PRESERVE_FILES
+    "${_response_file}"
+  REQUIRED_SUBSTRINGS
+    "compilation response-file input")
+
 set(_source_root_input "${_work_dir}/source_root_input.txt")
 file(WRITE "${_source_root_input}" "source-root timing collision sentinel\n")
 _gentest_expect_artifact_failure(

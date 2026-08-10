@@ -22,6 +22,7 @@ set(_generated_off_dir "${_work_dir}/generated_off")
 set(_generated_auto_dir "${_work_dir}/generated_auto")
 set(_generated_on_real_dir "${_work_dir}/generated_on_real")
 set(_generated_on_bad_dir "${_work_dir}/generated_on_bad")
+set(_on_real_timing "${_work_dir}/scan_deps_timing.json")
 file(TO_CMAKE_PATH "${_generated_off_dir}/tu_0000_consumer.module.gentest.cppm" _off_wrapper_abs)
 file(TO_CMAKE_PATH "${_generated_auto_dir}/tu_0000_consumer.module.gentest.cppm" _auto_wrapper_abs)
 file(TO_CMAKE_PATH "${_generated_on_real_dir}/tu_0000_consumer.module.gentest.cppm" _on_real_wrapper_abs)
@@ -184,6 +185,7 @@ if(_scan_deps)
       --compdb "${_work_dir}"
       --scan-deps-mode=ON
       --clang-scan-deps "${_scan_deps}"
+      --timing-json "${_on_real_timing}"
       --tu-out-dir "${_generated_on_real_dir}"
       --module-wrapper-output "${_on_real_wrapper_abs}"
       "${_consumer}"
@@ -204,6 +206,33 @@ if(_scan_deps)
   endif()
   if(NOT EXISTS "${_generated_on_real_dir}/consumer.h")
     message(FATAL_ERROR "Expected scan-deps ON mode to generate the registration header for the macro-guarded consumer")
+  endif()
+
+  file(READ "${_on_real_timing}" _on_real_timing_json)
+  string(JSON _on_real_phase_count LENGTH "${_on_real_timing_json}" phases)
+  set(_on_real_scan_deps_count 0)
+  set(_on_real_external_scan_deps_found FALSE)
+  if(_on_real_phase_count GREATER 0)
+    math(EXPR _on_real_last_phase "${_on_real_phase_count} - 1")
+    foreach(_on_real_phase_idx RANGE 0 ${_on_real_last_phase})
+      string(JSON _on_real_phase_name GET "${_on_real_timing_json}" phases ${_on_real_phase_idx} name)
+      if(_on_real_phase_name STREQUAL "scan-deps")
+        math(EXPR _on_real_scan_deps_count "${_on_real_scan_deps_count} + 1")
+        string(JSON _on_real_phase_source ERROR_VARIABLE _on_real_source_error
+          GET "${_on_real_timing_json}" phases ${_on_real_phase_idx} source)
+        string(JSON _on_real_phase_module ERROR_VARIABLE _on_real_module_error
+          GET "${_on_real_timing_json}" phases ${_on_real_phase_idx} module)
+        if(NOT _on_real_source_error AND NOT _on_real_module_error AND
+           _on_real_phase_source STREQUAL "${_provider}" AND
+           _on_real_phase_module STREQUAL "gentest.scan.provider")
+          set(_on_real_external_scan_deps_found TRUE)
+        endif()
+      endif()
+    endforeach()
+  endif()
+  if(_on_real_scan_deps_count LESS 2 OR NOT _on_real_external_scan_deps_found)
+    message(FATAL_ERROR
+      "Expected timing JSON to contain aggregate and external-module scan-deps records.\n${_on_real_timing_json}")
   endif()
 endif()
 
