@@ -213,7 +213,9 @@ def cache_environment(mode: str, root: Path) -> tuple[dict[str, str], dict[str, 
     assert tool is not None
     cache_dir.mkdir(parents=True, exist_ok=True)
     if mode == "ccache":
-        env.pop("CCACHE_DISABLE", None)
+        for key in tuple(env):
+            if key.startswith("CCACHE_"):
+                env.pop(key)
         env["SCCACHE_DISABLE"] = "1"
         env["CCACHE_DIR"] = str(cache_dir)
         # Do not read or change a user's global cache settings.

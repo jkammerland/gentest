@@ -265,6 +265,10 @@ class CampaignContractTests(unittest.TestCase):
                     os.environ,
                     {
                         "CCACHE_DISABLE": "1",
+                        "CCACHE_REMOTE_STORAGE": "redis://ambient-cache",
+                        "CCACHE_BASEDIR": "/ambient/source",
+                        "CCACHE_PREFIX": "ambient-wrapper",
+                        "CCACHE_SLOPPINESS": "time_macros",
                         "SCCACHE_DISABLE": "1",
                         "CMAKE_C_COMPILER_LAUNCHER": "ambient-c-launcher",
                         "CMAKE_CXX_COMPILER_LAUNCHER": "ambient-cxx-launcher",
@@ -276,6 +280,12 @@ class CampaignContractTests(unittest.TestCase):
             ):
                 ccache_env, _ = campaign.cache_environment("ccache", Path(temporary_directory) / "ccache")
         self.assertNotIn("CCACHE_DISABLE", ccache_env)
+        self.assertNotIn("CCACHE_REMOTE_STORAGE", ccache_env)
+        self.assertNotIn("CCACHE_BASEDIR", ccache_env)
+        self.assertNotIn("CCACHE_PREFIX", ccache_env)
+        self.assertNotIn("CCACHE_SLOPPINESS", ccache_env)
+        self.assertEqual(ccache_env["CCACHE_CONFIGPATH"], os.devnull)
+        self.assertIn("compiler-cache", ccache_env["CCACHE_DIR"])
         self.assertEqual(ccache_env["SCCACHE_DISABLE"], "1")
         self.assertNotIn("CMAKE_C_COMPILER_LAUNCHER", ccache_env)
         self.assertNotIn("CMAKE_CXX_COMPILER_LAUNCHER", ccache_env)
