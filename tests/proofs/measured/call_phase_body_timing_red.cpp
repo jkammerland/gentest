@@ -52,20 +52,20 @@ void measured_call_phase_body_timing(void *) {
 int main() {
     constexpr unsigned kCaseLine = __LINE__ + 2;
     gentest::Case      kCase{
-             .name             = "proofs/measured/call_phase_body_timing",
-             .fn               = &measured_call_phase_body_timing,
-             .file             = __FILE__,
-             .line             = kCaseLine,
-             .is_benchmark     = true,
-             .is_jitter        = false,
-             .is_baseline      = false,
-             .tags             = {},
-             .requirements     = {},
-             .skip_reason      = {},
-             .should_skip      = false,
-             .fixture          = {},
-             .fixture_lifetime = gentest::FixtureLifetime::None,
-             .suite            = "proofs",
+        .name             = "proofs/measured/call_phase_body_timing",
+        .fn               = &measured_call_phase_body_timing,
+        .file             = __FILE__,
+        .line             = kCaseLine,
+        .is_benchmark     = true,
+        .is_jitter        = false,
+        .is_baseline      = false,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "proofs",
     };
     const std::size_t idxs[] = {0};
 
