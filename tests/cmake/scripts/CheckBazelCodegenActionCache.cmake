@@ -119,6 +119,7 @@ set(_output_two "${_root}/output-two")
 set(_output_three "${_root}/output-three")
 set(_output_four "${_root}/output-four")
 set(_output_five "${_root}/output-five")
+set(_output_windows_contract "${_root}/output-windows-contract")
 set(_output_migration "${_root}/output-migration")
 set(_output_local "${_root}/output-local")
 file(REMOVE_RECURSE "${_root}")
@@ -346,6 +347,43 @@ toolchain(
     toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
 )
 
+gentest_codegen_toolchain(
+    name = "windows_impl",
+    exec_os = "windows",
+    codegen = ":gentest_codegen",
+    clang = ":bin/clang++",
+    runtime_files = [":clang_runtime_files", ":cxx_standard_library_files", ":system_include_files"],
+    cxx_standard_library_roots = [
+        @CXX_STANDARD_LIBRARY_ROOT_LABELS@
+    ],
+    system_include_roots = [
+        @SYSTEM_INCLUDE_ROOT_LABELS@
+    ],
+)
+
+toolchain(
+    name = "windows_exec_toolchain",
+    toolchain = ":windows_impl",
+    toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
+)
+
+gentest_codegen_toolchain(
+    name = "windows_missing_system_roots_impl",
+    exec_os = "windows",
+    codegen = ":gentest_codegen",
+    clang = ":bin/clang++",
+    runtime_files = [":clang_runtime_files", ":cxx_standard_library_files"],
+    cxx_standard_library_roots = [
+        @CXX_STANDARD_LIBRARY_ROOT_LABELS@
+    ],
+)
+
+toolchain(
+    name = "windows_missing_system_roots_toolchain",
+    toolchain = ":windows_missing_system_roots_impl",
+    toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
+)
+
 # Keep the legacy macro parameter parse-compatible, but it must fail at
 # analysis rather than reintroducing an undeclared absolute host compiler.
 gentest_attach_codegen_textual(
@@ -400,6 +438,65 @@ string(FIND "${_local_aquery_out}" "no-cache" _local_no_cache_pos)
 if(_local_no_remote_pos EQUAL -1 OR _local_no_cache_pos EQUAL -1)
   message(FATAL_ERROR
     "Local fallback codegen action does not disable execution/cache reuse.\n${_local_aquery_out}")
+endif()
+
+# Windows packages must disable ambient standard roots just like Linux and
+# must fail analysis when their UCRT/SDK closure has no declared root markers.
+if(_exec_os STREQUAL "linux")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
+            "${_bazel}"
+            --output_user_root=${_output_windows_contract}
+            --max_idle_secs=5
+            aquery
+            --output=text
+            --repo_contents_cache=${_repo_contents_cache}
+            --override_repository=gentest_local_exec_tools=${_tool_repo}
+            --extra_toolchains=@gentest_local_exec_tools//:windows_exec_toolchain
+            "mnemonic(\"GentestTextualSuiteCodegen\", deps(//:gentest_consumer_textual_bazel__codegen))"
+    WORKING_DIRECTORY "${SOURCE_DIR}"
+    RESULT_VARIABLE _windows_aquery_rc
+    OUTPUT_VARIABLE _windows_aquery_out
+    ERROR_VARIABLE _windows_aquery_err)
+  if(NOT _windows_aquery_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Bazel aquery for the packaged Windows include-root contract failed.\n"
+      "stdout:\n${_windows_aquery_out}\nstderr:\n${_windows_aquery_err}")
+  endif()
+  foreach(_windows_required_token IN ITEMS "-nostdinc" "${_staged_system_header_relative}")
+    string(FIND "${_windows_aquery_out}" "${_windows_required_token}" _windows_required_token_pos)
+    if(_windows_required_token_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Packaged Windows codegen action is missing '${_windows_required_token}'.\n${_windows_aquery_out}")
+    endif()
+  endforeach()
+endif()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
+          "${_bazel}"
+          --output_user_root=${_output_windows_contract}
+          --max_idle_secs=5
+          aquery
+          --output=text
+          --repo_contents_cache=${_repo_contents_cache}
+          --override_repository=gentest_local_exec_tools=${_tool_repo}
+          --extra_toolchains=@gentest_local_exec_tools//:windows_missing_system_roots_toolchain
+          "mnemonic(\"GentestTextualSuiteCodegen\", deps(//:gentest_consumer_textual_bazel__codegen))"
+  WORKING_DIRECTORY "${SOURCE_DIR}"
+  RESULT_VARIABLE _windows_missing_roots_rc
+  OUTPUT_VARIABLE _windows_missing_roots_out
+  ERROR_VARIABLE _windows_missing_roots_err)
+if(_windows_missing_roots_rc EQUAL 0)
+  message(FATAL_ERROR "Packaged Windows toolchain without system roots unexpectedly analyzed successfully")
+endif()
+set(_windows_missing_roots_log "${_windows_missing_roots_out}\n${_windows_missing_roots_err}")
+string(FIND "${_windows_missing_roots_log}"
+  "Packaged Linux/Windows Gentest codegen toolchains must declare system_include_roots"
+  _windows_missing_roots_message_pos)
+if(_windows_missing_roots_message_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Missing Windows system-root failure lacked the toolchain diagnostic.\n${_windows_missing_roots_log}")
 endif()
 
 execute_process(
@@ -702,7 +799,7 @@ endif()
 
 foreach(_output_root IN ITEMS
     "${_output_one}" "${_output_two}" "${_output_three}" "${_output_four}" "${_output_five}"
-    "${_output_migration}" "${_output_local}")
+    "${_output_migration}" "${_output_local}" "${_output_windows_contract}")
   _gentest_shutdown_bazel("${_output_root}")
 endforeach()
 file(REMOVE_RECURSE "${_root}")
