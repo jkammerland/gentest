@@ -51,6 +51,12 @@ std::string read_file(const fs::path &path) {
     return {std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
 }
 
+bool owner_writable(const fs::path &path) {
+    std::error_code ec;
+    const auto      permissions = fs::status(path, ec).permissions();
+    return !ec && (permissions & fs::perms::owner_write) != fs::perms::none;
+}
+
 bool require(bool condition, std::string_view message) {
     if (!condition) {
         std::cerr << "PCM cache test failed: " << message << '\n';
@@ -167,7 +173,8 @@ int main(int argc, char **argv) {
     empty_dependency_cache.store(empty_dependency_context, source_pcm, empty_dependency_cache_key);
     if (!require(empty_dependency_cache.load_prepared(empty_dependency_cache_key, destination),
                  "load a PCM keyed by an empty header dependency") ||
-        !require(read_file(destination) == "validated-pcm-bytes", "materialize PCM with empty header dependency")) {
+        !require(read_file(destination) == "validated-pcm-bytes", "materialize PCM with empty header dependency") ||
+        !require(owner_writable(destination), "materialized PCM remains owner-writable")) {
         return 1;
     }
     fs::remove(destination, ec);
