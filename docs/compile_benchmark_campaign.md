@@ -63,6 +63,12 @@ is constrained to its documented persistent codegen-only edge. The built
 binaries are run once only as a correctness gate, never as part of a timed
 build sample.
 
+Compilation-database mutations also receive an untimed restoration build
+before the zero-edge settling check. This restores the changed-only staged
+snapshot to the original database; restoring only the raw file's older
+timestamp would otherwise leave later repetitions observing the previous
+mutation.
+
 The reconfigure and equivalent-compdb-rewrite scenarios preserve CMake's newly
 written `compile_commands.json` timestamp. Before content-stable compdb staging
 exists, the harness records the real codegen-only baseline. With staging
@@ -112,6 +118,9 @@ Each output directory contains `result.json` and `summary.md`.
   values; use these to describe variability, not to erase the raw samples;
 - `profiles`: captured Ninja edge counts/categories used to verify each
   invalidation scenario.
+- `restoration_profiles` and `settling_profiles`: untimed Ninja edge evidence
+  proving mutation state was restored and then reached the required settled
+  state.
 
 Compare raw samples and provenance before comparing medians. CPU frequency,
 thermal state, disk/cache state, host codegen binary, compiler version, and a

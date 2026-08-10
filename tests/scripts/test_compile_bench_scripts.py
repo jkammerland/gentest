@@ -518,6 +518,15 @@ class CampaignContractTests(unittest.TestCase):
                 self.assertEqual(path.read_bytes(), contents)
             for scenario in scenarios:
                 self.assertEqual(results[scenario]["settling_profiles"], [{"unique_edges": 0, "categories": {}}])
+            self.assertEqual(results["source-edit"]["restoration_profiles"], [])
+            self.assertEqual(
+                results["equivalent-compdb-rewrite"]["restoration_profiles"],
+                [{"unique_edges": 0, "categories": {}}],
+            )
+            self.assertEqual(
+                results["unrelated-compdb-rewrite"]["restoration_profiles"],
+                [{"unique_edges": 0, "categories": {}}],
+            )
 
     def test_repository_mutation_settles_to_codegen_only_and_rejects_relink(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -530,15 +539,24 @@ class CampaignContractTests(unittest.TestCase):
                 '[{"directory":".","file":"case.cpp","command":"c++ -c case.cpp"}]\n', encoding="utf-8"
             )
             codegen_only = (0.1, {"unique_edges": 1, "categories": {"codegen": 1}})
-            with mock.patch.object(campaign, "build_target", side_effect=[codegen_only, codegen_only]):
+            with mock.patch.object(campaign, "build_target", side_effect=[codegen_only, codegen_only, codegen_only]):
                 result = campaign.run_scenarios(
                     source, build, [], ["gentest_unit_tests"], ("equivalent-compdb-rewrite",), 1, 0, 1, {}, False, 0, True, False
                 )
             self.assertEqual(result["equivalent-compdb-rewrite"]["settling_profiles"], [codegen_only[1]])
+            self.assertEqual(result["equivalent-compdb-rewrite"]["restoration_profiles"], [codegen_only[1]])
 
             relink = (0.1, {"unique_edges": 2, "categories": {"codegen": 1, "link_or_archive": 1}})
             with (
                 mock.patch.object(campaign, "build_target", side_effect=[codegen_only, relink]),
+                self.assertRaisesRegex(RuntimeError, "restoration reran downstream"),
+            ):
+                campaign.run_scenarios(
+                    source, build, [], ["gentest_unit_tests"], ("equivalent-compdb-rewrite",), 1, 0, 1, {}, False, 0, True, False
+                )
+
+            with (
+                mock.patch.object(campaign, "build_target", side_effect=[codegen_only, codegen_only, relink]),
                 self.assertRaisesRegex(RuntimeError, "persistent codegen-only edge"),
             ):
                 campaign.run_scenarios(

@@ -542,9 +542,11 @@ def run_scenarios(
     for scenario in scenarios:
         measured: list[float] = []
         profiles: list[dict[str, object]] = []
+        restoration_profiles: list[dict[str, object]] = []
         settling_profiles: list[dict[str, object]] = []
         total = warmups + samples
         for repetition in range(total):
+            restoration_profile: dict[str, object] | None = None
             settling_profile: dict[str, object] | None = None
             if scenario == "cold-build":
                 run(["cmake", "--build", str(build), "--target", "clean"], cwd=source, env=env, capture=True)
@@ -593,16 +595,42 @@ def run_scenarios(
                     else:
                         append_change(changed_path, scenario)
                     elapsed, profile = build_target(source, build, targets, jobs, env)
-                    validate_contract(
-                        scenario,
-                        profile,
-                        active_tus,
-                        expects_codegen,
-                        strict_downstream_noop,
-                        scenario == "equivalent-compdb-rewrite" and uses_content_stable_compdb_stage(build),
-                    )
                 finally:
                     restore_file(changed_path, original, original_stat)
+                if scenario in {"equivalent-compdb-rewrite", "unrelated-compdb-rewrite"}:
+                    # The changed-only staging edge may now contain the
+                    # mutated compilation database. Force an untimed staging
+                    # pass with the original bytes before restoring the raw
+                    # file's exact timestamp. Otherwise later repetitions can
+                    # start from the prior mutation even though the visible
+                    # input was restored.
+                    forced_mtime = max(
+                        time.time_ns() + 1_000_000_000,
+                        original_stat.st_mtime_ns + 1_000_000_000,
+                    )
+                    try:
+                        os.utime(changed_path, ns=(original_stat.st_atime_ns, forced_mtime))
+                        _, restoration_profile = build_target(source, build, targets, jobs, env)
+                    finally:
+                        restore_file(changed_path, original, original_stat)
+                    restoration_categories = restoration_profile.get("categories", {})
+                    assert isinstance(restoration_categories, dict)
+                    if (
+                        int(restoration_categories.get("generated_tu_compile", 0))
+                        or int(restoration_categories.get("compile", 0))
+                        or int(restoration_categories.get("link_or_archive", 0))
+                    ):
+                        raise RuntimeError(
+                            f"{scenario} restoration reran downstream compile/link work: {restoration_profile}"
+                        )
+                validate_contract(
+                    scenario,
+                    profile,
+                    active_tus,
+                    expects_codegen,
+                    strict_downstream_noop,
+                    scenario == "equivalent-compdb-rewrite" and uses_content_stable_compdb_stage(build),
+                )
                 _, settling_profile = build_target(source, build, targets, jobs, env)
                 if strict_downstream_noop and int(settling_profile["unique_edges"]) != 0:
                     raise RuntimeError(f"{scenario} did not settle to a zero-edge build after input restoration: {settling_profile}")
@@ -620,12 +648,15 @@ def run_scenarios(
             if repetition >= warmups:
                 measured.append(elapsed)
                 profiles.append(profile)
+                if restoration_profile is not None:
+                    restoration_profiles.append(restoration_profile)
                 if settling_profile is not None:
                     settling_profiles.append(settling_profile)
         result[scenario] = {
             "warmups": warmups,
             **median_mad(measured),
             "profiles": profiles,
+            "restoration_profiles": restoration_profiles,
             "settling_profiles": settling_profiles,
         }
     return result
@@ -875,9 +906,13 @@ def main() -> int:
             assert isinstance(destination_scenarios, dict)
             for name, stats in scenarios.items():
                 assert isinstance(stats, dict)
-                target_stats = destination_scenarios.setdefault(name, {"profiles": [], "settling_profiles": [], "warmups": 0})
+                target_stats = destination_scenarios.setdefault(
+                    name,
+                    {"profiles": [], "restoration_profiles": [], "settling_profiles": [], "warmups": 0},
+                )
                 assert isinstance(target_stats, dict)
                 target_stats["profiles"].extend(stats["profiles"])
+                target_stats["restoration_profiles"].extend(stats.get("restoration_profiles", []))
                 target_stats["settling_profiles"].extend(stats.get("settling_profiles", []))
                 target_stats.setdefault("samples_s", []).extend(stats["samples_s"])
                 target_stats["warmups"] = int(target_stats["warmups"]) + int(stats["warmups"])
@@ -891,9 +926,18 @@ def main() -> int:
                 assert isinstance(samples, list)
                 profiles = stats["profiles"]
                 warmup_count = stats.get("warmups", 0)
+                restoration_profiles = stats.get("restoration_profiles", [])
                 settling_profiles = stats.get("settling_profiles", [])
                 stats.clear()
-                stats.update({"warmups": warmup_count, **median_mad(samples), "profiles": profiles, "settling_profiles": settling_profiles})
+                stats.update(
+                    {
+                        "warmups": warmup_count,
+                        **median_mad(samples),
+                        "profiles": profiles,
+                        "restoration_profiles": restoration_profiles,
+                        "settling_profiles": settling_profiles,
+                    }
+                )
             final_lanes.append(item)
         finish_cache_metadata(args.cache, env, output, cache_metadata)
         cache_finished = True
