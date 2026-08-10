@@ -477,7 +477,7 @@ function(_gentest_check_module_optional_probe header_name target_name label)
     OUTPUT_VARIABLE _probe_out
     ERROR_VARIABLE _probe_err)
   set(_probe_log "${_probe_out}\n${_probe_err}")
-  string(FIND "${_probe_log}" "--source-root" _probe_codegen_pos)
+  string(FIND "${_probe_log}" "gentest-codegen-cache-miss" _probe_codegen_pos)
   if(NOT _probe_rc EQUAL 0 OR _probe_codegen_pos EQUAL -1)
     message(FATAL_ERROR
       "Creating the missing ${label} __has_include candidate did not rerun module codegen.\n${_probe_log}")
@@ -491,7 +491,7 @@ function(_gentest_check_module_optional_probe header_name target_name label)
     OUTPUT_VARIABLE _probe_noop_out
     ERROR_VARIABLE _probe_noop_err)
   set(_probe_noop_log "${_probe_noop_out}\n${_probe_noop_err}")
-  string(FIND "${_probe_noop_log}" "--source-root" _probe_noop_codegen_pos)
+  string(FIND "${_probe_noop_log}" "gentest-codegen-cache-miss" _probe_noop_codegen_pos)
   if(NOT _probe_noop_rc EQUAL 0 OR NOT _probe_noop_codegen_pos EQUAL -1)
     message(FATAL_ERROR "Stable ${label} __has_include membership did not produce an Xmake no-op.\n${_probe_noop_log}")
   endif()
