@@ -202,7 +202,14 @@ class TimingRecorder {
             return false;
         }
         const auto link_status = std::filesystem::symlink_status(output_path, ec);
-        if (ec && ec != std::make_error_code(std::errc::no_such_file_or_directory)) {
+        // MSVC's filesystem implementation reports a missing path in the
+        // system category, so comparing only against errc::no_such_file_or_directory
+        // rejects the first publication on Windows.  file_type::not_found is
+        // the portable result we care about regardless of the error category.
+        if (link_status.type() == std::filesystem::file_type::not_found) {
+            ec.clear();
+        }
+        if (ec) {
             gentest::codegen::log_err("gentest_codegen: failed to inspect timing JSON '{}': {}\n", output_path.string(), ec.message());
             return false;
         }
