@@ -1579,4 +1579,59 @@ exec "$real_clang" "${args[@]}"
   endif()
 endif()
 
+# clang-scan-deps does not report the lookup state of __has_include when the
+# probed header is not subsequently included. Such modules conservatively
+# bypass the PCM cache before both lookup and publication; source scanning is
+# used only to deny reuse, never to authorize it.
+file(APPEND "${_src_dir}/alpha_dot_provider.cppm" [=[
+
+#if __has_include("pcm_cache_optional.hpp")
+export inline constexpr int gentest_pcm_optional_value = 1;
+#else
+export inline constexpr int gentest_pcm_optional_value = 0;
+#endif
+]=])
+set(_lookup_operator_cache "${_work_dir}/pcm-lookup-operator-cache")
+foreach(_lookup_step IN ITEMS absent_first absent_second)
+  set(_lookup_timing "${_generated_dir}/pcm_lookup_${_lookup_step}_timing.json")
+  _gentest_run_codegen_fixture(
+    "pcm_lookup_${_lookup_step}"
+    PCM_CACHE ON
+    PCM_CACHE_DIR "${_lookup_operator_cache}"
+    LOG_SCAN_DEPS
+    OUTPUT_VARIABLE _lookup_log
+    TIMING_JSON "${_lookup_timing}"
+    SOURCES
+      "${_src_dir}/alpha_dot_provider.cppm"
+      "${_src_dir}/alpha_dot_consumer.cppm")
+  _gentest_expect_pcm_cache_state(
+    "${_lookup_timing}"
+    "bypass"
+    "gentest.pcm_cache.alpha.beta.provider")
+  string(FIND "${_lookup_log}"
+    "an active header-presence operator is not represented by clang-scan-deps"
+    _lookup_bypass_diagnostic)
+  if(_lookup_bypass_diagnostic EQUAL -1)
+    message(FATAL_ERROR "PCM header-presence bypass was not diagnosed for ${_lookup_step}.\n${_lookup_log}")
+  endif()
+endforeach()
+file(WRITE "${_src_dir}/pcm_cache_optional.hpp" "#pragma once\n")
+set(_lookup_present_timing "${_generated_dir}/pcm_lookup_present_timing.json")
+_gentest_run_codegen_fixture(
+  "pcm_lookup_present"
+  PCM_CACHE ON
+  PCM_CACHE_DIR "${_lookup_operator_cache}"
+  TIMING_JSON "${_lookup_present_timing}"
+  SOURCES
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm")
+_gentest_expect_pcm_cache_state(
+  "${_lookup_present_timing}"
+  "bypass"
+  "gentest.pcm_cache.alpha.beta.provider")
+file(GLOB_RECURSE _lookup_operator_entries LIST_DIRECTORIES FALSE "${_lookup_operator_cache}/*/module.pcm")
+if(_lookup_operator_entries)
+  message(FATAL_ERROR "Header-presence operator bypass published PCM cache entries: ${_lookup_operator_entries}")
+endif()
+
 message(STATUS "Shared-build-tree PCM cache isolation regression passed")
