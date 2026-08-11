@@ -59,7 +59,6 @@ gentest_codegen_toolchain(
     runtime_files = [
         "@llvm_exec_bundle//:clang_runtime_files",
         "@llvm_exec_bundle//:cxx_standard_library_files",
-        "@llvm_exec_bundle//:macos_sdk_files",
     ],
     # Ordered marker files located directly inside each C++ standard-library
     # include root. Gentest passes -nostdinc++ and re-adds only these declared
@@ -85,6 +84,7 @@ toolchain(
 
 ```python
 # MODULE.bazel
+bazel_dep(name = "platforms", version = "1.0.0")
 register_toolchains("//tools/gentest_codegen:registered")
 ```
 
