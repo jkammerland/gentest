@@ -1,1 +1,10 @@
-exports_files(["defs.bzl"])
+exports_files([
+    "defs.bzl",
+    "local_exec_tools.bzl",
+    "toolchain.bzl",
+])
+
+toolchain_type(
+    name = "gentest_codegen_toolchain_type",
+    visibility = ["//visibility:public"],
+)

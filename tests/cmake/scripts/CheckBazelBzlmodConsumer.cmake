@@ -6,7 +6,6 @@ if(NOT DEFINED BUILD_ROOT)
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
-set(_bazel "")
 if(DEFINED BAZEL_EXECUTABLE AND NOT BAZEL_EXECUTABLE STREQUAL "")
   if(NOT EXISTS "${BAZEL_EXECUTABLE}")
     message(FATAL_ERROR "BAZEL_EXECUTABLE points to a missing bazel/bazelisk executable: ${BAZEL_EXECUTABLE}")
@@ -22,6 +21,12 @@ else()
 endif()
 if(NOT _bazel)
   message(STATUS "bazel/bazelisk not found; skipping Bazel Bzlmod consumer check.")
+  return()
+endif()
+if(WIN32)
+  message(STATUS
+    "Skipping the Bazel Bzlmod consumer execution check on Windows: the automatic local exec-tool fallback is disabled; "
+    "Windows consumers must register a packaged Gentest/Clang toolchain with its DLL closure.")
   return()
 endif()
 
@@ -215,10 +220,10 @@ if(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
     set(_use_explicit_c_compiler TRUE)
   endif()
 endif()
-if(_codegen_host_clang STREQUAL "" AND NOT "$ENV{GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
-  set(_codegen_host_clang "$ENV{GENTEST_CODEGEN_HOST_CLANG}")
+if(_codegen_host_clang STREQUAL "" AND NOT "$ENV{GENTEST_BAZEL_LOCAL_CLANG}" STREQUAL "")
+  set(_codegen_host_clang "$ENV{GENTEST_BAZEL_LOCAL_CLANG}")
   if(NOT EXISTS "${_codegen_host_clang}")
-    message(FATAL_ERROR "GENTEST_CODEGEN_HOST_CLANG points to a missing clang++ executable: ${_codegen_host_clang}")
+    message(FATAL_ERROR "GENTEST_BAZEL_LOCAL_CLANG points to a missing clang++ executable: ${_codegen_host_clang}")
   endif()
   _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 endif()
@@ -317,8 +322,8 @@ set(_bazel_env
   "LLVM_BIN=${_clang_bin_dir}"
   "LLVM_DIR=${_llvm_dir}"
   "Clang_DIR=${_clang_dir}"
-  "GENTEST_CODEGEN_HOST_CLANG=${_codegen_host_clang}"
-  "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
+  "GENTEST_BAZEL_LOCAL_CLANG=${_codegen_host_clang}"
+  "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}"
   "HOME=$ENV{HOME}")
 
 set(_build_args
@@ -333,8 +338,6 @@ set(_build_args
   --action_env=LLVM_BIN
   --action_env=LLVM_DIR
   --action_env=Clang_DIR
-  --action_env=GENTEST_CODEGEN_HOST_CLANG
-  --action_env=GENTEST_CODEGEN_RESOURCE_DIR
   --host_action_env=CCACHE_DISABLE
   --host_action_env=PATH
   --host_action_env=CC
@@ -342,8 +345,6 @@ set(_build_args
   --host_action_env=LLVM_BIN
   --host_action_env=LLVM_DIR
   --host_action_env=Clang_DIR
-  --host_action_env=GENTEST_CODEGEN_HOST_CLANG
-  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR
   --host_action_env=HOME
   --repo_env=PATH
   --repo_env=CC
@@ -351,8 +352,8 @@ set(_build_args
   --repo_env=LLVM_BIN
   --repo_env=LLVM_DIR
   --repo_env=Clang_DIR
-  --repo_env=GENTEST_CODEGEN_HOST_CLANG
-  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
+  --repo_env=GENTEST_BAZEL_LOCAL_CLANG
+  --repo_env=GENTEST_BAZEL_LOCAL_SDKROOT
   --repo_env=HOME
   //:gentest_downstream_textual_mocks
   //:gentest_downstream_textual
@@ -373,6 +374,84 @@ if(NOT _build_rc EQUAL 0)
     "workspace: ${_workspace_dir}\n"
     "stdout:\n${_build_out}\n"
     "stderr:\n${_build_err}")
+endif()
+
+if(NOT GENTEST_BAZEL_HELPER_CONTRACT)
+  set(_invalid_source_hdr_args ${_build_args})
+  list(REMOVE_ITEM _invalid_source_hdr_args
+    //:gentest_downstream_textual_mocks
+    //:gentest_downstream_textual
+    //:gentest_downstream_module_mocks
+    //:gentest_downstream_module)
+  list(APPEND _invalid_source_hdr_args //invalid_source_hdrs:bad)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
+            ${_bazel_command}
+            ${_invalid_source_hdr_args}
+    WORKING_DIRECTORY "${_workspace_dir}"
+    RESULT_VARIABLE _invalid_source_hdr_rc
+    OUTPUT_VARIABLE _invalid_source_hdr_out
+    ERROR_VARIABLE _invalid_source_hdr_err)
+  if(_invalid_source_hdr_rc EQUAL 0)
+    message(FATAL_ERROR "A cross-package source_hdrs label unexpectedly passed Bazel analysis.")
+  endif()
+  set(_invalid_source_hdr_log "${_invalid_source_hdr_out}\n${_invalid_source_hdr_err}")
+  foreach(_required_source_hdr_diagnostic IN ITEMS
+      "source_hdrs accepts same-package file paths only"
+      "move '//:tests/private_case_value.hpp' to deps")
+    string(FIND "${_invalid_source_hdr_log}" "${_required_source_hdr_diagnostic}" _source_hdr_diagnostic_pos)
+    if(_source_hdr_diagnostic_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Cross-package source_hdrs failure omitted '${_required_source_hdr_diagnostic}'.\n${_invalid_source_hdr_log}")
+    endif()
+  endforeach()
+endif()
+
+function(_gentest_assert_codegen_header_invalidation header label)
+  set(_expected_mnemonics ${ARGN})
+  if(NOT _expected_mnemonics)
+    set(_expected_mnemonics GentestTextualSuiteCodegen GentestModuleSuiteCodegen)
+  endif()
+  file(APPEND "${header}" "\n// ${label} invalidation\n")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
+            ${_bazel_command}
+            ${_build_args}
+            --subcommands
+    WORKING_DIRECTORY "${_workspace_dir}"
+    RESULT_VARIABLE _incremental_rc
+    OUTPUT_VARIABLE _incremental_out
+    ERROR_VARIABLE _incremental_err)
+  if(NOT _incremental_rc EQUAL 0)
+    message(FATAL_ERROR
+      "Bazel Bzlmod build failed after ${label} changed.\n"
+      "stdout:\n${_incremental_out}\nstderr:\n${_incremental_err}")
+  endif()
+  set(_incremental_log "${_incremental_out}\n${_incremental_err}")
+  foreach(_mnemonic IN LISTS _expected_mnemonics)
+    string(FIND "${_incremental_log}" "${_mnemonic}" _mnemonic_pos)
+    if(_mnemonic_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Changing ${label} did not rerun ${_mnemonic}; the header is missing from the action key.\n"
+        "${_incremental_log}")
+    endif()
+  endforeach()
+endfunction()
+
+if(NOT GENTEST_BAZEL_HELPER_CONTRACT)
+  _gentest_assert_codegen_header_invalidation(
+    "${_workspace_dir}/tests/private_case_value.hpp"
+    "an explicit source_hdrs header")
+  _gentest_assert_codegen_header_invalidation(
+    "${_workspace_dir}/tests/dep_case_value.hpp"
+    "a transitive CcInfo dependency header")
+  _gentest_assert_codegen_header_invalidation(
+    "${_workspace_dir}/tests/mock_codegen_dep/mock_dep.hpp"
+    "a cross-package mock-only CcInfo dependency header"
+    GentestTextualMocksCodegen
+    GentestTextualSuiteCodegen
+    GentestModuleMocksCodegen
+    GentestModuleSuiteCodegen)
 endif()
 
 execute_process(

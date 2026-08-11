@@ -7,6 +7,15 @@
 
 module(name = "gentest", version = "1.0.0")
 
+# Exec-toolchain registrations use canonical OS constraints.
+bazel_dep(name = "platforms", version = "1.0.0")
+
+# This is intentionally a local fallback only. Remote/cache-portable consumers
+# register their own packaged gentest_codegen_toolchain instead.
+gentest_local_exec_tools = use_repo_rule("//bazel:local_exec_tools.bzl", "gentest_local_exec_tools")
+gentest_local_exec_tools(name = "gentest_local_exec_tools")
+register_toolchains("@gentest_local_exec_tools//:gentest_exec_toolchain")
+
 # Bazel 9+ moved core C++ rules into rules_cc.
 bazel_dep(name = "rules_cc", version = "0.2.17")
 

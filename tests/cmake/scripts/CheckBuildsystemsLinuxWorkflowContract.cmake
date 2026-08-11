@@ -80,22 +80,27 @@ foreach(_consumer_run IN ITEMS
   endif()
 endforeach()
 
-string(FIND "${_content}" "GENTEST_CODEGEN_RESOURCE_DIR" _bazel_resource_dir_pos)
-if(_bazel_resource_dir_pos EQUAL -1)
-  message(FATAL_ERROR "buildsystems_linux workflow must wire the explicit Clang resource dir into the Bazel module consumer lane.")
-endif()
-
-foreach(_explicit_host_clang_literal IN ITEMS
-    [[export GENTEST_CODEGEN_HOST_CLANG="${host_clang}"]]
-    [[--action_env=GENTEST_CODEGEN_HOST_CLANG \]]
-    [[--host_action_env=GENTEST_CODEGEN_HOST_CLANG \]]
-    [[--repo_env=GENTEST_CODEGEN_HOST_CLANG \]]
-    [[-Dcodegen_host_clang="${host_clang}"]]
-    [[GENTEST_CODEGEN_HOST_CLANG="${host_clang}"]])
-  string(FIND "${_content}" "${_explicit_host_clang_literal}" _explicit_host_clang_literal_pos)
-  if(_explicit_host_clang_literal_pos EQUAL -1)
+foreach(_exec_toolchain_literal IN ITEMS
+    [[export GENTEST_BAZEL_LOCAL_CLANG="${host_clang}"]]
+    [[--repo_env=GENTEST_BAZEL_LOCAL_CLANG]])
+  string(FIND "${_content}" "${_exec_toolchain_literal}" _exec_toolchain_literal_pos)
+  if(_exec_toolchain_literal_pos EQUAL -1)
     message(FATAL_ERROR
-      "buildsystems_linux workflow must contain '${_explicit_host_clang_literal}' to exercise the explicit host-clang contract.")
+      "buildsystems_linux workflow must contain '${_exec_toolchain_literal}' to exercise the Bazel exec-toolchain bootstrap.")
+  endif()
+endforeach()
+
+foreach(_obsolete_bazel_pass_through IN ITEMS
+    [[--action_env=GENTEST_CODEGEN_HOST_CLANG]]
+    [[--host_action_env=GENTEST_CODEGEN_HOST_CLANG]]
+    [[--repo_env=GENTEST_CODEGEN_HOST_CLANG]]
+    [[--action_env=GENTEST_CODEGEN_RESOURCE_DIR]]
+    [[--host_action_env=GENTEST_CODEGEN_RESOURCE_DIR]]
+    [[--repo_env=GENTEST_CODEGEN_RESOURCE_DIR]])
+  string(FIND "${_content}" "${_obsolete_bazel_pass_through}" _obsolete_bazel_pass_through_pos)
+  if(NOT _obsolete_bazel_pass_through_pos EQUAL -1)
+    message(FATAL_ERROR
+      "buildsystems_linux workflow must not retain obsolete Bazel codegen pass-through '${_obsolete_bazel_pass_through}'.")
   endif()
 endforeach()
 
@@ -289,7 +294,9 @@ foreach(_expected IN ITEMS
     "ctx.actions.expand_template("
     "ctx.actions.write("
     "ctx.actions.run("
-    "use_default_shell_env = True"
+    "use_default_shell_env = False"
+    "_gentest_run_codegen("
+    "_GENTEST_CODEGEN_TOOLCHAIN_TYPE"
     "defs_modules"
     "_gentest_module_registration_relpath"
     "\"--module-registration-output\""

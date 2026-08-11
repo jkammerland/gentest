@@ -2812,7 +2812,12 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             file.str(), std::string(compdb_dir));
         adjusted.emplace_back(default_compiler_path);
 #if defined(__linux__)
-        adjusted.emplace_back("--gcc-toolchain=/usr");
+        const bool has_declared_standard_library = std::ranges::any_of(extra_args, [](const std::string &arg) {
+            return arg == "-nostdinc++" || arg.starts_with("--gcc-toolchain=") || arg == "--gcc-toolchain";
+        });
+        if (!has_declared_standard_library) {
+            adjusted.emplace_back("--gcc-toolchain=/usr");
+        }
 #endif
         const std::string resource_dir = resource_dir_for_compiler(std::string(default_compiler_path));
         if (!resource_dir.empty()) {

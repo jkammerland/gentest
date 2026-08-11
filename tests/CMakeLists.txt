@@ -4527,6 +4527,12 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_bazel_codegen_action_cache
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBazelCodegenActionCache.cmake
+    bazel)
+
+_gentest_add_cmake_helper_test(
     gentest_bazel_helpers_use_configured_toolchain
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBazelHelperConfiguredToolchain.cmake

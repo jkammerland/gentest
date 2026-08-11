@@ -94,7 +94,16 @@ foreach(_expected IN ITEMS
     "ctx.actions.expand_template("
     "ctx.actions.write("
     "ctx.actions.run("
-    "use_default_shell_env = True"
+    "use_default_shell_env = False"
+    "_gentest_run_codegen("
+    "_GENTEST_CODEGEN_TOOLCHAIN_TYPE"
+    "execution_requirements = execution_requirements"
+    "\"no-remote\": \"1\""
+    "source_hdrs"
+    "source_deps"
+    "codegen_support.headers"
+    "codegen_support.defines"
+    "codegen_support.framework_include_dirs"
     "defs_modules"
     "\"--mock-aggregate-module-output\""
     "\"--mock-aggregate-module-name\""
@@ -110,11 +119,47 @@ foreach(_expected IN ITEMS
   endif()
 endforeach()
 
+file(READ "${SOURCE_DIR}/bazel/local_exec_tools.bzl" _bazel_local_tools_content)
+foreach(_expected IN ITEMS
+    "os_name = repository_ctx.os.name.lower()"
+    "os_name.find(\"windows\")"
+    "target_compatible_with = [\":unavailable\"]")
+  string(FIND "${_bazel_local_tools_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "bazel/local_exec_tools.bzl is missing Windows fallback safety token: ${_expected}")
+  endif()
+endforeach()
+
+foreach(_bazel_consumer_script IN ITEMS CheckBazelTextualConsumer.cmake CheckBazelModuleConsumer.cmake)
+  file(READ "${SOURCE_DIR}/tests/cmake/scripts/${_bazel_consumer_script}" _bazel_consumer_script_content)
+  foreach(_expected IN ITEMS
+      "if(WIN32)"
+      "automatic local exec-tool fallback is disabled"
+      "must register a packaged Gentest/Clang toolchain")
+    string(FIND "${_bazel_consumer_script_content}" "${_expected}" _expected_pos)
+    if(_expected_pos EQUAL -1)
+      message(FATAL_ERROR "${_bazel_consumer_script} is missing Windows toolchain skip token: ${_expected}")
+    endif()
+  endforeach()
+endforeach()
+
+file(READ "${SOURCE_DIR}/tests/cmake/scripts/CheckBazelCodegenActionCache.cmake" _bazel_cache_script_content)
+foreach(_expected IN ITEMS
+    "find_program(_found_clang_c"
+    "set(_clang_c \"\${_found_clang_c}\")")
+  string(FIND "${_bazel_cache_script_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "CheckBazelCodegenActionCache.cmake must search for a versioned clang through a fresh cache variable: ${_expected}")
+  endif()
+endforeach()
+
 file(READ "${_bazel_root_file}" _bazel_root_content)
 foreach(_expected IN ITEMS
     "gentest_add_mocks_modules("
     "defs_modules = ["
     "gentest_attach_codegen_modules("
+    "source_hdrs = ['tests/consumer/bazel_private_case_value.hpp']"
+    "gentest_consumer_codegen_headers"
     "gentest_consumer_module_mocks"
     "gentest_consumer_module_bazel")
   string(FIND "${_bazel_root_content}" "${_expected}" _expected_pos)
