@@ -797,21 +797,18 @@ def markdown(result: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def parse_csv(value: str, allowed: tuple[str, ...], flag: str) -> list[str]:
+def parse_csv(value: str, allowed: tuple[str, ...], flag: str, duplicate_noun: str = "entry") -> list[str]:
     entries = [entry.strip() for entry in value.split(",") if entry.strip()]
     invalid = [entry for entry in entries if entry not in allowed]
     if not entries or invalid:
         raise ValueError(f"{flag} must contain only {', '.join(allowed)} (invalid: {', '.join(invalid) or 'none'})")
     if len(set(entries)) != len(entries):
-        raise ValueError(f"{flag} must not repeat an entry")
+        raise ValueError(f"{flag} must not repeat a {duplicate_noun}")
     return entries
 
 
 def parse_include_surfaces(value: str) -> list[str]:
-    surfaces = parse_csv(value, DEFAULT_INCLUDE_SURFACES, "--include-surfaces")
-    if len(set(surfaces)) != len(surfaces):
-        raise ValueError("--include-surfaces must not repeat a surface")
-    return surfaces
+    return parse_csv(value, DEFAULT_INCLUDE_SURFACES, "--include-surfaces", "surface")
 
 
 def parse_codegen_caps(value: str) -> list[tuple[str, int]]:
