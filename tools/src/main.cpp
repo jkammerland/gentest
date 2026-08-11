@@ -6254,6 +6254,13 @@ int main(int argc, const char **argv) {
             if (arg.starts_with("-frandomize-layout-seed-file") || arg.starts_with("/clang:-frandomize-layout-seed-file")) {
                 return false;
             }
+            // Older Clang releases do not expose precise embed callbacks, and
+            // trigraph translation happens before line splicing. Bypass the
+            // cache instead of maintaining a second phase-one lexer for rare
+            // trigraph-enabled commands.
+            if (arg == "-trigraphs" || arg == "/clang:-trigraphs") {
+                return false;
+            }
             // PGO/profile options can name externally updated data that does
             // not participate in preprocessing dependency callbacks. Even a
             // diagnostics-only profile change must force a real parse.
@@ -6282,7 +6289,9 @@ int main(int argc, const char **argv) {
             if (arg.starts_with("-fsanitize-ignorelist") || arg.starts_with("/clang:-fsanitize-ignorelist") ||
                 arg.starts_with("-fsanitize-blacklist") || arg.starts_with("/clang:-fsanitize-blacklist") ||
                 arg.starts_with("-fsanitize-system-ignorelist") || arg.starts_with("/clang:-fsanitize-system-ignorelist") ||
-                arg.starts_with("-fcoverage-ignorelist") || arg.starts_with("/clang:-fcoverage-ignorelist")) {
+                arg.starts_with("-fcoverage-ignorelist") || arg.starts_with("/clang:-fcoverage-ignorelist") ||
+                arg.starts_with("-fsanitize-coverage-allowlist") || arg.starts_with("/clang:-fsanitize-coverage-allowlist") ||
+                arg.starts_with("-fsanitize-coverage-ignorelist") || arg.starts_with("/clang:-fsanitize-coverage-ignorelist")) {
                 return false;
             }
             if (arg.starts_with("-fplugin") || arg.starts_with("/clang:-fplugin") || arg == "-load" || arg == "-plugin" ||

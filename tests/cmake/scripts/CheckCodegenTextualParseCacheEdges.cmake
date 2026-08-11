@@ -287,17 +287,28 @@ constexpr unsigned char cache_digraph_embed[] = {
   _write_compdb("${_digraph_embed_source}")
   _run_uncacheable_twice("${_digraph_embed_source}" digraph_embed)
 
-  if(CMAKE_MATCH_1 LESS 22)
-    set(_trigraph_embed_source "${_work_dir}/trigraph_embed_cases.cpp")
-    gentest_fixture_write_file("${_trigraph_embed_source}" [=[
+  set(_trigraph_embed_source "${_work_dir}/trigraph_embed_cases.cpp")
+  gentest_fixture_write_file("${_trigraph_embed_source}" [=[
 constexpr unsigned char cache_trigraph_embed[] = {
 ??=embed "embed_payload.bin"
 };
 [[using gentest: test("cache/trigraph_embed")]] void cache_trigraph_embed_case() {}
 ]=])
-    _write_compdb("${_trigraph_embed_source}" "-trigraphs")
-    _run_uncacheable_twice("${_trigraph_embed_source}" trigraph_embed)
-  endif()
+  _write_compdb("${_trigraph_embed_source}" "-trigraphs")
+  _run_uncacheable_twice("${_trigraph_embed_source}" trigraph_embed)
+
+  set(_trigraph_spliced_embed_source "${_work_dir}/trigraph_spliced_embed_cases.cpp")
+  gentest_fixture_write_file("${_trigraph_spliced_embed_source}" [=[
+#if __has_em??/
+bed("embed_payload.bin")
+inline constexpr bool cache_trigraph_spliced_embed_present = true;
+#else
+inline constexpr bool cache_trigraph_spliced_embed_present = false;
+#endif
+[[using gentest: test("cache/trigraph_spliced_embed")]] void cache_trigraph_spliced_embed_case() {}
+]=])
+  _write_compdb("${_trigraph_spliced_embed_source}" "-trigraphs")
+  _run_uncacheable_twice("${_trigraph_spliced_embed_source}" trigraph_spliced_embed)
 endif()
 
 set(_overlay "${_work_dir}/empty-overlay.yaml")
@@ -335,6 +346,36 @@ if(_invalid_ignorelist_rc EQUAL 0)
   message(FATAL_ERROR
     "Replacing a sanitizer ignorelist was hidden by a parse-cache hit.\n"
     "${_invalid_ignorelist_out}\n${_invalid_ignorelist_err}")
+endif()
+
+set(_sanitize_coverage_list "${_work_dir}/sanitize-coverage-list.txt")
+gentest_fixture_write_file("${_sanitize_coverage_list}" "fun:cache_*\n")
+_write_compdb("${_forced_source}"
+  "-fsanitize-coverage=trace-pc-guard"
+  "-fsanitize-coverage-allowlist=${_sanitize_coverage_list}")
+_run_uncacheable_twice("${_forced_source}" sanitizer_coverage_allowlist)
+_write_compdb("${_forced_source}"
+  "-fsanitize-coverage=trace-pc-guard"
+  "-Xclang" "-fsanitize-coverage-ignorelist=${_sanitize_coverage_list}")
+_run_uncacheable_twice("${_forced_source}" sanitizer_coverage_forwarded_ignorelist)
+_write_compdb("${_forced_source}"
+  "-fsanitize-coverage=trace-pc-guard"
+  "-fsanitize-coverage-allowlist=${_sanitize_coverage_list}")
+file(REMOVE "${_sanitize_coverage_list}")
+execute_process(
+  COMMAND "${PROG}"
+    --jobs=1
+    --check
+    --parse-cache-dir "${_cache_dir}"
+    --compdb "${_work_dir}"
+    "${_forced_source}"
+  RESULT_VARIABLE _missing_coverage_list_rc
+  OUTPUT_VARIABLE _missing_coverage_list_out
+  ERROR_VARIABLE _missing_coverage_list_err)
+if(_missing_coverage_list_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Removing a sanitizer-coverage list was hidden by a parse-cache hit.\n"
+    "${_missing_coverage_list_out}\n${_missing_coverage_list_err}")
 endif()
 
 # Serialized AST merge inputs are outside preprocessing dependency callbacks.
