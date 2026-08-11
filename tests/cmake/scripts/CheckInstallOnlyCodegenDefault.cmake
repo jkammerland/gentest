@@ -32,6 +32,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
 set(_work_dir "${BUILD_ROOT}/install_only_codegen_default")
 set(_build_dir "${_work_dir}/build")
+set(_runtime_only_build_dir "${_work_dir}/runtime-only-build")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
@@ -94,6 +95,26 @@ if(NOT _public_modules_default STREQUAL "GENTEST_ENABLE_PUBLIC_MODULES:STRING=OF
     "Observed cache entry: '${_public_modules_default}'")
 endif()
 
+message(STATUS "Configure explicit runtime/reflection-only producer fixture...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${CMAKE_COMMAND}"
+    ${_cmake_gen_args}
+    -S "${GENTEST_SOURCE_DIR}"
+    -B "${_runtime_only_build_dir}"
+    ${_cmake_cache_args}
+    "-DGENTEST_BUILD_CODEGEN=OFF"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+set(_runtime_only_cache_file "${_runtime_only_build_dir}/CMakeCache.txt")
+file(STRINGS "${_runtime_only_cache_file}" _runtime_only_codegen REGEX "^GENTEST_BUILD_CODEGEN:BOOL=" LIMIT_COUNT 1)
+if(NOT _runtime_only_codegen STREQUAL "GENTEST_BUILD_CODEGEN:BOOL=OFF")
+  message(FATAL_ERROR
+    "An explicit runtime/reflection-only install must preserve GENTEST_BUILD_CODEGEN=OFF.\n"
+    "Observed cache entry: '${_runtime_only_codegen}'")
+endif()
+
 file(STRINGS "${_cache_file}" _tip_dir_line REGEX "^target_install_package_DIR:PATH=" LIMIT_COUNT 1)
 if(NOT _tip_dir_line)
   message(FATAL_ERROR "Expected configure cache to record target_install_package_DIR")
@@ -111,4 +132,5 @@ if(NOT _tip_dir_normalized STREQUAL _expected_tip_dir_normalized)
     "Observed: '${_tip_dir_normalized}'")
 endif()
 
-message(STATUS "Install-only producer configure defaults codegen on, public modules off, and resolves vendored target_install_package")
+message(STATUS
+  "Install-only producer defaults codegen on, accepts an explicit runtime/reflection-only package, keeps public modules off, and resolves vendored target_install_package")

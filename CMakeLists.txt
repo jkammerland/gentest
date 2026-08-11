@@ -80,16 +80,17 @@ endif()
 option(GENTEST_BUILD_CODEGEN "Build the gentest code generator tool (gentest_codegen)" "${_gentest_build_codegen_default}")
 unset(_gentest_build_codegen_default)
 
-if(${PROJECT_NAME}_INSTALL AND NOT CMAKE_CROSSCOMPILING AND NOT GENTEST_BUILD_CODEGEN)
-    message(FATAL_ERROR
-        "${PROJECT_NAME}_INSTALL=ON requires GENTEST_BUILD_CODEGEN=ON so the installed CMake package includes "
-        "the gentest_codegen host tool used by GentestCodegen.cmake.")
+if(${PROJECT_NAME}_INSTALL AND NOT GENTEST_BUILD_CODEGEN)
+    message(STATUS
+        "gentest: installing without gentest_codegen; the package supports runtime/reflection-only consumers, "
+        "while legacy codegen consumers must provide GENTEST_CODEGEN_EXECUTABLE")
 endif()
 
 if(GENTEST_BUILD_CODEGEN)
     add_subdirectory(tools)
 endif()
 include(GentestCodegen)
+include(GentestReflection)
 add_subdirectory(src)
 
 if(${PROJECT_NAME}_INSTALL)
@@ -111,6 +112,7 @@ if(${PROJECT_NAME}_INSTALL)
         INCLUDE_ON_FIND_PACKAGE
             "${PROJECT_SOURCE_DIR}/cmake/GentestFmtDependency.cmake"
             "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
+            "${PROJECT_SOURCE_DIR}/cmake/GentestReflection.cmake"
         PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}")
 
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/gentest/"

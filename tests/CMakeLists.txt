@@ -26,6 +26,28 @@ add_dependencies(gentest_test_suites gentest_narrow_sync_surface_api_tests)
 add_test(NAME narrow_sync_surface_api COMMAND $<TARGET_FILE:gentest_narrow_sync_surface_api_tests>)
 set_property(TEST narrow_sync_surface_api APPEND PROPERTY LABELS "public-api;headers")
 
+add_executable(gentest_reflection_surface_api_tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/reflection_surface_api.cpp)
+target_compile_features(gentest_reflection_surface_api_tests PRIVATE cxx_std_20)
+target_link_libraries(gentest_reflection_surface_api_tests PRIVATE gentest::gentest)
+add_dependencies(gentest_test_suites gentest_reflection_surface_api_tests)
+add_test(NAME reflection_surface_api COMMAND $<TARGET_FILE:gentest_reflection_surface_api_tests>)
+set_property(TEST reflection_surface_api APPEND PROPERTY LABELS "public-api;headers;reflection")
+
+gentest_check_reflection_support(_gentest_reflection_tests_supported)
+if(_gentest_reflection_tests_supported)
+    add_executable(gentest_reflection_cases_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/reflection_cases.cpp)
+    gentest_enable_reflection(gentest_reflection_cases_tests)
+    target_link_libraries(gentest_reflection_cases_tests PRIVATE gentest::gentest)
+    add_dependencies(gentest_test_suites gentest_reflection_cases_tests)
+    add_test(NAME reflection_cases COMMAND $<TARGET_FILE:gentest_reflection_cases_tests>)
+    set_property(TEST reflection_cases APPEND PROPERTY LABELS "public-api;reflection;cxx26")
+else()
+    message(STATUS "gentest: C++26 reflection API execution test disabled (toolchain probe failed)")
+endif()
+unset(_gentest_reflection_tests_supported)
+
 add_executable(gentest_run_cases_api_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/run_cases_api.cpp)
 target_compile_features(gentest_run_cases_api_tests PRIVATE cxx_std_20)

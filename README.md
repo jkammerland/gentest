@@ -51,7 +51,7 @@ Features currently include:
 
 - CMake ≥ 3.31 (see below for non-cmake buildsystems)
 - C++20 compiler and standard library
-- LLVM/Clang (for `gentest_codegen`)
+- LLVM/Clang (for `gentest_codegen`; reflection-only targets do not use it)
 
 On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
 
@@ -115,6 +115,10 @@ ctest --test-dir build --output-on-failure
 ```
 
 Docs: [Async tests](docs/async.md), [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md), [Deprecations](DEPRECATIONS.md).
+
+Targets that only need free tests, benchmarks, jitters, and basic metadata can instead use the experimental
+[C++26 reflection registration path](docs/reflection.md). That path uses typed `[[=...]]` annotations and requires no Clang codegen
+tool, but it does not preserve the existing attribute syntax or support generated mocks and fixtures.
 
 Non-CMake downstream consumers:
 - [Downstream consumers overview](docs/buildsystems/downstream_consumers.md)

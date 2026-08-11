@@ -13,6 +13,7 @@
 - Test inventory: [`docs/test_inventory.md`](test_inventory.md)
 - Async tests: [`docs/async.md`](async.md)
 - Mock generation: [`docs/mock_generation.md`](mock_generation.md)
+- C++26 reflection registration: [`docs/reflection.md`](reflection.md)
 - Codegen artifact protocols: [`docs/codegen_artifact_protocols.md`](codegen_artifact_protocols.md)
 - Codegen timing sidecar: [`docs/codegen_timing.md`](codegen_timing.md)
 - Textual codegen parse cache: [`docs/codegen_parse_cache.md`](codegen_parse_cache.md)

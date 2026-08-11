@@ -6,6 +6,7 @@ Unstable inside. No backward compatibility.
 
 ### Added
 
+- Experimental C++26 reflection-only registration for free tests, benchmarks, jitters, and basic metadata.
 - Third-party mock backends.
 - CMake-only mock generation.
 - CMake module registration support.
@@ -20,6 +21,7 @@ Unstable inside. No backward compatibility.
 
 ### Changed
 
+- Install builds may explicitly omit `gentest_codegen` for runtime/reflection-only packages.
 - Bazel consumes generated registrations.
 - Xmake uses explicit module names.
 - Meson emits generated-output depfiles.
