@@ -164,26 +164,55 @@ class StatisticsAndOrderTests(unittest.TestCase):
 
 
 class BenchmarkPresetResolutionTests(unittest.TestCase):
-    def test_preset_build_directory_comes_from_ninja_compdb(self) -> None:
+    def test_preset_build_directory_comes_from_metadata_for_non_ninja_generator(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            build_dir = Path(temporary_directory) / "custom-output"
-            build_dir.mkdir()
-            (build_dir / "build.ninja").write_text("# fixture\n", encoding="utf-8")
-            completed = subprocess.CompletedProcess(
-                args=[],
-                returncode=0,
-                stdout=json.dumps([{"directory": str(build_dir), "command": "clang++ -c case.cpp"}]),
-                stderr="",
+            source_dir = Path(temporary_directory)
+            build_dir = source_dir / "custom-output" / "release-custom"
+            build_dir.mkdir(parents=True)
+            (source_dir / "CMakePresets.json").write_text(
+                json.dumps(
+                    {
+                        "version": 6,
+                        "configurePresets": [
+                            {
+                                "name": "base",
+                                "hidden": True,
+                                "generator": "Unix Makefiles",
+                                "binaryDir": "${sourceDir}/custom-output/${presetName}",
+                            },
+                            {"name": "release-custom", "inherits": "base"},
+                        ],
+                        "buildPresets": [{"name": "release-custom", "configurePreset": "release-custom"}],
+                    }
+                ),
+                encoding="utf-8",
             )
-            with mock.patch.object(compile_bench.subprocess, "run", return_value=completed) as run_mock:
-                self.assertEqual(compile_bench.resolve_preset_build_dir("release-custom"), build_dir.resolve())
-            run_mock.assert_called_once_with(
-                ["cmake", "--build", "--preset", "release-custom", "--", "-t", "compdb"],
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
+            with mock.patch.object(compile_bench.subprocess, "run") as run_mock:
+                self.assertEqual(compile_bench.resolve_preset_build_dir("release-custom", source_dir), build_dir.resolve())
+            run_mock.assert_not_called()
+
+    def test_preset_metadata_resolves_included_build_inheritance_and_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source_dir = Path(temporary_directory)
+            output_root = source_dir / "outside"
+            build_dir = output_root / "configured"
+            build_dir.mkdir(parents=True)
+            (source_dir / "included.json").write_text(
+                json.dumps(
+                    {
+                        "version": 6,
+                        "configurePresets": [{"name": "cfg", "binaryDir": "$env{BENCH_PRESET_ROOT}/configured"}],
+                        "buildPresets": [{"name": "build-base", "hidden": True, "configurePreset": "cfg"}],
+                    }
+                ),
+                encoding="utf-8",
             )
+            (source_dir / "CMakePresets.json").write_text(
+                json.dumps({"version": 6, "include": ["included.json"], "buildPresets": [{"name": "bench", "inherits": "build-base"}]}),
+                encoding="utf-8",
+            )
+            with mock.patch.dict(os.environ, {"BENCH_PRESET_ROOT": str(output_root)}):
+                self.assertEqual(compile_bench.resolve_preset_build_dir("bench", source_dir), build_dir.resolve())
 
     def test_main_rejects_build_directory_with_preset(self) -> None:
         stderr = io.StringIO()

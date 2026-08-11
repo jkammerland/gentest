@@ -26,6 +26,7 @@ Writes results to <build-dir>/compile_bench.json and prints a summary.
 import argparse
 import json
 import os
+import platform
 import re
 import shlex
 import subprocess
@@ -104,32 +105,101 @@ def e2e_measurement(clean_first: bool) -> str:
     return "clean-first-e2e" if clean_first else "incremental-e2e"
 
 
-def resolve_preset_build_dir(preset: str) -> Path:
-    """Ask the selected Ninja build preset which directory it executes in."""
-    try:
-        completed = subprocess.run(
-            ["cmake", "--build", "--preset", preset, "--", "-t", "compdb"],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        entries = json.loads(completed.stdout)
-    except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
-        raise CodegenCommandError(f"could not resolve Ninja build directory for preset {preset!r}: {error}") from error
-
-    directories = {
-        Path(entry["directory"]).resolve()
-        for entry in entries
-        if isinstance(entry, dict) and isinstance(entry.get("directory"), str) and entry["directory"]
+def _expand_preset_path(value: str, source_dir: Path, preset_name: str, generator: str = "") -> str:
+    replacements = {
+        "${sourceDir}": str(source_dir),
+        "${sourceParentDir}": str(source_dir.parent),
+        "${sourceDirName}": source_dir.name,
+        "${presetName}": preset_name,
+        "${hostSystemName}": platform.system(),
+        "${generator}": generator,
     }
-    if len(directories) != 1:
-        raise CodegenCommandError(
-            f"preset {preset!r} did not expose exactly one Ninja build directory (found {len(directories)})"
-        )
-    build_dir = directories.pop()
-    if not (build_dir / "build.ninja").is_file():
-        raise CodegenCommandError(f"preset {preset!r} resolved to a tree without build.ninja: {build_dir}")
+    expanded = value
+    for macro, replacement in replacements.items():
+        expanded = expanded.replace(macro, replacement)
+    expanded = re.sub(r"\$(?:p?env)\{([^}]+)\}", lambda match: os.environ.get(match.group(1), ""), expanded)
+    if "${" in expanded or re.search(r"\$[^/\\]*\{", expanded):
+        raise CodegenCommandError(f"unsupported CMake preset macro in binaryDir: {value!r}")
+    return expanded
+
+
+def _load_preset_maps(source_dir: Path) -> tuple[dict[str, dict], dict[str, dict]]:
+    configure_presets: dict[str, dict] = {}
+    build_presets: dict[str, dict] = {}
+    visited: set[Path] = set()
+
+    def load(path: Path) -> None:
+        resolved = path.resolve()
+        if resolved in visited or not resolved.is_file():
+            return
+        visited.add(resolved)
+        try:
+            document = json.loads(resolved.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise CodegenCommandError(f"could not read CMake preset metadata from {resolved}: {error}") from error
+        includes = document.get("include", [])
+        if isinstance(includes, str):
+            includes = [includes]
+        if not isinstance(includes, list) or not all(isinstance(item, str) for item in includes):
+            raise CodegenCommandError(f"invalid include list in CMake preset metadata: {resolved}")
+        for include in includes:
+            include_path = Path(_expand_preset_path(include, source_dir, ""))
+            if not include_path.is_absolute():
+                include_path = resolved.parent / include_path
+            load(include_path)
+        for key, destination in (("configurePresets", configure_presets), ("buildPresets", build_presets)):
+            entries = document.get(key, [])
+            if not isinstance(entries, list):
+                raise CodegenCommandError(f"invalid {key} list in CMake preset metadata: {resolved}")
+            for entry in entries:
+                if isinstance(entry, dict) and isinstance(entry.get("name"), str):
+                    destination[entry["name"]] = entry
+
+    load(source_dir / "CMakePresets.json")
+    load(source_dir / "CMakeUserPresets.json")
+    return configure_presets, build_presets
+
+
+def _resolve_inherited_preset(name: str, presets: dict[str, dict], kind: str, resolving: tuple[str, ...] = ()) -> dict:
+    if name in resolving:
+        raise CodegenCommandError(f"cyclic {kind} preset inheritance: {' -> '.join((*resolving, name))}")
+    preset = presets.get(name)
+    if preset is None:
+        raise CodegenCommandError(f"unknown {kind} preset {name!r}")
+    parents = preset.get("inherits", [])
+    if isinstance(parents, str):
+        parents = [parents]
+    if not isinstance(parents, list) or not all(isinstance(parent, str) for parent in parents):
+        raise CodegenCommandError(f"invalid inheritance for {kind} preset {name!r}")
+    merged: dict = {}
+    for parent in parents:
+        for key, value in _resolve_inherited_preset(parent, presets, kind, (*resolving, name)).items():
+            merged.setdefault(key, value)
+    merged.update(preset)
+    return merged
+
+
+def resolve_preset_build_dir(preset: str, source_dir: Path | None = None) -> Path:
+    """Resolve a build preset through CMake's checked-in preset metadata."""
+    source_dir = (source_dir or Path.cwd()).resolve()
+    configure_presets, build_presets = _load_preset_maps(source_dir)
+    build_preset = _resolve_inherited_preset(preset, build_presets, "build")
+    configure_name = build_preset.get("configurePreset")
+    if not isinstance(configure_name, str) or not configure_name:
+        raise CodegenCommandError(f"build preset {preset!r} does not name a configurePreset")
+    configure_preset = _resolve_inherited_preset(configure_name, configure_presets, "configure")
+    binary_dir = configure_preset.get("binaryDir")
+    if not isinstance(binary_dir, str) or not binary_dir:
+        raise CodegenCommandError(f"configure preset {configure_name!r} does not define binaryDir")
+    generator = configure_preset.get("generator", "")
+    if not isinstance(generator, str):
+        generator = ""
+    build_dir = Path(_expand_preset_path(binary_dir, source_dir, configure_name, generator))
+    if not build_dir.is_absolute():
+        build_dir = source_dir / build_dir
+    build_dir = build_dir.resolve()
+    if not build_dir.is_dir():
+        raise CodegenCommandError(f"preset {preset!r} resolved to a missing build directory: {build_dir}")
     return build_dir
 
 
