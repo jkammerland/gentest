@@ -21,6 +21,18 @@ auto case_registry() -> CaseRegistry & {
     return reg;
 }
 
+// Factory registry: collects factory functions from generated companions.
+// Each generated .cpp calls register_factory() to register its factory.
+struct FactoryRegistry {
+    std::vector<gentest::detail::CaseFactory> factories;
+    std::mutex                                mtx;
+};
+
+auto factory_registry() -> FactoryRegistry & {
+    static FactoryRegistry reg;
+    return reg;
+}
+
 void sort_cases(std::vector<gentest::Case> &cases) {
     std::ranges::sort(cases, [](const gentest::Case &lhs, const gentest::Case &rhs) {
         if (lhs.name != rhs.name)
@@ -60,6 +72,17 @@ void register_cases(std::span<const Case> cases) {
     reg.sorted = false;
 }
 
+void register_cases_from_factory(CaseFactory factory) {
+    auto cases = factory();
+    register_cases(std::span<const Case>{cases.data(), cases.size()});
+}
+
+void register_factory(gentest::detail::CaseFactory factory) {
+    auto                       &reg = factory_registry();
+    std::lock_guard<std::mutex> lk(reg.mtx);
+    reg.factories.push_back(factory);
+}
+
 auto snapshot_registered_cases() -> std::vector<Case> { return snapshot_cases(); }
 } // namespace gentest::detail
 
@@ -90,6 +113,14 @@ auto run_all_tests(int argc, char **argv) -> int {
     for (int i = 0; i < argc; ++i)
         a.push_back(argv[i]);
     return run_all_tests(std::span<const char *>{a.data(), a.size()});
+}
+
+void register_all() {
+    auto                       &reg = factory_registry();
+    std::lock_guard<std::mutex> lk(reg.mtx);
+    for (auto factory : reg.factories) {
+        detail::register_cases_from_factory(factory);
+    }
 }
 
 } // namespace gentest

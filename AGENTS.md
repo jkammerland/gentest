@@ -1,185 +1,105 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-- Public headers live in `include/gentest/` (`runner.h`, `attributes.h`) and are exposed via an interface library.
-- Public named-module interfaces also live in `include/gentest/` (notably `gentest.cppm`, `gentest.mock.cppm`, and `gentest.bench_util.cppm`) when module support is enabled.
-- Runtime execution lives in `src/` (notably `src/runner_impl.cpp`). Fixture allocation and ownership live in `include/gentest/fixture.h`.
-- Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits generated registrations/implementation sources. Codegen templates live in `tools/src/templates.hpp` and `tools/src/templates_mocks.hpp`.
-- Helper macro wiring is in `cmake/GentestCodegen.cmake`.
-- `gentest_codegen` supports three output styles:
-  - Manifest mode (`gentest_attach_codegen(... OUTPUT ...)`): emits a single generated TU (legacy).
-  - Per-TU registration mode (default): emits per-TU registration headers (`tu_*.gentest.h`), and CMake generates shim TUs (`tu_*.gentest.cpp`) that include the original source and the generated header.
-  - CMake module-registration mode (`gentest_attach_codegen(... MODULE_REGISTRATION FILE_SET <name>)`): emits additive same-module implementation units (`tu_*.registration.gentest.cpp`), per-TU headers, and `<target>.artifact_manifest.json`; authored module interface sources stay in the target.
-- In per-TU registration mode, `gentest_attach_codegen()` replaces the original test TUs in the target with the generated shim TUs to avoid ODR issues.
-- Public named modules are controlled by `GENTEST_ENABLE_PUBLIC_MODULES=AUTO|ON|OFF` (default `OFF`); set `ON` or `AUTO` explicitly when you want the public module surface.
-- Each suite under `tests/<suite>/` provides handwritten `cases.cpp`; shared test entry lives in `tests/support/test_entry.cpp`. Generated outputs land in the build tree (e.g. `${binaryDir}/tests/<suite>/tu_*.gentest.{cpp,h}` plus mock headers).
+## Quick start (system LLVM/Clang 20+)
 
-## Architecture & Execution Model
-- Source annotations (`[[using gentest: ...]]`) are discovered by `gentest_codegen`; it emits wrappers and a `gentest::Case` table per target.
-- The runtime (`run_all_tests`) consumes the case table, groups by suite and fixture lifetime, runs setup/teardown, then executes test/bench/jitter wrappers.
-- Suite/group identity comes from namespace path (or explicit suite attribute) and is used for ordering and fixture scoping.
+```bash
+cmake --preset=debug-system && cmake --build --preset=debug-system && ctest --preset=debug-system --output-on-failure
+```
 
-## Fixture Model (Style + Semantics)
-- Fixture lifetimes: local (per test/bench/jitter), suite (per namespace group), global (per run).
-- Suite/global fixtures are registered at startup and set up once at the start of the run; teardown happens once at the end.
-- Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace for all tests that use them.
-- Prefer free-function tests/benches/jitters with fixture parameters inferred from function signatures. The legacy `fixtures(...)` attribute is removed. Member tests are deprecated; they are treated as suite-level fixtures and should be avoided in new code.
-- Allocation hook: optional `static gentest_allocate()` or `static gentest_allocate(std::string_view suite)`. Supported returns: `unique_ptr` (custom deleter), `shared_ptr`, or raw pointer (adopted).
-- Allocation failures (null/exception) are treated as test failures and reported.
+Other presets: `release`, `release-system`, `alusan` (ASan+LSan+UBSan), `coverage-system`, `tsan`, `tidy`, `host-codegen` (cross-compile helper). See `CMakePresets.json` for the full list.
 
-## Bench/Jitter Model
-- Bench/jitter wrappers run in three phases: setup → call (timed loop) → teardown.
-- Fixture setup/teardown must happen outside timing loops; call phase should only invoke the benchmark.
+## What this repo is
 
-## Shuffle Semantics
-- Shuffling respects fixture grouping: within a suite, free/local tests are shuffled together, then each suite-fixture group, then each global-fixture group.
-- There is no interleaving across fixture groups.
+`gentest` is an attribute-driven C++ test runner with a clang-tooling code generator. Tests are annotated with standard C++ attributes (`[[using gentest: test("suite/name")]]`) instead of macros. The codegen tool (`gentest_codegen`) scans sources via `compile_commands.json` and emits registration wrappers.
 
-## Build, Test, and Development Commands
-- Preferred (system LLVM/Clang 20+):
-  - `cmake --preset=debug-system`
-  - `cmake --build --preset=debug-system`
-  - `ctest --preset=debug-system --output-on-failure`
-- Coverage (CI-aligned Linux report + gate for repo-owned implementation files):
-  - `python3 -m pip install --upgrade gcovr==8.6`
-  - On distro-managed Python, add `--break-system-packages` or use a virtualenv.
-  - `cmake --preset=coverage-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`
-  - `cmake --build --preset=coverage-system`
-  - `find build/coverage-system -name '*.gcda' -delete`
-  - `rm -rf build/coverage-system/coverage-report`
-  - `ctest --preset=coverage-system --output-on-failure --parallel 1`
-  - `python3 scripts/coverage_hygiene.py --build-dir build/coverage-system --ignore-statuses stamp_mismatch --gcov llvm-cov gcov`
-  - `python3 scripts/coverage_report.py --build-dir build/coverage-system`
-  - Report outputs land in `build/coverage-system/coverage-report/`, notably `coverage-report/summary.md` and `index.html`.
-  - Aggregate coverage is directory-scoped to repo-owned files in the implementation trees under `src/` and `tools/src/`, so internal headers in those trees are part of the totals.
-- Static analysis presets:
-  - `cmake --preset=tidy`
-  - `cmake --build --preset=tidy`
-  - `ctest --preset=tidy --output-on-failure`
-  - Auto-fix variant: `cmake --preset=tidy-fix && cmake --build --preset=tidy-fix`
-- Windows (dev machine):
-  - Connect: `ssh ai-dev1@windows-11`
-  - Repo path: `B:\repos\gentest`
-- Windows (Clang/LLVM release packages + Ninja):
-  - Pick the LLVM you want (examples use `C:\Tools\llvm-21.1.4` / `C:\Tools\llvm-20.1.8`), then from `B:\repos\gentest` in PowerShell:
-    - `$llvm = 'C:\Tools\llvm-21.1.4'`
-    - `$env:LLVM_BIN = "$llvm\bin"; $env:PATH = "$env:LLVM_BIN;$env:PATH"`
-    - `$env:LLVM_DIR = "$llvm\lib\cmake\llvm"; $env:Clang_DIR = "$llvm\lib\cmake\clang"`
-    - `cmake --preset=debug-system -DCMAKE_C_COMPILER="$env:LLVM_BIN\clang.exe" -DCMAKE_CXX_COMPILER="$env:LLVM_BIN\clang++.exe" -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"`
-    - `cmake --build --preset=debug-system`
-    - `ctest --preset=debug-system --output-on-failure`
-- Windows (MSVC + LLVM tooling, Ninja):
-  - From `B:\repos\gentest` in PowerShell (Developer prompt env required):
-    - `& "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64`
-    - `$msvcBuildDir = 'build\debug-system-msvc'`
-    - `cmake -S . -B $msvcBuildDir -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -Dgentest_BUILD_TESTING=ON -DGENTEST_ENABLE_PACKAGE_TESTS=ON -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"`
-    - `cmake --build $msvcBuildDir`
-    - `ctest --test-dir $msvcBuildDir --output-on-failure`
-- Legacy vcpkg workflow:
-  - `cmake --preset=debug`
-  - `cmake --build --preset=debug`
-  - `ctest --preset=debug --output-on-failure`
-- Regenerate codegen: rebuild the relevant test target, e.g. `cmake --build --preset=debug --target gentest_unit_tests`.
-- Sanitizers: `cmake --workflow --preset=alusan`.
-- List tests: run the generated executable (e.g., `gentest_unit_tests --list`).
+## Key directories
 
-## Coding Style & Naming Conventions
-- Follow `.clang-format` (LLVM-derived): 4-space indent, 140-column limit.
-- Format edited C/C++ files explicitly with `clang-format -i <paths...>`; there is no dedicated format preset in this repo today.
-- Run the CI-aligned format gate with `scripts/check_clang_format.sh` when you want the same repo-wide dry-run check used by the lint workflow.
-- Run the same clang-tidy script CI uses with `scripts/check_clang_tidy.sh build/debug-system` after configuring a Clang-based `debug-system` build, for example `cmake --preset=debug-system -DGENTEST_ENABLE_PACKAGE_TESTS=OFF -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`. If CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=... -DClang_DIR=...`. The script checks the translation units present in the active compile database, remapping gentest `tu_*.gentest.*` shims back to their original repo sources when possible, so the CI-aligned `debug-system` lane covers the configured `src/`, `tools/`, `tests/`, and public module units. It also surfaces diagnostics from matching repo headers included by those translation units, while still excluding generated fixture outputs outside the active preset. When the active compile database references generated explicit mock/codegen surfaces, `scripts/check_clang_tidy.sh` materializes any generated mock/codegen targets referenced by the active compile database before running clang-tidy, so a configure-only build dir is sufficient for the lint lane.
-- Run the repo-owned coverage report with `python3 scripts/coverage_report.py --build-dir build/coverage-system` after a coverage-instrumented serial test pass. It reads the same `scripts/coverage_hygiene.toml` policy as the hygiene gate, scopes totals to repo-owned implementation files under `src/` and `tools/src/`, includes internal headers in those trees, excludes intentional exemptions, writes a Markdown summary for GitHub Actions, and emits the detailed HTML report under `build/<preset>/coverage-report/`.
-- For the vcpkg-backed static-analysis workflow, use the `tidy` / `tidy-fix` presets when you want configure/build/test wired together.
-- Filenames: lowercase `snake_case`; types: `PascalCase`; functions: `camelCase`.
-- Keep public symbols in the `gentest` namespace.
+| Path | Contents |
+|---|---|
+| `include/gentest/` | Public headers (`runner.h`, `attributes.h`, `fixture.h`, `async.h`) + named-module interface units (`.cppm`) |
+| `src/` | Runtime implementation (`runner_impl.cpp`) |
+| `tools/` | `gentest_codegen` clang-tooling binary + CMake helper (`cmake/GentestCodegen.cmake`) |
+| `tests/<suite>/` | Handwritten `cases.cpp` per suite (unit, integration, fixtures, mocking, async, benchmarks, etc.) |
+| `tests/support/` | Shared test entry point |
+| `cmake/` | CMake modules, toolchains, regression-check scripts |
+| `docs/` | User-facing docs (index at `docs/index.md`) |
+| `examples/` | Copy-paste consumer projects (`hello`, `hello_modules`) |
 
-## Testing Guidelines
-- Author cases in `tests/<suite>/cases.cpp` and annotate with `[[using gentest : test("suite/name"), ...]]` so the generator discovers them.
-- Attach codegen in `tests/CMakeLists.txt` with `gentest_attach_codegen(<target>)`.
-- Executables return non‑zero on any `gentest::failure`; always run `ctest` before pushing.
-- Prefer free-function tests/benches/jitters with fixture parameters inferred from function signatures. The legacy `fixtures(...)` attribute is removed. Member tests are deprecated; they are treated as suite-level fixtures (shared instance across methods) and should be avoided in new code.
-- Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace that owns the tests.
-- If you add tests, update `tests/CMakeLists.txt` counts (`*_counts`, `*_list_counts`, `*_list_tests_lines`) accordingly.
-- Always run tests for your changes before reporting back.
+## Writing tests
 
-## CMake Regression Check Scripts
-- `cmake/CheckNoTimeout.cmake` validates a command completes within a timeout and can optionally enforce an exact exit code via `EXPECT_RC`.
-- `cmake/CheckTuHeaderCaseCollision.cmake` validates codegen fails when per-TU generated header names collide case-insensitively.
-- `cmake/CheckMockCrossRootInclude.cmake` validates mock codegen succeeds for cross-root/cross-drive header includes on Windows (falls back to absolute include paths when relative paths are impossible).
-- In `tests/CMakeLists.txt`, prefer `gentest_add_cmake_script_test(...)` for these checks and pass required `DEFINES` explicitly (for example `TIMEOUT_SEC`, `EXPECT_RC`, `BUILD_ROOT`, `TARGET_ARG`).
+- Annotate with `[[using gentest: test("suite/name"), ...]]` (or `[[gentest::test]]` for single-attribute shorthand).
+- Place cases in `tests/<suite>/cases.cpp`.
+- Attach codegen in `tests/CMakeLists.txt` via `gentest_attach_codegen(<target>)`.
+- Update suite counts (`*_counts`, `*_list_counts`, `*_list_tests_lines`) when adding tests.
+- Test executables return non-zero on any failure — always run `ctest` before pushing.
 
-## Commit & Pull Request Guidelines
-- Commits: use Conventional Commits (`type(scope): subject`) with a short imperative subject, for example `feat(codegen): attach generated registration shims`; add context in the body when needed; use trailers like `Refs: #123`.
-- PRs: describe scope, list exercised build presets (unit/integration and sanitizers), and include failing output snippets for regressions or flaky behavior.
+## Fixture model
 
-## Tooling & Configuration Tips
-- Keep `CMAKE_EXPORT_COMPILE_COMMANDS=ON` so `gentest_codegen` reuses the active compilation database.
-- Let CMake manage dependencies via `vcpkg.json`; pin any new packages there.
-- Modules:
-  - See `docs/modules.md` for the supported named-module flows (`import gentest;`, `import gentest.mock;`, `import gentest.bench_util;`).
-  - `import gentest;` consumers should link `gentest::gentest`; test executables typically link both `gentest::gentest` and `gentest::gentest_main` (or `gentest::gentest_runtime` if they provide their own `main()`).
-  - Public named-module export/import support is gated by `GENTEST_ENABLE_PUBLIC_MODULES`; set it to `ON` (or `AUTO` if you want toolchain-driven fallback) when you are explicitly testing public modules.
-  - Per-TU wrapper mode for module sources requires a single-config generator/build dir (for example Ninja). Use manifest mode (`gentest_attach_codegen(... OUTPUT ...)`) for multi-config generators.
-  - Link explicit mock targets before `gentest_attach_codegen()` so codegen sees the generated mock surface during discovery.
-- Per-TU registration mode (default `gentest_attach_codegen()` with no `OUTPUT`) requires a single-config generator/build dir (e.g. Ninja). Multi-config generators (Ninja Multi-Config, VS, Xcode) should use manifest mode (`gentest_attach_codegen(... OUTPUT ...)`) or separate build dirs per config.
-- In per-TU registration mode, `OUTPUT_DIR` must be a concrete path (no generator expressions).
-- Cross-compiling (target = arm/riscv/etc, host runs codegen):
-  - `GENTEST_BUILD_CODEGEN` defaults to `gentest_BUILD_TESTING` for native builds and to `OFF` for cross builds.
-  - Build the host tool separately, then point the target build at it with `GENTEST_CODEGEN_EXECUTABLE`:
-    - Host tool (native) build: `cmake -S . -B build/host -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON && cmake --build build/host --target gentest_codegen`
-    - Target build: `cmake -S <proj> -B build/target -DCMAKE_TOOLCHAIN_FILE=<toolchain.cmake> -DGENTEST_BUILD_CODEGEN=OFF -DGENTEST_CODEGEN_EXECUTABLE=<path-to-host-gentest_codegen>`
-  - When consuming via `find_package(gentest CONFIG REQUIRED)`, `GentestCodegen.cmake` is included automatically; you still need to set `GENTEST_CODEGEN_EXECUTABLE` (or `GENTEST_CODEGEN_TARGET`) before calling `gentest_attach_codegen()`.
-  - Future idea (not implemented): make the runtime fully header-only / consumer-built-from-sources and install `gentest_codegen` into the same prefix, then auto-set `GENTEST_CODEGEN_EXECUTABLE` relative to `gentestConfig.cmake` (single “devkit” prefix). Watch out for host-vs-target binary dependency pollution (e.g., `fmt`), and prefer documenting a consumer `ExternalProject_Add` pattern + adding a CI example test that validates the host-tool + target-build wiring.
-- Notes for Windows + system LLVM:
-  - `debug`/`release` presets require `VCPKG_ROOT` to be set; otherwise the toolchain file resolves to `/scripts/buildsystems/vcpkg.cmake` and configure fails.
-  - When building with Clang on Windows, `cmake/GentestDependencies.cmake` aligns fmt + project flags to match typical prebuilt LLVM CRT/iterator settings and disables fmt's compile-time format checking (to avoid clang constant-eval issues).
-  - LLVM 20 Windows packages may reference a non-existent `diaguids.lib` path; `tools/CMakeLists.txt` patches `LLVMDebugInfoPDB` to use an installed Visual Studio DIA SDK when found.
-  - The `debug-system`/`release-system` presets enable `GENTEST_ENABLE_PACKAGE_TESTS` by default; disable with `-DGENTEST_ENABLE_PACKAGE_TESTS=OFF` if you want faster local runs.
-  - Some Windows Debug CI environments hang on the two concurrency "death" tests; the CI sets `-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON` (only disables `concurrency_fail_single_death` and `concurrency_multi_noadopt_death` in `Debug` on `WIN32`).
+- Fixture lifetimes: **local** (per test), **suite** (per namespace group), **global** (per run).
+- Fixture parameters are inferred from free-function signatures (`T&`, `T*`, `std::shared_ptr<T>`).
+- Suite/global fixtures are scoped to their declaring namespace and descendants; declare in the common ancestor.
+- Prefer free-function tests. Member tests are deprecated.
+- Allocation hook: optional `static gentest_allocate()` — returns `unique_ptr`, `shared_ptr`, or raw `T*` (adopted).
 
-## `gentest_codegen` parallelism (TU wrapper mode)
-- Applies only when `gentest_codegen` is invoked once with **multiple** `tu_*.gentest.cpp` wrapper inputs (TU mode / `--tu-out-dir`).
-- A “codegen job” is a **worker thread inside a single `gentest_codegen` process** (not a CMake/Ninja job).
-- Controls:
-  - `gentest_codegen --jobs=<N>` (0 = auto / `std::thread::hardware_concurrency()`)
-  - `GENTEST_CODEGEN_JOBS=<N>` (default when `--jobs` is not passed; same semantics; used by `scripts/bench_compile.py --codegen-jobs`)
-  - Precedence: `--jobs` overrides `GENTEST_CODEGEN_JOBS` (including `--jobs=0`).
-- High-level flow (one `gentest_codegen` invocation):
+## Mocks
 
-  ```
-  Ninja / CMake target build
-    |
-    +-- runs: gentest_codegen  (1 process)
-         inputs: [tu_0000.gentest.cpp, tu_0001.gentest.cpp, ...]
-         jobs:   K   (from --jobs or GENTEST_CODEGEN_JOBS; 0=auto)
+Declare mock definitions in a header, then create an explicit mock target:
 
-         PARSE PHASE  (parallel when K>1 and inputs>1)
-           warm-up: parse TU[0] serially (initializes LLVM/Clang singletons)
-           tasks = indices 1..N-1 for the remaining input TU list
-           shared atomic "next_index" over the remaining indices
-           K worker threads:
-              loop:
-                idx = next_index++   (maps to TU[1 + idx])
-                if idx >= N-1: exit
-                parse TU[1 + idx] with its own clang-tooling objects
-                store ParseResult[1 + idx]
+```cmake
+gentest_add_mocks(clock_mocks
+  DEFS ${CMAKE_CURRENT_SOURCE_DIR}/clock_mocks.hpp
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
+  HEADER_NAME public/clock_mocks.hpp)
+target_link_libraries(my_tests PRIVATE gentest::gentest_main clock_mocks)
+gentest_attach_codegen(my_tests)
+```
 
-         MERGE PHASE  (single thread)
-           concatenate all ParseResult[*] cases/mocks
-           enforce cross-TU name uniqueness
-           sort cases
+Link mock targets **before** `gentest_attach_codegen()` so codegen sees the surface during discovery.
 
-         EMIT PHASE (per-TU headers, parallel when K>1 and inputs>1)
-           tasks = indices 0..N-1 for the same TU list
-           shared atomic "next_index"
-           K worker threads:
-              loop:
-                idx = next_index++
-                if idx >= N: exit
-                render + write tu_XXXX_*.gentest.h
+## Codegen quirks
 
-         MOCK OUTPUTS (single thread)
-           render + write <target>_mock_registry.hpp + <target>_mock_impl.hpp
-  ```
+- `gentest_codegen` reads `compile_commands.json` — keep `CMAKE_EXPORT_COMPILE_COMMANDS=ON` (it is by default).
+- Per-TU registration mode (default): generates `tu_*.gentest.h` headers and CMake shim TUs. Requires a **single-config** generator (Ninja). Multi-config (VS, Xcode) → use `OUTPUT` (manifest mode).
+- Cross-compiling: build a host `gentest_codegen` first, then set `GENTEST_CODEGEN_EXECUTABLE` in the target build.
+- Public modules: `GENTEST_ENABLE_PUBLIC_MODULES=AUTO|ON|OFF` (default `OFF`).
+- `gentest_codegen --jobs=<N>` / `GENTEST_CODEGEN_JOBS=<N>` controls parallelism (threads inside one process).
 
-- Design notes + verification tooling live in `docs/stories/005_codegen_parallelism_jobs.md`.
+## Style
+
+- `.clang-format` (LLVM-derived): 4-space indent, 140-column limit.
+- Run `clang-format -i <paths>` on edited files. CI gate: `scripts/check_clang_format.sh`.
+- Filenames: `snake_case`. Types: `PascalCase`. Functions: `camelCase`.
+- Public symbols in the `gentest` namespace.
+
+## Static analysis & coverage
+
+```bash
+# clang-tidy (CI-aligned script)
+cmake --preset=debug-system
+scripts/check_clang_tidy.sh build/debug-system
+
+# Coverage
+python3 -m pip install --upgrade gcovr==8.6
+cmake --preset=coverage-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build --preset=coverage-system
+find build/coverage-system -name '*.gcda' -delete
+rm -rf build/coverage-system/coverage-report
+ctest --preset=coverage-system --output-on-failure --parallel 1
+python3 scripts/coverage_hygiene.py --build-dir build/coverage-system --ignore-statuses stamp_mismatch --gcov llvm-cov gcov
+python3 scripts/coverage_report.py --build-dir build/coverage-system
+```
+
+## Gotchas
+
+- `debug`/`release` presets require `VCPKG_ROOT` set. `debug-system` does not.
+- `debug-system`/`release-system` enable `GENTEST_ENABLE_PACKAGE_TESTS` by default (slower); disable with `-DGENTEST_ENABLE_PACKAGE_TESTS=OFF`.
+- Windows Debug CI: two concurrency death tests hang. CI passes `-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON`.
+- Async tests with unresumable fixtures block forever — if adopted work detaches or never releases `CurrentContextLease`, the runner hangs.
+- `gentest::log()` and cooperative stop checks in spawned threads/coroutines require setting the current context: `auto adoption = gentest::set_current_context(gentest::get_current_context())`.
+
+## Conventions
+
+- Commits: Conventional Commits (`type(scope): subject`).
+- PRs: describe scope, list exercised build presets, include failing output for regressions.
+- Dependencies: pin in `vcpkg.json`.
+- Docs: start at `docs/index.md`. Changelog at `CHANGELOG.md`, deprecations at `DEPRECATIONS.md`.

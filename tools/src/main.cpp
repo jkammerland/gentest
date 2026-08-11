@@ -4820,9 +4820,13 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
                                                     llvm::cl::init(""), llvm::cl::cat(category), llvm::cl::Hidden};
     static llvm::cl::opt<std::string> entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
-    static llvm::cl::opt<std::string> tu_out_dir_option{
-        "tu-out-dir", llvm::cl::desc("Emit per-translation-unit wrapper .cpp/.h files into this directory (enables TU mode)"),
-        llvm::cl::init(""), llvm::cl::cat(category)};
+     static llvm::cl::opt<std::string> tu_out_dir_option{
+         "tu-out-dir", llvm::cl::desc("Emit per-translation-unit wrapper .cpp/.h files into this directory (enables TU mode)"),
+         llvm::cl::init(""), llvm::cl::cat(category)};
+     static llvm::cl::opt<std::string> factory_output_dir_option{
+         "factory-output-dir",
+         llvm::cl::desc("Emit factory .cpp files for explicit registration from main() (replaces static initializers)"),
+         llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> tu_header_output_option{
         "tu-header-output", llvm::cl::desc("Explicit output header path for a TU-mode input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
@@ -4974,6 +4978,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     opts.entry = entry_option;
     if (!tu_out_dir_option.getValue().empty()) {
         opts.tu_output_dir = std::filesystem::path{tu_out_dir_option.getValue()};
+    }
+    if (!factory_output_dir_option.getValue().empty()) {
+        opts.factory_output_dir = std::filesystem::path{factory_output_dir_option.getValue()};
     }
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
@@ -5162,9 +5169,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         }
     }
     if (!inspect_source_option.getValue() && mock_phase == MockPhaseCommand::None && !opts.check_only && opts.tu_output_dir.empty() &&
-        opts.mock_manifest_output_path.empty() && opts.mock_manifest_input_path.empty() && output_option.getNumOccurrences() == 0 &&
-        template_option.getNumOccurrences() == 0) {
-        gentest::codegen::log_err_raw("gentest_codegen: --tu-out-dir is required unless --check is specified\n");
+        opts.factory_output_dir.empty() && opts.mock_manifest_output_path.empty() && opts.mock_manifest_input_path.empty() &&
+        output_option.getNumOccurrences() == 0 && template_option.getNumOccurrences() == 0) {
+        gentest::codegen::log_err_raw("gentest_codegen: --tu-out-dir or --factory-output-dir is required unless --check is specified\n");
     }
     const auto no_include_sources_env = get_env_value("GENTEST_NO_INCLUDE_SOURCES");
     return ParsedArguments{
@@ -7978,8 +7985,9 @@ int main(int argc, const char **argv) {
     std::ranges::sort(cases, {}, &TestCaseInfo::display_name);
     timing.record("merge", merge_started);
 
-    if (!options.check_only && options.tu_output_dir.empty() && options.mock_manifest_output_path.empty()) {
-        gentest::codegen::log_err_raw("gentest_codegen: --tu-out-dir is required unless --check is specified\n");
+    if (!options.check_only && options.tu_output_dir.empty() && options.factory_output_dir.empty() &&
+        options.mock_manifest_output_path.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --tu-out-dir or --factory-output-dir is required unless --check is specified\n");
         return 1;
     }
 

@@ -19,4 +19,9 @@ GENTEST_RUNTIME_API auto run_all_tests(std::span<const char *> args) -> int;
 // Returns an owned, sorted snapshot of the currently registered cases.
 GENTEST_RUNTIME_API auto registered_cases() -> std::vector<Case>;
 
+// Explicitly register all test cases from factory functions.
+// Called by gentest_main.cpp before run_all_tests().
+// Generated code populates the factory registry.
+GENTEST_RUNTIME_API void register_all();
+
 } // namespace gentest

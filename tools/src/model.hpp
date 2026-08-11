@@ -168,6 +168,10 @@ struct CollectorOptions {
     // compiler module files are ABI/toolchain-sensitive.
     std::optional<std::filesystem::path>                                pcm_cache_dir;
     std::string                                                         pcm_cache_salt;
+    // Factory output directory: when set, generates factory .cpp files
+    // instead of per-TU headers. Each source gets a companion .cpp with
+    // a factory function, plus a single registry .cpp.
+    std::filesystem::path                                               factory_output_dir;
     std::vector<std::string>                                            sources;
     std::unordered_map<std::string, std::string>                        module_interface_names_by_source;
     std::unordered_set<std::string>                                     module_interface_sources;
