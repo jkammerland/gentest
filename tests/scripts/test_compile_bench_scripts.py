@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import bench_compile_campaign as campaign  # noqa: E402
+import bench_compile as compile_bench  # noqa: E402
 import verify_codegen_parallel as verifier  # noqa: E402
 from compile_bench_common import (  # noqa: E402
     CodegenCommandError,
@@ -141,6 +142,10 @@ class CodegenCommandRewriteTests(unittest.TestCase):
 
 
 class StatisticsAndOrderTests(unittest.TestCase):
+    def test_e2e_measurement_does_not_infer_executed_edges(self) -> None:
+        self.assertEqual(compile_bench.e2e_measurement(True), "clean-first-e2e")
+        self.assertEqual(compile_bench.e2e_measurement(False), "incremental-e2e")
+
     def test_median_and_mad_retain_raw_seven_samples(self) -> None:
         samples = [1.0, 1.1, 0.9, 1.0, 1.2, 0.8, 1.0]
         stats = median_mad(samples)

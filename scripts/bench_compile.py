@@ -99,6 +99,11 @@ def timed_samples(action, warmups: int, samples: int) -> list[float]:
     return values
 
 
+def e2e_measurement(clean_first: bool) -> str:
+    """Describe the build request without guessing which graph edges ran."""
+    return "clean-first-e2e" if clean_first else "incremental-e2e"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build-dir", default=None)
@@ -284,8 +289,9 @@ def main():
         gen_total += elapsed
     results["generation"]["total_elapsed_s"] = gen_total
 
-    # Stage 3: target E2E builds.  Cold samples intentionally include codegen;
-    # they are not reported as compile-only or added to the component total.
+    # Stage 3: target E2E builds. They are not reported as compile-only or
+    # added to the component total. The generated build graph decides whether
+    # codegen runs, so do not infer that from clean-first mode alone.
     total = 0.0
     if args.codegen_only:
         print("[bench] Skipping test target builds (--codegen-only).")
@@ -299,8 +305,7 @@ def main():
             print(f"[bench] {t} median: {elapsed:.3f}s (MAD {float(stats['mad_s']):.3f}s)")
             results["targets"].append({
                 "target": t,
-                "measurement": "cold-e2e" if not args.no_clean else "no-op-e2e",
-                "includes_codegen": not args.no_clean,
+                "measurement": e2e_measurement(not args.no_clean),
                 "elapsed_s": elapsed,
                 **stats,
             })
