@@ -104,6 +104,35 @@ def e2e_measurement(clean_first: bool) -> str:
     return "clean-first-e2e" if clean_first else "incremental-e2e"
 
 
+def resolve_preset_build_dir(preset: str) -> Path:
+    """Ask the selected Ninja build preset which directory it executes in."""
+    try:
+        completed = subprocess.run(
+            ["cmake", "--build", "--preset", preset, "--", "-t", "compdb"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        entries = json.loads(completed.stdout)
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
+        raise CodegenCommandError(f"could not resolve Ninja build directory for preset {preset!r}: {error}") from error
+
+    directories = {
+        Path(entry["directory"]).resolve()
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("directory"), str) and entry["directory"]
+    }
+    if len(directories) != 1:
+        raise CodegenCommandError(
+            f"preset {preset!r} did not expose exactly one Ninja build directory (found {len(directories)})"
+        )
+    build_dir = directories.pop()
+    if not (build_dir / "build.ninja").is_file():
+        raise CodegenCommandError(f"preset {preset!r} resolved to a tree without build.ninja: {build_dir}")
+    return build_dir
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build-dir", default=None)
@@ -131,6 +160,10 @@ def main():
             print(f"error: {error}", file=sys.stderr)
             return 2
 
+    if args.preset and args.build_dir:
+        print("error: --build-dir cannot be combined with --preset", file=sys.stderr)
+        return 2
+
     if not args.preset:
         if not args.build_dir:
             print("error: either --build-dir or --preset must be provided", file=sys.stderr)
@@ -140,9 +173,13 @@ def main():
             print(f"error: build dir not found: {build_dir}", file=sys.stderr)
             return 2
     else:
-        build_dir = None
+        try:
+            build_dir = resolve_preset_build_dir(args.preset)
+        except CodegenCommandError as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
 
-    configured_build = Path(args.build_dir) if args.build_dir else Path("build") / args.preset
+    configured_build = build_dir
     build_ninja = ninja_codegen_command_file(configured_build / "build.ninja", args.config)
     ninja_cap_rewrites = []
     if args.codegen_jobs is not None:
@@ -257,7 +294,7 @@ def main():
                 continue
         return mapping
 
-    gen_cmds = parse_generation_commands(Path(args.build_dir) if args.build_dir else None)
+    gen_cmds = parse_generation_commands(build_dir)
     gen_total = 0.0
     gen_env = os.environ.copy()
     for t in targets:
@@ -312,7 +349,7 @@ def main():
             total += elapsed
 
     results["total_elapsed_s"] = total
-    out_dir = Path(args.build_dir) if args.build_dir else Path("build")/args.preset
+    out_dir = build_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "compile_bench.json"
     with out_path.open("w", encoding="utf-8") as f:
@@ -321,7 +358,7 @@ def main():
 
     # Human summary
     print("\n=== Compile Benchmark Summary ===")
-    print(f"Build dir: {build_dir or '(preset: ' + args.preset + ')'}")
+    print(f"Build dir: {build_dir}")
     if args.config:
         print(f"Config:    {args.config}")
     print(f"Jobs:      {args.jobs}")

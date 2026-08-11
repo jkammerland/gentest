@@ -163,6 +163,39 @@ class StatisticsAndOrderTests(unittest.TestCase):
             alternating_order([], 1)
 
 
+class BenchmarkPresetResolutionTests(unittest.TestCase):
+    def test_preset_build_directory_comes_from_ninja_compdb(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            build_dir = Path(temporary_directory) / "custom-output"
+            build_dir.mkdir()
+            (build_dir / "build.ninja").write_text("# fixture\n", encoding="utf-8")
+            completed = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=json.dumps([{"directory": str(build_dir), "command": "clang++ -c case.cpp"}]),
+                stderr="",
+            )
+            with mock.patch.object(compile_bench.subprocess, "run", return_value=completed) as run_mock:
+                self.assertEqual(compile_bench.resolve_preset_build_dir("release-custom"), build_dir.resolve())
+            run_mock.assert_called_once_with(
+                ["cmake", "--build", "--preset", "release-custom", "--", "-t", "compdb"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+    def test_main_rejects_build_directory_with_preset(self) -> None:
+        stderr = io.StringIO()
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["bench_compile.py", "--preset", "release", "--build-dir", "build/not-release"],
+        ), mock.patch.object(sys, "stderr", stderr):
+            self.assertEqual(compile_bench.main(), 2)
+        self.assertIn("cannot be combined", stderr.getvalue())
+
+
 class CampaignContractTests(unittest.TestCase):
     def test_csv_lanes_reject_duplicates(self) -> None:
         with self.assertRaisesRegex(ValueError, "must not repeat"):
