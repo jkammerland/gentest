@@ -7,6 +7,10 @@ load(
     _gentest_attach_codegen_textual = "gentest_attach_codegen_textual",
     _gentest_suite = "gentest_suite",
 )
+load(
+    "//bazel:toolchain.bzl",
+    _gentest_codegen_toolchain = "gentest_codegen_toolchain",
+)
 
 GentestGeneratedInfo = _GentestGeneratedInfo
 gentest_add_mocks_modules = _gentest_add_mocks_modules
@@ -14,3 +18,4 @@ gentest_add_mocks_textual = _gentest_add_mocks_textual
 gentest_attach_codegen_modules = _gentest_attach_codegen_modules
 gentest_attach_codegen_textual = _gentest_attach_codegen_textual
 gentest_suite = _gentest_suite
+gentest_codegen_toolchain = _gentest_codegen_toolchain

@@ -18,6 +18,14 @@ add_dependencies(gentest_test_suites gentest_format_value_tests)
 add_test(NAME format_value COMMAND $<TARGET_FILE:gentest_format_value_tests>)
 set_property(TEST format_value APPEND PROPERTY LABELS "public-api")
 
+add_executable(gentest_narrow_sync_surface_api_tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/narrow_sync_surface_api.cpp)
+target_compile_features(gentest_narrow_sync_surface_api_tests PRIVATE cxx_std_20)
+target_link_libraries(gentest_narrow_sync_surface_api_tests PRIVATE gentest::gentest)
+add_dependencies(gentest_test_suites gentest_narrow_sync_surface_api_tests)
+add_test(NAME narrow_sync_surface_api COMMAND $<TARGET_FILE:gentest_narrow_sync_surface_api_tests>)
+set_property(TEST narrow_sync_surface_api APPEND PROPERTY LABELS "public-api;headers")
+
 add_executable(gentest_run_cases_api_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/run_cases_api.cpp)
 target_compile_features(gentest_run_cases_api_tests PRIVATE cxx_std_20)
@@ -3732,6 +3740,68 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_emit_axis_generators APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_emit_narrow_sync_preamble
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenSmokeEmission.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DEXPECT_COMPILE=ON
+    -DSMOKE_SOURCE=tests/smoke/codegen_narrow_preamble_simple.cpp
+    -DEXPECT_CASE_COUNT=2
+    "-DREQUIRED_SUBSTRINGS=#include \"gentest/detail/registration_runtime.h\";;.name = \"narrow/simple/mixed_metadata\";;.owner = \"headers\""
+    "-DREJECTED_SUBSTRINGS=#include \"gentest/async.h\";;#include \"gentest/detail/generated_runtime.h\"")
+set_property(TEST gentest_codegen_emit_narrow_sync_preamble APPEND PROPERTY LABELS "codegen;headers")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_emit_async_full_preamble
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenSmokeEmission.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DEXPECT_COMPILE=ON
+    -DSMOKE_SOURCE=tests/smoke/codegen_narrow_preamble_async.cpp
+    -DEXPECT_CASE_COUNT=1
+    "-DREQUIRED_SUBSTRINGS=#include \"gentest/async.h\";;#include \"gentest/detail/generated_runtime.h\";;.is_async = true")
+set_property(TEST gentest_codegen_emit_async_full_preamble APPEND PROPERTY LABELS "codegen;headers")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_emit_measured_full_preamble
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenSmokeEmission.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DSMOKE_SOURCE=tests/smoke/codegen_narrow_preamble_measured.cpp
+    -DEXPECT_CASE_COUNT=2
+    "-DREQUIRED_SUBSTRINGS=#include \"gentest/async.h\";;#include \"gentest/detail/generated_runtime.h\";;.is_benchmark = true;;.is_jitter = true")
+set_property(TEST gentest_codegen_emit_measured_full_preamble APPEND PROPERTY LABELS "codegen;headers")
+
+_gentest_add_cmake_helper_test(
+    gentest_codegen_emit_mock_full_preamble
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenSmokeEmission.cmake
+    cmake
+    -DPROG=${_gentest_codegen_prog}
+    -DCOMPDB_ROOT=${CMAKE_BINARY_DIR}
+    -DCODEGEN_STD=${_gentest_codegen_scan_std_flag}
+    -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
+    -DDISCOVER_MOCKS=ON
+    -DSMOKE_SOURCE=tests/smoke/codegen_narrow_preamble_mock.cpp
+    -DEXPECT_CASE_COUNT=1
+    "-DREQUIRED_SUBSTRINGS=#include \"gentest/async.h\";;#include \"gentest/detail/generated_runtime.h\"")
+set_property(TEST gentest_codegen_emit_mock_full_preamble APPEND PROPERTY LABELS "codegen;headers;mocks")
+
+_gentest_add_cmake_helper_test(
     gentest_codegen_emit_parameters_pack
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenSmokeEmission.cmake
@@ -3742,7 +3812,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_parameters_pack.cpp
     -DEXPECT_CASE_COUNT=6
-    "-DREQUIRED_SUBSTRINGS=return pack_rows(1, 2);;return pack_rows(3, 4);;return pack_mixed(10, 20, 7);;return pack_mixed(30, 40, 8);;.name = \"smoke/parameters_pack/mixed(10, 20, 7)\"")
+    "-DREQUIRED_SUBSTRINGS=#include \"gentest/detail/generated_runtime.h\";;return pack_rows(1, 2);;return pack_rows(3, 4);;return pack_mixed(10, 20, 7);;return pack_mixed(30, 40, 8);;.name = \"smoke/parameters_pack/mixed(10, 20, 7)\"")
 set_property(TEST gentest_codegen_emit_parameters_pack APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -3786,7 +3856,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_template_parser_edges.cpp
     -DEXPECT_CASE_COUNT=7
-    "-DREQUIRED_SUBSTRINGS=return template_parser_template_template<std::list, std::pair<int, std::array<long, 2>>>();;return template_parser_template_template<std::vector, std::pair<int, std::array<long, 2>>>();;return template_parser_type_char<std::pair<int, std::array<long, 2>>, '\\''>();;return template_parser_type_char<std::pair<int, std::array<long, 2>>, '\\n'>();;return template_parser_syntax_sensitive<decltype(\"a,b\"), decltype(\"\\\"edge\\\"\"), std::integral_constant<int, 1> const>();;return template_parser_char_prefixes<u8'c', u'd', U'e', L'f'>();;.name = \"smoke/template_parser_edges/type_char<std::pair<int, std::array<long, 2>>,'\\\\''>\"")
+    "-DREQUIRED_SUBSTRINGS=#include \"gentest/detail/generated_runtime.h\";;return template_parser_template_template<std::list, std::pair<int, std::array<long, 2>>>();;return template_parser_template_template<std::vector, std::pair<int, std::array<long, 2>>>();;return template_parser_type_char<std::pair<int, std::array<long, 2>>, '\\''>();;return template_parser_type_char<std::pair<int, std::array<long, 2>>, '\\n'>();;return template_parser_syntax_sensitive<decltype(\"a,b\"), decltype(\"\\\"edge\\\"\"), std::integral_constant<int, 1> const>();;return template_parser_char_prefixes<u8'c', u'd', U'e', L'f'>();;.name = \"smoke/template_parser_edges/type_char<std::pair<int, std::array<long, 2>>,'\\\\''>\"")
 set_property(TEST gentest_codegen_emit_template_parser_edges APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -4455,6 +4525,12 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBazelBzlmodConsumer.cmake
     cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_bazel_codegen_action_cache
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBazelCodegenActionCache.cmake
+    bazel)
 
 _gentest_add_cmake_helper_test(
     gentest_bazel_helpers_use_configured_toolchain

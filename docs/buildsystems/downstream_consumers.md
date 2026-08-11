@@ -46,8 +46,10 @@ The stable rule is:
 
 ### Bazel / Bzlmod
 
-Use Bazel when you want a source-package integration and are comfortable
-threading the host Clang toolchain into Bazel actions.
+Use Bazel when you want a source-package integration and can register an
+exec-platform `gentest_codegen_toolchain` with declared packaged Gentest and
+Clang executable labels. The target C++ toolchain remains independent; see the
+[Bazel exec-toolchain contract](bazel.md#exec-toolchain-contract).
 
 Minimal files:
 
@@ -55,6 +57,8 @@ Minimal files:
 - `BUILD.bazel`
 - `tests/main.cpp`
 - `tests/cases.cpp` and optionally `tests/cases.cppm`
+- private suite headers listed in `source_hdrs`, plus header libraries listed in
+  `deps` when codegen parses their public/transitive headers
 - mock defs such as `tests/header_mock_defs.hpp` or `tests/module_mock_defs.cppm`
 
 Load the public API from:
@@ -66,6 +70,12 @@ Start here:
 - [bazel.md](bazel.md)
 - checked-in proof:
   [tests/downstream/bazel_bzlmod_consumer](../../tests/downstream/bazel_bzlmod_consumer)
+
+`source_includes` supplies include-search flags only. Declare every suite input
+file through `source_hdrs`, `deps`, or a Gentest mock provider so Bazel can key
+and sandbox the codegen action correctly. The automatic local-Clang fallback is
+non-Windows only; Windows users register a packaged exec toolchain including
+the required DLL/runtime closure.
 
 ### Xmake / xrepo
 

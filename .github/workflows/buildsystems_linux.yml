@@ -220,11 +220,9 @@ jobs:
           set -euxo pipefail
           host_clang_c="$(command -v clang)"
           host_clang="$(command -v clang++)"
-          clang_resource_dir="$("${host_clang}" -print-resource-dir)"
           export CC="${host_clang_c}"
           export CXX="${host_clang}"
-          export GENTEST_CODEGEN_HOST_CLANG="${host_clang}"
-          export GENTEST_CODEGEN_RESOURCE_DIR="${clang_resource_dir}"
+          export GENTEST_BAZEL_LOCAL_CLANG="${host_clang}"
           bazel test \
             //:gentest_unit_bazel \
             //:gentest_integration_bazel \
@@ -235,12 +233,9 @@ jobs:
             --host_action_env=CCACHE_DISABLE=1 \
             --action_env=CC \
             --action_env=CXX \
-            --action_env=GENTEST_CODEGEN_HOST_CLANG \
-            --action_env=GENTEST_CODEGEN_RESOURCE_DIR \
             --host_action_env=CC \
             --host_action_env=CXX \
-            --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
-            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR \
+            --repo_env=GENTEST_BAZEL_LOCAL_CLANG \
             --test_output=errors
           bazel build \
             //:gentest_consumer_textual_bazel \
@@ -248,12 +243,9 @@ jobs:
             --host_action_env=CCACHE_DISABLE=1 \
             --action_env=CC \
             --action_env=CXX \
-            --action_env=GENTEST_CODEGEN_HOST_CLANG \
-            --action_env=GENTEST_CODEGEN_RESOURCE_DIR \
             --host_action_env=CC \
             --host_action_env=CXX \
-            --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
-            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR
+            --repo_env=GENTEST_BAZEL_LOCAL_CLANG
           ./bazel-bin/gentest_consumer_textual_bazel --list
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_test --kind=test
           ./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test
@@ -267,16 +259,11 @@ jobs:
             --host_action_env=CCACHE_DISABLE=1 \
             --action_env=CC \
             --action_env=CXX \
-            --action_env=GENTEST_CODEGEN_HOST_CLANG \
-            --action_env=GENTEST_CODEGEN_RESOURCE_DIR \
             --host_action_env=CC \
             --host_action_env=CXX \
-            --host_action_env=GENTEST_CODEGEN_HOST_CLANG \
-            --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR \
             --repo_env=CC \
             --repo_env=CXX \
-            --repo_env=GENTEST_CODEGEN_HOST_CLANG \
-            --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
+            --repo_env=GENTEST_BAZEL_LOCAL_CLANG
           ./bazel-bin/gentest_consumer_module_bazel --list
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_test --kind=test
           ./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test
