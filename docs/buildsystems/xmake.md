@@ -88,6 +88,13 @@ snapshot each other's generated outputs or delete each other's temporary state.
 Depfile parsing decodes only Make's defined escapes; literal backslashes and
 Windows drive paths are preserved.
 
+Top-level Clang response files are tracked as compiler inputs. If one contains
+a nested `@response` reference (or cannot be read), Gentest deliberately does
+not reimplement Clang's response-file parser in Xmake: codegen runs, but no
+Xmake generation snapshot is published or reused. This conservative behavior
+keeps Clang authoritative and prevents a nested response-file edit from being
+hidden by a partial snapshot.
+
 The sidecar identity includes the resolved `gentest_root`, helper root, and
 configured include directories, plus ambient settings that can change parsing
 or cache behavior: `GENTEST_CODEGEN_RESOURCE_DIR`,

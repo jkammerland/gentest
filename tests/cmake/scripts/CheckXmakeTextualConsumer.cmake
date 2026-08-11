@@ -123,6 +123,58 @@ foreach(_lookup_state IN ITEMS corrupt incomplete)
   endif()
 endforeach()
 
+# Clang response-file grammar remains Clang's responsibility. Exercise the
+# cache owner directly with a tracked parent that delegates to a nested file:
+# it must run every time and must never publish a partial snapshot.
+set(_nested_dir "${_dep_cache_unit_dir}/nested-response")
+set(_nested_cache "${_nested_dir}/snapshot")
+set(_nested_output "${_nested_dir}/generated.txt")
+set(_nested_depfile "${_nested_dir}/generated.d")
+set(_nested_sidecar "${_nested_dir}/lookup.json")
+set(_nested_count "${_nested_dir}/count.txt")
+set(_nested_child "${_nested_dir}/child.rsp")
+set(_nested_parent "${_nested_dir}/parent.rsp")
+file(MAKE_DIRECTORY "${_nested_dir}")
+file(TO_CMAKE_PATH "${_nested_child}" _nested_child_norm)
+file(TO_CMAKE_PATH "${_nested_parent}" _nested_parent_norm)
+file(WRITE "${_nested_child}" "-DGENTEST_XMAKE_NESTED_RESPONSE=1\n")
+file(WRITE "${_nested_parent}" "@${_nested_child_norm}\n")
+foreach(_nested_attempt RANGE 1 2)
+  execute_process(
+    COMMAND "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/run_codegen_with_dep_cache.lua"
+            "${_nested_cache}" "${_nested_depfile}" "${_nested_sidecar}" nested-response
+            "${_nested_dir}" 2 "${_xmake}" "${_nested_output}" "${_nested_parent}"
+            lua "${SOURCE_DIR}/tests/xmake/fake_codegen_cache_writer.lua"
+            "${_nested_output}" "${_nested_depfile}" nested-response 0
+            "${_nested_sidecar}" complete "${_nested_count}" "@${_nested_parent_norm}"
+    RESULT_VARIABLE _nested_rc
+    OUTPUT_VARIABLE _nested_out
+    ERROR_VARIABLE _nested_err)
+  if(NOT _nested_rc EQUAL 0 OR
+     NOT "${_nested_out}\n${_nested_err}" MATCHES "nested or unreadable Clang response file")
+    message(FATAL_ERROR
+      "Nested response-file cache probe ${_nested_attempt} did not regenerate conservatively.\n${_nested_out}\n${_nested_err}")
+  endif()
+endforeach()
+file(WRITE "${_nested_child}" "-DGENTEST_XMAKE_NESTED_RESPONSE=2\n")
+execute_process(
+  COMMAND "${_xmake}" lua "${SOURCE_DIR}/xmake/scripts/run_codegen_with_dep_cache.lua"
+          "${_nested_cache}" "${_nested_depfile}" "${_nested_sidecar}" nested-response
+          "${_nested_dir}" 2 "${_xmake}" "${_nested_output}" "${_nested_parent}"
+          lua "${SOURCE_DIR}/tests/xmake/fake_codegen_cache_writer.lua"
+          "${_nested_output}" "${_nested_depfile}" nested-response 0
+          "${_nested_sidecar}" complete "${_nested_count}" "@${_nested_parent_norm}"
+  RESULT_VARIABLE _nested_changed_rc
+  OUTPUT_VARIABLE _nested_changed_out
+  ERROR_VARIABLE _nested_changed_err)
+file(READ "${_nested_count}" _nested_count_value)
+file(GLOB _nested_snapshots "${_nested_cache}.v.*")
+if(NOT _nested_changed_rc EQUAL 0 OR NOT "${_nested_count_value}" STREQUAL "3" OR _nested_snapshots)
+  message(FATAL_ERROR
+    "Nested response-file state was cached instead of regenerating after an edit.\n"
+    "count=${_nested_count_value}; snapshots=${_nested_snapshots}\n${_nested_changed_out}\n${_nested_changed_err}")
+endif()
+
 if(NOT WIN32)
   find_program(_sh NAMES sh)
   if(_sh)

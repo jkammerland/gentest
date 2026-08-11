@@ -53,6 +53,29 @@ local function load_lookup_guards(sidecar)
     return {guards = guards, configured_roots = configured_roots}
 end
 
+local function response_inputs_complete(arguments, project_root)
+    for _, raw_argument in ipairs(arguments) do
+        local argument = tostring(raw_argument)
+        if argument:sub(1, 7) == "/clang:" then
+            argument = argument:sub(8)
+        end
+        if argument:sub(1, 1) == "@" then
+            local response_path = argument:sub(2)
+            if not path.is_absolute(response_path) then
+                response_path = path.join(project_root, response_path)
+            end
+            local contents = io.readfile(path.absolute(response_path))
+            -- Clang owns response-file parsing. Any further @ indirection is
+            -- intentionally a conservative boundary instead of a second,
+            -- incomplete implementation of Clang's response grammar.
+            if contents == nil or contents:find("@", 1, true) then
+                return false
+            end
+        end
+    end
+    return true
+end
+
 function main(cache_path, depfile, lookup_guard_output, identity, project_root, static_count_text, program, ...)
     local static_count = tonumber(static_count_text)
     if not static_count or static_count < 0 then
@@ -71,14 +94,20 @@ function main(cache_path, depfile, lookup_guard_output, identity, project_root, 
     for index = static_count + 1, #values do
         table.insert(codegen_args, values[index])
     end
+    local indirect_inputs_complete = response_inputs_complete(codegen_args, project_root)
 
     update_codegen_dep_cache.with_cache_lock(cache_path, true, function()
-        if update_codegen_dep_cache.snapshot_current(cache_path, identity) then
+        if indirect_inputs_complete and update_codegen_dep_cache.snapshot_current(cache_path, identity) then
             return true
         end
 
         cprint("${dim}gentest-codegen-cache-miss${clear}")
         os.vrunv(program, codegen_args)
+
+        if not indirect_inputs_complete then
+            cprint("${yellow}warning: nested or unreadable Clang response file; Gentest will regenerate conservatively${clear}")
+            return false
+        end
 
         local lookup_metadata = load_lookup_guards(lookup_guard_output)
         if lookup_metadata == nil then
