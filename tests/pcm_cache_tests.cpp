@@ -133,6 +133,10 @@ int main(int argc, char **argv) {
                                  "bypass split serialized AST merge inputs") ||
         !require_semantic_bypass({"clang-cl", "/clang:-ast-merge=merged.ast"}, "a serialized AST merge input is active",
                                  "bypass joined serialized AST merge inputs") ||
+        !require_semantic_bypass({"clang++", "-frandomize-layout-seed-file", "layout.seed"}, "a record-layout seed file is active",
+                                 "bypass split record-layout seed inputs") ||
+        !require_semantic_bypass({"clang-cl", "/clang:-frandomize-layout-seed-file=layout.seed"}, "a record-layout seed file is active",
+                                 "bypass joined clang-cl record-layout seed inputs") ||
         !require_semantic_bypass({"clang++", "-Xclang", "-load", "plugin.so"}, "a compiler plugin is active", "bypass compiler plugins")) {
         return 1;
     }

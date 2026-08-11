@@ -126,7 +126,7 @@ artifact and is never enumerated as an external input.
 If scan-deps is unavailable, ambiguous, incomplete, or falls back to source
 scanning, or an effective command contains `-fprebuilt-module-path`, Clang
 header-module flags, a serialized AST merge, a VFS overlay, a PCH input, or a
-compiler/plugin-loading option, PCM caching is a `bypass` and normal local
+record-layout seed file or compiler/plugin-loading option, PCM caching is a `bypass` and normal local
 precompilation continues. These semantic side inputs are not assumed to be
 represented by ordinary `file-deps`. A prebuilt
 module search directory does not identify the exact selected PCM mapping, so
