@@ -6254,6 +6254,13 @@ int main(int argc, const char **argv) {
             if (arg.starts_with("-frandomize-layout-seed-file") || arg.starts_with("/clang:-frandomize-layout-seed-file")) {
                 return false;
             }
+            // API-notes search directories can add or remove semantic
+            // declarations without producing preprocessing dependency
+            // callbacks. Keep those uncommon commands on the cold path.
+            if (arg == "-iapinotes-modules" || arg.starts_with("-iapinotes-modules=") || arg == "/clang:-iapinotes-modules" ||
+                arg.starts_with("/clang:-iapinotes-modules=")) {
+                return false;
+            }
             // Older Clang releases do not expose precise embed callbacks, and
             // trigraph translation happens before line splicing. Bypass the
             // cache instead of maintaining a second phase-one lexer for rare

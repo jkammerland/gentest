@@ -316,6 +316,13 @@ gentest_fixture_write_file("${_overlay}" "{ 'version': 0, 'roots': [] }\n")
 _write_compdb("${_forced_source}" "-ivfsoverlay" "${_overlay}")
 _run("${_forced_source}" overlay_bypass bypass)
 
+# API-notes search directories are semantic inputs outside preprocessing
+# dependency callbacks. They stay on the conservative cold-parse path.
+set(_api_notes_dir "${_work_dir}/api-notes")
+file(MAKE_DIRECTORY "${_api_notes_dir}")
+_write_compdb("${_forced_source}" "-iapinotes-modules" "${_api_notes_dir}")
+_run_uncacheable_twice("${_forced_source}" api_notes_directory)
+
 # XRay attribute/always/never list files are semantic cc1 inputs, not
 # preprocessing dependencies. Cover joined driver and split forwarded forms.
 set(_xray_list "${_work_dir}/xray-attributes.txt")
