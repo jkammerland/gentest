@@ -1365,19 +1365,38 @@ local function append_external_module_source_path(paths, seen, mapping)
 end
 
 local function append_indirect_clang_inputs(paths, seen, arguments)
-    local expect_config_path = false
+    local normalized_arguments = {}
     for _, raw_argument in ipairs(arguments or {}) do
         local argument = tostring(raw_argument)
         if argument:sub(1, 7) == "/clang:" then
             argument = argument:sub(8)
         end
+        -- -Xclang forwards the following token verbatim to cc1. It is not
+        -- itself part of a path-valued option and can be discarded here.
+        if argument ~= "-Xclang" then
+            table.insert(normalized_arguments, argument)
+        end
+    end
+
+    local expect_config_path = false
+    local expect_overlay_path = false
+    for _, argument in ipairs(normalized_arguments) do
         if expect_config_path then
             append_path_unique(paths, seen, argument)
             expect_config_path = false
+        elseif expect_overlay_path then
+            append_path_unique(paths, seen, argument)
+            expect_overlay_path = false
         elseif argument == "--config" then
             expect_config_path = true
         elseif argument:sub(1, 9) == "--config=" then
             append_path_unique(paths, seen, argument:sub(10))
+        elseif argument == "-ivfsoverlay" or argument == "-vfsoverlay" or argument == "--vfsoverlay" then
+            expect_overlay_path = true
+        elseif argument:sub(1, 13) == "-ivfsoverlay=" then
+            append_path_unique(paths, seen, argument:sub(14))
+        elseif argument:sub(1, 12) == "-vfsoverlay=" or argument:sub(1, 13) == "--vfsoverlay=" then
+            append_path_unique(paths, seen, argument:sub(argument:find("=", 1, true) + 1))
         elseif argument:sub(1, 1) == "@" then
             append_path_unique(paths, seen, argument:sub(2))
         end
@@ -1541,8 +1560,9 @@ local function codegen_static_dependencies(target, config, codegen, compdb_dir, 
     for _, support_header in ipairs(config.dep_support_headers or {}) do
         append_path_unique(files, seen, support_header)
     end
-    -- Clang expands response/config files before preprocessing, so neither
-    -- the generated depfile nor lookup-guard sidecar necessarily names them.
+    -- Clang expands response/config files and VFS overlays before
+    -- preprocessing, so neither the generated depfile nor lookup-guard
+    -- sidecar necessarily names them.
     -- Keep their contents in Xmake's scheduling snapshot instead of resolving
     -- any headers described by those files ourselves.
     append_indirect_clang_inputs(files, seen, gentest_common_cxxflags())

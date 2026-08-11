@@ -88,7 +88,9 @@ snapshot each other's generated outputs or delete each other's temporary state.
 Depfile parsing decodes only Make's defined escapes; literal backslashes and
 Windows drive paths are preserved.
 
-Top-level Clang response files are tracked as compiler inputs. If one contains
+Top-level Clang response files, config files, and VFS overlay YAML files are
+tracked as compiler inputs. Xmake tracks the overlay file itself; it does not
+interpret its mappings or perform header discovery. If a response file contains
 a nested `@response` reference (or cannot be read), Gentest deliberately does
 not reimplement Clang's response-file parser in Xmake: codegen runs, but no
 Xmake generation snapshot is published or reused. This conservative behavior

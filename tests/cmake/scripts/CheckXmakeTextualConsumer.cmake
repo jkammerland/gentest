@@ -261,8 +261,11 @@ _gentest_prepare_windows_xmake_workspace(_project_dir "${SOURCE_DIR}" "${_gentes
 # previously discovered file. The sidecar must observe the include-directory
 # membership change itself.
 file(WRITE "${_project_dir}/third_party/include/xmake_shadow.hpp" "#pragma once\n")
+set(_overlay_file "${_project_dir}/xmake_codegen_overlay.yaml")
+file(WRITE "${_overlay_file}" "{ 'version': 0, 'roots': [] }\n")
 file(APPEND "${_project_dir}/tests/consumer/cases.cpp"
-  "\n#include <xmake_shadow.hpp>\n#if __has_include(<xmake_optional_probe.hpp>)\n#include <xmake_optional_probe.hpp>\n#endif\n"
+  "\n#include <xmake_shadow.hpp>\n"
+  "#if __has_include(<xmake_optional_probe.hpp>)\n#include <xmake_optional_probe.hpp>\n#endif\n"
   "#if GENTEST_XMAKE_CONFIG_VARIANT\n"
   "[[using gentest: test(\"xmake/config_on\")]] void xmake_config_case() {}\n"
   "#else\n"
@@ -296,6 +299,7 @@ string(REPLACE
   [=[target("gentest_consumer_textual_xmake")
     set_kind("binary")
     gentest_apply_windows_llvm_toolchain()
+    add_cxxflags("-ivfsoverlay", path.join(os.projectdir(), "xmake_codegen_overlay.yaml"), {force = true})
     add_cxxflags("--config=" .. path.join(os.projectdir(), "xmake_target_codegen.cfg"), {force = true})
     add_cxxflags("-cxx-isystem", path.join(os.projectdir(), "xmake_configured_system_root"), {force = true})]=]
   _indirect_args_xmake "${_indirect_args_xmake}")
@@ -542,6 +546,7 @@ foreach(_expected IN ITEMS
     "${_clang_cxx}"
     "-DGENTEST_XMAKE_TEXTUAL_CONSUMER_DEFINE=1"
     "-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1"
+    "${_overlay_file}"
     "--config=${_config_file}")
   string(FIND "${_suite_initial_log}" "${_expected}" _suite_initial_pos)
   if(_suite_initial_pos EQUAL -1)
@@ -608,6 +613,34 @@ foreach(_incremental_marker IN ITEMS "compiling." "linking.")
       "stdout/stderr:\n${_noop_log}")
   endif()
 endforeach()
+
+# VFS overlays are compiler inputs, not preprocessing dependency callbacks.
+# Xmake must track the YAML itself without interpreting its virtual mappings.
+file(WRITE "${_overlay_file}" "{\n  'version': 0,\n  'roots': []\n}\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _overlay_build_rc
+  OUTPUT_VARIABLE _overlay_build_out
+  ERROR_VARIABLE _overlay_build_err)
+set(_overlay_build_log "${_overlay_build_out}\n${_overlay_build_err}")
+string(FIND "${_overlay_build_log}" "gentest-codegen-cache-miss" _overlay_codegen_pos)
+if(NOT _overlay_build_rc EQUAL 0 OR _overlay_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Changing a VFS overlay did not invalidate Xmake codegen.\n${_overlay_build_log}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _overlay_noop_rc
+  OUTPUT_VARIABLE _overlay_noop_out
+  ERROR_VARIABLE _overlay_noop_err)
+set(_overlay_noop_log "${_overlay_noop_out}\n${_overlay_noop_err}")
+string(FIND "${_overlay_noop_log}" "gentest-codegen-cache-miss" _overlay_noop_codegen_pos)
+if(NOT _overlay_noop_rc EQUAL 0 OR NOT _overlay_noop_codegen_pos EQUAL -1)
+  message(FATAL_ERROR "Stable VFS overlay state did not produce an Xmake no-op.\n${_overlay_noop_log}")
+endif()
 
 # Clang config files are semantic compiler inputs but are not guaranteed to
 # appear in codegen's depfile. Replacing one at the same path must invalidate
