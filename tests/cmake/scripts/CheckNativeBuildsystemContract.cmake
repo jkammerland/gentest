@@ -143,6 +143,16 @@ foreach(_bazel_consumer_script IN ITEMS CheckBazelTextualConsumer.cmake CheckBaz
   endforeach()
 endforeach()
 
+file(READ "${SOURCE_DIR}/tests/cmake/scripts/CheckBazelCodegenActionCache.cmake" _bazel_cache_script_content)
+foreach(_expected IN ITEMS
+    "find_program(_found_clang_c"
+    "set(_clang_c \"\${_found_clang_c}\")")
+  string(FIND "${_bazel_cache_script_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR "CheckBazelCodegenActionCache.cmake must search for a versioned clang through a fresh cache variable: ${_expected}")
+  endif()
+endforeach()
+
 file(READ "${_bazel_root_file}" _bazel_root_content)
 foreach(_expected IN ITEMS
     "gentest_add_mocks_modules("

@@ -391,7 +391,13 @@ def _gentest_textual_codegen_impl(ctx):
             artifact_manifests = depset([]),
         ),
         GentestGeneratedInfo(
-            include_dirs = _gentest_unique(codegen_support.include_dirs + public_include_roots + [wrapper_cpp.dirname]),
+            # The generated public mock header retains the execroot-relative
+            # spelling of declared defs/support headers (for example
+            # "tests/header_mock_defs.hpp"). Downstream suite codegen runs in
+            # that same declared execroot, so make the workspace root an
+            # explicit lookup root while keeping every consumed header in the
+            # action input closure.
+            include_dirs = _gentest_unique(codegen_support.include_dirs + public_include_roots + [".", wrapper_cpp.dirname]),
             quote_include_dirs = codegen_support.quote_include_dirs,
             system_include_dirs = codegen_support.system_include_dirs,
             framework_include_dirs = codegen_support.framework_include_dirs,
