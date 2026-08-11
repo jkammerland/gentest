@@ -268,12 +268,17 @@ struct FunctionParamInfo {
 };
 } // namespace
 
-TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes)
-    : out_(out), strict_fixture_(strict_fixture), allow_includes_(allow_includes) {}
+TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes,
+                                     bool header_declaration_registration)
+    : out_(out), strict_fixture_(strict_fixture), allow_includes_(allow_includes),
+      header_declaration_registration_(header_declaration_registration) {}
 
 void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     const auto *func = result.Nodes.getNodeAs<FunctionDecl>("gentest.func");
     if (func == nullptr) {
+        return;
+    }
+    if (!header_declaration_registration_ && !func->isThisDeclarationADefinition()) {
         return;
     }
 
@@ -329,6 +334,26 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     }
     if (parsed.empty())
         return;
+
+    if (header_declaration_registration_) {
+        if (in_main_file) {
+            had_error_ = true;
+            report("Gentest attributes in an authored .cpp are not supported by header-declaration registration; annotate the header "
+                   "declaration instead");
+            return;
+        }
+        if (!func->hasExternalFormalLinkage()) {
+            had_error_ = true;
+            report("header-declared Gentest cases require external linkage; static and anonymous-namespace cases are not supported");
+            return;
+        }
+        if (func->isThisDeclarationADefinition() && !func->isInlined() && func->getDescribedFunctionTemplate() == nullptr) {
+            had_error_ = true;
+            report("a Gentest case definition in a header must be inline; put a declaration in the header and the definition in a normally "
+                   "compiled .cpp");
+            return;
+        }
+    }
     auto summary = validate_attributes(parsed, [&](const std::string &m) {
         had_error_ = true;
         report(m);
@@ -442,8 +467,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         base_case_name = func->getNameAsString();
     }
     std::string final_base = suite_path.empty() ? base_case_name : (suite_path + "/" + base_case_name);
-    // Enforce uniqueness of final base names across this binary
-    {
+    // Header-declaration mode sees the same source tokens through more than
+    // one TU. Defer uniqueness to the deterministic cross-slot merge.
+    if (!header_declaration_registration_) {
         const SourceLocation  sloc    = sm->getSpellingLoc(func->getBeginLoc());
         const llvm::StringRef file    = sm->getFilename(sloc);
         const unsigned        lnum    = sm->getSpellingLineNumber(sloc);
@@ -457,6 +483,18 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             return; // do not emit duplicates
         }
     }
+
+    const auto declaration_site_key = [&] {
+        const SourceLocation  site_loc  = sm->getFileLoc(sm->getExpansionLoc(func->getLocation()));
+        const llvm::StringRef site_file = sm->getFilename(site_loc);
+        const unsigned        offset    = site_loc.isValid() ? sm->getFileOffset(site_loc) : 0;
+        std::string           identity  = site_file.str();
+        if (const auto *entry = sm->getFileEntryForID(sm->getFileID(site_loc)); entry != nullptr) {
+            const auto uid = entry->getUniqueID();
+            identity       = fmt::format("{}:{}", uid.getDevice(), uid.getFile());
+        }
+        return fmt::format("function:{}:{}", identity, offset);
+    }();
 
     std::string tu_filename;
     {
@@ -528,6 +566,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.filename                     = filename.str();
         info.suite_name                   = suite_path;
         info.line                         = lnum;
+        info.declaration_site_key         = declaration_site_key;
         info.tags                         = summary.tags;
         info.requirements                 = summary.requirements;
         info.owner                        = summary.owner.value_or(std::string{});
@@ -549,6 +588,22 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         if (fixture_ctx) {
             info.fixture_qualified_name = fixture_ctx->qualified_name;
             info.fixture_lifetime       = fixture_ctx->lifetime;
+        }
+        info.semantic_fingerprint = fmt::format("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", info.qualified_name, info.display_name,
+                                                info.base_name, info.suite_name, info.call_arguments, info.fixture_qualified_name,
+                                                static_cast<int>(info.fixture_lifetime), info.is_benchmark, info.is_jitter,
+                                                info.returns_async, info.items_per_call, info.should_skip, info.skip_reason, info.owner);
+        for (const auto &tag : info.tags) {
+            info.semantic_fingerprint += "|tag:" + tag;
+        }
+        for (const auto &requirement : info.requirements) {
+            info.semantic_fingerprint += "|requirement:" + requirement;
+        }
+        for (const auto &template_arg : info.template_args) {
+            info.semantic_fingerprint += "|template:" + template_arg;
+        }
+        for (const auto &fixture_type : info.free_fixture_types) {
+            info.semantic_fingerprint += "|fixture:" + fixture_type;
         }
         std::string key = info.qualified_name + "#" + info.display_name + "@" + info.filename + ":" + std::to_string(info.line);
         if (seen_.insert(key).second)
@@ -1013,7 +1068,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
 bool TestCaseCollector::has_errors() const { return had_error_; }
 
-FixtureDeclCollector::FixtureDeclCollector(std::vector<FixtureDeclInfo> &out) : out_(out) {}
+FixtureDeclCollector::FixtureDeclCollector(std::vector<FixtureDeclInfo> &out, bool header_declaration_registration)
+    : out_(out), header_declaration_registration_(header_declaration_registration) {}
 
 void FixtureDeclCollector::report(const clang::CXXRecordDecl &decl, const clang::SourceManager &sm, std::string_view message) const {
     const SourceLocation  loc     = sm.getSpellingLoc(decl.getBeginLoc());
@@ -1042,6 +1098,14 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
         loc = sm->getExpansionLoc(loc);
     }
     if (sm->isInSystemHeader(loc) || sm->isWrittenInBuiltinFile(loc)) {
+        return;
+    }
+
+    if (header_declaration_registration_ && sm->isWrittenInMainFile(loc)) {
+        had_error_ = true;
+        report(*record, *sm,
+               "Gentest fixture attributes in an authored .cpp are not supported by header-declaration registration; annotate the header "
+               "definition instead");
         return;
     }
 
@@ -1091,6 +1155,16 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
         const llvm::StringRef file     = sm->getFilename(file_loc);
         info.filename                  = file.str();
         info.line                      = sm->getSpellingLineNumber(file_loc);
+        const auto  site_loc           = sm->getFileLoc(sm->getExpansionLoc(record->getLocation()));
+        const auto  offset             = site_loc.isValid() ? sm->getFileOffset(site_loc) : 0;
+        std::string identity           = sm->getFilename(site_loc).str();
+        if (const auto *entry = sm->getFileEntryForID(sm->getFileID(site_loc)); entry != nullptr) {
+            const auto uid = entry->getUniqueID();
+            identity       = fmt::format("{}:{}", uid.getDevice(), uid.getFile());
+        }
+        info.declaration_site_key = fmt::format("fixture:{}:{}", identity, offset);
+        info.semantic_fingerprint =
+            fmt::format("{}|{}|{}|{}", info.qualified_name, info.suite_name, static_cast<int>(info.scope), info.base_name);
     }
     out_.push_back(std::move(info));
 }

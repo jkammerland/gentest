@@ -178,6 +178,85 @@ bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
     return ok;
 }
 
+bool merge_header_declaration_occurrences(std::vector<TestCaseInfo> &cases, std::vector<FixtureDeclInfo> &fixtures) {
+    auto select_cases = [](std::vector<TestCaseInfo> &items) {
+        std::map<std::string, std::map<std::size_t, std::vector<TestCaseInfo>>> by_site;
+        for (auto &item : items) {
+            by_site[item.declaration_site_key][item.scan_slot].push_back(std::move(item));
+        }
+
+        std::vector<TestCaseInfo> canonical;
+        bool                      ok = true;
+        for (auto &[site, by_slot] : by_site) {
+            const auto fingerprints_for = [](std::vector<TestCaseInfo> &occurrences) {
+                std::ranges::sort(occurrences, [](const TestCaseInfo &lhs, const TestCaseInfo &rhs) {
+                    return std::tie(lhs.semantic_fingerprint, lhs.display_name, lhs.qualified_name) <
+                           std::tie(rhs.semantic_fingerprint, rhs.display_name, rhs.qualified_name);
+                });
+                std::vector<std::string> fingerprints;
+                fingerprints.reserve(occurrences.size());
+                for (const auto &candidate : occurrences) {
+                    std::string fingerprint = candidate.semantic_fingerprint;
+                    for (const auto &fixture : candidate.free_fixtures) {
+                        fingerprint += fmt::format("|resolved-fixture:{}:{}:{}", fixture.type_name, static_cast<int>(fixture.scope),
+                                                   fixture.suite_name);
+                    }
+                    fingerprints.push_back(std::move(fingerprint));
+                }
+                return fingerprints;
+            };
+
+            auto       first_it = by_slot.begin();
+            const auto expected = fingerprints_for(first_it->second);
+            for (auto it = std::next(first_it); it != by_slot.end(); ++it) {
+                if (fingerprints_for(it->second) != expected) {
+                    const auto &first     = first_it->second.front();
+                    const auto &candidate = it->second.front();
+                    gentest::codegen::log_err(
+                        "gentest_codegen: header declaration differs between compile contexts at {}:{} (slots {} and {})\n", first.filename,
+                        first.line, first.scan_slot, candidate.scan_slot);
+                    ok = false;
+                }
+            }
+            canonical.insert(canonical.end(), std::make_move_iterator(first_it->second.begin()),
+                             std::make_move_iterator(first_it->second.end()));
+        }
+        items = std::move(canonical);
+        return ok;
+    };
+
+    auto select_fixtures = [](std::vector<FixtureDeclInfo> &items) {
+        std::map<std::string, std::vector<FixtureDeclInfo>> by_occurrence;
+        for (auto &item : items) {
+            by_occurrence[item.declaration_site_key].push_back(std::move(item));
+        }
+
+        std::vector<FixtureDeclInfo> canonical;
+        bool                         ok = true;
+        for (auto &[key, occurrences] : by_occurrence) {
+            std::ranges::sort(occurrences, [](const FixtureDeclInfo &lhs, const FixtureDeclInfo &rhs) {
+                return std::tie(lhs.scan_slot, lhs.tu_filename, lhs.filename, lhs.line) <
+                       std::tie(rhs.scan_slot, rhs.tu_filename, rhs.filename, rhs.line);
+            });
+            const auto &first = occurrences.front();
+            for (const auto &candidate : occurrences) {
+                if (candidate.semantic_fingerprint != first.semantic_fingerprint) {
+                    gentest::codegen::log_err(
+                        "gentest_codegen: header fixture declaration differs between compile contexts at {}:{} (slots {} and {})\n",
+                        first.filename, first.line, first.scan_slot, candidate.scan_slot);
+                    ok = false;
+                    break;
+                }
+            }
+            canonical.push_back(first);
+        }
+        items = std::move(canonical);
+        return ok;
+    };
+
+    return select_cases(cases) && select_fixtures(fixtures);
+}
+
 void merge_duplicate_mocks(std::vector<gentest::codegen::MockClassInfo> &mocks) {
     auto mock_sort_key = [](const gentest::codegen::MockClassInfo &mock) {
         return std::tie(mock.qualified_name, mock.definition_file, mock.definition_module_name, mock.definition_kind);
@@ -447,7 +526,9 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     if (!options.tu_output_dir.empty()) {
         targets.reserve(options.sources.size() * 3 + 3);
         for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
-            if (idx < options.tu_output_headers.size() && !options.tu_output_headers[idx].empty()) {
+            if (idx < options.textual_registration_outputs.size() && !options.textual_registration_outputs[idx].empty()) {
+                targets.push_back(options.textual_registration_outputs[idx]);
+            } else if (idx < options.tu_output_headers.size() && !options.tu_output_headers[idx].empty()) {
                 targets.push_back(options.tu_output_headers[idx]);
             } else {
                 std::filesystem::path header_out = options.tu_output_dir / std::filesystem::path(options.sources[idx]).filename();
@@ -1484,7 +1565,7 @@ class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
 void register_codegen_matchers(MatchFinder &finder, TestCaseCollector &test_collector, FixtureDeclCollector &fixture_collector,
                                MockUsageCollector *mock_collector, bool discover_tests) {
     if (discover_tests) {
-        finder.addMatcher(traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(isDefinition(), unless(isImplicit()))).bind("gentest.func"),
+        finder.addMatcher(traverse(TK_IgnoreUnlessSpelledInSource, functionDecl(unless(isImplicit()))).bind("gentest.func"),
                           &test_collector);
         finder.addMatcher(
             traverse(TK_IgnoreUnlessSpelledInSource, cxxRecordDecl(isDefinition(), unless(isImplicit()))).bind("gentest.fixture"),
@@ -3531,7 +3612,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<std::string> entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
                                                    llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> tu_out_dir_option{
-        "tu-out-dir", llvm::cl::desc("Emit per-translation-unit wrapper .cpp/.h files into this directory (enables TU mode)"),
+        "tu-out-dir", llvm::cl::desc("Emit per-translation-unit generated artifacts into this directory (enables TU mode)"),
         llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> tu_header_output_option{
         "tu-header-output", llvm::cl::desc("Explicit output header path for a TU-mode input source (repeat once per positional source)"),
@@ -3539,6 +3620,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> textual_wrapper_output_option{
         "textual-wrapper-output",
         llvm::cl::desc("Explicit output textual wrapper path for a TU-mode input source (repeat once per positional source)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> textual_registration_output_option{
+        "textual-registration-output",
+        llvm::cl::desc("Explicit additive header-declaration registration source path (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::list<std::string> module_wrapper_output_option{
         "module-wrapper-output",
@@ -3676,9 +3761,11 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
     opts.textual_wrapper_outputs.assign(textual_wrapper_output_option.begin(), textual_wrapper_output_option.end());
+    opts.textual_registration_outputs.assign(textual_registration_output_option.begin(), textual_registration_output_option.end());
     opts.module_wrapper_outputs.assign(module_wrapper_output_option.begin(), module_wrapper_output_option.end());
     opts.module_registration_outputs.assign(module_registration_output_option.begin(), module_registration_output_option.end());
     opts.compile_context_ids.assign(compile_context_id_option.begin(), compile_context_id_option.end());
+    opts.header_declaration_registration = !opts.textual_registration_outputs.empty();
     if (!artifact_manifest_option.getValue().empty()) {
         opts.artifact_manifest_path = std::filesystem::path{artifact_manifest_option.getValue()};
     }
@@ -3967,7 +4054,8 @@ int main(int argc, const char **argv) {
             gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input only emits mock outputs\n");
             return 1;
         }
-        if (!options.tu_output_headers.empty() || !options.textual_wrapper_outputs.empty() || !options.module_wrapper_outputs.empty() ||
+        if (!options.tu_output_headers.empty() || !options.textual_wrapper_outputs.empty() ||
+            !options.textual_registration_outputs.empty() || !options.module_wrapper_outputs.empty() ||
             !options.module_registration_outputs.empty() || !options.compile_context_ids.empty() ||
             !options.artifact_owner_sources.empty() || !options.mock_registration_manifest_path.empty()) {
             gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with source/TU planning options\n");
@@ -4088,6 +4176,22 @@ int main(int argc, const char **argv) {
     }
     if (!options.textual_wrapper_outputs.empty() && options.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --textual-wrapper-output requires --tu-out-dir\n");
+        return 1;
+    }
+    if (!options.textual_registration_outputs.empty() && options.tu_output_dir.empty()) {
+        gentest::codegen::log_err_raw("gentest_codegen: --textual-registration-output requires --tu-out-dir\n");
+        return 1;
+    }
+    if (!options.textual_registration_outputs.empty() && options.textual_registration_outputs.size() != options.sources.size()) {
+        gentest::codegen::log_err("gentest_codegen: expected {} --textual-registration-output value(s) for {} input source(s), got {}\n",
+                                  options.sources.size(), options.sources.size(), options.textual_registration_outputs.size());
+        return 1;
+    }
+    if (!options.textual_registration_outputs.empty() &&
+        (!options.textual_wrapper_outputs.empty() || !options.module_wrapper_outputs.empty() ||
+         !options.module_registration_outputs.empty() || !options.tu_output_headers.empty())) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --textual-registration-output cannot be combined with wrapper, module, or registration-header outputs\n");
         return 1;
     }
     if (!options.textual_wrapper_outputs.empty() && options.textual_wrapper_outputs.size() != options.sources.size()) {
@@ -4745,6 +4849,13 @@ int main(int argc, const char **argv) {
 
     const bool has_any_named_module_imports =
         std::ranges::any_of(imported_named_modules_by_source, [](const auto &imports) { return !imports.empty(); });
+
+    if (options.header_declaration_registration && has_any_named_module_imports) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: header-declaration registration does not support textual sources with active named-module imports; "
+            "use the MODULE_REGISTRATION path for module-authored tests\n");
+        return 1;
+    }
 
     if (!named_module_sources.empty() || has_any_named_module_imports) {
         const std::filesystem::path module_cache_dir =
@@ -5408,10 +5519,10 @@ int main(int argc, const char **argv) {
             tool.appendArgumentsAdjuster(args_adjuster);
             tool.appendArgumentsAdjuster(syntax_only_adjuster);
 
-            std::vector<TestCaseInfo>                    local_cases;
-            TestCaseCollector                            collector{local_cases, options.strict_fixture, allow_includes};
+            std::vector<TestCaseInfo> local_cases;
+            TestCaseCollector collector{local_cases, options.strict_fixture, allow_includes, options.header_declaration_registration};
             std::vector<FixtureDeclInfo>                 local_fixtures;
-            FixtureDeclCollector                         fixture_collector{local_fixtures};
+            FixtureDeclCollector                         fixture_collector{local_fixtures, options.header_declaration_registration};
             std::vector<gentest::codegen::MockClassInfo> local_mocks;
             std::optional<MockUsageCollector>            mock_collector;
             if (options.discover_mocks) {
@@ -5430,11 +5541,17 @@ int main(int argc, const char **argv) {
             result.had_test_errors    = !mock_manifest_discovery_only && collector.has_errors();
             result.had_fixture_errors = !mock_manifest_discovery_only && fixture_collector.has_errors();
             result.had_mock_errors    = mock_collector.has_value() && mock_collector->has_errors();
-            result.cases              = std::move(local_cases);
-            result.fixtures           = std::move(local_fixtures);
-            result.mocks              = std::move(local_mocks);
-            result.dependencies       = std::move(local_dependencies);
-            results[idx]              = std::move(result);
+            for (auto &test : local_cases) {
+                test.scan_slot = idx;
+            }
+            for (auto &fixture : local_fixtures) {
+                fixture.scan_slot = idx;
+            }
+            result.cases        = std::move(local_cases);
+            result.fixtures     = std::move(local_fixtures);
+            result.mocks        = std::move(local_mocks);
+            result.dependencies = std::move(local_dependencies);
+            results[idx]        = std::move(result);
 
             diag_stream.flush();
             diag_texts[idx] = std::move(diag_buffer);
@@ -5502,8 +5619,8 @@ int main(int argc, const char **argv) {
         tool.appendArgumentsAdjuster(args_adjuster);
         tool.appendArgumentsAdjuster(syntax_only_adjuster);
 
-        TestCaseCollector                 collector{cases, options.strict_fixture, allow_includes};
-        FixtureDeclCollector              fixture_collector{fixtures};
+        TestCaseCollector                 collector{cases, options.strict_fixture, allow_includes, options.header_declaration_registration};
+        FixtureDeclCollector              fixture_collector{fixtures, options.header_declaration_registration};
         std::optional<MockUsageCollector> mock_collector;
         if (options.discover_mocks) {
             mock_collector.emplace(mocks);
@@ -5524,10 +5641,25 @@ int main(int argc, const char **argv) {
             (mock_collector.has_value() && mock_collector->has_errors())) {
             return 1;
         }
+        for (auto &test : cases) {
+            test.scan_slot = 0;
+        }
+        for (auto &fixture : fixtures) {
+            fixture.scan_slot = 0;
+        }
         depfile_dependencies = std::move(depfile_dependencies_local);
     }
 
     merge_duplicate_mocks(mocks);
+
+    if (options.header_declaration_registration) {
+        // Fixture visibility is a property of the scan context. Resolve it
+        // while every observed context still retains its fixture declarations,
+        // then deduplicate registrations for emission.
+        if (!resolve_free_fixtures(cases, fixtures) || !merge_header_declaration_occurrences(cases, fixtures)) {
+            return 1;
+        }
+    }
 
     if (!mock_manifest_discovery_only && allow_includes) {
         if (!enforce_unique_base_names(cases)) {
@@ -5535,7 +5667,7 @@ int main(int argc, const char **argv) {
         }
     }
 
-    if (!mock_manifest_discovery_only && !resolve_free_fixtures(cases, fixtures)) {
+    if (!mock_manifest_discovery_only && !options.header_declaration_registration && !resolve_free_fixtures(cases, fixtures)) {
         return 1;
     }
 

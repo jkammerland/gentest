@@ -203,6 +203,10 @@ fs::path resolve_module_registration_output(const CollectorOptions &opts, std::s
 
 fs::path resolve_textual_wrapper_output(const CollectorOptions &opts, std::size_t idx) { return opts.textual_wrapper_outputs[idx]; }
 
+fs::path resolve_textual_registration_output(const CollectorOptions &opts, std::size_t idx) {
+    return opts.textual_registration_outputs[idx];
+}
+
 fs::path textual_wrapper_manifest_path(const CollectorOptions &opts, std::size_t idx) {
     if (idx < opts.textual_wrapper_outputs.size() && !opts.textual_wrapper_outputs[idx].empty()) {
         return opts.textual_wrapper_outputs[idx];
@@ -1182,20 +1186,21 @@ bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::stri
         return false;
     };
 
-    if ((!opts.tu_output_headers.empty() || !opts.textual_wrapper_outputs.empty() || !opts.module_wrapper_outputs.empty() ||
-         !opts.module_registration_outputs.empty()) &&
+    if ((!opts.tu_output_headers.empty() || !opts.textual_wrapper_outputs.empty() || !opts.textual_registration_outputs.empty() ||
+         !opts.module_wrapper_outputs.empty() || !opts.module_registration_outputs.empty()) &&
         opts.tu_output_dir.empty()) {
         error = "source-associated generated artifact outputs require --tu-out-dir";
         return false;
     }
     if (!validate_source_alignment(opts.tu_output_headers, "--tu-header-output") ||
         !validate_source_alignment(opts.textual_wrapper_outputs, "--textual-wrapper-output") ||
+        !validate_source_alignment(opts.textual_registration_outputs, "--textual-registration-output") ||
         !validate_source_alignment(opts.module_wrapper_outputs, "--module-wrapper-output") ||
         !validate_source_alignment(opts.module_registration_outputs, "--module-registration-output")) {
         return false;
     }
 
-    if (!opts.tu_output_dir.empty()) {
+    if (!opts.tu_output_dir.empty() && opts.textual_registration_outputs.empty()) {
         for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
             const bool        explicit_header = idx < opts.tu_output_headers.size() && !opts.tu_output_headers[idx].empty();
             const std::string owner           = fmt::format("source slot {} '{}' ({})", idx, opts.sources[idx],
@@ -1209,6 +1214,12 @@ bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::stri
     for (std::size_t idx = 0; idx < opts.textual_wrapper_outputs.size(); ++idx) {
         const std::string owner = fmt::format("source slot {} '{}' (--textual-wrapper-output)", idx, opts.sources[idx]);
         if (!add_artifact(opts.textual_wrapper_outputs[idx], "textual wrapper", owner)) {
+            return false;
+        }
+    }
+    for (std::size_t idx = 0; idx < opts.textual_registration_outputs.size(); ++idx) {
+        const std::string owner = fmt::format("source slot {} '{}' (--textual-registration-output)", idx, opts.sources[idx]);
+        if (!add_artifact(opts.textual_registration_outputs[idx], "textual header registration", owner)) {
             return false;
         }
     }
@@ -1440,6 +1451,20 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         return 1;
     }
 
+    std::unordered_map<std::string, std::set<fs::path>> declared_headers_by_source;
+    if (!opts.textual_registration_outputs.empty()) {
+        for (const auto &test : cases) {
+            if (!test.filename.empty()) {
+                declared_headers_by_source[normalize_path_key(fs::path(test.tu_filename))].insert(fs::path(test.filename));
+            }
+        }
+        for (const auto &fixture : fixtures) {
+            if (!fixture.filename.empty()) {
+                declared_headers_by_source[normalize_path_key(fs::path(fixture.tu_filename))].insert(fs::path(fixture.filename));
+            }
+        }
+    }
+
     std::vector<TestCaseInfo> cases_for_render = cases;
     if (opts.source_root && !opts.source_root->empty()) {
         for (auto &c : cases_for_render) {
@@ -1538,6 +1563,52 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             const auto              &source_mocks                    = source_data ? source_data->direct_module_mocks : empty_mocks;
             const bool               needs_mock_codegen_include      = source_data && source_data->needs_mock_codegen_include;
             bool                     needs_full_registration_support = !source_mocks.empty() || needs_mock_codegen_include;
+
+            if (!opts.textual_registration_outputs.empty()) {
+                if (is_module_interface_source(opts, source_path)) {
+                    log_err("gentest_codegen: --textual-registration-output does not support named module source '{}'\n",
+                            source_path.string());
+                    statuses[idx] = 1;
+                    return;
+                }
+                const fs::path registration_out = resolve_textual_registration_output(opts, idx);
+                if (!ensure_parent_dir(registration_out)) {
+                    statuses[idx] = 1;
+                    return;
+                }
+
+                std::string registration_source = "// This file is auto-generated by gentest_codegen.\n// Do not edit manually.\n\n";
+                const auto  headers_it          = declared_headers_by_source.find(key);
+                if (tu_cases.empty() && tu_fixtures.empty()) {
+                    registration_source += "// No gentest registrations were assigned to this translation unit.\n";
+                } else {
+                    if (headers_it == declared_headers_by_source.end() || headers_it->second.empty()) {
+                        log_err("gentest_codegen: missing declaring header for additive registration source '{}'\n",
+                                registration_out.string());
+                        statuses[idx] = 1;
+                        return;
+                    }
+                    for (const auto &header : headers_it->second) {
+                        fmt::format_to(std::back_inserter(registration_source), "#include \"{}\"\n",
+                                       include_literal_relative_to(registration_out, header));
+                    }
+                    registration_source += "\n";
+                    const bool has_mocks            = !source_mocks.empty() || needs_mock_codegen_include;
+                    const auto core                 = render_registration_core(tu_cases, tu_fixtures, templates, has_mocks);
+                    needs_full_registration_support = core.needs_full_registration_support;
+                    std::string body                = std::string(tpl::tu_registration_header);
+                    replace_all(body, "// This file is auto-generated by gentest_codegen.\n// Do not edit manually.\n\n", "");
+                    replace_all(body, "#pragma once\n\n", "");
+                    apply_registration_core(body, core);
+                    const std::string register_fn = fmt::format("register_tu_{:04d}", static_cast<std::uint32_t>(idx));
+                    replace_all(body, "{{REGISTER_FN}}", register_fn);
+                    registration_source += body;
+                }
+                if (!write_file_atomic_if_changed(registration_out, registration_source)) {
+                    statuses[idx] = 1;
+                }
+                return;
+            }
 
             fs::path header_out = resolve_tu_header_output(opts, idx);
             if (!ensure_parent_dir(header_out)) {

@@ -3419,6 +3419,13 @@ _gentest_add_cmake_helper_test(
     cmake)
 
 _gentest_add_cmake_helper_test(
+    gentest_header_declaration_registration
+    ${PROJECT_SOURCE_DIR}/tests/cmake/header_declaration_registration
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckHeaderDeclarationRegistration.cmake
+    cmake)
+set_property(TEST gentest_header_declaration_registration APPEND PROPERTY LABELS "codegen;headers")
+
+_gentest_add_cmake_helper_test(
     gentest_tu_header_case_collision
     ${PROJECT_SOURCE_DIR}/tests/cmake/tu_header_case_collision
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTuHeaderCaseCollision.cmake
