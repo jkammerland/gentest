@@ -488,6 +488,9 @@ std::optional<std::string_view> pcm_cache_unsupported_semantic_input(std::span<c
         if (arg == "-ast-merge" || arg.starts_with("-ast-merge=")) {
             return "a serialized AST merge input is active";
         }
+        if (arg == "-frandomize-layout-seed-file" || arg.starts_with("-frandomize-layout-seed-file=")) {
+            return "a record-layout seed file is active";
+        }
         if (arg == "-fplugin" || arg == "-fpass-plugin" || arg == "-load" || arg == "-load-pass-plugin" || arg == "-plugin" ||
             arg == "-add-plugin" || arg.starts_with("-fplugin=") || arg.starts_with("-fpass-plugin=") ||
             arg.starts_with("-load-pass-plugin=")) {
