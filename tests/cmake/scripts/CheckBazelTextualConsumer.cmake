@@ -1,6 +1,12 @@
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckBazelTextualConsumer.cmake: SOURCE_DIR not set")
 endif()
+if(WIN32)
+  message(STATUS
+    "Skipping the Bazel textual consumer execution check on Windows: the automatic local exec-tool fallback is disabled; "
+    "Windows consumers must register a packaged Gentest/Clang toolchain with its DLL closure.")
+  return()
+endif()
 
 if(DEFINED BAZEL_EXECUTABLE AND NOT BAZEL_EXECUTABLE STREQUAL "")
   if(NOT EXISTS "${BAZEL_EXECUTABLE}")

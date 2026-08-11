@@ -130,6 +130,19 @@ foreach(_expected IN ITEMS
   endif()
 endforeach()
 
+foreach(_bazel_consumer_script IN ITEMS CheckBazelTextualConsumer.cmake CheckBazelModuleConsumer.cmake)
+  file(READ "${SOURCE_DIR}/tests/cmake/scripts/${_bazel_consumer_script}" _bazel_consumer_script_content)
+  foreach(_expected IN ITEMS
+      "if(WIN32)"
+      "automatic local exec-tool fallback is disabled"
+      "must register a packaged Gentest/Clang toolchain")
+    string(FIND "${_bazel_consumer_script_content}" "${_expected}" _expected_pos)
+    if(_expected_pos EQUAL -1)
+      message(FATAL_ERROR "${_bazel_consumer_script} is missing Windows toolchain skip token: ${_expected}")
+    endif()
+  endforeach()
+endforeach()
+
 file(READ "${_bazel_root_file}" _bazel_root_content)
 foreach(_expected IN ITEMS
     "gentest_add_mocks_modules("
