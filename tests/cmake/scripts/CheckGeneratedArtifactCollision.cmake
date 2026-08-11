@@ -259,6 +259,38 @@ _gentest_expect_artifact_failure(
   REQUIRED_SUBSTRINGS
     "prebuilt module input")
 
+_gentest_expect_artifact_failure(
+  "timing JSON/trailing prebuilt module collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_trailing_prebuilt_module"
+    --timing-json "${_prebuilt_module_input}"
+    --compdb "${_build_dir}"
+    "${_source}"
+  TRAILING_ARGS
+    "-fmodule-file=external=${_prebuilt_module_input}"
+  PRESERVE_FILES
+    "${_prebuilt_module_input}"
+  REQUIRED_SUBSTRINGS
+    "prebuilt module input")
+
+set(_prebuilt_module_search_dir "${_work_dir}/prebuilt-module-search")
+set(_prebuilt_module_search_input "${_prebuilt_module_search_dir}/external.pcm")
+file(MAKE_DIRECTORY "${_prebuilt_module_search_dir}")
+file(WRITE "${_prebuilt_module_search_input}" "prebuilt module search timing collision sentinel\n")
+_gentest_expect_artifact_failure(
+  "timing JSON/prebuilt module search-path collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_prebuilt_module_search"
+    --timing-json "${_prebuilt_module_search_input}"
+    --compdb "${_build_dir}"
+    "${_source}"
+  TRAILING_ARGS
+    "-fprebuilt-module-path=${_prebuilt_module_search_dir}"
+  PRESERVE_FILES
+    "${_prebuilt_module_search_input}"
+  REQUIRED_SUBSTRINGS
+    "prebuilt module path input")
+
 set(_vfs_overlay_input "${_work_dir}/overlay.yaml")
 set(_vfs_overlay_compdb_dir "${_work_dir}/overlay-compdb")
 file(MAKE_DIRECTORY "${_vfs_overlay_compdb_dir}")
@@ -290,6 +322,19 @@ _gentest_expect_artifact_failure(
     "${_source}"
   TRAILING_ARGS
     "-ivfsoverlay=${_vfs_overlay_input}"
+  PRESERVE_FILES
+    "${_vfs_overlay_input}"
+  REQUIRED_SUBSTRINGS
+    "VFS overlay input")
+_gentest_expect_artifact_failure(
+  "timing JSON/trailing joined VFS overlay collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_trailing_joined_vfs_overlay"
+    --timing-json "${_vfs_overlay_input}"
+    --compdb "${_build_dir}"
+    "${_source}"
+  TRAILING_ARGS
+    "-ivfsoverlay${_vfs_overlay_input}"
   PRESERVE_FILES
     "${_vfs_overlay_input}"
   REQUIRED_SUBSTRINGS

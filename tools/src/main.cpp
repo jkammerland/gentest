@@ -1847,6 +1847,12 @@ std::vector<std::filesystem::path> vfs_overlay_inputs(std::span<const std::strin
                     break;
                 }
             }
+            for (const std::string_view prefix : {"-ivfsoverlay", "-vfsoverlay"}) {
+                if (argument.starts_with(prefix) && argument.size() > prefix.size()) {
+                    append_path(argument.substr(prefix.size()));
+                    break;
+                }
+            }
         }
     };
     append_arguments(append_arguments, arguments);
@@ -2689,6 +2695,42 @@ std::optional<std::string_view> module_file_path_from_arg(std::string_view arg) 
         value.remove_prefix(separator + 1);
     }
     return value.empty() ? std::nullopt : std::optional<std::string_view>{value};
+}
+
+std::optional<std::string_view> prebuilt_module_directory_from_arg(std::string_view arg) {
+    static constexpr std::string_view prefix = "-fprebuilt-module-path=";
+    if (!arg.starts_with(prefix) || arg.size() == prefix.size()) {
+        return std::nullopt;
+    }
+    return arg.substr(prefix.size());
+}
+
+void add_timing_protected_module_inputs(std::vector<gentest::codegen::TimingJsonProtectedPath> &protected_paths,
+                                        std::span<const std::string> arguments, std::string_view working_directory) {
+    for (const auto &module_arg : collect_module_file_args_from_command_line(arguments)) {
+        if (const auto module_path = module_file_path_from_arg(module_arg); module_path.has_value()) {
+            const std::string resolved = normalize_compdb_lookup_path(*module_path, working_directory);
+            if (!resolved.empty()) {
+                add_timing_protected_path(protected_paths, resolved, "prebuilt module input");
+            }
+            continue;
+        }
+        const auto prebuilt_directory = prebuilt_module_directory_from_arg(module_arg);
+        if (!prebuilt_directory.has_value()) {
+            continue;
+        }
+        const std::string resolved = normalize_compdb_lookup_path(*prebuilt_directory, working_directory);
+        std::error_code   ec;
+        if (resolved.empty() || !std::filesystem::is_directory(resolved, ec) || ec) {
+            continue;
+        }
+        for (std::filesystem::directory_iterator it{resolved, ec}, end; !ec && it != end; it.increment(ec)) {
+            const auto extension = it->path().extension().string();
+            if (extension == ".pcm" || extension == ".ifc") {
+                add_timing_protected_path(protected_paths, it->path(), "prebuilt module path input");
+            }
+        }
+    }
 }
 
 std::vector<std::string> normalize_module_file_args(std::vector<std::string> args) {
@@ -4646,18 +4688,13 @@ int main(int argc, const char **argv) {
         for (const auto &overlay : vfs_overlay_inputs(options.clang_args, command.Directory)) {
             add_timing_protected_path(timing_protected_paths, overlay, "VFS overlay input");
         }
+        const auto expanded_trailing_args = expand_compile_command_response_files(options.clang_args, command.Directory, false);
+        add_timing_protected_module_inputs(timing_protected_paths, expanded_trailing_args, command.Directory);
         const auto expanded_command = expand_compile_command_response_files(command.CommandLine, command.Directory, false);
         for (const auto &overlay : vfs_overlay_inputs(command.CommandLine, command.Directory)) {
             add_timing_protected_path(timing_protected_paths, overlay, "VFS overlay input");
         }
-        for (const auto &module_arg : collect_module_file_args_from_command_line(expanded_command)) {
-            if (const auto module_path = module_file_path_from_arg(module_arg); module_path.has_value()) {
-                const std::string resolved = normalize_compdb_lookup_path(*module_path, command.Directory);
-                if (!resolved.empty()) {
-                    add_timing_protected_path(timing_protected_paths, resolved, "prebuilt module input");
-                }
-            }
-        }
+        add_timing_protected_module_inputs(timing_protected_paths, expanded_command, command.Directory);
         const std::string key = normalize_compdb_lookup_path(command.Filename, command.Directory);
         if (key.empty()) {
             continue;
@@ -4671,6 +4708,9 @@ int main(int argc, const char **argv) {
         for (const auto &overlay : vfs_overlay_inputs(options.clang_args, std::filesystem::current_path().string())) {
             add_timing_protected_path(timing_protected_paths, overlay, "VFS overlay input");
         }
+        const auto expanded_trailing_args =
+            expand_compile_command_response_files(options.clang_args, std::filesystem::current_path().string(), false);
+        add_timing_protected_module_inputs(timing_protected_paths, expanded_trailing_args, std::filesystem::current_path().string());
     }
     std::string compiler_input_timing_collision_error;
     if (!gentest::codegen::validate_timing_json_dependency_collision(options, {}, timing_protected_paths,
