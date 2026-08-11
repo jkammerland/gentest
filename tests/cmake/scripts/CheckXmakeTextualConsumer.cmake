@@ -151,7 +151,7 @@ foreach(_nested_attempt RANGE 1 2)
     OUTPUT_VARIABLE _nested_out
     ERROR_VARIABLE _nested_err)
   if(NOT _nested_rc EQUAL 0 OR
-     NOT "${_nested_out}\n${_nested_err}" MATCHES "nested or unreadable Clang response file")
+     NOT "${_nested_out}\n${_nested_err}" MATCHES "nested or unreadable Clang config/response input")
     message(FATAL_ERROR
       "Nested response-file cache probe ${_nested_attempt} did not regenerate conservatively.\n${_nested_out}\n${_nested_err}")
   endif()
@@ -675,6 +675,42 @@ string(FIND "${_target_config_build_log}" "gentest-codegen-cache-miss" _target_c
 if(NOT _target_config_build_rc EQUAL 0 OR _target_config_codegen_pos EQUAL -1)
   message(FATAL_ERROR
     "Changing a target cxxflags config file did not invalidate Xmake codegen.\n${_target_config_build_log}")
+endif()
+
+# Clang config files may contain response-file directives. Xmake deliberately
+# does not implement Clang's config/response grammar, so this shape must run
+# codegen conservatively on every build and never authorize snapshot reuse.
+set(_config_child_response "${_project_dir}/xmake_config_child.rsp")
+file(WRITE "${_config_child_response}" "-DGENTEST_XMAKE_CONFIG_VARIANT=1\n")
+file(WRITE "${_config_file}" "@${_config_child_response}\n")
+foreach(_nested_config_run RANGE 1 2)
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+            "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+    WORKING_DIRECTORY "${_project_dir}"
+    RESULT_VARIABLE _nested_config_rc
+    OUTPUT_VARIABLE _nested_config_out
+    ERROR_VARIABLE _nested_config_err)
+  set(_nested_config_log "${_nested_config_out}\n${_nested_config_err}")
+  string(FIND "${_nested_config_log}" "gentest-codegen-cache-miss" _nested_config_codegen_pos)
+  string(FIND "${_nested_config_log}" "regenerate conservatively" _nested_config_warning_pos)
+  if(NOT _nested_config_rc EQUAL 0 OR _nested_config_codegen_pos EQUAL -1 OR _nested_config_warning_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Nested Clang config response input reused an Xmake snapshot on run ${_nested_config_run}.\n${_nested_config_log}")
+  endif()
+endforeach()
+# Restore a directly tracked config and republish one reusable snapshot for
+# the remaining incremental probes.
+file(WRITE "${_config_file}" "-DGENTEST_XMAKE_CONFIG_VARIANT=1\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" ${_xmake_build_args} gentest_consumer_textual_xmake
+  WORKING_DIRECTORY "${_project_dir}"
+  RESULT_VARIABLE _config_restore_rc
+  OUTPUT_VARIABLE _config_restore_out
+  ERROR_VARIABLE _config_restore_err)
+if(NOT _config_restore_rc EQUAL 0)
+  message(FATAL_ERROR "Restoring a directly tracked Clang config failed.\n${_config_restore_out}\n${_config_restore_err}")
 endif()
 
 # Missing roots configured through Clang's C++ system include flags are

@@ -54,26 +54,47 @@ local function load_lookup_guards(sidecar)
 end
 
 local function response_inputs_complete(arguments, project_root)
+    local function has_untracked_indirection(raw_path, config_file)
+        local input_path = raw_path
+        if not path.is_absolute(input_path) then
+            input_path = path.join(project_root, input_path)
+        end
+        local contents = io.readfile(path.absolute(input_path))
+        if contents == nil or contents:find("@", 1, true) then
+            return true
+        end
+        -- A response file can itself select a config file. Do not partially
+        -- reproduce Clang's driver/config expansion rules here.
+        return not config_file and contents:find("--config", 1, true) ~= nil
+    end
+
+    local expect_config_path = false
     for _, raw_argument in ipairs(arguments) do
         local argument = tostring(raw_argument)
         if argument:sub(1, 7) == "/clang:" then
             argument = argument:sub(8)
         end
-        if argument:sub(1, 1) == "@" then
-            local response_path = argument:sub(2)
-            if not path.is_absolute(response_path) then
-                response_path = path.join(project_root, response_path)
+        if expect_config_path then
+            if has_untracked_indirection(argument, true) then
+                return false
             end
-            local contents = io.readfile(path.absolute(response_path))
+            expect_config_path = false
+        elseif argument == "--config" then
+            expect_config_path = true
+        elseif argument:sub(1, 9) == "--config=" then
+            if has_untracked_indirection(argument:sub(10), true) then
+                return false
+            end
+        elseif argument:sub(1, 1) == "@" then
             -- Clang owns response-file parsing. Any further @ indirection is
             -- intentionally a conservative boundary instead of a second,
             -- incomplete implementation of Clang's response grammar.
-            if contents == nil or contents:find("@", 1, true) then
+            if has_untracked_indirection(argument:sub(2), false) then
                 return false
             end
         end
     end
-    return true
+    return not expect_config_path
 end
 
 function main(cache_path, depfile, lookup_guard_output, identity, project_root, static_count_text, program, ...)
@@ -105,7 +126,7 @@ function main(cache_path, depfile, lookup_guard_output, identity, project_root, 
         os.vrunv(program, codegen_args)
 
         if not indirect_inputs_complete then
-            cprint("${yellow}warning: nested or unreadable Clang response file; Gentest will regenerate conservatively${clear}")
+            cprint("${yellow}warning: nested or unreadable Clang config/response input; Gentest will regenerate conservatively${clear}")
             return false
         end
 
