@@ -39,6 +39,14 @@ set(_codegen_args
   --compdb "${_compdb_root}"
   "${_smoke_abs}"
   --)
+if(DEFINED DISCOVER_MOCKS AND DISCOVER_MOCKS)
+  list(PREPEND _codegen_args
+    --discover-mocks
+    --mock-registry "${_work_dir}/${_smoke_name}_mock_registry.hpp"
+    --mock-impl "${_work_dir}/${_smoke_name}_mock_impl.hpp"
+    --mock-domain-registry-output "${_work_dir}/${_smoke_name}_mock_registry__domain_0000_header.hpp"
+    --mock-domain-impl-output "${_work_dir}/${_smoke_name}_mock_impl__domain_0000_header.hpp")
+endif()
 if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
   list(APPEND _codegen_args "${TARGET_ARG}")
 endif()
