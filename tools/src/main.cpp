@@ -1609,6 +1609,16 @@ void prime_llvm_statistics_registry() {
                     if (gentest::codegen::scan::consume_scan_keyword(directive, "embed")) {
                         return true;
                     }
+                } else if (directive.starts_with("?"
+                                                 "?=")) {
+                    // With -trigraphs, the hash trigraph is translated to # before
+                    // preprocessing directives are recognized. Clang 20/21
+                    // do not expose embed callbacks, so conservatively treat
+                    // this spelling as an embed directive as well.
+                    directive.remove_prefix(3);
+                    if (gentest::codegen::scan::consume_scan_keyword(directive, "embed")) {
+                        return true;
+                    }
                 }
             }
             logical_line.clear();

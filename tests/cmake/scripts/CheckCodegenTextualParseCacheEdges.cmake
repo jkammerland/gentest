@@ -286,6 +286,18 @@ constexpr unsigned char cache_digraph_embed[] = {
 ]=])
   _write_compdb("${_digraph_embed_source}")
   _run_uncacheable_twice("${_digraph_embed_source}" digraph_embed)
+
+  if(CMAKE_MATCH_1 LESS 22)
+    set(_trigraph_embed_source "${_work_dir}/trigraph_embed_cases.cpp")
+    gentest_fixture_write_file("${_trigraph_embed_source}" [=[
+constexpr unsigned char cache_trigraph_embed[] = {
+??=embed "embed_payload.bin"
+};
+[[using gentest: test("cache/trigraph_embed")]] void cache_trigraph_embed_case() {}
+]=])
+    _write_compdb("${_trigraph_embed_source}" "-trigraphs")
+    _run_uncacheable_twice("${_trigraph_embed_source}" trigraph_embed)
+  endif()
 endif()
 
 set(_overlay "${_work_dir}/empty-overlay.yaml")
