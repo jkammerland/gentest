@@ -1802,6 +1802,57 @@ std::vector<std::filesystem::path> response_file_inputs(std::span<const std::str
     return inputs;
 }
 
+std::vector<std::filesystem::path> vfs_overlay_inputs(std::span<const std::string> arguments, std::string_view working_directory) {
+    std::vector<std::filesystem::path> inputs;
+    const auto                         append_path = [&](std::string_view raw_path) {
+        const std::string resolved = normalize_compdb_lookup_path(raw_path, working_directory);
+        if (resolved.empty()) {
+            return;
+        }
+        const std::filesystem::path path{resolved};
+        if (std::ranges::find(inputs, path) == inputs.end()) {
+            inputs.push_back(path);
+        }
+    };
+    const auto append_arguments = [&](const auto &self, std::span<const std::string> nested_arguments) -> void {
+        bool consume_overlay_path = false;
+        for (const auto &raw_argument : nested_arguments) {
+            std::string_view argument = raw_argument;
+            if (argument == "-Xclang") {
+                continue;
+            }
+            if (argument.starts_with("/clang:")) {
+                argument.remove_prefix(std::string_view{"/clang:"}.size());
+            }
+            if (consume_overlay_path) {
+                append_path(argument);
+                consume_overlay_path = false;
+                continue;
+            }
+            if (argument.starts_with("@")) {
+                const std::string response_path = normalize_compdb_lookup_path(argument.substr(1), working_directory);
+                if (!response_path.empty() && std::filesystem::exists(response_path)) {
+                    const auto response_arguments = read_response_file_arguments(response_path);
+                    self(self, std::span<const std::string>{response_arguments.data(), response_arguments.size()});
+                }
+                continue;
+            }
+            if (argument == "-ivfsoverlay" || argument == "-vfsoverlay" || argument == "--vfsoverlay") {
+                consume_overlay_path = true;
+                continue;
+            }
+            for (const std::string_view prefix : {"-ivfsoverlay=", "-vfsoverlay=", "--vfsoverlay="}) {
+                if (argument.starts_with(prefix)) {
+                    append_path(argument.substr(prefix.size()));
+                    break;
+                }
+            }
+        }
+    };
+    append_arguments(append_arguments, arguments);
+    return inputs;
+}
+
 std::vector<std::filesystem::path> compilation_database_response_file_inputs(const std::filesystem::path &database_path) {
     const auto buffer = llvm::MemoryBuffer::getFile(database_path.string());
     if (!buffer) {
@@ -4592,7 +4643,13 @@ int main(int argc, const char **argv) {
             add_timing_protected_path(timing_protected_paths, response_file, "trailing clang response-file input");
         }
         protected_trailing_clang_args = true;
-        const auto expanded_command   = expand_compile_command_response_files(command.CommandLine, command.Directory, false);
+        for (const auto &overlay : vfs_overlay_inputs(options.clang_args, command.Directory)) {
+            add_timing_protected_path(timing_protected_paths, overlay, "VFS overlay input");
+        }
+        const auto expanded_command = expand_compile_command_response_files(command.CommandLine, command.Directory, false);
+        for (const auto &overlay : vfs_overlay_inputs(command.CommandLine, command.Directory)) {
+            add_timing_protected_path(timing_protected_paths, overlay, "VFS overlay input");
+        }
         for (const auto &module_arg : collect_module_file_args_from_command_line(expanded_command)) {
             if (const auto module_path = module_file_path_from_arg(module_arg); module_path.has_value()) {
                 const std::string resolved = normalize_compdb_lookup_path(*module_path, command.Directory);
@@ -4610,6 +4667,9 @@ int main(int argc, const char **argv) {
     if (!protected_trailing_clang_args) {
         for (const auto &response_file : response_file_inputs(options.clang_args, std::filesystem::current_path().string())) {
             add_timing_protected_path(timing_protected_paths, response_file, "trailing clang response-file input");
+        }
+        for (const auto &overlay : vfs_overlay_inputs(options.clang_args, std::filesystem::current_path().string())) {
+            add_timing_protected_path(timing_protected_paths, overlay, "VFS overlay input");
         }
     }
     std::string compiler_input_timing_collision_error;

@@ -259,6 +259,42 @@ _gentest_expect_artifact_failure(
   REQUIRED_SUBSTRINGS
     "prebuilt module input")
 
+set(_vfs_overlay_input "${_work_dir}/overlay.yaml")
+set(_vfs_overlay_compdb_dir "${_work_dir}/overlay-compdb")
+file(MAKE_DIRECTORY "${_vfs_overlay_compdb_dir}")
+file(WRITE "${_vfs_overlay_input}" "{ 'version': 0, 'roots': [] }\n")
+file(READ "${_compile_commands}" _vfs_overlay_compdb_json)
+string(JSON _vfs_overlay_command GET "${_vfs_overlay_compdb_json}" 0 command)
+string(APPEND _vfs_overlay_command " -ivfsoverlay ${_vfs_overlay_input}")
+string(REPLACE "\\" "\\\\" _vfs_overlay_command_json "${_vfs_overlay_command}")
+string(REPLACE "\"" "\\\"" _vfs_overlay_command_json "${_vfs_overlay_command_json}")
+string(JSON _vfs_overlay_compdb_json SET "${_vfs_overlay_compdb_json}" 0 command "\"${_vfs_overlay_command_json}\"")
+file(WRITE "${_vfs_overlay_compdb_dir}/compile_commands.json" "${_vfs_overlay_compdb_json}\n")
+_gentest_expect_artifact_failure(
+  "timing JSON/compilation VFS overlay collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_compilation_vfs_overlay"
+    --timing-json "${_vfs_overlay_input}"
+    --compdb "${_vfs_overlay_compdb_dir}"
+    "${_source}"
+  PRESERVE_FILES
+    "${_vfs_overlay_input}"
+  REQUIRED_SUBSTRINGS
+    "VFS overlay input")
+_gentest_expect_artifact_failure(
+  "timing JSON/trailing VFS overlay collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_trailing_vfs_overlay"
+    --timing-json "${_vfs_overlay_input}"
+    --compdb "${_build_dir}"
+    "${_source}"
+  TRAILING_ARGS
+    "-ivfsoverlay=${_vfs_overlay_input}"
+  PRESERVE_FILES
+    "${_vfs_overlay_input}"
+  REQUIRED_SUBSTRINGS
+    "VFS overlay input")
+
 set(_source_root_input "${_work_dir}/source_root_input.txt")
 file(WRITE "${_source_root_input}" "source-root timing collision sentinel\n")
 _gentest_expect_artifact_failure(
