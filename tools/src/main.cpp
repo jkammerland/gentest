@@ -1581,7 +1581,6 @@ void prime_llvm_statistics_registry() {
     return true;
 }
 
-#if CLANG_VERSION_MAJOR < 22
 [[nodiscard]] bool source_buffer_mentions_embed(llvm::StringRef buffer) {
     bool        in_block_comment = false;
     std::string logical_line;
@@ -1636,6 +1635,56 @@ void prime_llvm_statistics_registry() {
     }
     return false;
 }
+
+[[nodiscard]] bool command_uses_trigraphs(std::span<const std::string> command_line) {
+    return std::ranges::any_of(command_line, [](std::string_view arg) { return arg == "-trigraphs" || arg == "/clang:-trigraphs"; });
+}
+
+#if CLANG_VERSION_MAJOR < 22
+// Clang 20/21 do not expose PPCallbacks for #embed or __has_embed. Observe the
+// physical VFS operations performed by Clang itself instead of reimplementing
+// header lookup. The source callback below only decides whether these already
+// resolved inputs are needed; it never resolves a spelling on its own.
+class OpenedPreprocessorInputFileSystem final : public llvm::vfs::ProxyFileSystem {
+  public:
+    OpenedPreprocessorInputFileSystem(llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> underlying, std::vector<std::string> &opened_inputs)
+        : ProxyFileSystem(std::move(underlying)), opened_inputs_(opened_inputs) {}
+
+    llvm::ErrorOr<llvm::vfs::Status> status(const llvm::Twine &path) override {
+        auto result = ProxyFileSystem::status(path);
+        if (result && result->isRegularFile()) {
+            record(path);
+        }
+        return result;
+    }
+
+    bool exists(const llvm::Twine &path) override {
+        const auto result = status(path);
+        return result && result->exists();
+    }
+
+    llvm::ErrorOr<std::unique_ptr<llvm::vfs::File>> openFileForRead(const llvm::Twine &path) override {
+        auto result = ProxyFileSystem::openFileForRead(path);
+        if (result) {
+            record(path);
+        }
+        return result;
+    }
+
+  private:
+    void record(const llvm::Twine &raw_path) {
+        llvm::SmallString<256> path{raw_path.str()};
+        if (makeAbsolute(path)) {
+            return;
+        }
+        const std::string normalized = normalize_dependency_path(path.str().str());
+        if (!normalized.empty()) {
+            opened_inputs_.push_back(normalized);
+        }
+    }
+
+    std::vector<std::string> &opened_inputs_;
+};
 #endif
 
 std::string sha256_source_buffer(llvm::StringRef buffer) {
@@ -1679,9 +1728,11 @@ class DependencyRecorder final : public clang::PPCallbacks {
   public:
     DependencyRecorder(clang::SourceManager &source_manager, clang::HeaderSearch &header_search, std::vector<std::string> &dependencies,
                        std::vector<std::string> *shadow_guards, std::vector<gentest::codegen::ParseInputSnapshot> *parse_input_snapshots,
-                       std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots, bool *cacheable)
+                       std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots, bool *cacheable,
+                       bool *needs_opened_preprocessor_inputs)
         : source_manager_(source_manager), header_search_(header_search), dependencies_(dependencies), shadow_guards_(shadow_guards),
-          parse_input_snapshots_(parse_input_snapshots), parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable) {}
+          parse_input_snapshots_(parse_input_snapshots), parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable),
+          needs_opened_preprocessor_inputs_(needs_opened_preprocessor_inputs) {}
 
     void FileChanged(clang::SourceLocation loc, clang::PPCallbacks::FileChangeReason reason, clang::SrcMgr::CharacteristicKind,
                      clang::FileID) override {
@@ -1694,10 +1745,13 @@ class DependencyRecorder final : public clang::PPCallbacks {
             mark_uncacheable();
         }
 #if CLANG_VERSION_MAJOR < 22
-        if (cacheable_ != nullptr && *cacheable_) {
-            bool       invalid = false;
-            const auto buffer  = source_manager_.getBufferData(current_file_id, &invalid);
-            if (!invalid && source_buffer_mentions_embed(buffer)) {
+        bool       invalid = false;
+        const auto buffer  = source_manager_.getBufferData(current_file_id, &invalid);
+        if (!invalid && source_buffer_mentions_embed(buffer)) {
+            if (needs_opened_preprocessor_inputs_ != nullptr) {
+                *needs_opened_preprocessor_inputs_ = true;
+            }
+            if (cacheable_ != nullptr && *cacheable_) {
                 mark_uncacheable();
             }
         }
@@ -1871,6 +1925,7 @@ class DependencyRecorder final : public clang::PPCallbacks {
     std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_;
     std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_;
     bool                                               *cacheable_;
+    bool                                               *needs_opened_preprocessor_inputs_;
 };
 
 class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
@@ -1908,10 +1963,12 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
     MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
                       bool allow_mock_includes, bool skip_function_bodies, std::vector<std::string> *shadow_guards = nullptr,
                       std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots  = nullptr,
-                      std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots = nullptr, bool *cacheable = nullptr)
+                      std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots = nullptr, bool *cacheable = nullptr,
+                      bool *needs_opened_preprocessor_inputs = nullptr)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
           skip_function_bodies_(skip_function_bodies), shadow_guards_(shadow_guards), parse_input_snapshots_(parse_input_snapshots),
-          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable) {}
+          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable),
+          needs_opened_preprocessor_inputs_(needs_opened_preprocessor_inputs) {}
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
         const bool is_named_module_input = named_module_name_from_source_file(std::filesystem::path{input_file.str()}).has_value();
@@ -1920,7 +1977,7 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
         }
         compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(
             compiler.getSourceManager(), compiler.getPreprocessor().getHeaderSearchInfo(), dependencies_, shadow_guards_,
-            parse_input_snapshots_, parse_lookup_snapshots_, cacheable_));
+            parse_input_snapshots_, parse_lookup_snapshots_, cacheable_, needs_opened_preprocessor_inputs_));
         if (!record_parse_input_snapshot(compiler.getSourceManager(), compiler.getSourceManager().getMainFileID(),
                                          parse_input_snapshots_) &&
             cacheable_ != nullptr) {
@@ -1937,13 +1994,14 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
   private:
     clang::ast_matchers::MatchFinder                   &finder_;
     std::vector<std::string>                           &dependencies_;
-    bool                                                allow_includes_         = false;
-    bool                                                allow_mock_includes_    = false;
-    bool                                                skip_function_bodies_   = false;
-    std::vector<std::string>                           *shadow_guards_          = nullptr;
-    std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_  = nullptr;
-    std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_ = nullptr;
-    bool                                               *cacheable_              = nullptr;
+    bool                                                allow_includes_                   = false;
+    bool                                                allow_mock_includes_              = false;
+    bool                                                skip_function_bodies_             = false;
+    std::vector<std::string>                           *shadow_guards_                    = nullptr;
+    std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_            = nullptr;
+    std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_           = nullptr;
+    bool                                               *cacheable_                        = nullptr;
+    bool                                               *needs_opened_preprocessor_inputs_ = nullptr;
 };
 
 class MatchFinderActionFactory final : public clang::tooling::FrontendActionFactory {
@@ -1952,26 +2010,29 @@ class MatchFinderActionFactory final : public clang::tooling::FrontendActionFact
                              bool allow_mock_includes, bool skip_function_bodies, std::vector<std::string> *shadow_guards = nullptr,
                              std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots  = nullptr,
                              std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots = nullptr,
-                             bool                                               *cacheable              = nullptr)
+                             bool *cacheable = nullptr, bool *needs_opened_preprocessor_inputs = nullptr)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
           skip_function_bodies_(skip_function_bodies), shadow_guards_(shadow_guards), parse_input_snapshots_(parse_input_snapshots),
-          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable) {}
+          parse_lookup_snapshots_(parse_lookup_snapshots), cacheable_(cacheable),
+          needs_opened_preprocessor_inputs_(needs_opened_preprocessor_inputs) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
         return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, skip_function_bodies_,
-                                                   shadow_guards_, parse_input_snapshots_, parse_lookup_snapshots_, cacheable_);
+                                                   shadow_guards_, parse_input_snapshots_, parse_lookup_snapshots_, cacheable_,
+                                                   needs_opened_preprocessor_inputs_);
     }
 
   private:
     clang::ast_matchers::MatchFinder                   &finder_;
     std::vector<std::string>                           &dependencies_;
-    bool                                                allow_includes_         = false;
-    bool                                                allow_mock_includes_    = false;
-    bool                                                skip_function_bodies_   = false;
-    std::vector<std::string>                           *shadow_guards_          = nullptr;
-    std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_  = nullptr;
-    std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_ = nullptr;
-    bool                                               *cacheable_              = nullptr;
+    bool                                                allow_includes_                   = false;
+    bool                                                allow_mock_includes_              = false;
+    bool                                                skip_function_bodies_             = false;
+    std::vector<std::string>                           *shadow_guards_                    = nullptr;
+    std::vector<gentest::codegen::ParseInputSnapshot>  *parse_input_snapshots_            = nullptr;
+    std::vector<gentest::codegen::ParseLookupSnapshot> *parse_lookup_snapshots_           = nullptr;
+    bool                                               *cacheable_                        = nullptr;
+    bool                                               *needs_opened_preprocessor_inputs_ = nullptr;
 };
 
 bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_args = false) {
@@ -6632,6 +6693,11 @@ int main(int argc, const char **argv) {
             } else {
                 base_fs = llvm::vfs::getRealFileSystem();
             }
+#if CLANG_VERSION_MAJOR < 22
+            std::vector<std::string> opened_preprocessor_inputs;
+            base_fs =
+                llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(new OpenedPreprocessorInputFileSystem(base_fs, opened_preprocessor_inputs));
+#endif
 
             clang::tooling::ClangTool tool{
                 file_database,
@@ -6667,6 +6733,8 @@ int main(int argc, const char **argv) {
             std::vector<gentest::codegen::ParseInputSnapshot>  local_parse_input_snapshots;
             std::vector<gentest::codegen::ParseLookupSnapshot> local_parse_lookup_snapshots;
             bool                                               local_cacheable = true;
+            bool                                               needs_opened_preprocessor_inputs =
+                command_uses_trigraphs(options.clang_args) || command_uses_trigraphs(tool_compile_commands[idx].front().CommandLine);
 
             MatchFinder finder;
             register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
@@ -6679,7 +6747,8 @@ int main(int argc, const char **argv) {
                                                     use_parse_cache ? &local_shadow_guards : nullptr,
                                                     use_parse_cache ? &local_parse_input_snapshots : nullptr,
                                                     use_parse_cache ? &local_parse_lookup_snapshots : nullptr,
-                                                    use_parse_cache ? &local_cacheable : nullptr};
+                                                    use_parse_cache ? &local_cacheable : nullptr,
+                                                    &needs_opened_preprocessor_inputs};
 
             ParseResult result;
             std::string gentest_diag_buffer;
@@ -6687,6 +6756,12 @@ int main(int argc, const char **argv) {
                 gentest::codegen::ScopedLogCapture gentest_diag_capture{gentest_diag_buffer};
                 result.status = tool.run(&action_factory);
             }
+#if CLANG_VERSION_MAJOR < 22
+            if (needs_opened_preprocessor_inputs) {
+                local_dependencies.insert(local_dependencies.end(), std::make_move_iterator(opened_preprocessor_inputs.begin()),
+                                          std::make_move_iterator(opened_preprocessor_inputs.end()));
+            }
+#endif
             result.had_test_errors    = !mock_manifest_discovery_only && collector.has_errors();
             result.had_fixture_errors = !mock_manifest_discovery_only && fixture_collector.has_errors();
             result.had_mock_errors    = mock_collector.has_value() && mock_collector->has_errors();
@@ -6759,9 +6834,21 @@ int main(int argc, const char **argv) {
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
             file_commands.emplace(normalize_compdb_lookup_path(options.sources[i]), tool_compile_commands[i]);
         }
-        const SnapshotCompilationDatabase file_database{std::move(file_commands)};
-        clang::tooling::ClangTool         tool{file_database, options.sources};
-        std::vector<std::string>          normalized_overlays;
+        const SnapshotCompilationDatabase               file_database{std::move(file_commands)};
+        auto                                            physical_fs_unique = llvm::vfs::createPhysicalFileSystem();
+        llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> base_fs;
+        if (physical_fs_unique) {
+            base_fs = llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(physical_fs_unique.release());
+        } else {
+            base_fs = llvm::vfs::getRealFileSystem();
+        }
+#if CLANG_VERSION_MAJOR < 22
+        std::vector<std::string> opened_preprocessor_inputs;
+        base_fs =
+            llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem>(new OpenedPreprocessorInputFileSystem(base_fs, opened_preprocessor_inputs));
+#endif
+        clang::tooling::ClangTool tool{file_database, options.sources, std::make_shared<clang::PCHContainerOperations>(), base_fs};
+        std::vector<std::string>  normalized_overlays;
         normalized_overlays.reserve(options.sources.size());
         for (std::size_t i = 0; i < options.sources.size(); ++i) {
             const auto overlay_include_paths =
@@ -6787,14 +6874,35 @@ int main(int argc, const char **argv) {
             mock_collector.emplace(mocks);
         }
         std::vector<std::string> depfile_dependencies_local;
+        bool                     needs_opened_preprocessor_inputs = command_uses_trigraphs(options.clang_args);
+        for (const auto &commands : tool_compile_commands) {
+            if (!commands.empty() && command_uses_trigraphs(commands.front().CommandLine)) {
+                needs_opened_preprocessor_inputs = true;
+                break;
+            }
+        }
 
         MatchFinder finder;
         register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
                                   !mock_manifest_discovery_only);
-        MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes, options.discover_mocks,
-                                                skip_function_bodies};
+        MatchFinderActionFactory action_factory{finder,
+                                                depfile_dependencies_local,
+                                                allow_includes,
+                                                options.discover_mocks,
+                                                skip_function_bodies,
+                                                nullptr,
+                                                nullptr,
+                                                nullptr,
+                                                nullptr,
+                                                &needs_opened_preprocessor_inputs};
 
         const int status = tool.run(&action_factory);
+#if CLANG_VERSION_MAJOR < 22
+        if (needs_opened_preprocessor_inputs) {
+            depfile_dependencies_local.insert(depfile_dependencies_local.end(), std::make_move_iterator(opened_preprocessor_inputs.begin()),
+                                              std::make_move_iterator(opened_preprocessor_inputs.end()));
+        }
+#endif
         if (options.sources.size() == 1) {
             timing.record("parse", parse_started, 0, options.sources.front());
         } else {

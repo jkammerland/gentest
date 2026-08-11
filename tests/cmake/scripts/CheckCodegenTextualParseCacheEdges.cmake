@@ -257,8 +257,8 @@ _write_compdb("${_volatile_source}")
 _run_uncacheable_twice("${_volatile_source}" volatile)
 
 # Clang 22 exposes dedicated embed callbacks. Supported older Clang releases
-# do not, so Gentest conservatively scans entered source buffers and bypasses
-# caching whenever #embed or __has_embed appears.
+# do not, so Gentest conservatively bypasses caching and records the inputs
+# that Clang itself successfully opened or probed while preprocessing.
 execute_process(COMMAND "${_clang_norm}" --version OUTPUT_VARIABLE _clang_version_text ERROR_QUIET)
 string(REGEX MATCH "clang version ([0-9]+)" _clang_version_match "${_clang_version_text}")
 if(NOT "${_clang_version_match}" STREQUAL "" AND CMAKE_MATCH_1 GREATER_EQUAL 20)
@@ -305,6 +305,10 @@ constexpr unsigned char cache_trigraph_embed[] = {
 ]=])
   _write_compdb("${_trigraph_embed_source}" "-trigraphs")
   _run_uncacheable_twice("${_trigraph_embed_source}" trigraph_embed)
+  file(READ "${_work_dir}/generated/trigraph_embed_second/cases.d" _trigraph_embed_depfile)
+  if(NOT _trigraph_embed_depfile MATCHES "embed_payload\\.bin")
+    message(FATAL_ERROR "Expected trigraph #embed payload in generated depfile.\n${_trigraph_embed_depfile}")
+  endif()
 
   set(_trigraph_spliced_embed_source "${_work_dir}/trigraph_spliced_embed_cases.cpp")
   gentest_fixture_write_file("${_trigraph_spliced_embed_source}" [=[
@@ -318,6 +322,11 @@ inline constexpr bool cache_trigraph_spliced_embed_present = false;
 ]=])
   _write_compdb("${_trigraph_spliced_embed_source}" "-trigraphs")
   _run_uncacheable_twice("${_trigraph_spliced_embed_source}" trigraph_spliced_embed)
+  file(READ "${_work_dir}/generated/trigraph_spliced_embed_second/cases.d" _trigraph_spliced_embed_depfile)
+  if(NOT _trigraph_spliced_embed_depfile MATCHES "embed_payload\\.bin")
+    message(FATAL_ERROR
+      "Expected trigraph-spliced __has_embed payload in generated depfile.\n${_trigraph_spliced_embed_depfile}")
+  endif()
 endif()
 
 set(_overlay "${_work_dir}/empty-overlay.yaml")
