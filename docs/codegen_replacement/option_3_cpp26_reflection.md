@@ -307,6 +307,20 @@ the language and `<meta>` library, then run a focused compile probe for the
 exact annotation, member-query, splice, extraction, and source-location surface
 Gentest uses.
 
+```cpp
+#if !defined(__cpp_impl_reflection) || __cpp_impl_reflection < 202603L
+#error "Gentest reflection requires final C++26 core reflection"
+#endif
+
+#if !defined(__cpp_lib_reflection) || __cpp_lib_reflection < 202603L
+#error "Gentest reflection requires the final C++26 <meta> library"
+#endif
+```
+
+These values cover the final parameter-annotation/query surface used by the
+extended design. The focused probe remains a secondary semantic gate because a
+vendor may define the revision while an individual API is incomplete.
+
 Do not treat `-std=c++26`, `__cplusplus`, or mere macro presence as proof of a
 complete implementation. Vendor transitional flags such as GCC's
 `-freflection` remain probe-selected implementation details.
@@ -314,13 +328,22 @@ complete implementation. Vendor transitional flags such as GCC's
 The fallback path must remain includable in older language modes and diagnose
 an attempted reflection registration clearly.
 
+`std::meta::source_location_of` does not promise that every implementation
+returns the exact authored owner path and line Gentest would prefer. Reflected
+registration should preserve a usable location when provided, but must accept
+empty, implementation-selected, or non-owner locations. Diagnostics and case
+ordering need a deterministic fallback such as the registration footer's
+`std::source_location`; exact source fidelity should be covered by a toolchain
+probe rather than treated as a portable language guarantee.
+
 ## Current ecosystem constraint
 
-At the time of this design, GCC 16 exposes experimental reflection with
-`-freflection`, while Clang's published C++ status does not list reflection as
-implemented. Consequently, reflection removes Gentest's compilation-database
-manipulation but may give current clangd versions a source syntax they cannot
-parse.
+At the time of this design, [GCC's status page](https://gcc.gnu.org/projects/cxx-status.html)
+lists GCC 16 reflection behind `-freflection`, while
+[Clang's published C++ status](https://clang.llvm.org/cxx_status.html) does not
+list reflection as implemented. Consequently, reflection removes Gentest's
+compilation-database manipulation but may give current clangd versions a source
+syntax they cannot parse.
 
 This makes reflection suitable as an opt-in frontend, not yet as Gentest's only
 public declaration syntax.
@@ -329,7 +352,8 @@ public declaration syntax.
 
 - typed test/bench/jitter metadata;
 - explicit namespace-member discovery;
-- ordinary free functions and source locations;
+- ordinary free functions and best-available source locations with a defined
+  footer fallback;
 - local/suite/global fixtures through reflected parameter and type metadata;
 - structural value parameters, rows, and numeric sequences;
 - async tests through return-type inspection;
@@ -355,6 +379,7 @@ public declaration syntax.
 ## Validation requirements
 
 - final macro-value and focused API probes;
+- empty, implementation-selected, and exact reflected source-location results;
 - positive reflection build and fallback include build;
 - declarations before and after the footer;
 - direct and nested namespace behavior;
@@ -368,3 +393,16 @@ public declaration syntax.
 - `--list`, CTest discovery, and cross-build behavior;
 - module interface and private implementation-unit ownership;
 - install/consumer builds with codegen omitted.
+
+## Standards sources
+
+- [N5050, the final public C++26 draft](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2026/n5050.pdf)
+- [typed annotation wording](https://eel.is/c++draft/dcl.attr.annotation)
+- [`members_of` visibility and ordering](https://eel.is/c++draft/meta.reflection.member.queries)
+- [`define_aggregate` generation boundary](https://eel.is/c++draft/meta.reflection.define.aggregate)
+
+## Repository anchors
+
+- [current reflection prototype](../../include/gentest/reflection.h)
+- [current reflection user documentation](../reflection.md)
+- [reflection prototype tests](../../tests/reflection_cases.cpp)

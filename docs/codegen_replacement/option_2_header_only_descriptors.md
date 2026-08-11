@@ -94,28 +94,53 @@ const auto parse_benchmark =
         .run<&parse_batch>();
 ```
 
-Fixture lifetime moves from a parsed source attribute to a typed customization:
+Fixture lifetime and declaring-suite identity move from parsed source structure
+to a typed binding. Both are required: current suite fixtures belong to their
+declaring namespace and are shared with that namespace's descendant suites.
 
 ```cpp
+namespace calculator {
+
 struct Database : gentest::FixtureSetup, gentest::FixtureTearDown {
     void setUp() override;
     void tearDown() override;
 };
 
+} // namespace calculator
+
 template<>
-inline constexpr auto gentest::fixture_scope_v<Database> =
-    gentest::fixture_scope::suite;
+inline constexpr auto gentest::fixture_policy_v<calculator::Database> =
+    gentest::fixture_policy{
+        .lifetime = gentest::fixture_scope::suite,
+        .owner_suite = "calculator",
+        .identity = "calculator::Database",
+    };
 ```
 
 An optional per-case override avoids global specialization when the same type
-needs different ownership policies:
+needs different ownership policies. It must provide a complete binding key,
+not only a lifetime:
 
 ```cpp
 const auto case_with_override =
     gentest::test("database/local")
-        .fixture<0>(gentest::fixture_scope::local)
+        .fixture<0>(gentest::fixture_binding{
+            .lifetime = gentest::fixture_scope::local,
+            .owner_suite = "database",
+            .identity = "database/local/Database",
+        })
         .run<&uses_database>();
 ```
+
+For suite fixtures, resolution matches the owner suite itself and descendants
+at a namespace separator boundary. `calculator` may serve `calculator/parser`
+but must not serve `calculator_extra`. Registry identity includes lifetime,
+owner suite, fixture identity, and callback/type contract. Conflicting bindings
+for one identity must fail deterministically before the run.
+
+Reusing one C++ type in multiple owner scopes is allowed only with explicit,
+distinct binding identities. This avoids silently merging state that the
+current namespace-scoped model keeps separate.
 
 ## Template matrices
 
@@ -180,10 +205,13 @@ The adapter can use C++20 function traits and concepts to:
 1. Decompose the function pointer's argument and return types.
 2. Match explicitly bound parameter indices.
 3. Treat remaining supported argument forms as fixtures.
-4. Instantiate local or shared fixture handles.
-5. Select synchronous, asynchronous, benchmark, or jitter invocation.
-6. Produce stable descriptor storage and one or more runtime `Case` objects.
-7. Register those cases through the existing runtime registry.
+4. Resolve the binding's lifetime, declaring/owner suite, fixture identity, and
+   descendant-matching policy.
+5. Instantiate local handles or register/look up shared handles under that full
+   identity.
+6. Select synchronous, asynchronous, benchmark, or jitter invocation.
+7. Produce stable descriptor storage and one or more runtime `Case` objects.
+8. Register those cases through the existing runtime registry.
 
 The generated backend and the C++26 reflection backend should eventually call
 the same adapters instead of maintaining separate wrapper implementations.
@@ -301,6 +329,8 @@ descriptor path.
 - ordinary tests, benches, and jitters;
 - metadata, source location, selection, reporting, and CTest discovery;
 - local/suite/global fixtures and allocation hooks;
+- declaring-suite ownership, descendant matching, and conflict detection for
+  shared fixtures;
 - sync and async fixture/test adapters;
 - Cartesian parameters, row packs, and typed numeric generators;
 - function-template matrices through callable adapters;
@@ -343,6 +373,8 @@ The descriptor core needs parity tests for:
 - mixed fixture/value argument positions;
 - allocation, setup, call, teardown, and failure precedence;
 - suite/global scoping, repeat, filter, shuffle, and parallel execution;
+- exact-owner and descendant shared-fixture matches, prefix non-matches, and
+  one C++ fixture type bound explicitly in multiple owner scopes;
 - async completion, timeout, cancellation, blocked dependencies, and teardown;
 - benchmark/jitter phase separation and items-per-call normalization;
 - overload/default-argument diagnostics;
@@ -350,3 +382,10 @@ The descriptor core needs parity tests for:
 - static archive retention and explicit bundles;
 - mixed legacy-generated and descriptor cases in one executable;
 - include and named-module consumers.
+
+## Repository anchors
+
+- [runtime `Case` descriptor](../../include/gentest/detail/case_api.h)
+- [current fixture and generated-runtime helpers](../../include/gentest/detail/generated_runtime.h)
+- [runtime case registry](../../src/runner_impl.cpp)
+- [shared-fixture owner/descendant matching](../../src/runner_fixture_runtime.cpp)

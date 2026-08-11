@@ -7,9 +7,11 @@ void addition(Database &database) {
     // Existing body and semantics.
 }
 
+#define GENTEST_TU_ID calculator_cases
 #if !defined(GENTEST_CODEGEN)
-#include GENTEST_GENERATED_TU_REGISTRATION
+#include <gentest/registration_tail.h>
 #endif
+#undef GENTEST_TU_ID
 ```
 
 ```cpp
@@ -37,7 +39,9 @@ GENTEST_REFLECT_REGISTER(calculator_case_tu)
 
 Implement option 1 first: compile authored `.cpp` files directly and require a
 guarded, fail-closed generated registration include at the end of each legacy
-textual test source.
+textual test source that does not contain module imports. Keep importing
+textual `.cpp` sources on wrapper compatibility mode until a pre-import
+preamble plus no-preamble tail protocol is separately implemented and tested.
 
 While doing that, begin extracting the generated wrapper algorithms into a
 backend-neutral C++20 typed adapter core. That core becomes option 2's public
@@ -78,9 +82,11 @@ Option 1 removes that structural problem without simultaneously rewriting:
 The source change is mechanical and visible:
 
 ```cpp
+#define GENTEST_TU_ID calculator_cases
 #if !defined(GENTEST_CODEGEN)
-#include GENTEST_GENERATED_TU_REGISTRATION
+#include <gentest/registration_tail.h>
 #endif
+#undef GENTEST_TU_ID
 ```
 
 The build result is materially simpler:
@@ -113,9 +119,17 @@ static void generated_wrapper(void *context) {
 using GeneratedCase = gentest::detail::BoundCase<
     &calculator_cases::addition,
     gentest::detail::case_spec<"calculator/addition">,
-    gentest::detail::fixture_binding<0, Database, gentest::suite_fixture>,
+    gentest::detail::fixture_binding<
+        0,
+        Database,
+        gentest::suite_fixture<"calculator", "calculator::Database">>,
     gentest::detail::value_axis<1, 1, 2>>;
 ```
+
+The fixture binding must retain the current declaring-suite invariant: a suite
+fixture serves its owner namespace and descendants, not unrelated prefix
+matches. Its registry key also needs a stable fixture identity so one C++ type
+can be bound explicitly in multiple scopes without accidental state merging.
 
 This yields one implementation of the difficult runtime semantics:
 
@@ -141,6 +155,8 @@ The ordinary-function descriptor form should be the primary portable API:
 
 ```cpp
 namespace service_cases {
+
+using namespace std::chrono_literals;
 
 gentest::async_test<void> reconnect(
     ServiceFixture &service,
@@ -238,21 +254,35 @@ C++26 reflection cannot synthesize arbitrary virtual overrides and bodies.
 1. Add option 1 as an explicit `EMBEDDED_REGISTRATION` strategy for textual
    sources.
 2. Keep target `SOURCES` unchanged and scan the authored `.cpp` directly.
-3. Generate one target-specific tail header per source with a hard object
-   dependency.
+3. Generate one target-specific tail header per source under a target-private
+   include root, addressed by a stable source-owned `GENTEST_TU_ID` paired with
+   an explicit CMake `SOURCE_IDS "source.cpp=id"` mapping. Generate a
+   target-private dispatcher that rejects undeclared IDs, have codegen validate
+   source/mapping mismatches, and use a target-level generation dependency
+   rather than directory-scoped source properties.
 4. Add focused anchor validation and truthful artifact-manifest semantics.
 5. Prove exact test inventory and behavior parity against wrapper mode.
 6. Remove clang-tidy owner remapping for embedded targets and verify authored
    compilation-database entries.
-7. Migrate repository tests and downstream examples mechanically.
-8. Make embedded mode the next major version's default; retain wrapper mode for
-   one explicit compatibility window.
-9. Extract wrapper behavior into the C++20 typed adapter core.
-10. Add option 2 descriptors and mixed-backend tests.
-11. Extend option 3 to fixtures, parameters, async, and measured cases by using
+7. Mark embedded owners `SKIP_UNITY_BUILD_INCLUSION ON` and prove a unity-enabled
+   target still compiles and registers every owner independently.
+8. Before repository-wide migration/defaulting, extract an internal,
+   behavior-preserving typed adapter boundary for fixture allocation and shared
+   owner-scope registration, sync/async invocation, and benchmark/jitter phase
+   state. Legacy parsing and parameter/template value expansion may still emit
+   data and specializations at this milestone.
+9. Make embedded generated headers instantiate those adapters and rerun exact
+   parity tests.
+10. Migrate repository tests and downstream examples mechanically.
+11. Make embedded mode the next major version's default; retain wrapper mode for
+   one explicit compatibility window. Ordinary textual `.cpp` sources that
+   import modules remain on wrapper mode until a separately tested pre-import
+   preamble/tail protocol exists.
+12. Add option 2 public descriptors and mixed-backend tests.
+13. Extend option 3 to fixtures, parameters, async, and measured cases by using
     the same adapters.
-12. Decide and migrate automatic mocks separately.
-13. Remove the legacy Clang package only when old attributes and generated mocks
+14. Decide and migrate automatic mocks separately.
+15. Remove the legacy Clang package only when old attributes and generated mocks
     no longer require it.
 
 ## First implementation issue scope
@@ -270,8 +300,14 @@ Do not make descriptor/reflection parity a blocker.
 It should still lay compatible foundations:
 
 - an explicit attachment-strategy boundary in CMake;
+- target-private include addressing that works when one source belongs to two
+  targets;
+- explicit `SOURCE_IDS` planning plus source/footer mismatch diagnostics;
+- unity-build exclusion for every embedded owner;
 - output manifests that do not claim the owner is replaced;
 - generated headers structured to permit later typed-adapter extraction;
+- an explicit wrapper fallback for ordinary textual `.cpp` sources containing
+  imports until their pre-import support contract is implemented;
 - mixed wrapper/embedded targets during migration;
 - tests that prove compile-database and clang-tidy simplification.
 
@@ -279,10 +315,17 @@ It should still lay compatible foundations:
 
 The recommended direction is successful when:
 
-- textual targets compile authored `.cpp` files directly;
+- ordinary non-importing textual targets compile authored `.cpp` files directly;
 - clangd and clang-tidy receive exact authored-source commands;
-- no Gentest wrapper source is required for textual registration;
+- no Gentest wrapper source is required for ordinary non-importing textual
+  registration; importing sources have an explicit follow-up protocol;
 - legacy behavior remains equivalent during migration;
 - new descriptor targets install and build without Clang tooling;
 - reflection is an interchangeable frontend rather than a separate runtime;
 - only legacy syntax and unresolved automatic mock generation keep Clang alive.
+
+## Detailed branch records
+
+- [option 1: embedded legacy registration](option_1_embedded_legacy_registration.md)
+- [option 2: header-only typed descriptors](option_2_header_only_descriptors.md)
+- [option 3: C++26 typed reflection](option_3_cpp26_reflection.md)

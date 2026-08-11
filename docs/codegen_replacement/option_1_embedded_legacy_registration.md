@@ -4,11 +4,13 @@
 #include <gentest/attributes.h>
 #include <gentest/runner.h>
 
-namespace calculator_cases {
+namespace calculator {
 
-struct [[using gentest: fixture(suite)]] Database {
-    void setUp();
-    void tearDown();
+struct [[using gentest: fixture(suite)]] Database
+    : gentest::FixtureSetup,
+      gentest::FixtureTearDown {
+    void setUp() override;
+    void tearDown() override;
 };
 
 [[using gentest: test("calculator/add"), fast, req("CALC-1")]]
@@ -31,13 +33,15 @@ void throughput(Database &database) {
     // Fixture setup and teardown remain outside the measured call phase.
 }
 
-} // namespace calculator_cases
+} // namespace calculator
 
 // The codegen parse defines GENTEST_CODEGEN and deliberately skips this tail.
 // A real target compile requires the generated header and fails if it is absent.
+#define GENTEST_TU_ID calculator_cases
 #if !defined(GENTEST_CODEGEN)
-#include GENTEST_GENERATED_TU_REGISTRATION
+#include <gentest/registration_tail.h>
 #endif
+#undef GENTEST_TU_ID
 ```
 
 ```cmake
@@ -47,7 +51,8 @@ target_link_libraries(calculator_tests PRIVATE gentest::gentest_main)
 # Proposed API.
 gentest_attach_codegen(calculator_tests
     EMBEDDED_REGISTRATION
-    SOURCES calculator_cases.cpp)
+    SOURCES calculator_cases.cpp
+    SOURCE_IDS "calculator_cases.cpp=calculator_cases")
 
 gentest_discover_tests(calculator_tests)
 ```
@@ -62,7 +67,9 @@ one step.
 
 Users keep the current attributes, function bodies, fixtures, parameters,
 templates, async cases, benches, jitters, death cases, and explicit mock
-targets. Each textual test translation unit adds one terminal include anchor.
+targets. Each ordinary textual test translation unit without module imports
+adds one terminal include anchor. Importing textual sources retain wrapper
+compatibility initially, as described below.
 
 The authored `.cpp` remains the source compiled by CMake. Gentest no longer
 generates a wrapper `.cpp` that includes and replaces the authored source.
@@ -73,8 +80,8 @@ The footer is fail-closed during the real compile:
   own output before producing that output;
 - the real compiler does not define `GENTEST_CODEGEN`, so a missing generated
   registration header is a hard compilation failure;
-- CMake adds a dependency from the authored source's object build to its
-  generated header.
+- CMake adds a target-level dependency that generates every embedded header
+  before compiling any authored owner object.
 
 Do not use `__has_include` in the real compilation path. It would allow an
 incorrectly ordered build to silently produce a binary with no registered
@@ -88,13 +95,17 @@ The generated header remains tail code. Conceptually it contains:
 // calculator_cases.gentest.h -- generated, illustrative only
 #pragma once
 
-#include <gentest/detail/generated_runtime.h>
+// registration_tail.h or an earlier preamble supplies generated-runtime
+// support before this target-private file is included.
+namespace gentest::generated::calculator_cases {
 
-namespace {
-
-void gentest_invoke_addition(void *context) {
-    auto &database = gentest::detail::fixture_from_context<calculator_cases::Database>(context);
-    calculator_cases::addition(database);
+static void gentest_invoke_addition(void *context) {
+    auto *database = static_cast<calculator::Database *>(context);
+    if (database == nullptr) {
+        gentest_record_fixture_failure("calculator::Database", "instance missing");
+        return;
+    }
+    calculator::addition(*database);
 }
 
 inline constexpr gentest::Case cases[] = {
@@ -105,7 +116,8 @@ inline constexpr gentest::Case cases[] = {
         .line = 13,
         .tags = gentest_generated_tags_0,
         .requirements = gentest_generated_requirements_0,
-        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .fixture = "calculator::Database",
+        .fixture_lifetime = gentest::FixtureLifetime::MemberSuite,
         .suite = "calculator",
     },
     // Parameter, async, benchmark, and jitter expansions follow.
@@ -113,15 +125,22 @@ inline constexpr gentest::Case cases[] = {
 
 struct GentestTranslationUnitRegistrar {
     GentestTranslationUnitRegistrar() {
+        gentest::detail::register_shared_fixture<calculator::Database>(
+            gentest::detail::SharedFixtureScope::Suite,
+            "calculator",
+            "calculator::Database");
         gentest::detail::register_cases(cases);
     }
 };
 
 [[maybe_unused]] const GentestTranslationUnitRegistrar registrar{};
 
-} // namespace
+} // namespace gentest::generated::calculator_cases
 ```
 
+This is a reduced illustration of the current contract, not a new public API.
+In particular, shared fixtures require both a non-`None` `Case` lifetime and a
+matching `register_shared_fixture<T>(scope, owner_suite, fixture_name)` call.
 The exact generated implementation should reuse the current rendering and
 runtime contracts initially. This option changes output placement and CMake
 attachment, not test semantics.
@@ -154,30 +173,80 @@ include paths, and per-source options.
 
 ## Target-specific include resolution
 
-The source must not bake a target name or absolute build path into the include:
+The source must not bake a target name or absolute build path into the include.
+It supplies a stable TU identifier instead:
 
 ```cpp
+#define GENTEST_TU_ID calculator_cases
 #if !defined(GENTEST_CODEGEN)
-#include GENTEST_GENERATED_TU_REGISTRATION
+#include <gentest/registration_tail.h>
+#endif
+#undef GENTEST_TU_ID
+```
+
+The same identifier is declared explicitly to CMake so output paths are known
+at configure time:
+
+```cmake
+gentest_attach_codegen(calculator_tests
+    EMBEDDED_REGISTRATION
+    SOURCES calculator_cases.cpp parser_cases.cpp
+    SOURCE_IDS
+        "calculator_cases.cpp=calculator_cases"
+        "parser_cases.cpp=parser_cases")
+```
+
+CMake validates that every embedded source has exactly one unique ID and can
+then declare all dispatcher, leaf-header, depfile, and manifest outputs without
+parsing C++ or waiting for codegen.
+
+The source defines `GENTEST_TU_ID` outside the `GENTEST_CODEGEN` include guard.
+The Clang preprocessor callback therefore observes and validates it against
+`SOURCE_IDS` during the scan, before emitting outputs; CMake itself does not
+parse C++.
+
+Each target generates its own private `gentest/registration_tail.h` dispatcher.
+Conceptually it selects the leaf header from the source-owned token:
+
+```cpp
+// Target-private generated registration_tail.h, simplified.
+#define GENTEST_DETAIL_ID_calculator_cases 1
+#define GENTEST_DETAIL_ID_parser_cases     2
+#define GENTEST_DETAIL_JOIN_IMPL(lhs, rhs) lhs##rhs
+#define GENTEST_DETAIL_JOIN(lhs, rhs) GENTEST_DETAIL_JOIN_IMPL(lhs, rhs)
+#define GENTEST_DETAIL_SELECTED_ID(id) GENTEST_DETAIL_JOIN(GENTEST_DETAIL_ID_, id)
+
+#if GENTEST_DETAIL_SELECTED_ID(GENTEST_TU_ID) == 1
+#include <gentest/generated/calculator_cases.gentest.h>
+#elif GENTEST_DETAIL_SELECTED_ID(GENTEST_TU_ID) == 2
+#include <gentest/generated/parser_cases.gentest.h>
+#else
+#error "GENTEST_TU_ID is not declared in gentest_attach_codegen(SOURCE_IDS)"
 #endif
 ```
 
-CMake supplies a quoted header token for each compilation:
+Every target receives its own private generated include root, containing for
+example `gentest/generated/calculator_cases.gentest.h`. The same source and TU
+identifier can therefore be compiled by two targets while resolving to two
+different target-owned headers. CMake uses a target-level dependency so all of
+that target's embedded headers exist before any owner compilation; it does not
+depend on directory-scoped source `COMPILE_DEFINITIONS` or `OBJECT_DEPENDS`.
 
-```text
--DGENTEST_GENERATED_TU_REGISTRATION="gentest/calculator_tests/9f21c4a7.gentest.h"
-```
-
-The output key should be derived from a normalized project-relative source key,
-not only from the basename. This prevents collisions between:
+TU identifiers must be unique within one target and should be stable under
+build-directory moves. CMake catches duplicate mappings between:
 
 ```text
 tests/unit/cases.cpp
 tests/integration/cases.cpp
 ```
 
-It also allows one authored source to be compiled in multiple targets with
-different flags and therefore different generated registrations.
+Projects may choose readable explicit IDs as above or let a codemod derive an
+ID from the normalized project-relative source path. The codemod updates both
+the footer and `SOURCE_IDS`. The codegen preprocessor callback diagnoses a
+source/CMake mismatch, while the generated dispatcher rejects any undeclared
+ID that reaches a real compile.
+The identifier, source key, and target-private root together define the output
+identity.
 
 ## Capabilities retained
 
@@ -199,9 +268,11 @@ static void source_local(LocalFixture &fixture) {
 
 } // namespace
 
+#define GENTEST_TU_ID private_static_cases
 #if !defined(GENTEST_CODEGEN)
-#include GENTEST_GENERATED_TU_REGISTRATION
+#include <gentest/registration_tail.h>
 #endif
+#undef GENTEST_TU_ID
 ```
 
 This retains:
@@ -254,7 +325,43 @@ macros, aliases, overload resolution, constraints, source-local types, or the
 target's module state without recreating compiler semantics. Option 1 keeps the
 semantic parser deliberately and removes only the wrapper ownership trick.
 
-## Modules
+## Ordinary `.cpp` sources that import modules
+
+An ordinary textual `.cpp` containing `import` is a separate compatibility
+case. The current wrapper injects Gentest/standard support before the first
+import and suppresses the generated tail header's preamble; GCC can reject
+repeated textual declarations introduced after importing the same facilities.
+
+The first embedded implementation should detect this case and keep it on
+wrapper mode with a focused message instead of emitting an invalid tail:
+
+```text
+import_only.cpp: embedded registration does not yet support textual sources
+that import modules; use wrapper compatibility mode
+```
+
+A follow-up may add an explicit two-anchor protocol:
+
+```cpp
+#include <gentest/registration_preamble.h> // before the first import
+import calculator;
+
+[[using gentest: test("calculator/imported")]]
+void imported_case();
+
+#define GENTEST_TU_ID calculator_import_cases
+#define GENTEST_TU_REGISTRATION_NO_PREAMBLE 1
+#if !defined(GENTEST_CODEGEN)
+#include <gentest/registration_tail.h>
+#endif
+#undef GENTEST_TU_REGISTRATION_NO_PREAMBLE
+#undef GENTEST_TU_ID
+```
+
+That protocol needs its own GCC/Clang/module dependency tests. It is not implied
+by the single-footer ordinary textual design.
+
+## Named module units
 
 Do not append the textual footer protocol blindly to named module interfaces.
 The initial implementation should keep the existing additive same-module
@@ -287,9 +394,13 @@ sprinkled through the existing wrapper path. Suggested internal phases:
 3. Plan target-specific generated header, depfile, manifest, inventory, and
    mock outputs.
 4. Invoke codegen on the authored source with `GENTEST_CODEGEN=1`.
-5. Add the generated root to the target include path.
-6. Add the per-source include macro and object dependency.
-7. Leave target `SOURCES` and module file sets unchanged.
+5. Add the target-private generated root to the target include path.
+6. Add a target-level dependency that materializes all embedded headers before
+   compiling any owner source.
+7. Mark every embedded owner source `SKIP_UNITY_BUILD_INCLUSION ON`. Combining
+   multiple owners into one unity TU can collide internal names and can make one
+   dispatcher include suppress another.
+8. Leave target `SOURCES` and module file sets unchanged.
 
 The artifact manifest must describe the new contract honestly, for example:
 
@@ -298,7 +409,7 @@ The artifact manifest must describe the new contract honestly, for example:
   "kind": "cxx-owner-tail-registration",
   "owner_source": "/src/tests/calculator_cases.cpp",
   "generated_headers": [
-    "/build/gentest/calculator_tests/9f21c4a7.gentest.h"
+    "/build/gentest/calculator_tests/include/gentest/generated/calculator_cases.gentest.h"
   ],
   "includes_owner_source": false,
   "replaces_owner_source": false
@@ -315,8 +426,8 @@ The implementation should diagnose these cases directly:
 ```text
 calculator_cases.cpp: missing terminal Gentest registration anchor
 calculator_cases.cpp: registration anchor appears before the last discovered case
-calculator_cases.cpp: embedded registration was requested by two incompatible target contexts
-calculator_cases.cpp: generated include macro is user-defined
+calculator_cases.cpp: duplicate GENTEST_TU_ID 'calculator_cases' in this target
+calculator_cases.cpp: source GENTEST_TU_ID does not match SOURCE_IDS mapping
 ```
 
 A scan may validate the anchor with preprocessor callbacks. CMake should not
@@ -338,6 +449,11 @@ At minimum, the branch implementing this option should prove:
 - generated textual mocks retain overload, const/ref, and `noexcept` behavior;
 - two same-basename sources do not collide;
 - one source compiled by two targets receives distinct generated headers;
+- configure rejects missing/duplicate `SOURCE_IDS`, codegen diagnoses a
+  source/footer mismatch, and the dispatcher rejects undeclared IDs;
+- a target with `UNITY_BUILD ON` still compiles each embedded owner separately;
+- ordinary `.cpp` sources that import modules remain on wrapper mode with a
+  focused diagnostic, and the existing import-only regression remains green;
 - no-op reconfigure does not rerun codegen;
 - compiler define/include changes do rerun codegen;
 - deleting a generated header recovers correctly;
@@ -355,3 +471,10 @@ but one owner source must use exactly one attachment strategy in a given
 target. After the repository and downstream examples migrate, embedded mode
 can become the default in a major release and wrapper mode can enter a defined
 compatibility window.
+
+## Repository anchors
+
+- [current wrapper construction and source replacement](../../cmake/gentest/TuMode.cmake)
+- [current generated registration and wrapper templates](../../tools/src/templates.hpp)
+- [clang-tidy owner-source remapping](../../scripts/check_clang_tidy.sh)
+- [why a standalone declaration-only registration TU was rejected](../stories/036_textual_declaration_only_registration.md)
