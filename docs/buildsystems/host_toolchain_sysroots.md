@@ -130,8 +130,9 @@ is retained only to give an actionable migration error and the latter is not
 read by codegen actions. The source-package fallback
 `GENTEST_BAZEL_LOCAL_CLANG=/path/to/clang++` is for local testing only; it is
 not a portable tool bundle. Gentest marks its actions `no-remote`, so they
-cannot use remote execution or a remote action cache (local/disk caches remain
-usable). See [bazel.md](bazel.md#exec-toolchain-contract) for the
+cannot use remote execution or any action cache, including local and disk
+caches. Register a packaged exec toolchain when cache reuse is required. See
+[bazel.md](bazel.md#exec-toolchain-contract) for the
 registered-toolchain example, full runfiles/runtime closure requirements, and
 cache behavior.
 
