@@ -1778,6 +1778,30 @@ std::vector<std::string> read_response_file_arguments(const std::filesystem::pat
     return args;
 }
 
+std::vector<std::filesystem::path> response_file_inputs(std::span<const std::string> arguments, std::string_view working_directory) {
+    std::vector<std::filesystem::path> inputs;
+    const auto                         append_arguments = [&](const auto &self, std::span<const std::string> nested_arguments) -> void {
+        for (const auto &argument : nested_arguments) {
+            if (!llvm::StringRef{argument}.starts_with("@")) {
+                continue;
+            }
+            const std::string resolved = normalize_compdb_lookup_path(std::string_view{argument}.substr(1), working_directory);
+            if (resolved.empty() || !std::filesystem::exists(resolved)) {
+                continue;
+            }
+            const std::filesystem::path path{resolved};
+            if (std::ranges::find(inputs, path) != inputs.end()) {
+                continue;
+            }
+            inputs.push_back(path);
+            const auto response_arguments = read_response_file_arguments(path);
+            self(self, std::span<const std::string>{response_arguments.data(), response_arguments.size()});
+        }
+    };
+    append_arguments(append_arguments, arguments);
+    return inputs;
+}
+
 std::vector<std::filesystem::path> compilation_database_response_file_inputs(const std::filesystem::path &database_path) {
     const auto buffer = llvm::MemoryBuffer::getFile(database_path.string());
     if (!buffer) {
@@ -1794,25 +1818,6 @@ std::vector<std::filesystem::path> compilation_database_response_file_inputs(con
     }
 
     std::vector<std::filesystem::path> inputs;
-    const auto                         append_arguments = [&](const auto &self, std::span<const std::string> arguments,
-                                                              std::string_view working_directory) -> void {
-        for (const auto &argument : arguments) {
-            if (!llvm::StringRef{argument}.starts_with("@")) {
-                continue;
-            }
-            const std::string resolved = normalize_compdb_lookup_path(std::string_view{argument}.substr(1), working_directory);
-            if (resolved.empty() || !std::filesystem::exists(resolved)) {
-                continue;
-            }
-            const std::filesystem::path path{resolved};
-            if (std::ranges::find(inputs, path) != inputs.end()) {
-                continue;
-            }
-            inputs.push_back(path);
-            const auto nested_arguments = read_response_file_arguments(path);
-            self(self, std::span<const std::string>{nested_arguments.data(), nested_arguments.size()}, working_directory);
-        }
-    };
 
     for (const auto &entry_value : *entries) {
         const auto *entry = entry_value.getAsObject();
@@ -1842,7 +1847,11 @@ std::vector<std::filesystem::path> compilation_database_response_file_inputs(con
                 arguments.emplace_back(argument);
             }
         }
-        append_arguments(append_arguments, std::span<const std::string>{arguments.data(), arguments.size()}, working_directory);
+        for (const auto &path : response_file_inputs(std::span<const std::string>{arguments.data(), arguments.size()}, working_directory)) {
+            if (std::ranges::find(inputs, path) == inputs.end()) {
+                inputs.push_back(path);
+            }
+        }
     }
     return inputs;
 }
@@ -2617,6 +2626,18 @@ std::optional<std::string_view> named_module_from_module_file_arg(std::string_vi
         return std::nullopt;
     }
     return rest.substr(0, eq);
+}
+
+std::optional<std::string_view> module_file_path_from_arg(std::string_view arg) {
+    static constexpr std::string_view prefix = "-fmodule-file=";
+    if (!arg.starts_with(prefix)) {
+        return std::nullopt;
+    }
+    std::string_view value = arg.substr(prefix.size());
+    if (const auto separator = value.find('='); separator != std::string_view::npos) {
+        value.remove_prefix(separator + 1);
+    }
+    return value.empty() ? std::nullopt : std::optional<std::string_view>{value};
 }
 
 std::vector<std::string> normalize_module_file_args(std::vector<std::string> args) {
@@ -4565,12 +4586,37 @@ int main(int argc, const char **argv) {
     };
 
     std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> compile_commands_by_file;
+    bool                                                                         protected_trailing_clang_args = false;
     for (const auto &command : database->getAllCompileCommands()) {
+        for (const auto &response_file : response_file_inputs(options.clang_args, command.Directory)) {
+            add_timing_protected_path(timing_protected_paths, response_file, "trailing clang response-file input");
+        }
+        protected_trailing_clang_args = true;
+        const auto expanded_command   = expand_compile_command_response_files(command.CommandLine, command.Directory, false);
+        for (const auto &module_arg : collect_module_file_args_from_command_line(expanded_command)) {
+            if (const auto module_path = module_file_path_from_arg(module_arg); module_path.has_value()) {
+                const std::string resolved = normalize_compdb_lookup_path(*module_path, command.Directory);
+                if (!resolved.empty()) {
+                    add_timing_protected_path(timing_protected_paths, resolved, "prebuilt module input");
+                }
+            }
+        }
         const std::string key = normalize_compdb_lookup_path(command.Filename, command.Directory);
         if (key.empty()) {
             continue;
         }
         compile_commands_by_file[key].push_back(command);
+    }
+    if (!protected_trailing_clang_args) {
+        for (const auto &response_file : response_file_inputs(options.clang_args, std::filesystem::current_path().string())) {
+            add_timing_protected_path(timing_protected_paths, response_file, "trailing clang response-file input");
+        }
+    }
+    std::string compiler_input_timing_collision_error;
+    if (!gentest::codegen::validate_timing_json_dependency_collision(options, {}, timing_protected_paths,
+                                                                     compiler_input_timing_collision_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", compiler_input_timing_collision_error);
+        return 1;
     }
     std::vector<std::string> compdb_files;
     compdb_files.reserve(compile_commands_by_file.size());

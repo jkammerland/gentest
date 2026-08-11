@@ -90,12 +90,15 @@ if(NOT EXISTS "${_build_dir}/compile_commands.json")
 endif()
 
 function(_gentest_expect_artifact_failure name)
-  set(multi_value_args ARGS OUTPUTS PRESERVE_FILES REQUIRED_SUBSTRINGS)
+  set(multi_value_args ARGS TRAILING_ARGS OUTPUTS PRESERVE_FILES REQUIRED_SUBSTRINGS)
   cmake_parse_arguments(CASE "" "" "${multi_value_args}" ${ARGN})
 
   set(_command "${PROG}" ${CASE_ARGS})
-  if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
-    list(APPEND _command -- "${TARGET_ARG}")
+  if(CASE_TRAILING_ARGS OR (DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL ""))
+    list(APPEND _command -- ${CASE_TRAILING_ARGS})
+    if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
+      list(APPEND _command "${TARGET_ARG}")
+    endif()
   endif()
 
   set(_preserve_hashes "")
@@ -214,6 +217,47 @@ _gentest_expect_artifact_failure(
     "${_response_file}"
   REQUIRED_SUBSTRINGS
     "compilation response-file input")
+
+set(_trailing_response_child "${_work_dir}/trailing-child.rsp")
+set(_trailing_response_parent "${_work_dir}/trailing-parent.rsp")
+file(WRITE "${_trailing_response_child}" "-DGENTEST_TRAILING_RESPONSE_SENTINEL=1\n")
+file(WRITE "${_trailing_response_parent}" "@${_trailing_response_child}\n")
+_gentest_expect_artifact_failure(
+  "timing JSON/trailing nested response-file collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_trailing_response_file"
+    --timing-json "${_trailing_response_child}"
+    --compdb "${_build_dir}"
+    "${_source}"
+  TRAILING_ARGS
+    "@${_trailing_response_parent}"
+  PRESERVE_FILES
+    "${_trailing_response_child}"
+  REQUIRED_SUBSTRINGS
+    "trailing clang response-file input")
+
+set(_prebuilt_module_input "${_work_dir}/external-module.pcm")
+set(_prebuilt_module_compdb_dir "${_work_dir}/prebuilt-module-compdb")
+file(MAKE_DIRECTORY "${_prebuilt_module_compdb_dir}")
+file(WRITE "${_prebuilt_module_input}" "prebuilt module timing collision sentinel\n")
+file(READ "${_compile_commands}" _prebuilt_module_compdb_json)
+string(JSON _prebuilt_module_command GET "${_prebuilt_module_compdb_json}" 0 command)
+string(APPEND _prebuilt_module_command " -fmodule-file=external=${_prebuilt_module_input}")
+string(REPLACE "\\" "\\\\" _prebuilt_module_command_json "${_prebuilt_module_command}")
+string(REPLACE "\"" "\\\"" _prebuilt_module_command_json "${_prebuilt_module_command_json}")
+string(JSON _prebuilt_module_compdb_json SET "${_prebuilt_module_compdb_json}" 0 command "\"${_prebuilt_module_command_json}\"")
+file(WRITE "${_prebuilt_module_compdb_dir}/compile_commands.json" "${_prebuilt_module_compdb_json}\n")
+_gentest_expect_artifact_failure(
+  "timing JSON/prebuilt module collision"
+  ARGS
+    --tu-out-dir "${_work_dir}/timing_prebuilt_module"
+    --timing-json "${_prebuilt_module_input}"
+    --compdb "${_prebuilt_module_compdb_dir}"
+    "${_source}"
+  PRESERVE_FILES
+    "${_prebuilt_module_input}"
+  REQUIRED_SUBSTRINGS
+    "prebuilt module input")
 
 set(_source_root_input "${_work_dir}/source_root_input.txt")
 file(WRITE "${_source_root_input}" "source-root timing collision sentinel\n")
