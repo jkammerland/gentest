@@ -163,6 +163,33 @@ set(_meson_env
   "GENTEST_CODEGEN_PARSE_CACHE_DIR="
   "TMPDIR=${_scratch_root}/workspace/tmp")
 
+# Header-module modes do not provide the complete preprocessing depfile that
+# this textual/Ninja helper requires. Configuration must fail clearly instead
+# of accepting a build graph that can go stale.
+set(_module_reject_workspace "${_scratch_root}/module-reject-workspace")
+file(COPY "${_scratch_root}/workspace/" DESTINATION "${_module_reject_workspace}")
+file(READ "${_module_reject_workspace}/meson.build" _module_reject_meson)
+string(REPLACE
+  "'source': 'tests/cache_cases.cpp',"
+  "'source': 'tests/cache_cases.cpp',\n    'clang_args': ['-fmodules'],"
+  _module_reject_meson
+  "${_module_reject_meson}")
+file(WRITE "${_module_reject_workspace}/meson.build" "${_module_reject_meson}")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_meson_env} "${_meson}" setup
+          "${_module_reject_workspace}/build" "${_module_reject_workspace}"
+          "-Dgentest_codegen_path=${_codegen}"
+          "-Dgentest_codegen_host_clang=${_clang_cxx}"
+  WORKING_DIRECTORY "${_module_reject_workspace}"
+  RESULT_VARIABLE _module_reject_rc
+  OUTPUT_VARIABLE _module_reject_out
+  ERROR_VARIABLE _module_reject_err)
+set(_module_reject_log "${_module_reject_out}\n${_module_reject_err}")
+if(_module_reject_rc EQUAL 0 OR NOT _module_reject_log MATCHES "does not support header-module clang_args")
+  message(FATAL_ERROR
+    "Meson textual helper did not reject callback-incomplete header-module flags.\n${_module_reject_log}")
+endif()
+
 set(_setup_args
   setup "${_out_dir}" "${_scratch_root}/workspace" "--wipe"
   "-Dgentest_codegen_path=${_codegen}"

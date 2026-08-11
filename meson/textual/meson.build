@@ -51,11 +51,23 @@ foreach mock_decl : gentest_textual_mocks
   if mock_decl.get('kind', 'textual') != 'textual'
     error('gentest Meson helper is textual-only; named modules are intentionally unsupported')
   endif
+  foreach clang_arg : mock_decl.get('clang_args', [])
+    normalized_arg = clang_arg.startswith('/clang:') ? clang_arg.substring(7) : clang_arg
+    if normalized_arg.startswith('-fmodule') or normalized_arg.startswith('-fprebuilt-module-path') or normalized_arg.startswith('-fimplicit-module')
+      error('gentest Meson textual helper does not support header-module clang_args because their dependencies are not representable by codegen depfiles: @0@'.format(clang_arg))
+    endif
+  endforeach
 endforeach
 foreach suite_decl : gentest_textual_suites
   if suite_decl.get('kind', 'textual') != 'textual'
     error('gentest Meson helper is textual-only; named modules are intentionally unsupported')
   endif
+  foreach clang_arg : suite_decl.get('clang_args', [])
+    normalized_arg = clang_arg.startswith('/clang:') ? clang_arg.substring(7) : clang_arg
+    if normalized_arg.startswith('-fmodule') or normalized_arg.startswith('-fprebuilt-module-path') or normalized_arg.startswith('-fimplicit-module')
+      error('gentest Meson textual helper does not support header-module clang_args because their dependencies are not representable by codegen depfiles: @0@'.format(clang_arg))
+    endif
+  endforeach
 endforeach
 
 # Header invalidation is supplied by gentest_codegen's depfiles. Do not glob

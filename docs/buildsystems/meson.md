@@ -19,6 +19,11 @@ codegen header invalidation relies on depfiles. The downstream contract is:
 - describe textual mocks and suites with Meson dictionaries
 - load the helper with `subdir('subprojects/gentest/meson/textual')`
 
+Clang header-module flags (`-fmodules`, module maps, prebuilt module paths, and
+related `-fmodule*` options) are rejected by the textual helper. Clang's
+preprocessing callbacks cannot provide a complete textual depfile for those
+modes, and Meson has no supported named-module path here.
+
 The gentest subproject now exports:
 
 - `gentest_dep`
