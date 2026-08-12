@@ -1,9 +1,0 @@
-load("@rules_cc//cc:defs.bzl", "cc_library")
-
-cc_library(
-    name = "mock_codegen_headers",
-    hdrs = ["mock_dep.hpp"],
-    defines = ["GENTEST_BAZEL_MOCK_DEP=1"],
-    includes = ["."],
-    visibility = ["//visibility:public"],
-)
