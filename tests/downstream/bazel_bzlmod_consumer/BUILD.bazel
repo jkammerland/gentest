@@ -5,43 +5,18 @@ load(
     "gentest_attach_codegen_modules",
     "gentest_attach_codegen_textual",
 )
-load(":quote_headers.bzl", "categorized_headers")
-
-categorized_headers(
-    name = "codegen_headers",
-    hdrs = [
-        "tests/dep_case_value.hpp",
-        "tests/normal_include/include_semantics.hpp",
-        "tests/quote_include/include_semantics.hpp",
-    ],
-    includes = [
-        "tests/normal_include",
-        "tests",
-    ],
-    quote_includes = ["tests/quote_include"],
-)
-
-categorized_headers(
-    name = "mock_codegen_headers",
-    hdrs = ["//tests/mock_codegen_dep:mock_dep.hpp"],
-    defines = ["GENTEST_BAZEL_MOCK_DEP=1"],
-    quote_includes = ["tests/mock_codegen_dep"],
-)
 
 gentest_add_mocks_textual(
     name = "gentest_downstream_textual_mocks",
     defs = ["tests/header_mock_defs.hpp"],
     public_header = "gentest_downstream_mocks.hpp",
-    deps = [":mock_codegen_headers"],
 )
 
 gentest_attach_codegen_textual(
     name = "gentest_downstream_textual",
     src = "tests/cases.cpp",
     main = "tests/main.cpp",
-    source_hdrs = ["tests/private_case_value.hpp"],
     mock_targets = [":gentest_downstream_textual_mocks"],
-    deps = [":codegen_headers"],
     source_includes = ["tests"],
 )
 
@@ -56,17 +31,14 @@ gentest_add_mocks_modules(
         "downstream.bazel.mock_defs",
     ],
     module_name = "downstream.bazel.consumer_mocks",
-    deps = [":mock_codegen_headers"],
 )
 
 gentest_attach_codegen_modules(
     name = "gentest_downstream_module",
     src = "tests/cases.cppm",
     main = "tests/main.cpp",
-    source_hdrs = ["tests/private_case_value.hpp"],
     mock_targets = [":gentest_downstream_module_mocks"],
     deps = [
-        ":codegen_headers",
         "@gentest//:gentest",
         "@gentest//:gentest_bench_util",
     ],

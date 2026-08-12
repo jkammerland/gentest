@@ -4,7 +4,6 @@
 
 import gentest;
 import public_module_surface.cases;
-import public_module_surface.sync_cases;
 
 static_assert(sizeof(gentest::failure) > 0);
 static_assert(sizeof(gentest::assertion) > 0);

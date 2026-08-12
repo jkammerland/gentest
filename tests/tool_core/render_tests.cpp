@@ -47,10 +47,6 @@ int main() {
     t.expect(render_forward_decls({}, "ignored", "ignored").empty(), "render_forward_decls stays empty");
     t.contains(gentest::codegen::tpl::registration_preamble_light, "GENTEST_CASE_API_VERSION",
                "generated light preamble checks the Case API version");
-    t.contains(gentest::codegen::tpl::registration_preamble_light, "gentest/detail/registration_runtime.h",
-               "generated light preamble uses only the registration ABI");
-    t.excludes(gentest::codegen::tpl::registration_preamble_light, "gentest/async.h",
-               "generated light preamble does not parse the async implementation");
     t.contains(gentest::codegen::tpl::registration_preamble_full, "GENTEST_CASE_API_VERSION",
                "generated full preamble checks the Case API version");
     t.contains(gentest::codegen::tpl::registration_preamble_light, "GENTEST_CASE_API_HAS_OWNER",

@@ -1,7 +1,0 @@
-load("@gentest//bazel:defs.bzl", "gentest_attach_codegen_textual")
-
-gentest_attach_codegen_textual(
-    name = "bad",
-    src = "cases.cpp",
-    source_hdrs = ["//:tests/private_case_value.hpp"],
-)

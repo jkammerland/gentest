@@ -1,4 +1,0 @@
-exports_files(
-    ["mock_dep.hpp"],
-    visibility = ["//visibility:public"],
-)

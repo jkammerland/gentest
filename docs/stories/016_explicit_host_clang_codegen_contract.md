@@ -1,12 +1,5 @@
 # Story: explicit host-Clang contract for `gentest_codegen`
 
-> Historical design note: the Bazel-specific path described below has been
-> superseded by the registered exec-platform `gentest_codegen_toolchain` in
-> [the Bazel guide](../buildsystems/bazel.md#exec-toolchain-contract). Bazel no
-> longer accepts ambient `GENTEST_CODEGEN_HOST_CLANG` or per-target absolute
-> `codegen_host_clang` values; the CMake, Xmake, and Meson portions remain
-> historical context for their respective integrations.
-
 ## Goal
 
 Make `gentest_codegen` officially usable when the consumer toolchain is not
@@ -261,9 +254,19 @@ gentest_attach_codegen(my_tests
 
 ### Bazel
 
-Bazel no longer accepts an absolute `codegen_host_clang`. Register the
-exec-platform toolchain described in the [current Bazel guide](../buildsystems/bazel.md#exec-toolchain-contract),
-then keep target/sysroot flags in `clang_args`.
+```python
+gentest_attach_codegen_modules(
+    name = "my_tests",
+    src = "tests/cases.cppm",
+    main = "tests/main.cpp",
+    mock_targets = [":my_mocks"],
+    codegen_host_clang = "/opt/llvm/bin/clang++",
+    clang_args = [
+        "--target=aarch64-linux-gnu",
+        "--sysroot=/opt/sdk/sysroots/aarch64",
+    ],
+)
+```
 
 ### Xmake/xrepo
 

@@ -49,7 +49,8 @@ foreach(_token IN ITEMS
 endforeach()
 
 foreach(_token IN ITEMS
-    "#include \"gentest/test.h\""
+    "#include \"gentest/attributes.h\""
+    "#include \"gentest/runner.h\""
     "gentest::expect_true"
     "EXPECT_EQ")
   _assert_contains("${_hello_cases}" "${_token}" "include example source contract")

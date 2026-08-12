@@ -8,7 +8,8 @@
 Write tests with standard C++ attributes 
 
 ```cpp
-#include "gentest/test.h"
+#include "gentest/attributes.h"
+#include "gentest/runner.h"
 #include <list>
 #include <vector>
 using namespace gentest::asserts;
@@ -94,7 +95,8 @@ gentest_discover_tests(my_tests)
 `cases.cpp`:
 
 ```cpp
-#include "gentest/test.h"
+#include "gentest/attributes.h"
+#include "gentest/runner.h"
 
 using namespace gentest::asserts;
 
