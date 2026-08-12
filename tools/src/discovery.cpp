@@ -1101,7 +1101,8 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
         return;
     }
 
-    if (header_declaration_registration_ && sm->isWrittenInMainFile(loc)) {
+    const auto attrs = collect_gentest_attributes_for(*record, *sm);
+    if (header_declaration_registration_ && sm->isWrittenInMainFile(loc) && (!attrs.gentest.empty() || !attrs.mis_scoped_gentest.empty())) {
         had_error_ = true;
         report(*record, *sm,
                "Gentest fixture attributes in an authored .cpp are not supported by header-declaration registration; annotate the header "
@@ -1109,7 +1110,6 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
         return;
     }
 
-    const auto attrs = collect_gentest_attributes_for(*record, *sm);
     for (const auto &message : attrs.mis_scoped_gentest) {
         had_error_ = true;
         report(*record, *sm, mis_scoped_gentest_message(message));
