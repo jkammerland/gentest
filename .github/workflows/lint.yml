@@ -59,7 +59,7 @@ jobs:
     if: ${{ needs.plan.outputs.run_lint == 'true' }}
     name: Clang Format
     runs-on: ubuntu-24.04
-    container: fedora:43
+    container: ubuntu:24.04
     defaults:
       run:
         shell: bash
@@ -67,17 +67,25 @@ jobs:
       - name: Install dependencies
         run: |
           set -euxo pipefail
-          dnf -y upgrade --refresh
-          dnf -y install \
-            git \
-            which \
-            clang-tools-extra
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git gnupg
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          printf '%s\n' \
+            'Types: deb' \
+            'URIs: https://apt.llvm.org/noble/' \
+            'Suites: llvm-toolchain-noble-22' \
+            'Components: main' \
+            'Signed-By: /etc/apt/trusted.gpg.d/apt.llvm.org.asc' \
+            >/etc/apt/sources.list.d/apt-llvm-22.sources
+          apt-get update
+          apt-get install -y --no-install-recommends clang-format-22
 
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Check C++ formatting
-        run: scripts/check_clang_format.sh
+        run: CLANG_FORMAT_BIN=clang-format-22 scripts/check_clang_format.sh
 
   tidy:
     needs: plan

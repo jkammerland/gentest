@@ -1,5 +1,4 @@
-#include "gentest/assertions.h"
-#include "gentest/context.h"
+#include "gentest/test.h"
 
 #include <type_traits>
 
@@ -9,6 +8,6 @@ template <typename T, typename = void> inline constexpr bool kCompleteType      
 template <typename T> inline constexpr bool                  kCompleteType<T, std::void_t<decltype(sizeof(T))>> = true;
 
 static_assert(!kCompleteType<gentest::detail::TestContextInfo>,
-              "installed gentest/assertions.h + gentest/context.h must not expose the concrete TestContextInfo layout");
+              "installed gentest/test.h must not expose the concrete TestContextInfo layout");
 
 } // namespace

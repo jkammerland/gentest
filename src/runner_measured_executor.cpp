@@ -473,7 +473,7 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
     const OverheadEstimate per_iter_overhead  = estimate_timer_overhead_per_iter(kOverheadSamples);
     constexpr double       kOverheadThreshold = 10.0;
     const bool             use_batch          = (real_ns_per_iter > 0.0) && (per_iter_overhead.mean_ns > 0.0) &&
-                           (real_ns_per_iter < per_iter_overhead.mean_ns * kOverheadThreshold);
+                                                (real_ns_per_iter < per_iter_overhead.mean_ns * kOverheadThreshold);
 
     std::size_t      batch_samples = 1;
     std::size_t      batch_iters   = 1;

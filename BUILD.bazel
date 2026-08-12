@@ -68,6 +68,7 @@ genrule(
     # Still, we want Bazel to rebuild `gentest_codegen` when the generator sources/config change.
     srcs = _gentest_codegen_build_srcs,
     outs = ['gen_tools/gentest_codegen'],
+    executable = True,
     cmd = "set -e; " +
           "GENTEST_CMAKE_ARGS='-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON'; " +
           "GENTEST_SOURCE_ROOT=$$(dirname \"$(location CMakeLists.txt)\"); " +
@@ -107,6 +108,7 @@ genrule(
     name = 'gentest_codegen_build_windows',
     srcs = _gentest_codegen_build_srcs,
     outs = ['gen_tools/gentest_codegen.exe'],
+    executable = True,
     cmd_bat = "setlocal EnableDelayedExpansion && set GENTEST_CMAKE_ARGS=-DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON && " +
               "for %%I in (\"$(location CMakeLists.txt)\") do set GENTEST_SOURCE_ROOT=%%~dpI && " +
               "if not defined CC for %%I in (C:\\Tools\\llvm-23.1.0\\bin\\clang.exe C:\\Tools\\llvm-22.1.0\\bin\\clang.exe C:\\Tools\\llvm-21.1.4\\bin\\clang.exe C:\\Tools\\llvm-20.1.8\\bin\\clang.exe C:\\Tools\\llvm-19.1.7\\bin\\clang.exe) do if not defined CC if exist %%I set CC=%%I && " +
@@ -294,10 +296,18 @@ sh_test(
     ],
 )
 
+cc_library(
+    name = 'gentest_consumer_codegen_headers',
+    hdrs = ['tests/consumer/bazel_dep_case_value.hpp'],
+    includes = ['tests/consumer'],
+)
+
 gentest_add_mocks_textual(
     name = 'gentest_consumer_textual_mocks',
     defs = ['tests/consumer/header_mock_defs.hpp'],
+    defines = ['GENTEST_BAZEL_MOCK_PRIVATE_DEFINE=1'],
     public_header = 'gentest_consumer_mocks.hpp',
+    deps = ['//tests/consumer/bazel_mock_dep:mock_codegen_headers'],
     linkopts = _gentest_linkopts,
 )
 
@@ -305,7 +315,9 @@ gentest_attach_codegen_textual(
     name = 'gentest_consumer_textual_bazel',
     src = 'tests/consumer/cases.cpp',
     main = 'tests/consumer/main.cpp',
+    source_hdrs = ['tests/consumer/bazel_private_case_value.hpp'],
     mock_targets = [':gentest_consumer_textual_mocks'],
+    deps = [':gentest_consumer_codegen_headers'],
     linkopts = _gentest_linkopts,
     source_includes = ['tests', 'tests/consumer'],
 )
@@ -321,6 +333,8 @@ gentest_add_mocks_modules(
         'gentest.consumer_mock_defs',
     ],
     module_name = 'gentest.consumer_mocks',
+    defines = ['GENTEST_BAZEL_MOCK_PRIVATE_DEFINE=1'],
+    deps = ['//tests/consumer/bazel_mock_dep:mock_codegen_headers'],
     linkopts = _gentest_linkopts,
 )
 
@@ -328,8 +342,10 @@ gentest_attach_codegen_modules(
     name = 'gentest_consumer_module_bazel',
     src = 'tests/consumer/cases.cppm',
     main = 'tests/consumer/main.cpp',
+    source_hdrs = ['tests/consumer/bazel_private_case_value.hpp'],
     mock_targets = [':gentest_consumer_module_mocks'],
     deps = [
+        ':gentest_consumer_codegen_headers',
         ':gentest',
         ':gentest_bench_util',
     ],
