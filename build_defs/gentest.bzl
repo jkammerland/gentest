@@ -141,6 +141,11 @@ def _gentest_run_codegen(ctx, tools, inputs, outputs, args, mnemonic):
         execution_requirements = {
             "no-cache": "1",
             "no-remote": "1",
+            # The macOS bootstrap SDK is an explicitly local host directory
+            # symlink. Keeping every local-bootstrap action unsandboxed makes
+            # that contract uniform and avoids recursively staging cyclic
+            # framework symlinks as Bazel inputs.
+            "no-sandbox": "1",
         }
     action_env = {}
     if tools.macos_sdk_root_path:

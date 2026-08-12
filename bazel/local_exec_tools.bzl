@@ -53,20 +53,21 @@ toolchain(
                 break
         if not sdk_marker:
             fail("GENTEST_BAZEL_LOCAL_SDKROOT has no SDKSettings.json or SDKSettings.plist marker: {}".format(sdkroot))
+        # Keep the host SDK as one directory symlink. Apple SDK framework
+        # layouts contain intentional directory-symlink cycles (for example
+        # Ruby.framework); recursively globbing this link makes Bazel follow
+        # those cycles while loading the repository. Local-only actions run
+        # unsandboxed below, so the marker label is sufficient to anchor the
+        # SDK path without pretending that this host tree is a portable input.
         repository_ctx.symlink(sdkroot, "MacOSX.sdk")
         repository_ctx.file("BUILD.bazel", """
 load("@gentest//bazel:defs.bzl", "gentest_codegen_toolchain")
 
 exports_files(["clang++"])
-filegroup(
-    name = "macos_sdk_files",
-    srcs = glob(["MacOSX.sdk/**"]),
-)
 gentest_codegen_toolchain(
     name = "impl",
     codegen = "@gentest//:gentest_codegen",
     clang = ":clang++",
-    runtime_files = [":macos_sdk_files"],
     macos_sdk_root = "MacOSX.sdk/{sdk_marker}",
     local_only = True,
 )

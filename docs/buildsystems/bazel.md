@@ -143,9 +143,11 @@ That fallback declares a label pointing at the local executable so it is useful
 for local correctness checks, but it is deliberately **not** a remotely
 executable LLVM package. Gentest marks actions using this local fallback
 `no-remote`, disabling remote execution and remote action-cache use, and
-`no-cache`, disabling local and disk action-cache reuse as well. Release and
-cache-enabled consumers must register a prepackaged toolchain. If neither is
-available,
+`no-cache`, disabling local and disk action-cache reuse as well. They are also
+`no-sandbox`: on macOS the SDK remains a host directory symlink so Bazel does
+not recursively traverse framework symlink cycles while loading the local tool
+repository. Release and cache-enabled consumers must register a prepackaged
+toolchain with a normalized, declared SDK closure. If neither is available,
 analysis reports a missing Gentest exec codegen toolchain instead of attempting
 ambient compiler lookup.
 

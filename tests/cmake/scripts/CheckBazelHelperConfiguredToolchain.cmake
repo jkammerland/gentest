@@ -322,7 +322,7 @@ if ($Mode -eq 'aquery') {
   @'
 action 'GentestTextualSuiteCodegen gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.cpp'
   Inputs: [gentest_codegen, clang++, tests/consumer/cases.cpp, include/gentest/runner.h, gentest_consumer_mocks.hpp]
-  ExecutionInfo: {no-remote: "1"}
+  ExecutionInfo: {no-cache: "1", no-remote: "1", no-sandbox: "1"}
   Command Line: gentest_codegen --source-root . --host-clang clang++ --scan-deps-mode=OFF
 '@ | Write-Output
   exit 0
@@ -480,7 +480,7 @@ if [ "$mode" = "aquery" ]; then
   cat <<'EOF'
 action 'GentestTextualSuiteCodegen gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.cpp'
   Inputs: [gentest_codegen, clang++, tests/consumer/cases.cpp, include/gentest/runner.h, gentest_consumer_mocks.hpp]
-  ExecutionInfo: {no-remote: "1"}
+  ExecutionInfo: {no-cache: "1", no-remote: "1", no-sandbox: "1"}
   Command Line: gentest_codegen --source-root . --host-clang clang++ --scan-deps-mode=OFF
 EOF
   exit 0

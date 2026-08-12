@@ -1,7 +1,7 @@
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckBazelModuleConsumer.cmake: SOURCE_DIR not set")
 endif()
-if(WIN32)
+if(WIN32 AND NOT GENTEST_BAZEL_HELPER_CONTRACT)
   message(STATUS
     "Skipping the Bazel module consumer execution check on Windows: the automatic local exec-tool fallback is disabled; "
     "Windows consumers must register a packaged Gentest/Clang toolchain with its DLL closure.")

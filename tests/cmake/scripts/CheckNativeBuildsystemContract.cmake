@@ -99,6 +99,7 @@ foreach(_expected IN ITEMS
     "_GENTEST_CODEGEN_TOOLCHAIN_TYPE"
     "execution_requirements = execution_requirements"
     "\"no-remote\": \"1\""
+    "\"no-sandbox\": \"1\""
     "source_hdrs"
     "source_deps"
     "codegen_support.headers"

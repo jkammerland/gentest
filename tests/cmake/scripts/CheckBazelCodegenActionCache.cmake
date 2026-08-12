@@ -16,6 +16,8 @@ if(WIN32)
   return()
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/BazelExecToolStaging.cmake")
+
 if(DEFINED BAZEL_EXECUTABLE AND NOT BAZEL_EXECUTABLE STREQUAL "")
   set(_bazel "${BAZEL_EXECUTABLE}")
 else()
@@ -213,6 +215,9 @@ file(MAKE_DIRECTORY "${_tool_repo}/bin" "${_tool_repo}/lib/clang")
 file(COPY_FILE "${_clang}" "${_tool_repo}/bin/clang++")
 file(CHMOD "${_tool_repo}/bin/clang++"
   PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+if(APPLE)
+  gentest_stage_apple_clang_runtime("${_clang}" "${_tool_repo}")
+endif()
 file(COPY "${_clang_resource_dir}/" DESTINATION "${_tool_repo}/lib/clang/${_clang_resource_version}")
 file(WRITE "${_tool_repo}/lib/clang/${_clang_resource_version}/include/gentest_root.marker"
   "declared Clang resource include root\n")
@@ -293,6 +298,7 @@ if(APPLE)
   # closure. A marker-only sysroot would make the cache fixture fail before it
   # reaches its action-key assertions on macOS.
   file(COPY "${_selected_macos_sdk}/" DESTINATION "${_staged_macos_sdk}")
+  gentest_prune_cyclic_directory_symlinks("${_staged_macos_sdk}")
 else()
   file(MAKE_DIRECTORY "${_staged_macos_sdk}/usr/include")
   file(WRITE "${_staged_macos_sdk}/SDKSettings.json" "{}\n")
@@ -325,7 +331,7 @@ load(
 
 filegroup(
     name = "clang_runtime_files",
-    srcs = glob(["lib/clang/**"]),
+    srcs = glob(["lib/**"]),
 )
 
 filegroup(
@@ -460,9 +466,10 @@ if(NOT _local_aquery_rc EQUAL 0)
 endif()
 string(FIND "${_local_aquery_out}" "no-remote" _local_no_remote_pos)
 string(FIND "${_local_aquery_out}" "no-cache" _local_no_cache_pos)
-if(_local_no_remote_pos EQUAL -1 OR _local_no_cache_pos EQUAL -1)
+string(FIND "${_local_aquery_out}" "no-sandbox" _local_no_sandbox_pos)
+if(_local_no_remote_pos EQUAL -1 OR _local_no_cache_pos EQUAL -1 OR _local_no_sandbox_pos EQUAL -1)
   message(FATAL_ERROR
-    "Local fallback codegen action does not disable execution/cache reuse.\n${_local_aquery_out}")
+    "Local fallback codegen action does not disable sandboxing/execution/cache reuse.\n${_local_aquery_out}")
 endif()
 
 # Windows packages must disable ambient standard roots just like Linux and

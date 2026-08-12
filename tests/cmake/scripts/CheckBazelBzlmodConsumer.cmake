@@ -23,7 +23,7 @@ if(NOT _bazel)
   message(STATUS "bazel/bazelisk not found; skipping Bazel Bzlmod consumer check.")
   return()
 endif()
-if(WIN32)
+if(WIN32 AND NOT GENTEST_BAZEL_HELPER_CONTRACT)
   message(STATUS
     "Skipping the Bazel Bzlmod consumer execution check on Windows: the automatic local exec-tool fallback is disabled; "
     "Windows consumers must register a packaged Gentest/Clang toolchain with its DLL closure.")

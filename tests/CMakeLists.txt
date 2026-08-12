@@ -4533,6 +4533,13 @@ _gentest_add_cmake_helper_test(
     bazel)
 
 _gentest_add_cmake_helper_test(
+    gentest_bazel_exec_tool_staging
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBazelExecToolStaging.cmake
+    contract)
+set_property(TEST gentest_bazel_exec_tool_staging APPEND PROPERTY LABELS "bazel")
+
+_gentest_add_cmake_helper_test(
     gentest_bazel_helpers_use_configured_toolchain
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBazelHelperConfiguredToolchain.cmake
