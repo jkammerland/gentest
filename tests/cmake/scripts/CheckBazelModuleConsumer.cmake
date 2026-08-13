@@ -260,7 +260,7 @@ endif()
 _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 set(_clang_cxx "${_codegen_host_clang}")
 get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
-if(APPLE)
+if(APPLE AND NOT GENTEST_BAZEL_HELPER_CONTRACT)
   set(_clang_scan_deps "${_clang_bin_dir}/clang-scan-deps")
   if(EXISTS "${_clang_scan_deps}")
     execute_process(

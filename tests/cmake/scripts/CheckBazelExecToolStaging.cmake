@@ -115,6 +115,7 @@ foreach(_resource_contract_token IN ITEMS
     "set(_staged_resource_ownership \"declared\")"
     "set(_staged_resource_ownership \"host\")"
     "glob([\"system-include/**\"], allow_empty = True)"
+    "exclude = [\"MacOSX.sdk/usr/share/**\"]"
     "Local macOS fallback must export the absolute host SDK"
     "Packaged macOS codegen must export its declared execroot SDK")
   string(FIND "${_action_cache_fixture}" "${_resource_contract_token}" _resource_contract_pos)

@@ -358,7 +358,9 @@ filegroup(
 
 filegroup(
     name = "macos_sdk_files",
-    srcs = glob(["MacOSX.sdk/**"]),
+    # SDK documentation is irrelevant to codegen and can contain names such as
+    # APR::Base64.3pm that are not valid Bazel labels.
+    srcs = glob(["MacOSX.sdk/**"], exclude = ["MacOSX.sdk/usr/share/**"]),
 )
 
 gentest_codegen_toolchain(
