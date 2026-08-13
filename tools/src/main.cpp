@@ -184,7 +184,11 @@ bool merge_header_declaration_occurrences(std::vector<TestCaseInfo> &cases, std:
         return context.empty() ? fmt::format("scan slot {}", slot) : std::string(context);
     };
     const auto fixture_owner_key = [](const FixtureDeclInfo &item) {
-        return std::tie(item.scan_slot, item.declaration_site_key, item.tu_filename, item.filename, item.line);
+        // File-entry unique IDs make alias detection reliable, but their
+        // device/inode values are not stable between workspaces. Select an
+        // owner by target slot and source spelling before using the opaque
+        // declaration identity as a final tie-breaker.
+        return std::tie(item.scan_slot, item.filename, item.line, item.tu_filename, item.declaration_site_key);
     };
 
     // Shared fixtures are merged and validated before case dependency
@@ -236,8 +240,15 @@ bool merge_header_declaration_occurrences(std::vector<TestCaseInfo> &cases, std:
     std::vector<FixtureDeclInfo> canonical_fixtures;
     for (auto &[_, site_indices] : fixture_sites_by_entity) {
         std::ranges::sort(site_indices, [&](std::size_t lhs, std::size_t rhs) { return fixture_sites[lhs].key < fixture_sites[rhs].key; });
-        const auto &canonical_site = fixture_sites[site_indices.front()];
-        const auto &canonical_meta = canonical_site.occurrences.front();
+        const FixtureDeclInfo *owner = nullptr;
+        for (const std::size_t site_idx : site_indices) {
+            for (const auto &candidate : fixture_sites[site_idx].occurrences) {
+                if (owner == nullptr || fixture_owner_key(candidate) < fixture_owner_key(*owner)) {
+                    owner = &candidate;
+                }
+            }
+        }
+        const auto &canonical_meta = *owner;
         for (const std::size_t site_idx : site_indices) {
             const auto &candidate = fixture_sites[site_idx].occurrences.front();
             if (candidate.semantic_fingerprint != canonical_meta.semantic_fingerprint) {
@@ -254,14 +265,6 @@ bool merge_header_declaration_occurrences(std::vector<TestCaseInfo> &cases, std:
             continue;
         }
 
-        const FixtureDeclInfo *owner = nullptr;
-        for (const std::size_t site_idx : site_indices) {
-            for (const auto &candidate : fixture_sites[site_idx].occurrences) {
-                if (owner == nullptr || fixture_owner_key(candidate) < fixture_owner_key(*owner)) {
-                    owner = &candidate;
-                }
-            }
-        }
         FixtureDeclInfo merged      = *owner;
         merged.registration_header  = owner->filename;
         merged.filename             = canonical_meta.filename;
@@ -388,8 +391,22 @@ bool merge_header_declaration_occurrences(std::vector<TestCaseInfo> &cases, std:
     std::vector<TestCaseInfo> canonical_cases;
     for (auto &[_, site_indices] : case_sites_by_entity) {
         std::ranges::sort(site_indices, [&](std::size_t lhs, std::size_t rhs) { return case_sites[lhs].key < case_sites[rhs].key; });
-        const auto &canonical_site     = case_sites[site_indices.front()];
-        const auto &canonical_metadata = canonical_site.occurrences.front();
+        const std::vector<TestCaseInfo> *owner_cases = nullptr;
+        std::string                      owner_site_key;
+        for (const std::size_t site_idx : site_indices) {
+            const auto &site = case_sites[site_idx];
+            for (const auto &occurrence : site.occurrences) {
+                const auto owner_key = std::tuple{occurrence.front().scan_slot, occurrence.front().filename, occurrence.front().line,
+                                                  occurrence.front().tu_filename, site.key};
+                if (owner_cases == nullptr ||
+                    owner_key < std::tuple{owner_cases->front().scan_slot, owner_cases->front().filename, owner_cases->front().line,
+                                           owner_cases->front().tu_filename, owner_site_key}) {
+                    owner_cases    = &occurrence;
+                    owner_site_key = site.key;
+                }
+            }
+        }
+        const auto &canonical_metadata = *owner_cases;
         const auto  expected_semantics = case_semantics(canonical_metadata);
         for (const std::size_t site_idx : site_indices) {
             const auto &candidate_cases = case_sites[site_idx].occurrences.front();
@@ -406,20 +423,6 @@ bool merge_header_declaration_occurrences(std::vector<TestCaseInfo> &cases, std:
         }
         if (!ok) {
             continue;
-        }
-
-        const std::vector<TestCaseInfo> *owner_cases = nullptr;
-        std::string                      owner_site_key;
-        for (const std::size_t site_idx : site_indices) {
-            const auto &site = case_sites[site_idx];
-            for (const auto &occurrence : site.occurrences) {
-                const auto owner_key = std::tuple{occurrence.front().scan_slot, site.key, occurrence.front().tu_filename};
-                if (owner_cases == nullptr ||
-                    owner_key < std::tuple{owner_cases->front().scan_slot, owner_site_key, owner_cases->front().tu_filename}) {
-                    owner_cases    = &occurrence;
-                    owner_site_key = site.key;
-                }
-            }
         }
 
         for (std::size_t idx = 0; idx < owner_cases->size(); ++idx) {
@@ -3003,7 +3006,11 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
             continue;
         }
         if (is_cmake_module_map_response(argument)) {
-            normalized.emplace_back("@<target-module-map>");
+            // CMake can attach a target module map to an additive generated
+            // source even though its paired authored textual source does not
+            // need one. Header-declaration mode rejects active named imports,
+            // so this response file is build orchestration rather than part of
+            // the semantic scan context.
             continue;
         }
         if (is_joined_compile_output_option(argument) || argument == "-c" || argument == "/c" || argument == "-MD" || argument == "-MMD" ||

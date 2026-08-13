@@ -199,7 +199,7 @@ endif()
 
 # The scanner is always the host Clang tool, but the authored and additive
 # registration sources must remain valid when the target compiler is GCC.
-if(NOT CMAKE_HOST_WIN32)
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
   find_program(_gcc NAMES gcc)
   find_program(_gxx NAMES g++)
   if(_gcc AND _gxx)

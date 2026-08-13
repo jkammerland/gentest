@@ -91,8 +91,16 @@ std::string declaration_site_identity(const NamedDecl &decl, const SourceManager
 }
 
 std::string owning_module_identity(const Decl &decl) {
-    if (const Module *module = decl.getTopLevelOwningNamedModule(); module != nullptr) {
-        return module->getFullModuleName();
+    // getTopLevelOwningNamedModule() is newer than the oldest supported
+    // libTooling. The linkage owner is specifically a standard C++ named
+    // module on every supported Clang, unlike getOwningModule(), which can
+    // also name a Clang header module.
+    if (const Module *module = decl.getOwningModuleForLinkage(); module != nullptr) {
+        std::string name = module->getFullModuleName();
+        if (const auto partition = name.find(':'); partition != std::string::npos) {
+            name.resize(partition);
+        }
+        return name;
     }
     return {};
 }
