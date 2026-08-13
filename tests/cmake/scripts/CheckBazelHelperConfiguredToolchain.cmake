@@ -296,6 +296,7 @@ foreach ($Arg in $RemainingArgs) {
   switch ($Arg) {
     'build' { $Mode = 'build'; continue }
     'info' { $Mode = 'info'; continue }
+    'aquery' { $Mode = 'aquery'; continue }
     default {
       if ($Arg.StartsWith('--output_user_root=')) {
         $OutputRoot = $Arg.Substring('--output_user_root='.Length)
@@ -317,6 +318,16 @@ if ($Mode -eq 'info') {
   Fail 'unsupported fake bazel info request' 2
 }
 
+if ($Mode -eq 'aquery') {
+  @'
+action 'GentestTextualSuiteCodegen gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.cpp'
+  Inputs: [gentest_codegen, clang++, tests/consumer/cases.cpp, include/gentest/runner.h, gentest_consumer_mocks.hpp]
+  ExecutionInfo: {no-cache: "1", no-remote: "1", no-sandbox: "1"}
+  Command Line: gentest_codegen --source-root . --host-clang clang++ --scan-deps-mode=OFF
+'@ | Write-Output
+  exit 0
+}
+
 if ($Mode -ne 'build') {
   Fail ("unsupported fake bazel invocation: " + ($RemainingArgs -join ' ')) 2
 }
@@ -336,8 +347,7 @@ Assert-EnvEquals 'CC' $env:EXPECT_CC 3
 Assert-EnvEquals 'CXX' $env:EXPECT_CXX 4
 Assert-EnvEquals 'LLVM_DIR' $env:EXPECT_LLVM_DIR 5
 Assert-EnvEquals 'Clang_DIR' $env:EXPECT_CLANG_DIR 6
-Assert-EnvEquals 'GENTEST_CODEGEN_HOST_CLANG' $env:EXPECT_CXX 7
-Assert-EnvEquals 'GENTEST_CODEGEN_RESOURCE_DIR' $env:EXPECT_RESOURCE_DIR 8
+Assert-EnvEquals 'GENTEST_BAZEL_LOCAL_CLANG' $env:EXPECT_CXX 7
 
 New-Item -ItemType Directory -Force -Path $BazelBin | Out-Null
 
@@ -445,6 +455,7 @@ for arg in "$@"; do
   case "$arg" in
     build) mode="build" ;;
     info) mode="info" ;;
+    aquery) mode="aquery" ;;
     --output_user_root=*) output_root="${arg#--output_user_root=}" ;;
   esac
 done
@@ -463,6 +474,16 @@ if [ "$mode" = "info" ]; then
   fi
   echo "unsupported fake bazel info request" >&2
   exit 2
+fi
+
+if [ "$mode" = "aquery" ]; then
+  cat <<'EOF'
+action 'GentestTextualSuiteCodegen gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.cpp'
+  Inputs: [gentest_codegen, clang++, tests/consumer/cases.cpp, include/gentest/runner.h, gentest_consumer_mocks.hpp]
+  ExecutionInfo: {no-cache: "1", no-remote: "1", no-sandbox: "1"}
+  Command Line: gentest_codegen --source-root . --host-clang clang++ --scan-deps-mode=OFF
+EOF
+  exit 0
 fi
 
 if [ "$mode" != "build" ]; then
@@ -500,12 +521,8 @@ if [ "${Clang_DIR:-}" != "${EXPECT_CLANG_DIR:-}" ]; then
   echo "expected Clang_DIR=${EXPECT_CLANG_DIR:-}, got ${Clang_DIR:-}" >&2
   exit 6
 fi
-if [ "${GENTEST_CODEGEN_HOST_CLANG:-}" != "${EXPECT_CXX:-}" ]; then
-  echo "expected GENTEST_CODEGEN_HOST_CLANG=${EXPECT_CXX:-}, got ${GENTEST_CODEGEN_HOST_CLANG:-}" >&2
-  exit 7
-fi
-if [ "${GENTEST_CODEGEN_RESOURCE_DIR:-}" != "${EXPECT_RESOURCE_DIR:-}" ]; then
-  echo "expected GENTEST_CODEGEN_RESOURCE_DIR=${EXPECT_RESOURCE_DIR:-}, got ${GENTEST_CODEGEN_RESOURCE_DIR:-}" >&2
+if [ "${GENTEST_BAZEL_LOCAL_CLANG:-}" != "${EXPECT_CXX:-}" ]; then
+  echo "expected GENTEST_BAZEL_LOCAL_CLANG=${EXPECT_CXX:-}, got ${GENTEST_BAZEL_LOCAL_CLANG:-}" >&2
   exit 8
 fi
 
@@ -730,8 +747,6 @@ function(_run_bazel_helper_regression name script_path)
     "--action_env=LLVM_BIN"
     "--action_env=LLVM_DIR"
     "--action_env=Clang_DIR"
-    "--action_env=GENTEST_CODEGEN_HOST_CLANG"
-    "--action_env=GENTEST_CODEGEN_RESOURCE_DIR"
     "--host_action_env=CCACHE_DISABLE"
     "--host_action_env=PATH"
     "--host_action_env=CC"
@@ -739,8 +754,6 @@ function(_run_bazel_helper_regression name script_path)
     "--host_action_env=LLVM_BIN"
     "--host_action_env=LLVM_DIR"
     "--host_action_env=Clang_DIR"
-    "--host_action_env=GENTEST_CODEGEN_HOST_CLANG"
-    "--host_action_env=GENTEST_CODEGEN_RESOURCE_DIR"
     "--host_action_env=HOME"
     "--repo_env=PATH"
     "--repo_env=CC"
@@ -748,8 +761,7 @@ function(_run_bazel_helper_regression name script_path)
     "--repo_env=LLVM_BIN"
     "--repo_env=LLVM_DIR"
     "--repo_env=Clang_DIR"
-    "--repo_env=GENTEST_CODEGEN_HOST_CLANG"
-    "--repo_env=GENTEST_CODEGEN_RESOURCE_DIR"
+    "--repo_env=GENTEST_BAZEL_LOCAL_CLANG"
     "--repo_env=HOME")
   if(NOT name MATCHES "^bzlmod")
     list(APPEND _expected_flags "--action_env=HOME")
@@ -778,9 +790,9 @@ function(_run_bazel_helper_regression name script_path)
       "EXPECT_CXX=${_fake_cxx}"
       "EXPECT_LLVM_DIR=${_fake_llvm_dir}"
       "EXPECT_CLANG_DIR=${_fake_clang_dir}"
-      "EXPECT_RESOURCE_DIR=${_fake_resource_dir}"
       "EXPECT_FLAGS=${_expected_flags_joined}"
       "MARKER_DIR=${_marker_dir}"
+      "GENTEST_BAZEL_LOCAL_CLANG=${_wrong_cxx}"
       "GENTEST_CODEGEN_HOST_CLANG=${_wrong_cxx}"
       # Deliberately pass valid alternate package dirs through the environment. The helper scripts
       # must still prefer the explicitly configured CMake package paths below.
@@ -793,6 +805,7 @@ function(_run_bazel_helper_regression name script_path)
       "-DC_COMPILER=${_configured_cc}"
       "-DCXX_COMPILER=${_configured_cxx}"
       "-DBAZEL_EXECUTABLE=${_fake_bazel}"
+      "-DGENTEST_BAZEL_HELPER_CONTRACT=ON"
       "-DLLVM_DIR=${_fake_llvm_dir}"
       "-DClang_DIR=${_fake_clang_dir}"
       "-P" "${script_path}"

@@ -867,11 +867,11 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
 
     std::vector<ReportTable> tables;
     ReportTable              summary{
-                     .title  = "Jitter summary",
-                     .id     = "jitter.summary",
-                     .report = "jitter",
-                     .headers =
-                         {
+        .title  = "Jitter summary",
+        .id     = "jitter.summary",
+        .report = "jitter",
+        .headers =
+            {
                 "Benchmark",
                 "Samples",
                 "Items/call",
@@ -886,7 +886,7 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
                 "Baseline Δ%",
                 "Baseline SD Δ%",
             },
-                     .right_align = {false, true, true, true, true, true, true, true, true, true, true, true, true},
+        .right_align = {false, true, true, true, true, true, true, true, true, true, true, true, true},
     };
 
     for (const auto &row : rows) {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gentest/async.h"
+#include "gentest/detail/async_api.h"
 #include "gentest/detail/runtime_config.h"
 
 #include <cstdint>

@@ -1,9 +1,14 @@
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckBazelModuleConsumer.cmake: SOURCE_DIR not set")
 endif()
+if(WIN32 AND NOT GENTEST_BAZEL_HELPER_CONTRACT)
+  message(STATUS
+    "Skipping the Bazel module consumer execution check on Windows: the automatic local exec-tool fallback is disabled; "
+    "Windows consumers must register a packaged Gentest/Clang toolchain with its DLL closure.")
+  return()
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
-set(_bazel "")
 if(DEFINED BAZEL_EXECUTABLE AND NOT BAZEL_EXECUTABLE STREQUAL "")
   if(NOT EXISTS "${BAZEL_EXECUTABLE}")
     message(FATAL_ERROR "BAZEL_EXECUTABLE points to a missing bazel/bazelisk executable: ${BAZEL_EXECUTABLE}")
@@ -226,12 +231,12 @@ if(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
     set(_use_explicit_c_compiler TRUE)
   endif()
 endif()
-if(_codegen_host_clang STREQUAL "" AND NOT "$ENV{GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
-  set(_codegen_host_clang "$ENV{GENTEST_CODEGEN_HOST_CLANG}")
+if(_codegen_host_clang STREQUAL "" AND NOT "$ENV{GENTEST_BAZEL_LOCAL_CLANG}" STREQUAL "")
+  set(_codegen_host_clang "$ENV{GENTEST_BAZEL_LOCAL_CLANG}")
   if(NOT EXISTS "${_codegen_host_clang}")
     message(FATAL_ERROR
-      "GENTEST_CODEGEN_HOST_CLANG points to a missing clang++ executable for the Bazel module consumer smoke check.\n"
-      "GENTEST_CODEGEN_HOST_CLANG: ${_codegen_host_clang}")
+      "GENTEST_BAZEL_LOCAL_CLANG points to a missing clang++ executable for the Bazel module consumer smoke check.\n"
+      "GENTEST_BAZEL_LOCAL_CLANG: ${_codegen_host_clang}")
   endif()
   _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 endif()
@@ -255,6 +260,26 @@ endif()
 _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 set(_clang_cxx "${_codegen_host_clang}")
 get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
+if(APPLE AND NOT GENTEST_BAZEL_HELPER_CONTRACT)
+  set(_clang_scan_deps "${_clang_bin_dir}/clang-scan-deps")
+  if(EXISTS "${_clang_scan_deps}")
+    execute_process(
+      COMMAND "${_clang_scan_deps}" --version
+      RESULT_VARIABLE _clang_scan_deps_rc
+      OUTPUT_VARIABLE _clang_scan_deps_out
+      ERROR_VARIABLE _clang_scan_deps_err)
+  else()
+    set(_clang_scan_deps_rc 1)
+    set(_clang_scan_deps_err "adjacent executable does not exist")
+  endif()
+  if(NOT _clang_scan_deps_rc EQUAL 0)
+    message(STATUS
+      "GENTEST_SKIP_TEST: clang-scan-deps is unavailable beside the selected macOS Clang; "
+      "skipping only the Bazel named-module smoke path. "
+      "Selected compiler: ${_clang_cxx}; scanner: ${_clang_scan_deps}; diagnostic: ${_clang_scan_deps_err}")
+    return()
+  endif()
+endif()
 
 if(_use_explicit_c_compiler AND DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")
   if(NOT EXISTS "${C_COMPILER}")
@@ -275,7 +300,7 @@ endif()
 if(NOT _clang_cc)
   message(FATAL_ERROR
     "Failed to locate a clang executable adjacent to the resolved host clang for the Bazel module consumer smoke check.\n"
-    "GENTEST_CODEGEN_HOST_CLANG: ${_clang_cxx}\n"
+    "Bazel local clang: ${_clang_cxx}\n"
     "clang bin dir: ${_clang_bin_dir}")
 endif()
 _gentest_resolve_non_ccache_clang("${_clang_cc}" _clang_cc clang-23 clang-22 clang-21 clang-20 clang-19 clang)
@@ -330,15 +355,11 @@ set(_gentest_bazel_build_args
   --action_env=LLVM_BIN
   --action_env=LLVM_DIR
   --action_env=Clang_DIR
-  --action_env=GENTEST_CODEGEN_HOST_CLANG
-  --action_env=GENTEST_CODEGEN_RESOURCE_DIR
   --host_action_env=CC
   --host_action_env=CXX
   --host_action_env=LLVM_BIN
   --host_action_env=LLVM_DIR
   --host_action_env=Clang_DIR
-  --host_action_env=GENTEST_CODEGEN_HOST_CLANG
-  --host_action_env=GENTEST_CODEGEN_RESOURCE_DIR
   --host_action_env=HOME
   --repo_env=PATH
   --repo_env=CC
@@ -346,8 +367,8 @@ set(_gentest_bazel_build_args
   --repo_env=LLVM_BIN
   --repo_env=LLVM_DIR
   --repo_env=Clang_DIR
-  --repo_env=GENTEST_CODEGEN_HOST_CLANG
-  --repo_env=GENTEST_CODEGEN_RESOURCE_DIR
+  --repo_env=GENTEST_BAZEL_LOCAL_CLANG
+  --repo_env=GENTEST_BAZEL_LOCAL_SDKROOT
   --repo_env=HOME
   --action_env=HOME
   --verbose_failures
@@ -364,8 +385,8 @@ execute_process(
           "LLVM_BIN=${_clang_bin_dir}"
           "LLVM_DIR=${_llvm_dir}"
           "Clang_DIR=${_clang_dir}"
-          "GENTEST_CODEGEN_HOST_CLANG=${_clang_cxx}"
-          "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
+          "GENTEST_BAZEL_LOCAL_CLANG=${_clang_cxx}"
+          "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}"
           "HOME=$ENV{HOME}"
           ${_bazel_command}
           ${_gentest_bazel_build_args}
@@ -398,8 +419,8 @@ execute_process(
           "LLVM_BIN=${_clang_bin_dir}"
           "LLVM_DIR=${_llvm_dir}"
           "Clang_DIR=${_clang_dir}"
-          "GENTEST_CODEGEN_HOST_CLANG=${_clang_cxx}"
-          "GENTEST_CODEGEN_RESOURCE_DIR=${_resource_dir}"
+          "GENTEST_BAZEL_LOCAL_CLANG=${_clang_cxx}"
+          "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}"
           "HOME=$ENV{HOME}"
           ${_bazel_command}
           --output_user_root=${_bazel_output_root}

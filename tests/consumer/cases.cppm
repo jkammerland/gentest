@@ -1,5 +1,8 @@
 module;
 
+#include "bazel_dep_case_value.hpp"
+#include "bazel_private_case_value.hpp"
+
 #include <memory>
 #include <sstream>
 #include <string>
@@ -14,6 +17,9 @@ import gentest.consumer_mocks;
 using namespace gentest::asserts;
 
 namespace {
+
+static_assert(gentest_bazel_private_case_value == 23);
+static_assert(gentest_bazel_dep_case_value == 29);
 
 struct RestoreDefaultLogSink {
     ~RestoreDefaultLogSink() { gentest::restore_default_log_sink(); }
@@ -42,6 +48,11 @@ void module_test(SuiteFixture &suite_fx, GlobalFixture &global_fx) {
     EXPECT_EQ(suite_fx.value, 7);
     EXPECT_EQ(global_fx.value, 11);
 }
+
+#if defined(GENTEST_BAZEL_MOCK_PRIVATE_DEFINE)
+[[using gentest: test("consumer/mock_private_define_must_not_leak")]]
+void mock_private_define_must_not_leak() {}
+#endif
 
 [[using gentest: test("consumer/module_mock")]]
 void module_mock() {
