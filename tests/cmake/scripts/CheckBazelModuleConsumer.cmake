@@ -260,6 +260,26 @@ endif()
 _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 set(_clang_cxx "${_codegen_host_clang}")
 get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
+if(APPLE)
+  set(_clang_scan_deps "${_clang_bin_dir}/clang-scan-deps")
+  if(EXISTS "${_clang_scan_deps}")
+    execute_process(
+      COMMAND "${_clang_scan_deps}" --version
+      RESULT_VARIABLE _clang_scan_deps_rc
+      OUTPUT_VARIABLE _clang_scan_deps_out
+      ERROR_VARIABLE _clang_scan_deps_err)
+  else()
+    set(_clang_scan_deps_rc 1)
+    set(_clang_scan_deps_err "adjacent executable does not exist")
+  endif()
+  if(NOT _clang_scan_deps_rc EQUAL 0)
+    message(STATUS
+      "GENTEST_SKIP_TEST: clang-scan-deps is unavailable beside the selected macOS Clang; "
+      "skipping only the Bazel named-module smoke path. "
+      "Selected compiler: ${_clang_cxx}; scanner: ${_clang_scan_deps}; diagnostic: ${_clang_scan_deps_err}")
+    return()
+  endif()
+endif()
 
 if(_use_explicit_c_compiler AND DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")
   if(NOT EXISTS "${C_COMPILER}")

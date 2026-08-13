@@ -56,6 +56,18 @@ def _gentest_codegen_toolchain_impl(ctx):
         return [platform_common.ToolchainInfo(
             error = "Packaged macOS Gentest codegen toolchains must declare macos_sdk_root and its runtime closure.",
         )]
+    if ctx.attr.local_macos_sdk_root and not ctx.attr.local_only:
+        return [platform_common.ToolchainInfo(
+            error = "local_macos_sdk_root is only valid for a local_only Gentest codegen toolchain.",
+        )]
+    if ctx.attr.local_macos_sdk_root and not ctx.file.macos_sdk_root:
+        return [platform_common.ToolchainInfo(
+            error = "local_macos_sdk_root requires a declared macos_sdk_root marker.",
+        )]
+    if ctx.attr.local_macos_sdk_root and not ctx.attr.local_macos_sdk_root.startswith("/"):
+        return [platform_common.ToolchainInfo(
+            error = "local_macos_sdk_root must be an absolute host path.",
+        )]
     if cxx_standard_library_roots:
         files.append(depset(cxx_standard_library_roots))
     if system_include_roots:
@@ -82,6 +94,7 @@ def _gentest_codegen_toolchain_impl(ctx):
             for root in system_include_roots
         ],
         macos_sdk_root_path = (
+            ctx.attr.local_macos_sdk_root if ctx.attr.local_macos_sdk_root else
             macos_sdk_root.path if macos_sdk_root and macos_sdk_root.is_directory else
             macos_sdk_root.dirname if macos_sdk_root else
             None
@@ -130,6 +143,9 @@ gentest_codegen_toolchain = rule(
         "local_only": attr.bool(
             default = False,
             doc = "Disables remote execution/cache for actions using this local host-tool bootstrap.",
+        ),
+        "local_macos_sdk_root": attr.string(
+            doc = "Absolute host SDK path for a local_only bootstrap; packaged toolchains must use macos_sdk_root instead.",
         ),
         "exec_os": attr.string(
             values = ["", "linux", "macos", "windows"],

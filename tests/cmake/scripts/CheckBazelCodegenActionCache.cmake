@@ -127,6 +127,7 @@ set(_output_five "${_root}/output-five")
 set(_output_windows_contract "${_root}/output-windows-contract")
 set(_output_migration "${_root}/output-migration")
 set(_output_local "${_root}/output-local")
+set(_output_local_sdk_contract "${_root}/output-local-sdk-contract")
 file(REMOVE_RECURSE "${_root}")
 file(MAKE_DIRECTORY "${_tool_repo}" "${_disk_cache}" "${_repo_contents_cache}")
 
@@ -203,11 +204,12 @@ endif()
 string(JOIN ",\n        " _cxx_root_labels_text ${_cxx_root_labels})
 
 # The staged tools model the label shape of a prebuilt distribution: every
-# executable is a label, the generator is not built by a shell/genrule action,
-# and the copied Clang resource directory is both declared and used by the
-# staged compiler. The generator's system shared-library closure is deliberately
-# not copied here, so this is intentionally not a complete remotely
-# executable bundle; production documentation requires one.
+# executable is a label and the generator is not built by a shell/genrule
+# action. Homebrew Clang is relocatable to the adjacent staged resource tree;
+# AppleClang remains owned by its Xcode toolchain and is handled below as a
+# local-only resource contract. The generator's system shared-library closure
+# is deliberately not copied here, so this is intentionally not a complete
+# remotely executable bundle; production documentation requires one.
 file(COPY_FILE "${PROG}" "${_tool_repo}/gentest_codegen")
 file(CHMOD "${_tool_repo}/gentest_codegen"
   PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
@@ -311,14 +313,24 @@ execute_process(
   OUTPUT_VARIABLE _staged_resource_dir
   ERROR_VARIABLE _staged_resource_dir_err
   OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT _staged_resource_dir_rc EQUAL 0 OR NOT IS_DIRECTORY "${_staged_resource_dir}")
+  message(FATAL_ERROR
+    "Staged clang did not report a usable resource directory.\n"
+    "actual: ${_staged_resource_dir}\n${_staged_resource_dir_err}")
+endif()
 get_filename_component(_expected_staged_resource_dir
   "${_tool_repo}/lib/clang/${_clang_resource_version}" REALPATH)
 get_filename_component(_staged_resource_dir_real "${_staged_resource_dir}" REALPATH)
-if(NOT _staged_resource_dir_rc EQUAL 0 OR
-   NOT _staged_resource_dir_real STREQUAL "${_expected_staged_resource_dir}")
+get_filename_component(_host_resource_dir_real "${_clang_resource_dir}" REALPATH)
+if(_staged_resource_dir_real STREQUAL "${_expected_staged_resource_dir}")
+  set(_staged_resource_ownership "declared")
+elseif(APPLE AND _staged_resource_dir_real STREQUAL "${_host_resource_dir_real}")
+  set(_staged_resource_ownership "host")
+else()
   message(FATAL_ERROR
-    "Staged clang did not resolve its declared resource directory.\n"
-    "expected: ${_expected_staged_resource_dir}\n"
+    "Staged clang resolved neither its declared resource directory nor the selected host toolchain resource directory.\n"
+    "declared: ${_expected_staged_resource_dir}\n"
+    "host: ${_host_resource_dir_real}\n"
     "actual: ${_staged_resource_dir}\n${_staged_resource_dir_err}")
 endif()
 file(WRITE "${_tool_repo}/MODULE.bazel" "module(name = \"gentest_local_exec_tools\")\n")
@@ -341,7 +353,7 @@ filegroup(
 
 filegroup(
     name = "system_include_files",
-    srcs = glob(["system-include/**"]),
+    srcs = glob(["system-include/**"], allow_empty = True),
 )
 
 filegroup(
@@ -367,6 +379,22 @@ gentest_codegen_toolchain(
 toolchain(
     name = "gentest_exec_toolchain",
     toolchain = ":impl",
+    toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
+    exec_compatible_with = ["@platforms//os:@EXEC_OS_CONSTRAINT@"],
+)
+
+gentest_codegen_toolchain(
+    name = "local_macos_sdk_impl",
+    codegen = ":gentest_codegen",
+    clang = ":bin/clang++",
+    macos_sdk_root = "MacOSX.sdk/SDKSettings.json",
+    local_macos_sdk_root = "@LOCAL_MACOS_SDK_ROOT@",
+    local_only = True,
+)
+
+toolchain(
+    name = "local_macos_sdk_exec_toolchain",
+    toolchain = ":local_macos_sdk_impl",
     toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
     exec_compatible_with = ["@platforms//os:@EXEC_OS_CONSTRAINT@"],
 )
@@ -419,6 +447,7 @@ gentest_attach_codegen_textual(
 string(REPLACE "@CXX_STANDARD_LIBRARY_ROOT_LABELS@" "${_cxx_root_labels_text}" _tool_build "${_tool_build}")
 string(REPLACE "@SYSTEM_INCLUDE_ROOT_LABELS@" "${_system_root_labels_text}" _tool_build "${_tool_build}")
 string(REPLACE "@EXEC_OS@" "${_exec_os}" _tool_build "${_tool_build}")
+string(REPLACE "@LOCAL_MACOS_SDK_ROOT@" "${_staged_macos_sdk}" _tool_build "${_tool_build}")
 if(_exec_os STREQUAL "macos")
   set(_exec_os_constraint "osx")
 else()
@@ -447,7 +476,7 @@ set(_local_bazel_env
 
 # The source-package fallback remains usable for local development, but its
 # tool closure is deliberately not a remote bundle. Its actions must carry
-# no-remote/no-cache; the staged packaged-label toolchain below must not.
+# no-remote/no-cache/no-sandbox; the staged packaged-label toolchain below must not.
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_local_bazel_env}
           "${_bazel}"
@@ -470,6 +499,66 @@ string(FIND "${_local_aquery_out}" "no-sandbox" _local_no_sandbox_pos)
 if(_local_no_remote_pos EQUAL -1 OR _local_no_cache_pos EQUAL -1 OR _local_no_sandbox_pos EQUAL -1)
   message(FATAL_ERROR
     "Local fallback codegen action does not disable sandboxing/execution/cache reuse.\n${_local_aquery_out}")
+endif()
+if(APPLE)
+  string(FIND "${_local_aquery_out}" "${_selected_macos_sdk}" _local_absolute_sdk_pos)
+  string(FIND "${_local_aquery_out}" "SDKROOT=external/" _local_relative_sdk_pos)
+  if(_local_absolute_sdk_pos EQUAL -1 OR NOT _local_relative_sdk_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Local macOS fallback must export the absolute host SDK, never a relative external-repository path.\n"
+      "expected SDK: ${_selected_macos_sdk}\n${_local_aquery_out}")
+  endif()
+endif()
+
+# Exercise the provider branch on every Unix host: local-only toolchains must
+# export an absolute host-owned SDK, while the packaged leg below must retain a
+# relative declared execroot path and normal cache/sandbox eligibility.
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
+          "${_bazel}"
+          --output_user_root=${_output_local_sdk_contract}
+          --max_idle_secs=5
+          aquery
+          --output=text
+          --repo_contents_cache=${_repo_contents_cache}
+          --override_repository=gentest_local_exec_tools=${_tool_repo}
+          --extra_toolchains=@gentest_local_exec_tools//:local_macos_sdk_exec_toolchain
+          "mnemonic(\"GentestTextualSuiteCodegen\", deps(//:gentest_consumer_textual_bazel__codegen))"
+  WORKING_DIRECTORY "${SOURCE_DIR}"
+  RESULT_VARIABLE _local_sdk_aquery_rc
+  OUTPUT_VARIABLE _local_sdk_aquery_out
+  ERROR_VARIABLE _local_sdk_aquery_err)
+if(NOT _local_sdk_aquery_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Bazel aquery for the host-owned local macOS SDK contract failed.\n"
+    "stdout:\n${_local_sdk_aquery_out}\nstderr:\n${_local_sdk_aquery_err}")
+endif()
+foreach(_local_sdk_required IN ITEMS "${_staged_macos_sdk}" "no-remote" "no-cache" "no-sandbox")
+  string(FIND "${_local_sdk_aquery_out}" "${_local_sdk_required}" _local_sdk_required_pos)
+  if(_local_sdk_required_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Host-owned local macOS SDK action is missing '${_local_sdk_required}'.\n${_local_sdk_aquery_out}")
+  endif()
+endforeach()
+string(FIND "${_local_sdk_aquery_out}" "SDKROOT=external/" _local_sdk_external_pos)
+if(NOT _local_sdk_external_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Host-owned local macOS SDK action exported a relative external-repository SDK.\n${_local_sdk_aquery_out}")
+endif()
+
+if(_staged_resource_ownership STREQUAL "host")
+  foreach(_host_contract_output IN ITEMS "${_output_local}" "${_output_local_sdk_contract}")
+    execute_process(
+      COMMAND "${_bazel}" --output_user_root=${_host_contract_output} shutdown
+      WORKING_DIRECTORY "${SOURCE_DIR}"
+      OUTPUT_QUIET
+      ERROR_QUIET)
+  endforeach()
+  file(REMOVE_RECURSE "${_root}")
+  message(STATUS
+    "Staged AppleClang correctly retained its Xcode-owned resource directory and the local action contract passed; "
+    "the packaged action-cache proof requires a relocatable compiler and remains exercised by Homebrew LLVM lanes.")
+  return()
 endif()
 
 # Windows packages must disable ambient standard roots just like Linux and
@@ -583,8 +672,21 @@ if(_exec_os STREQUAL "linux")
 endif()
 string(FIND "${_aquery_out}" "no-remote" _staged_no_remote_pos)
 string(FIND "${_aquery_out}" "no-cache" _staged_no_cache_pos)
-if(NOT _staged_no_remote_pos EQUAL -1 OR NOT _staged_no_cache_pos EQUAL -1)
-  message(FATAL_ERROR "Packaged-label codegen action unexpectedly disables remote execution/cache.\n${_aquery_out}")
+string(FIND "${_aquery_out}" "no-sandbox" _staged_no_sandbox_pos)
+if(NOT _staged_no_remote_pos EQUAL -1 OR NOT _staged_no_cache_pos EQUAL -1 OR NOT _staged_no_sandbox_pos EQUAL -1)
+  message(FATAL_ERROR "Packaged-label codegen action unexpectedly disables sandboxing/remote execution/cache.\n${_aquery_out}")
+endif()
+string(FIND "${_aquery_out}" "SDKROOT=${_staged_macos_sdk}" _packaged_absolute_sdk_pos)
+string(FIND "${_aquery_out}" "SDKROOT=external/" _packaged_relative_sdk_pos)
+if(NOT _packaged_absolute_sdk_pos EQUAL -1 OR _packaged_relative_sdk_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Packaged macOS codegen must export its declared execroot SDK, never an absolute host SDK.\n${_aquery_out}")
+endif()
+if(APPLE)
+  string(FIND "${_aquery_out}" "SDKROOT=${_selected_macos_sdk}" _packaged_ambient_sdk_pos)
+  if(NOT _packaged_ambient_sdk_pos EQUAL -1)
+    message(FATAL_ERROR "Packaged macOS codegen leaked the ambient selected SDK.\n${_aquery_out}")
+  endif()
 endif()
 string(FIND "${_aquery_out}" "${SOURCE_DIR}" _absolute_source_pos)
 if(NOT _absolute_source_pos EQUAL -1)
@@ -673,8 +775,10 @@ if(_exec_os STREQUAL "linux")
 endif()
 string(FIND "${_module_aquery_out}" "no-remote" _module_staged_no_remote_pos)
 string(FIND "${_module_aquery_out}" "no-cache" _module_staged_no_cache_pos)
-if(NOT _module_staged_no_remote_pos EQUAL -1 OR NOT _module_staged_no_cache_pos EQUAL -1)
-  message(FATAL_ERROR "Packaged-label module codegen unexpectedly disables remote execution/cache.\n${_module_aquery_out}")
+string(FIND "${_module_aquery_out}" "no-sandbox" _module_staged_no_sandbox_pos)
+if(NOT _module_staged_no_remote_pos EQUAL -1 OR NOT _module_staged_no_cache_pos EQUAL -1 OR
+   NOT _module_staged_no_sandbox_pos EQUAL -1)
+  message(FATAL_ERROR "Packaged-label module codegen unexpectedly disables sandboxing/remote execution/cache.\n${_module_aquery_out}")
 endif()
 
 function(_gentest_disk_cache_build output_root out_var)
@@ -831,7 +935,7 @@ endif()
 
 foreach(_output_root IN ITEMS
     "${_output_one}" "${_output_two}" "${_output_three}" "${_output_four}" "${_output_five}"
-    "${_output_migration}" "${_output_local}" "${_output_windows_contract}")
+    "${_output_migration}" "${_output_local}" "${_output_local_sdk_contract}" "${_output_windows_contract}")
   _gentest_shutdown_bazel("${_output_root}")
 endforeach()
 file(REMOVE_RECURSE "${_root}")

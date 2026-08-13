@@ -13,36 +13,56 @@ file(MAKE_DIRECTORY
   "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby"
   "${_work_dir}/llvm/bin"
   "${_work_dir}/llvm/lib"
+  "${_work_dir}/llvm/lib/c++"
+  "${_work_dir}/llvm/lib/unwind"
   "${_work_dir}/staged")
 file(WRITE "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby.h" "#pragma once\n")
-file(CREATE_LINK "." "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby" SYMBOLIC)
-file(CREATE_LINK "A" "${_work_dir}/sdk/Ruby.framework/Versions/Current" SYMBOLIC)
-file(CREATE_LINK "Versions/Current/Headers" "${_work_dir}/sdk/Ruby.framework/Headers" SYMBOLIC)
-
-gentest_prune_cyclic_directory_symlinks("${_work_dir}/sdk")
-if(EXISTS "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby" OR
-   IS_SYMLINK "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby")
-  message(FATAL_ERROR "Cyclic Ruby.framework directory symlink was not pruned")
-endif()
-foreach(_alias IN ITEMS
-    "${_work_dir}/sdk/Ruby.framework/Versions/Current"
-    "${_work_dir}/sdk/Ruby.framework/Headers")
-  if(NOT IS_SYMLINK "${_alias}")
-    message(FATAL_ERROR "Non-cyclic framework alias was unexpectedly removed: ${_alias}")
+if(WIN32)
+  # Production pruning is Apple-only. Do not model its POSIX relative symlinks
+  # on Windows, where CMake may create neither the link nor a resolvable target.
+  file(WRITE "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby" "ordinary entry\n")
+  gentest_prune_cyclic_directory_symlinks("${_work_dir}/sdk")
+  if(NOT EXISTS "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby")
+    message(FATAL_ERROR "Windows staging unexpectedly pruned an ordinary framework entry")
   endif()
-endforeach()
+else()
+  file(CREATE_LINK "." "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby" SYMBOLIC)
+  file(CREATE_LINK "A" "${_work_dir}/sdk/Ruby.framework/Versions/Current" SYMBOLIC)
+  file(CREATE_LINK "Versions/Current/Headers" "${_work_dir}/sdk/Ruby.framework/Headers" SYMBOLIC)
+
+  gentest_prune_cyclic_directory_symlinks("${_work_dir}/sdk")
+  if(EXISTS "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby" OR
+     IS_SYMLINK "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby")
+    message(FATAL_ERROR "Cyclic Ruby.framework directory symlink was not pruned")
+  endif()
+  foreach(_alias IN ITEMS
+      "${_work_dir}/sdk/Ruby.framework/Versions/Current"
+      "${_work_dir}/sdk/Ruby.framework/Headers")
+    if(NOT IS_SYMLINK "${_alias}")
+      message(FATAL_ERROR "Non-cyclic framework alias was unexpectedly removed: ${_alias}")
+    endif()
+  endforeach()
+endif()
 
 file(WRITE "${_work_dir}/llvm/bin/clang++" "fake clang\n")
 file(WRITE "${_work_dir}/llvm/lib/libclang-cpp.dylib" "fake runtime\n")
+file(WRITE "${_work_dir}/llvm/lib/c++/libc++.dylib" "fake C++ runtime\n")
+file(WRITE "${_work_dir}/llvm/lib/unwind/libunwind.dylib" "fake unwind runtime\n")
 gentest_stage_apple_clang_runtime("${_work_dir}/llvm/bin/clang++" "${_work_dir}/staged")
-if(NOT EXISTS "${_work_dir}/staged/lib/libclang-cpp.dylib")
-  message(FATAL_ERROR "Adjacent libclang-cpp.dylib was not included in the staged runtime closure")
-endif()
+foreach(_staged_runtime IN ITEMS
+    lib/libclang-cpp.dylib
+    lib/c++/libc++.dylib
+    lib/unwind/libunwind.dylib)
+  if(NOT EXISTS "${_work_dir}/staged/${_staged_runtime}")
+    message(FATAL_ERROR "Bounded runtime file was not staged: ${_staged_runtime}")
+  endif()
+endforeach()
 
 file(READ "${SOURCE_DIR}/bazel/local_exec_tools.bzl" _local_tools)
 foreach(_required IN ITEMS
     "repository_ctx.symlink(sdkroot, \"MacOSX.sdk\")"
-    "macos_sdk_root = \"MacOSX.sdk/{sdk_marker}\"")
+    "macos_sdk_root = \"MacOSX.sdk/{sdk_marker}\""
+    "local_macos_sdk_root = {local_macos_sdk_root}")
   string(FIND "${_local_tools}" "${_required}" _required_pos)
   if(_required_pos EQUAL -1)
     message(FATAL_ERROR "Local macOS exec-tool bootstrap is missing '${_required}'")
@@ -54,9 +74,46 @@ if(NOT _recursive_sdk_glob_pos EQUAL -1)
 endif()
 
 file(READ "${SOURCE_DIR}/build_defs/gentest.bzl" _gentest_rules)
-string(FIND "${_gentest_rules}" "\"no-sandbox\": \"1\"" _no_sandbox_pos)
-if(_no_sandbox_pos EQUAL -1)
-  message(FATAL_ERROR "Local exec-tool actions must remain unsandboxed when using the host SDK symlink")
+foreach(_local_action_token IN ITEMS
+    "\"no-cache\": \"1\""
+    "\"no-remote\": \"1\""
+    "\"no-sandbox\": \"1\"")
+  string(FIND "${_gentest_rules}" "${_local_action_token}" _local_action_token_pos)
+  if(_local_action_token_pos EQUAL -1)
+    message(FATAL_ERROR "Local exec-tool action isolation is missing '${_local_action_token}'")
+  endif()
+endforeach()
+
+file(READ "${SOURCE_DIR}/bazel/toolchain.bzl" _toolchain_rules)
+string(FIND "${_toolchain_rules}"
+  "ctx.attr.local_macos_sdk_root if ctx.attr.local_macos_sdk_root else"
+  _local_sdk_precedence_pos)
+if(_local_sdk_precedence_pos EQUAL -1)
+  message(FATAL_ERROR "Local macOS toolchains must export the absolute host SDK instead of the relative marker path")
 endif()
+
+file(READ "${SOURCE_DIR}/tests/cmake/scripts/CheckBazelModuleConsumer.cmake" _module_consumer)
+foreach(_module_preflight_token IN ITEMS
+    "set(_clang_scan_deps \"\${_clang_bin_dir}/clang-scan-deps\")"
+    "COMMAND \"\${_clang_scan_deps}\" --version"
+    "GENTEST_SKIP_TEST: clang-scan-deps is unavailable beside the selected macOS Clang")
+  string(FIND "${_module_consumer}" "${_module_preflight_token}" _module_preflight_pos)
+  if(_module_preflight_pos EQUAL -1)
+    message(FATAL_ERROR "Bazel module smoke preflight is missing '${_module_preflight_token}'")
+  endif()
+endforeach()
+
+file(READ "${SOURCE_DIR}/tests/cmake/scripts/CheckBazelCodegenActionCache.cmake" _action_cache_fixture)
+foreach(_resource_contract_token IN ITEMS
+    "set(_staged_resource_ownership \"declared\")"
+    "set(_staged_resource_ownership \"host\")"
+    "glob([\"system-include/**\"], allow_empty = True)"
+    "Local macOS fallback must export the absolute host SDK"
+    "Packaged macOS codegen must export its declared execroot SDK")
+  string(FIND "${_action_cache_fixture}" "${_resource_contract_token}" _resource_contract_pos)
+  if(_resource_contract_pos EQUAL -1)
+    message(FATAL_ERROR "Bazel Apple SDK/resource fixture is missing '${_resource_contract_token}'")
+  endif()
+endforeach()
 
 message(STATUS "Bazel exec-tool staging regression passed")

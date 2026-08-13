@@ -24,16 +24,19 @@ function(gentest_prune_cyclic_directory_symlinks root)
   endforeach()
 endfunction()
 
-# Homebrew's clang driver uses @rpath dependencies from the adjacent LLVM lib
-# directory. Preserve that distribution layout in staged test toolchains so
-# the copied executable can start before it reports its resource directory.
+# Homebrew's clang driver and LLVM libraries use @rpath dependencies from the
+# adjacent lib, lib/c++, and lib/unwind directories. Preserve those three
+# bounded distribution roots so the staged tool can start without recursively
+# copying unrelated prefix content.
 function(gentest_stage_apple_clang_runtime clang tool_repo)
   get_filename_component(_clang_real "${clang}" REALPATH)
   get_filename_component(_clang_bin_dir "${_clang_real}" DIRECTORY)
   get_filename_component(_clang_prefix "${_clang_bin_dir}/.." ABSOLUTE)
-  file(GLOB _runtime_dylibs "${_clang_prefix}/lib/*.dylib")
-  if(_runtime_dylibs)
-    file(MAKE_DIRECTORY "${tool_repo}/lib")
-    file(COPY ${_runtime_dylibs} DESTINATION "${tool_repo}/lib")
-  endif()
+  foreach(_runtime_subdir IN ITEMS "" c++ unwind)
+    file(GLOB _runtime_dylibs "${_clang_prefix}/lib/${_runtime_subdir}/*.dylib")
+    if(_runtime_dylibs)
+      file(MAKE_DIRECTORY "${tool_repo}/lib/${_runtime_subdir}")
+      file(COPY ${_runtime_dylibs} DESTINATION "${tool_repo}/lib/${_runtime_subdir}")
+    endif()
+  endforeach()
 endfunction()

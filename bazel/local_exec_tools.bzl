@@ -69,6 +69,7 @@ gentest_codegen_toolchain(
     codegen = "@gentest//:gentest_codegen",
     clang = ":clang++",
     macos_sdk_root = "MacOSX.sdk/{sdk_marker}",
+    local_macos_sdk_root = {local_macos_sdk_root},
     local_only = True,
 )
 toolchain(
@@ -77,7 +78,10 @@ toolchain(
     toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
     exec_compatible_with = ["@platforms//os:osx"],
 )
-""".format(sdk_marker = sdk_marker))
+""".format(
+            local_macos_sdk_root = repr(str(sdk_path)),
+            sdk_marker = sdk_marker,
+        ))
         return
 
     repository_ctx.file("BUILD.bazel", """

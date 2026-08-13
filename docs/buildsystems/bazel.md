@@ -110,6 +110,10 @@ On macOS, use `exec_os = "macos"`, package the SDK closure, and set
 that declared exec-path as `SDKROOT` without restoring ambient `PATH` or the
 client's action environment. An absolute system path or a ccache wrapper is
 not remotely portable and is not an accepted substitute for this contract.
+Copying `/usr/bin/clang++` alone is not a packaged AppleClang toolchain: its
+resource directory remains owned by the active Xcode toolchain. Use the
+local-only fallback for that host-owned driver, or package a relocatable LLVM
+distribution and its declared resource/runtime closure.
 
 `exec_os` controls Gentest's invocation contract; it does not constrain Bazel
 toolchain resolution. Every enclosing `toolchain(...)` must set the matching
@@ -144,12 +148,13 @@ for local correctness checks, but it is deliberately **not** a remotely
 executable LLVM package. Gentest marks actions using this local fallback
 `no-remote`, disabling remote execution and remote action-cache use, and
 `no-cache`, disabling local and disk action-cache reuse as well. They are also
-`no-sandbox`: on macOS the SDK remains a host directory symlink so Bazel does
-not recursively traverse framework symlink cycles while loading the local tool
-repository. Release and cache-enabled consumers must register a prepackaged
-toolchain with a normalized, declared SDK closure. If neither is available,
-analysis reports a missing Gentest exec codegen toolchain instead of attempting
-ambient compiler lookup.
+`no-sandbox`: on macOS the action receives the absolute
+`GENTEST_BAZEL_LOCAL_SDKROOT` host path, while the repository retains only a
+marker below a directory symlink and never recursively traverses framework
+symlink cycles. Release and cache-enabled consumers instead receive a relative
+execroot path from a prepackaged toolchain with a normalized, declared SDK
+closure. If neither is available, analysis reports a missing Gentest exec
+codegen toolchain instead of attempting ambient compiler lookup.
 
 The automatic fallback is intentionally unavailable on Windows. A typical
 Windows `clang++.exe` and `gentest_codegen.exe` need adjacent LLVM/Clang DLLs,
