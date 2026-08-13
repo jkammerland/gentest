@@ -34,6 +34,7 @@ target_link_libraries(manual_include_whitespace_tests PRIVATE gentest gentest_ru
 gentest_link_mocks(manual_include_whitespace_tests PRIVATE manual_include_whitespace_mocks)
 target_compile_features(manual_include_whitespace_tests PRIVATE cxx_std_20)
 target_include_directories(manual_include_whitespace_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+set_property(TARGET manual_include_whitespace_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(manual_include_whitespace_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

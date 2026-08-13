@@ -44,6 +44,7 @@ target_sources(header_unit_import_preamble_tests
 target_link_libraries(header_unit_import_preamble_tests PRIVATE gentest gentest_runtime)
 gentest_link_mocks(header_unit_import_preamble_tests PRIVATE header_unit_import_preamble_mocks)
 target_compile_features(header_unit_import_preamble_tests PRIVATE cxx_std_20)
+set_property(TARGET header_unit_import_preamble_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(header_unit_import_preamble_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/${_gentest_generated_root}")

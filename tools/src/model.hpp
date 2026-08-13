@@ -91,9 +91,14 @@ struct FixtureDeclInfo {
     std::string              tu_filename;
     std::string              filename;
     unsigned                 line = 0;
-    // Internal identity for deterministic header-declaration merging.
+    // Internal identities for deterministic header-declaration merging.
     std::string declaration_site_key;
+    std::string entity_key;
     std::string semantic_fingerprint;
+    std::string scan_context;
+    // Header paired with the selected owning scan context. `filename` may be
+    // replaced by the canonical metadata site during serial merge.
+    std::string registration_header;
     std::size_t scan_slot = 0;
 };
 
@@ -141,7 +146,14 @@ struct CollectorOptions {
     // include annotated headers and are appended to the target; they never
     // include an authored implementation source.
     std::vector<std::filesystem::path> textual_registration_outputs;
-    std::vector<std::string>           compile_context_ids;
+    // Internal scan-slot plan aligned with `sources`: "authored-tu" or
+    // "fallback-header". Empty preserves the legacy all-authored behavior.
+    std::vector<std::string> scan_slot_kinds;
+    std::vector<std::string> compile_context_ids;
+    // Normalized semantic compile-context fingerprints computed from the
+    // target-unique generated slot commands and verified after retargeting the
+    // same commands to their authored scan inputs.
+    std::vector<std::string>           compile_context_fingerprints;
     std::filesystem::path              artifact_manifest_path;
     std::vector<std::filesystem::path> artifact_owner_sources;
     // Build-owned per-domain mock outputs. When mock outputs are requested,
@@ -196,10 +208,16 @@ struct TestCaseInfo {
     std::string filename;
     std::string suite_name;
     unsigned    line = 0;
-    // Internal identity for deterministic header-declaration merging.
+    // Internal identities for deterministic header-declaration merging.
     std::string declaration_site_key;
+    std::string entity_key;
     std::string semantic_fingerprint;
+    std::string scan_context;
     std::size_t scan_slot = 0;
+    // Authored headers that must be included under the selected occurrence's
+    // compile context. The declaration header is added during serial merge;
+    // shared-fixture headers are recorded during fixture resolution.
+    std::vector<std::string> registration_headers;
     // Benchmarks: true if discovered via bench("...") attribute
     bool          is_benchmark   = false;
     bool          is_jitter      = false;

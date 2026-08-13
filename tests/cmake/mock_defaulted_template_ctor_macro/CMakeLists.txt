@@ -32,6 +32,7 @@ target_compile_features(mock_defaulted_template_ctor_macro PRIVATE cxx_std_20)
 target_include_directories(mock_defaulted_template_ctor_macro PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mock_defaulted_template_ctor_macro PRIVATE gentest_main)
 gentest_link_mocks(mock_defaulted_template_ctor_macro PRIVATE defaulted_template_ctor_macro_mocks)
+set_property(TARGET mock_defaulted_template_ctor_macro PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(mock_defaulted_template_ctor_macro
     OUTPUT_DIR "${_gentest_generated_dir}")

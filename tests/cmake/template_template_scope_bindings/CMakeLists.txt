@@ -19,6 +19,7 @@ add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 add_executable(template_template_scope_bindings cases.cpp)
 target_compile_features(template_template_scope_bindings PRIVATE cxx_std_20)
 target_link_libraries(template_template_scope_bindings PRIVATE gentest_main)
+set_property(TARGET template_template_scope_bindings PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(template_template_scope_bindings
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

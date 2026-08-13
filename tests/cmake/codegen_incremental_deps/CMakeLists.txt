@@ -24,6 +24,7 @@ gentest_link_mocks(dep_tests PRIVATE dep_mocks)
 target_compile_features(dep_tests PRIVATE cxx_std_20)
 target_include_directories(dep_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(dep_tests PRIVATE DEP_SWITCH=${DEP_SWITCH})
+set_property(TARGET dep_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(dep_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"

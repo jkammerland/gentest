@@ -27,6 +27,7 @@ target_sources(partition_import_tests
 
 target_link_libraries(partition_import_tests PRIVATE gentest gentest_runtime)
 target_compile_features(partition_import_tests PRIVATE cxx_std_20)
+set_property(TARGET partition_import_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(partition_import_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

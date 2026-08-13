@@ -24,6 +24,7 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/provider.cppm PROPERTIES
 
 target_link_libraries(module_first_classic_order_tests PRIVATE gentest gentest_main)
 target_compile_features(module_first_classic_order_tests PRIVATE cxx_std_20)
+set_property(TARGET module_first_classic_order_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(module_first_classic_order_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

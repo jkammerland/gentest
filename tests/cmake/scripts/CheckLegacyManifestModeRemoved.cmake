@@ -17,9 +17,9 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_output_removed "legacy manifest/single-TU mode was removed in gentest 2.0.0")
-set(_cmake_output_removed "OUTPUT manifest/single-TU mode")
-set(_no_include_removed "--no-include-sources/GENTEST_NO_INCLUDE_SOURCES was removed")
-set(_cmake_no_include_removed "NO_INCLUDE_SOURCES was removed")
+set(_cmake_output_removed "Omit OUTPUT to use additive")
+set(_no_include_removed "additive header-declaration registration keeps authored sources in normal compilation units")
+set(_cmake_no_include_removed "Additive header-declaration")
 
 function(_gentest_expect_failure label)
   set(one_value_args CONTAINS)

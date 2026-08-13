@@ -7,15 +7,15 @@
 - Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits generated registrations/implementation sources. Codegen templates live in `tools/src/templates.hpp` and `tools/src/templates_mocks.hpp`.
 - Helper macro wiring is in `cmake/GentestCodegen.cmake`.
 - `gentest_codegen` supports three output styles:
-  - Manifest mode (`gentest_attach_codegen(... OUTPUT ...)`): emits a single generated TU (legacy).
-  - Per-TU registration mode (default): emits per-TU registration headers (`tu_*.gentest.h`), and CMake generates shim TUs (`tu_*.gentest.cpp`) that include the original source and the generated header.
+  - Additive header-declaration mode (ordinary textual default): annotations live in headers, authored `.cpp` files remain attached, and stable per-slot generated registration `.cpp` files are appended.
+  - Per-TU wrapper registration (internal previous-major compatibility): emits per-TU registration headers and shim TUs that include the original source.
   - CMake module-registration mode (`gentest_attach_codegen(... MODULE_REGISTRATION FILE_SET <name>)`): emits additive same-module implementation units (`tu_*.registration.gentest.cpp`), per-TU headers, and `<target>.artifact_manifest.json`; authored module interface sources stay in the target.
-- In per-TU registration mode, `gentest_attach_codegen()` replaces the original test TUs in the target with the generated shim TUs to avoid ODR issues.
+- Additive header-declaration mode never includes or replaces an authored `.cpp`; wrapper substitution is retained only for internal compatibility regression targets.
 - Public named modules are controlled by `GENTEST_ENABLE_PUBLIC_MODULES=AUTO|ON|OFF` (default `OFF`); set `ON` or `AUTO` explicitly when you want the public module surface.
 - Each suite under `tests/<suite>/` provides handwritten `cases.cpp`; shared test entry lives in `tests/support/test_entry.cpp`. Generated outputs land in the build tree (e.g. `${binaryDir}/tests/<suite>/tu_*.gentest.{cpp,h}` plus mock headers).
 
 ## Architecture & Execution Model
-- Source annotations (`[[using gentest: ...]]`) are discovered by `gentest_codegen`; it emits wrappers and a `gentest::Case` table per target.
+- Source annotations (`[[using gentest: ...]]`) are discovered by `gentest_codegen`; it emits registration adapters and a `gentest::Case` table per target.
 - The runtime (`run_all_tests`) consumes the case table, groups by suite and fixture lifetime, runs setup/teardown, then executes test/bench/jitter wrappers.
 - Suite/group identity comes from namespace path (or explicit suite attribute) and is used for ordering and fixture scoping.
 
@@ -94,7 +94,7 @@
 - Keep public symbols in the `gentest` namespace.
 
 ## Testing Guidelines
-- Author cases in `tests/<suite>/cases.cpp` and annotate with `[[using gentest : test("suite/name"), ...]]` so the generator discovers them.
+- Author annotated declarations in a header reachable from `tests/<suite>/cases.cpp`; implementations may remain out of line in `cases.cpp`.
 - Attach codegen in `tests/CMakeLists.txt` with `gentest_attach_codegen(<target>)`.
 - Executables return non‑zero on any `gentest::failure`; always run `ctest` before pushing.
 - Prefer free-function tests/benches/jitters with fixture parameters inferred from function signatures. The legacy `fixtures(...)` attribute is removed. Member tests are deprecated; they are treated as suite-level fixtures (shared instance across methods) and should be avoided in new code.
@@ -119,10 +119,10 @@
   - See `docs/modules.md` for the supported named-module flows (`import gentest;`, `import gentest.mock;`, `import gentest.bench_util;`).
   - `import gentest;` consumers should link `gentest::gentest`; test executables typically link both `gentest::gentest` and `gentest::gentest_main` (or `gentest::gentest_runtime` if they provide their own `main()`).
   - Public named-module export/import support is gated by `GENTEST_ENABLE_PUBLIC_MODULES`; set it to `ON` (or `AUTO` if you want toolchain-driven fallback) when you are explicitly testing public modules.
-  - Per-TU wrapper mode for module sources requires a single-config generator/build dir (for example Ninja). Use manifest mode (`gentest_attach_codegen(... OUTPUT ...)`) for multi-config generators.
+  - Internal per-TU wrapper compatibility for module sources requires a single-config generator/build dir (for example Ninja). Prefer `MODULE_REGISTRATION FILE_SET <name>` for module-authored tests.
   - Link explicit mock targets before `gentest_attach_codegen()` so codegen sees the generated mock surface during discovery.
-- Per-TU registration mode (default `gentest_attach_codegen()` with no `OUTPUT`) requires a single-config generator/build dir (e.g. Ninja). Multi-config generators (Ninja Multi-Config, VS, Xcode) should use manifest mode (`gentest_attach_codegen(... OUTPUT ...)`) or separate build dirs per config.
-- In per-TU registration mode, `OUTPUT_DIR` must be a concrete path (no generator expressions).
+- Ordinary textual `gentest_attach_codegen()` uses additive header-declaration registration. Use a generator that exports compile commands; Ninja and Ninja Multi-Config are supported.
+- In additive header-declaration and internal per-TU modes, `OUTPUT_DIR` must be a concrete root path (no generator expressions); multi-config builds add their configuration subdirectory automatically.
 - Cross-compiling (target = arm/riscv/etc, host runs codegen):
   - `GENTEST_BUILD_CODEGEN` defaults to `gentest_BUILD_TESTING` for native builds and to `OFF` for cross builds.
   - Build the host tool separately, then point the target build at it with `GENTEST_CODEGEN_EXECUTABLE`:
@@ -137,8 +137,8 @@
   - The `debug-system`/`release-system` presets enable `GENTEST_ENABLE_PACKAGE_TESTS` by default; disable with `-DGENTEST_ENABLE_PACKAGE_TESTS=OFF` if you want faster local runs.
   - Some Windows Debug CI environments hang on the two concurrency "death" tests; the CI sets `-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON` (only disables `concurrency_fail_single_death` and `concurrency_multi_noadopt_death` in `Debug` on `WIN32`).
 
-## `gentest_codegen` parallelism (TU wrapper mode)
-- Applies only when `gentest_codegen` is invoked once with **multiple** `tu_*.gentest.cpp` wrapper inputs (TU mode / `--tu-out-dir`).
+## `gentest_codegen` parallelism (per-slot modes)
+- Applies when `gentest_codegen` is invoked once with multiple scan slots (`--tu-out-dir`), including additive header-declaration and compatibility wrapper inputs.
 - A “codegen job” is a **worker thread inside a single `gentest_codegen` process** (not a CMake/Ninja job).
 - Controls:
   - `gentest_codegen --jobs=<N>` (0 = auto / `std::thread::hardware_concurrency()`)
@@ -150,33 +150,35 @@
   Ninja / CMake target build
     |
     +-- runs: gentest_codegen  (1 process)
-         inputs: [tu_0000.gentest.cpp, tu_0001.gentest.cpp, ...]
+         slots:  [authored source 0, authored source 1, listed-header fallback 0, ...]
          jobs:   K   (from --jobs or GENTEST_CODEGEN_JOBS; 0=auto)
 
-         PARSE PHASE  (parallel when K>1 and inputs>1)
-           warm-up: parse TU[0] serially (initializes LLVM/Clang singletons)
-           tasks = indices 1..N-1 for the remaining input TU list
-           shared atomic "next_index" over the remaining indices
+         SCAN PHASE  (parallel when K>1 and slots>1)
+           authored wave: scan each authored TU using its exact compile command
+           fallback wave: scan only listed headers not reached by the authored wave
+           each worker writes only ParseResult[slot_index]
            K worker threads:
               loop:
-                idx = next_index++   (maps to TU[1 + idx])
-                if idx >= N-1: exit
-                parse TU[1 + idx] with its own clang-tooling objects
-                store ParseResult[1 + idx]
+                idx = next_index++
+                if idx >= wave_size: exit
+                scan slot[idx] with its own clang-tooling objects
+                store ParseResult[idx]
 
          MERGE PHASE  (single thread)
-           concatenate all ParseResult[*] cases/mocks
-           enforce cross-TU name uniqueness
-           sort cases
+           merge declaration sites by physical file identity + offset + macro chain
+           merge stable semantic entities, validating equivalent redeclarations
+           merge fixtures before dependency closure
+           choose one stable target-local owner slot for each entity
 
-         EMIT PHASE (per-TU headers, parallel when K>1 and inputs>1)
-           tasks = indices 0..N-1 for the same TU list
+         EMIT PHASE (per-slot sources, parallel when K>1 and slots>1)
+           tasks = indices 0..N-1 for the predeclared slot list
            shared atomic "next_index"
            K worker threads:
               loop:
                 idx = next_index++
                 if idx >= N: exit
-                render + write tu_XXXX_*.gentest.h
+                render + write slot_XXXX.header_registration.gentest.cpp
+                (unowned slots still receive valid empty additive sources)
 
          MOCK OUTPUTS (single thread)
            render + write <target>_mock_registry.hpp + <target>_mock_impl.hpp

@@ -1039,6 +1039,71 @@ bool write_module_registration_manifest(const CollectorOptions &opts) {
     return write_file_atomic_if_changed(opts.artifact_manifest_path, manifest);
 }
 
+bool write_textual_header_registration_manifest(const CollectorOptions &opts) {
+    if (opts.artifact_manifest_path.empty() || opts.textual_registration_outputs.empty()) {
+        return true;
+    }
+    if (opts.compile_context_fingerprints.size() != opts.sources.size()) {
+        log_err("gentest_codegen: additive artifact manifest expected {} compile-context fingerprints, got {}\n", opts.sources.size(),
+                opts.compile_context_fingerprints.size());
+        return false;
+    }
+    if (!ensure_parent_dir(opts.artifact_manifest_path)) {
+        return false;
+    }
+
+    std::string manifest;
+    manifest.reserve(opts.sources.size() * 900 + 140);
+    fmt::format_to(std::back_inserter(manifest), "{{\n  \"schema\": \"{}\",\n  \"sources\": [\n", artifact_manifest::kSchema);
+    for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+        const fs::path    source_path         = opts.sources[idx];
+        const fs::path    registration_output = resolve_textual_registration_output(opts, idx);
+        const std::string context_id          = compile_context_id_for(opts, idx);
+        const std::string slot_kind           = idx < opts.scan_slot_kinds.size() ? opts.scan_slot_kinds[idx] : std::string{"authored-tu"};
+        const std::string comma               = idx + 1 == opts.sources.size() ? "" : ",";
+        fmt::format_to(std::back_inserter(manifest),
+                       "    {{\n"
+                       "      \"source\": \"{}\",\n"
+                       "      \"kind\": \"cxx-header-declaration-registration\",\n"
+                       "      \"scan_source\": \"{}\",\n"
+                       "      \"scan_slot_kind\": \"{}\",\n"
+                       "      \"compile_context_id\": \"{}\",\n"
+                       "      \"compile_context_fingerprint\": \"{}\",\n"
+                       "      \"registration_output\": \"{}\"\n"
+                       "    }}{}\n",
+                       render::escape_string(source_path.generic_string()), render::escape_string(source_path.generic_string()),
+                       render::escape_string(slot_kind), render::escape_string(context_id),
+                       render::escape_string(opts.compile_context_fingerprints[idx]),
+                       render::escape_string(registration_output.generic_string()), comma);
+    }
+    manifest.append("  ],\n  \"artifacts\": [\n");
+    for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+        const fs::path    source_path         = opts.sources[idx];
+        const fs::path    registration_output = resolve_textual_registration_output(opts, idx);
+        const std::string context_id          = compile_context_id_for(opts, idx);
+        const std::string comma               = idx + 1 == opts.sources.size() ? "" : ",";
+        fmt::format_to(std::back_inserter(manifest),
+                       "    {{\n"
+                       "      \"path\": \"{}\",\n"
+                       "      \"role\": \"registration\",\n"
+                       "      \"compile_as\": \"cxx-header-declaration-registration\",\n"
+                       "      \"owner_source\": \"{}\",\n"
+                       "      \"target_attachment\": \"append-generated-source\",\n"
+                       "      \"compile_context_id\": \"{}\",\n"
+                       "      \"compile_context_fingerprint\": \"{}\",\n"
+                       "      \"requires_module_scan\": false,\n"
+                       "      \"includes_authored_source\": false,\n"
+                       "      \"replaces_authored_source\": false,\n"
+                       "      \"depfile\": \"{}\"\n"
+                       "    }}{}\n",
+                       render::escape_string(registration_output.generic_string()), render::escape_string(source_path.generic_string()),
+                       render::escape_string(context_id), render::escape_string(opts.compile_context_fingerprints[idx]),
+                       opts.depfile_path ? render::escape_string(opts.depfile_path->generic_string()) : std::string{}, comma);
+    }
+    manifest.append("  ]\n}\n");
+    return write_file_atomic_if_changed(opts.artifact_manifest_path, manifest);
+}
+
 bool write_textual_wrapper_manifest(const CollectorOptions &opts) {
     if (opts.artifact_manifest_path.empty()) {
         return true;
@@ -1113,6 +1178,12 @@ bool write_textual_wrapper_manifest(const CollectorOptions &opts) {
 bool write_artifact_manifest(const CollectorOptions &opts) {
     if (!write_module_registration_manifest(opts)) {
         return false;
+    }
+    if (!write_textual_header_registration_manifest(opts)) {
+        return false;
+    }
+    if (!opts.textual_registration_outputs.empty()) {
+        return true;
     }
     return write_textual_wrapper_manifest(opts);
 }
@@ -1454,13 +1525,21 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
     std::unordered_map<std::string, std::set<fs::path>> declared_headers_by_source;
     if (!opts.textual_registration_outputs.empty()) {
         for (const auto &test : cases) {
-            if (!test.filename.empty()) {
-                declared_headers_by_source[normalize_path_key(fs::path(test.tu_filename))].insert(fs::path(test.filename));
+            auto &headers = declared_headers_by_source[normalize_path_key(fs::path(test.tu_filename))];
+            if (!test.registration_headers.empty()) {
+                for (const auto &header : test.registration_headers) {
+                    if (!header.empty()) {
+                        headers.insert(fs::path(header));
+                    }
+                }
+            } else if (!test.filename.empty()) {
+                headers.insert(fs::path(test.filename));
             }
         }
         for (const auto &fixture : fixtures) {
-            if (!fixture.filename.empty()) {
-                declared_headers_by_source[normalize_path_key(fs::path(fixture.tu_filename))].insert(fs::path(fixture.filename));
+            const auto &header = fixture.registration_header.empty() ? fixture.filename : fixture.registration_header;
+            if (!header.empty()) {
+                declared_headers_by_source[normalize_path_key(fs::path(fixture.tu_filename))].insert(fs::path(header));
             }
         }
     }

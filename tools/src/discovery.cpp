@@ -14,12 +14,16 @@
 #include <cctype>
 #include <clang/AST/Decl.h>
 #include <clang/AST/DeclTemplate.h>
+#include <clang/AST/ODRHash.h>
 #include <clang/AST/PrettyPrinter.h>
+#include <clang/Basic/Module.h>
 #include <clang/Basic/SourceManager.h>
+#include <clang/Index/USRGeneration.h>
 #include <cmath>
 #include <cstdio>
 #include <fmt/format.h>
 #include <iterator>
+#include <llvm/ADT/SmallString.h>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -39,6 +43,68 @@ using gentest::codegen::TypeKind;
 namespace gentest::codegen {
 
 namespace {
+std::string source_file_identity(const SourceManager &sm, SourceLocation location) {
+    const SourceLocation file_location = sm.getFileLoc(location);
+    if (file_location.isInvalid()) {
+        return "<invalid>";
+    }
+
+    const FileID file_id = sm.getFileID(file_location);
+    if (const auto *entry = sm.getFileEntryForID(file_id); entry != nullptr) {
+        const auto uid = entry->getUniqueID();
+        return fmt::format("{}:{}", uid.getDevice(), uid.getFile());
+    }
+    return sm.getFilename(file_location).str();
+}
+
+std::string source_location_identity(const SourceManager &sm, SourceLocation location) {
+    const SourceLocation file_location = sm.getFileLoc(location);
+    if (file_location.isInvalid()) {
+        return "<invalid>:0";
+    }
+    return fmt::format("{}:{}", source_file_identity(sm, file_location), sm.getFileOffset(file_location));
+}
+
+std::string declaration_site_identity(const NamedDecl &decl, const SourceManager &sm, std::string_view declaration_kind) {
+    const SourceLocation name_location = decl.getLocation();
+    std::string          key =
+        fmt::format("{}|expansion:{}|spelling:{}", declaration_kind, source_location_identity(sm, sm.getExpansionLoc(name_location)),
+                    source_location_identity(sm, sm.getSpellingLoc(name_location)));
+
+    // Expansion and spelling alone are insufficient when nested macros reuse
+    // the same declaration-producing tokens. Retain every invocation/caller
+    // boundary so repeated invocations and multi-declaration macros stay
+    // distinct while the same tokens seen from another TU compare equal.
+    SourceLocation cursor = name_location;
+    std::size_t    depth  = 0;
+    while (cursor.isMacroID()) {
+        const SourceLocation caller = sm.getImmediateMacroCallerLoc(cursor);
+        fmt::format_to(std::back_inserter(key), "|macro{}:{}:{}", depth, source_location_identity(sm, sm.getSpellingLoc(cursor)),
+                       source_location_identity(sm, sm.getExpansionLoc(cursor)));
+        if (caller.isInvalid() || caller == cursor) {
+            break;
+        }
+        cursor = caller;
+        ++depth;
+    }
+    return key;
+}
+
+std::string owning_module_identity(const Decl &decl) {
+    if (const Module *module = decl.getTopLevelOwningNamedModule(); module != nullptr) {
+        return module->getFullModuleName();
+    }
+    return {};
+}
+
+std::string stable_entity_identity(const NamedDecl &decl) {
+    llvm::SmallString<256> usr;
+    if (!clang::index::generateUSRForDecl(&decl, usr)) {
+        return fmt::format("usr:{}|module:{}", std::string_view(usr.data(), usr.size()), owning_module_identity(decl));
+    }
+    return fmt::format("fallback:{}|module:{}", decl.getQualifiedNameAsString(), owning_module_identity(decl));
+}
+
 bool ends_with_ci(llvm::StringRef text, llvm::StringRef suffix) {
     if (text.size() < suffix.size()) {
         return false;
@@ -51,6 +117,11 @@ bool ends_with_ci(llvm::StringRef text, llvm::StringRef suffix) {
         }
     }
     return true;
+}
+
+bool is_header_like_path(llvm::StringRef path) {
+    return ends_with_ci(path, ".h") || ends_with_ci(path, ".hh") || ends_with_ci(path, ".hpp") || ends_with_ci(path, ".hxx") ||
+           ends_with_ci(path, ".inl") || ends_with_ci(path, ".ipp") || ends_with_ci(path, ".tpp");
 }
 
 bool is_gentest_async_test_return(QualType type) {
@@ -336,7 +407,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         return;
 
     if (header_declaration_registration_) {
-        if (in_main_file) {
+        const auto main_file = sm->getFilename(sm->getFileLoc(loc));
+        if (in_main_file && !is_header_like_path(main_file)) {
             had_error_ = true;
             report("Gentest attributes in an authored .cpp are not supported by header-declaration registration; annotate the header "
                    "declaration instead");
@@ -484,17 +556,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
     }
 
-    const auto declaration_site_key = [&] {
-        const SourceLocation  site_loc  = sm->getFileLoc(sm->getExpansionLoc(func->getLocation()));
-        const llvm::StringRef site_file = sm->getFilename(site_loc);
-        const unsigned        offset    = site_loc.isValid() ? sm->getFileOffset(site_loc) : 0;
-        std::string           identity  = site_file.str();
-        if (const auto *entry = sm->getFileEntryForID(sm->getFileID(site_loc)); entry != nullptr) {
-            const auto uid = entry->getUniqueID();
-            identity       = fmt::format("{}:{}", uid.getDevice(), uid.getFile());
-        }
-        return fmt::format("function:{}:{}", identity, offset);
-    }();
+    const std::string declaration_site_key = declaration_site_identity(*func, *sm, "function");
+    const std::string entity_key           = stable_entity_identity(*func);
+    const std::string canonical_signature  = func->getType().getCanonicalType().getAsString();
 
     std::string tu_filename;
     {
@@ -567,6 +631,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.suite_name                   = suite_path;
         info.line                         = lnum;
         info.declaration_site_key         = declaration_site_key;
+        info.entity_key                   = entity_key;
         info.tags                         = summary.tags;
         info.requirements                 = summary.requirements;
         info.owner                        = summary.owner.value_or(std::string{});
@@ -589,10 +654,12 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             info.fixture_qualified_name = fixture_ctx->qualified_name;
             info.fixture_lifetime       = fixture_ctx->lifetime;
         }
-        info.semantic_fingerprint = fmt::format("{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", info.qualified_name, info.display_name,
-                                                info.base_name, info.suite_name, info.call_arguments, info.fixture_qualified_name,
-                                                static_cast<int>(info.fixture_lifetime), info.is_benchmark, info.is_jitter,
-                                                info.returns_async, info.items_per_call, info.should_skip, info.skip_reason, info.owner);
+        info.semantic_fingerprint =
+            fmt::format("signature:{}|linkage:{}|module:{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}", canonical_signature,
+                        static_cast<int>(func->getFormalLinkage()), owning_module_identity(*func), info.qualified_name, info.display_name,
+                        info.base_name, info.suite_name, info.call_arguments, info.fixture_qualified_name,
+                        static_cast<int>(info.fixture_lifetime), info.is_benchmark, info.is_jitter, info.is_baseline, info.returns_value,
+                        info.returns_async, info.items_per_call, info.should_skip, info.skip_reason, info.owner);
         for (const auto &tag : info.tags) {
             info.semantic_fingerprint += "|tag:" + tag;
         }
@@ -604,6 +671,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
         for (const auto &fixture_type : info.free_fixture_types) {
             info.semantic_fingerprint += "|fixture:" + fixture_type;
+        }
+        for (const auto required_scope : info.free_fixture_required_scopes) {
+            info.semantic_fingerprint +=
+                required_scope.has_value() ? fmt::format("|fixture-scope:{}", static_cast<int>(*required_scope)) : "|fixture-scope:local";
         }
         std::string key = info.qualified_name + "#" + info.display_name + "@" + info.filename + ":" + std::to_string(info.line);
         if (seen_.insert(key).second)
@@ -1102,7 +1173,8 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
     }
 
     const auto attrs = collect_gentest_attributes_for(*record, *sm);
-    if (header_declaration_registration_ && sm->isWrittenInMainFile(loc) && (!attrs.gentest.empty() || !attrs.mis_scoped_gentest.empty())) {
+    if (header_declaration_registration_ && sm->isWrittenInMainFile(loc) && !is_header_like_path(sm->getFilename(sm->getFileLoc(loc))) &&
+        (!attrs.gentest.empty() || !attrs.mis_scoped_gentest.empty())) {
         had_error_ = true;
         report(*record, *sm,
                "Gentest fixture attributes in an authored .cpp are not supported by header-declaration registration; annotate the header "
@@ -1155,16 +1227,13 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
         const llvm::StringRef file     = sm->getFilename(file_loc);
         info.filename                  = file.str();
         info.line                      = sm->getSpellingLineNumber(file_loc);
-        const auto  site_loc           = sm->getFileLoc(sm->getExpansionLoc(record->getLocation()));
-        const auto  offset             = site_loc.isValid() ? sm->getFileOffset(site_loc) : 0;
-        std::string identity           = sm->getFilename(site_loc).str();
-        if (const auto *entry = sm->getFileEntryForID(sm->getFileID(site_loc)); entry != nullptr) {
-            const auto uid = entry->getUniqueID();
-            identity       = fmt::format("{}:{}", uid.getDevice(), uid.getFile());
-        }
-        info.declaration_site_key = fmt::format("fixture:{}:{}", identity, offset);
-        info.semantic_fingerprint =
-            fmt::format("{}|{}|{}|{}", info.qualified_name, info.suite_name, static_cast<int>(info.scope), info.base_name);
+        info.declaration_site_key      = declaration_site_identity(*record, *sm, "fixture");
+        info.entity_key                = stable_entity_identity(*record);
+        ODRHash odr_hash;
+        odr_hash.AddCXXRecordDecl(record);
+        info.semantic_fingerprint = fmt::format("entity:{}|odr:{}|module:{}|{}|{}|{}|{}", info.entity_key, odr_hash.CalculateHash(),
+                                                owning_module_identity(*record), info.qualified_name, info.suite_name,
+                                                static_cast<int>(info.scope), info.base_name);
     }
     out_.push_back(std::move(info));
 }
@@ -1320,6 +1389,7 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
     };
 
     for (auto &test : cases) {
+        test.registration_headers.clear();
         if (test.free_fixture_types.empty()) {
             continue;
         }
@@ -1361,6 +1431,10 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
                 use.scope      = decl->scope;
                 use.suite_name = decl->suite_name;
                 test.free_fixtures.push_back(std::move(use));
+                if (!decl->filename.empty() &&
+                    std::ranges::find(test.registration_headers, decl->filename) == test.registration_headers.end()) {
+                    test.registration_headers.push_back(decl->filename);
+                }
             };
 
             if (lookup) {

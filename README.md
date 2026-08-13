@@ -29,7 +29,7 @@ void emplace_matrix() {
 }
 ```
 
-During the build, a codegen tool can scan your sources and generates registrations/wrappers from those attributes. This tooling step can be registered with your favorite buildsystem.
+During the build, a codegen tool scans those declarations and generates registration adapters from their attributes. This tooling step can be registered with your favorite build system.
 
 This avoids macro-heavy registration and instead keeps test declarations closer to ordinary C++ by using standard attribute syntax. Unlike the code generation used in many test frameworks, gentest’s generator is not just a hidden registration step. It acts as a more general layer over attribute-annotated code, which makes it easier to add features without inventing a separate macro-style API for each one.
 
@@ -77,8 +77,9 @@ Complete copy-paste projects live in [`examples/hello`](examples/hello) and
 # Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
 find_package(gentest CONFIG REQUIRED)
 
-# The test
-add_executable(my_tests cases.cpp)
+# The test implementation stays an ordinary target source. Listing the header
+# is optional when cases.cpp reaches it, but is useful for IDE visibility.
+add_executable(my_tests cases.cpp cases.hpp)
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
 # Setup codegen dependency for your target
@@ -91,20 +92,38 @@ gentest_discover_tests(my_tests)
 # add_test(NAME my_tests COMMAND my_tests)
 ```
 
+`cases.hpp`:
+
+```cpp
+#pragma once
+
+#include "gentest/attributes.h"
+
+[[using gentest: test("demo/addition")]]
+void addition();
+```
+
 `cases.cpp`:
 
 ```cpp
+#include "cases.hpp"
 #include "gentest/test.h"
 
 using namespace gentest::asserts;
 
-[[using gentest: test("demo/addition")]]
 void addition() {
     const auto value = 2 + 2;
     gentest::expect_true(value == 4);
     EXPECT_EQ(value, 4);
 }
 ```
+
+Ordinary textual codegen discovers annotations on header declarations, keeps
+every authored `.cpp` attached, and appends generated registration sources.
+Definitions may remain out of line. External-linkage inline header definitions
+also work. An annotation written only in `.cpp`, or on a `static` or
+anonymous-namespace function, is rejected because it has no stable
+header-reachable target-wide identity.
 
 Configure and run the consumer project after installing gentest:
 
@@ -504,7 +523,7 @@ gentest_add_mocks(clock_mocks
   OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
   HEADER_NAME public/clock_mocks.hpp)
 
-add_executable(clock_tests cases.cpp)
+add_executable(clock_tests cases.cpp cases.hpp)
 target_link_libraries(clock_tests PRIVATE gentest::gentest_main clock_mocks)
 gentest_attach_codegen(clock_tests)
 gentest_discover_tests(clock_tests)
@@ -522,16 +541,27 @@ using ClockMock = gentest::mock<Clock>;
 }
 ```
 
-Test (`cases.cpp`):
+Test declaration (`cases.hpp`):
 
 ```cpp
+#pragma once
+
+#include "gentest/attributes.h"
+
+[[using gentest: test("mock/clock")]]
+void mock_clock();
+```
+
+Test implementation (`cases.cpp`):
+
+```cpp
+#include "cases.hpp"
 #include "gentest/attributes.h"
 #include "public/clock_mocks.hpp"
 using namespace gentest::asserts;
 
 int read_now(const Clock* c) { return c->now(); }
 
-[[using gentest: test("mock/clock")]]
 void mock_clock() {
     mytests::mocks::ClockMock clock;
     gentest::expect(clock, &Clock::now).times(1).returns(123);

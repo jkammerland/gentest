@@ -19,6 +19,7 @@ set_source_files_properties("${_wrapper_case_src}" PROPERTIES
 )
 
 set_property(TARGET demo PROPERTY UNITY_BUILD ON)
+set_property(TARGET demo PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(demo SOURCES "${_wrapper_case_src}")
 

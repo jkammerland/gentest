@@ -47,6 +47,7 @@
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/Process.h>
 #include <llvm/Support/Program.h>
+#include <llvm/Support/SHA256.h>
 #include <llvm/Support/StringSaver.h>
 #include <llvm/Support/raw_ostream.h>
 #include <map>
@@ -179,82 +180,283 @@ bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
 }
 
 bool merge_header_declaration_occurrences(std::vector<TestCaseInfo> &cases, std::vector<FixtureDeclInfo> &fixtures) {
-    auto select_cases = [](std::vector<TestCaseInfo> &items) {
-        std::map<std::string, std::map<std::size_t, std::vector<TestCaseInfo>>> by_site;
-        for (auto &item : items) {
-            by_site[item.declaration_site_key][item.scan_slot].push_back(std::move(item));
-        }
-
-        std::vector<TestCaseInfo> canonical;
-        bool                      ok = true;
-        for (auto &[site, by_slot] : by_site) {
-            const auto fingerprints_for = [](std::vector<TestCaseInfo> &occurrences) {
-                std::ranges::sort(occurrences, [](const TestCaseInfo &lhs, const TestCaseInfo &rhs) {
-                    return std::tie(lhs.semantic_fingerprint, lhs.display_name, lhs.qualified_name) <
-                           std::tie(rhs.semantic_fingerprint, rhs.display_name, rhs.qualified_name);
-                });
-                std::vector<std::string> fingerprints;
-                fingerprints.reserve(occurrences.size());
-                for (const auto &candidate : occurrences) {
-                    std::string fingerprint = candidate.semantic_fingerprint;
-                    for (const auto &fixture : candidate.free_fixtures) {
-                        fingerprint += fmt::format("|resolved-fixture:{}:{}:{}", fixture.type_name, static_cast<int>(fixture.scope),
-                                                   fixture.suite_name);
-                    }
-                    fingerprints.push_back(std::move(fingerprint));
-                }
-                return fingerprints;
-            };
-
-            auto       first_it = by_slot.begin();
-            const auto expected = fingerprints_for(first_it->second);
-            for (auto it = std::next(first_it); it != by_slot.end(); ++it) {
-                if (fingerprints_for(it->second) != expected) {
-                    const auto &first     = first_it->second.front();
-                    const auto &candidate = it->second.front();
-                    gentest::codegen::log_err(
-                        "gentest_codegen: header declaration differs between compile contexts at {}:{} (slots {} and {})\n", first.filename,
-                        first.line, first.scan_slot, candidate.scan_slot);
-                    ok = false;
-                }
-            }
-            canonical.insert(canonical.end(), std::make_move_iterator(first_it->second.begin()),
-                             std::make_move_iterator(first_it->second.end()));
-        }
-        items = std::move(canonical);
-        return ok;
+    const auto context_label = [](std::string_view context, std::size_t slot) {
+        return context.empty() ? fmt::format("scan slot {}", slot) : std::string(context);
+    };
+    const auto fixture_owner_key = [](const FixtureDeclInfo &item) {
+        return std::tie(item.scan_slot, item.declaration_site_key, item.tu_filename, item.filename, item.line);
     };
 
-    auto select_fixtures = [](std::vector<FixtureDeclInfo> &items) {
-        std::map<std::string, std::vector<FixtureDeclInfo>> by_occurrence;
-        for (auto &item : items) {
-            by_occurrence[item.declaration_site_key].push_back(std::move(item));
+    // Shared fixtures are merged and validated before case dependency
+    // resolution. Keep the isolated scan occurrences alive for context-local
+    // lookup, but emit exactly one canonical fixture registration.
+    std::map<std::string, std::map<std::size_t, std::vector<FixtureDeclInfo>>> fixtures_by_site;
+    for (const auto &fixture : fixtures) {
+        fixtures_by_site[fixture.declaration_site_key][fixture.scan_slot].push_back(fixture);
+    }
+
+    struct FixtureSite {
+        std::string                  key;
+        std::string                  entity;
+        std::vector<FixtureDeclInfo> occurrences;
+    };
+    std::vector<FixtureSite> fixture_sites;
+    bool                     ok = true;
+    for (auto &[site_key, by_slot] : fixtures_by_site) {
+        FixtureSite site{.key = site_key};
+        for (auto &[_, slot_occurrences] : by_slot) {
+            std::ranges::sort(slot_occurrences, {}, fixture_owner_key);
+            const auto &candidate = slot_occurrences.front();
+            if (site.occurrences.empty()) {
+                site.entity = candidate.entity_key;
+                site.occurrences.push_back(candidate);
+                continue;
+            }
+            const auto &first = site.occurrences.front();
+            if (candidate.entity_key != site.entity || candidate.semantic_fingerprint != first.semantic_fingerprint) {
+                gentest::codegen::log_err("gentest_codegen: header fixture declaration differs between compile contexts:\n"
+                                          "  {}:{} [{}]\n"
+                                          "  {}:{} [{}]\n",
+                                          first.filename, first.line, context_label(first.scan_context, first.scan_slot),
+                                          candidate.filename, candidate.line, context_label(candidate.scan_context, candidate.scan_slot));
+                ok = false;
+            }
+            site.occurrences.push_back(candidate);
+        }
+        fixture_sites.push_back(std::move(site));
+    }
+    if (!ok) {
+        return false;
+    }
+
+    std::map<std::string, std::vector<std::size_t>> fixture_sites_by_entity;
+    for (std::size_t idx = 0; idx < fixture_sites.size(); ++idx) {
+        fixture_sites_by_entity[fixture_sites[idx].entity].push_back(idx);
+    }
+    std::vector<FixtureDeclInfo> canonical_fixtures;
+    for (auto &[_, site_indices] : fixture_sites_by_entity) {
+        std::ranges::sort(site_indices, [&](std::size_t lhs, std::size_t rhs) { return fixture_sites[lhs].key < fixture_sites[rhs].key; });
+        const auto &canonical_site = fixture_sites[site_indices.front()];
+        const auto &canonical_meta = canonical_site.occurrences.front();
+        for (const std::size_t site_idx : site_indices) {
+            const auto &candidate = fixture_sites[site_idx].occurrences.front();
+            if (candidate.semantic_fingerprint != canonical_meta.semantic_fingerprint) {
+                gentest::codegen::log_err("gentest_codegen: annotated fixture redeclarations differ:\n"
+                                          "  {}:{} [{}]\n"
+                                          "  {}:{} [{}]\n",
+                                          canonical_meta.filename, canonical_meta.line,
+                                          context_label(canonical_meta.scan_context, canonical_meta.scan_slot), candidate.filename,
+                                          candidate.line, context_label(candidate.scan_context, candidate.scan_slot));
+                ok = false;
+            }
+        }
+        if (!ok) {
+            continue;
         }
 
-        std::vector<FixtureDeclInfo> canonical;
-        bool                         ok = true;
-        for (auto &[key, occurrences] : by_occurrence) {
-            std::ranges::sort(occurrences, [](const FixtureDeclInfo &lhs, const FixtureDeclInfo &rhs) {
-                return std::tie(lhs.scan_slot, lhs.tu_filename, lhs.filename, lhs.line) <
-                       std::tie(rhs.scan_slot, rhs.tu_filename, rhs.filename, rhs.line);
-            });
-            const auto &first = occurrences.front();
-            for (const auto &candidate : occurrences) {
-                if (candidate.semantic_fingerprint != first.semantic_fingerprint) {
-                    gentest::codegen::log_err(
-                        "gentest_codegen: header fixture declaration differs between compile contexts at {}:{} (slots {} and {})\n",
-                        first.filename, first.line, first.scan_slot, candidate.scan_slot);
-                    ok = false;
-                    break;
+        const FixtureDeclInfo *owner = nullptr;
+        for (const std::size_t site_idx : site_indices) {
+            for (const auto &candidate : fixture_sites[site_idx].occurrences) {
+                if (owner == nullptr || fixture_owner_key(candidate) < fixture_owner_key(*owner)) {
+                    owner = &candidate;
                 }
             }
-            canonical.push_back(first);
         }
-        items = std::move(canonical);
-        return ok;
+        FixtureDeclInfo merged      = *owner;
+        merged.registration_header  = owner->filename;
+        merged.filename             = canonical_meta.filename;
+        merged.line                 = canonical_meta.line;
+        merged.declaration_site_key = canonical_meta.declaration_site_key;
+        canonical_fixtures.push_back(std::move(merged));
+    }
+    if (!ok) {
+        return false;
+    }
+
+    if (!resolve_free_fixtures(cases, fixtures)) {
+        return false;
+    }
+
+    const auto resolved_case_fingerprint = [](const TestCaseInfo &item) {
+        std::string fingerprint = item.semantic_fingerprint;
+        for (const auto &fixture : item.free_fixtures) {
+            fingerprint +=
+                fmt::format("|resolved-fixture:{}:{}:{}", fixture.type_name, static_cast<int>(fixture.scope), fixture.suite_name);
+        }
+        return fingerprint;
+    };
+    const auto sort_case_occurrences = [&](std::vector<TestCaseInfo> &items) {
+        std::ranges::sort(items, [&](const TestCaseInfo &lhs, const TestCaseInfo &rhs) {
+            return std::tuple{resolved_case_fingerprint(lhs), lhs.display_name, lhs.qualified_name, lhs.call_arguments} <
+                   std::tuple{resolved_case_fingerprint(rhs), rhs.display_name, rhs.qualified_name, rhs.call_arguments};
+        });
+    };
+    const auto case_semantics = [&](const std::vector<TestCaseInfo> &items) {
+        std::vector<std::string> result;
+        result.reserve(items.size());
+        for (const auto &item : items) {
+            result.push_back(resolved_case_fingerprint(item));
+        }
+        return result;
     };
 
-    return select_cases(cases) && select_fixtures(fixtures);
+    // A conditional declaration can move between distinct token sites (for
+    // example #if branches) and can therefore evade a pure site-key group.
+    // Compare each qualified Gentest entity inventory across the scan contexts
+    // that observed it before target-wide duplicate-name validation.
+    std::map<std::string, std::map<std::size_t, std::vector<const TestCaseInfo *>>> context_inventories;
+    for (const auto &item : cases) {
+        context_inventories[fmt::format("{}|{}", item.qualified_name, item.base_name)][item.scan_slot].push_back(&item);
+    }
+    for (auto &[_, by_slot] : context_inventories) {
+        if (by_slot.size() < 2) {
+            continue;
+        }
+        const auto inventory_for = [&](const std::vector<const TestCaseInfo *> &items) {
+            std::vector<std::string> inventory;
+            inventory.reserve(items.size());
+            for (const auto *item : items) {
+                inventory.push_back(resolved_case_fingerprint(*item));
+            }
+            std::ranges::sort(inventory);
+            const auto tail = std::ranges::unique(inventory);
+            inventory.erase(tail.begin(), inventory.end());
+            return inventory;
+        };
+        const auto first_it = by_slot.begin();
+        const auto expected = inventory_for(first_it->second);
+        for (auto it = std::next(first_it); it != by_slot.end(); ++it) {
+            if (inventory_for(it->second) == expected) {
+                continue;
+            }
+            const auto &first     = *first_it->second.front();
+            const auto &candidate = *it->second.front();
+            gentest::codegen::log_err("gentest_codegen: header declaration differs between compile contexts:\n"
+                                      "  {}:{} [{}]\n"
+                                      "  {}:{} [{}]\n",
+                                      first.filename, first.line, context_label(first.scan_context, first.scan_slot), candidate.filename,
+                                      candidate.line, context_label(candidate.scan_context, candidate.scan_slot));
+            ok = false;
+        }
+    }
+    if (!ok) {
+        return false;
+    }
+
+    std::map<std::string, std::map<std::size_t, std::vector<TestCaseInfo>>> cases_by_site;
+    for (auto &item : cases) {
+        cases_by_site[item.declaration_site_key][item.scan_slot].push_back(std::move(item));
+    }
+    struct CaseSite {
+        std::string                            key;
+        std::string                            entity;
+        std::vector<std::vector<TestCaseInfo>> occurrences;
+    };
+    std::vector<CaseSite> case_sites;
+    for (auto &[site_key, by_slot] : cases_by_site) {
+        CaseSite                 site{.key = site_key};
+        std::vector<std::string> expected;
+        for (auto &[_, slot_occurrences] : by_slot) {
+            sort_case_occurrences(slot_occurrences);
+            const auto semantics = case_semantics(slot_occurrences);
+            if (site.occurrences.empty()) {
+                expected    = semantics;
+                site.entity = slot_occurrences.front().entity_key;
+            } else if (semantics != expected || slot_occurrences.front().entity_key != site.entity) {
+                const auto &first     = site.occurrences.front().front();
+                const auto &candidate = slot_occurrences.front();
+                gentest::codegen::log_err("gentest_codegen: header declaration differs between compile contexts:\n"
+                                          "  {}:{} [{}]\n"
+                                          "  {}:{} [{}]\n",
+                                          first.filename, first.line, context_label(first.scan_context, first.scan_slot),
+                                          candidate.filename, candidate.line, context_label(candidate.scan_context, candidate.scan_slot));
+                ok = false;
+            }
+            site.occurrences.push_back(std::move(slot_occurrences));
+        }
+        case_sites.push_back(std::move(site));
+    }
+    if (!ok) {
+        return false;
+    }
+
+    std::map<std::string, std::vector<std::size_t>> case_sites_by_entity;
+    for (std::size_t idx = 0; idx < case_sites.size(); ++idx) {
+        case_sites_by_entity[case_sites[idx].entity].push_back(idx);
+    }
+
+    std::vector<TestCaseInfo> canonical_cases;
+    for (auto &[_, site_indices] : case_sites_by_entity) {
+        std::ranges::sort(site_indices, [&](std::size_t lhs, std::size_t rhs) { return case_sites[lhs].key < case_sites[rhs].key; });
+        const auto &canonical_site     = case_sites[site_indices.front()];
+        const auto &canonical_metadata = canonical_site.occurrences.front();
+        const auto  expected_semantics = case_semantics(canonical_metadata);
+        for (const std::size_t site_idx : site_indices) {
+            const auto &candidate_cases = case_sites[site_idx].occurrences.front();
+            if (case_semantics(candidate_cases) != expected_semantics) {
+                const auto &first     = canonical_metadata.front();
+                const auto &candidate = candidate_cases.front();
+                gentest::codegen::log_err("gentest_codegen: annotated redeclarations of one entity differ:\n"
+                                          "  {}:{} [{}]\n"
+                                          "  {}:{} [{}]\n",
+                                          first.filename, first.line, context_label(first.scan_context, first.scan_slot),
+                                          candidate.filename, candidate.line, context_label(candidate.scan_context, candidate.scan_slot));
+                ok = false;
+            }
+        }
+        if (!ok) {
+            continue;
+        }
+
+        const std::vector<TestCaseInfo> *owner_cases = nullptr;
+        std::string                      owner_site_key;
+        for (const std::size_t site_idx : site_indices) {
+            const auto &site = case_sites[site_idx];
+            for (const auto &occurrence : site.occurrences) {
+                const auto owner_key = std::tuple{occurrence.front().scan_slot, site.key, occurrence.front().tu_filename};
+                if (owner_cases == nullptr ||
+                    owner_key < std::tuple{owner_cases->front().scan_slot, owner_site_key, owner_cases->front().tu_filename}) {
+                    owner_cases    = &occurrence;
+                    owner_site_key = site.key;
+                }
+            }
+        }
+
+        for (std::size_t idx = 0; idx < owner_cases->size(); ++idx) {
+            TestCaseInfo merged                   = (*owner_cases)[idx];
+            const auto   owner_declaration_header = merged.filename;
+            merged.filename                       = canonical_metadata[idx].filename;
+            merged.line                           = canonical_metadata[idx].line;
+            merged.declaration_site_key           = canonical_metadata[idx].declaration_site_key;
+
+            std::vector<std::string> dependency_headers = std::move(merged.registration_headers);
+            std::ranges::sort(dependency_headers);
+            const auto unique_tail = std::ranges::unique(dependency_headers);
+            dependency_headers.erase(unique_tail.begin(), dependency_headers.end());
+            merged.registration_headers.clear();
+            if (!owner_declaration_header.empty()) {
+                merged.registration_headers.push_back(owner_declaration_header);
+            }
+            for (auto &header : dependency_headers) {
+                if (header != owner_declaration_header) {
+                    merged.registration_headers.push_back(std::move(header));
+                }
+            }
+            canonical_cases.push_back(std::move(merged));
+        }
+    }
+    if (!ok) {
+        return false;
+    }
+
+    std::ranges::sort(canonical_cases, {}, &TestCaseInfo::display_name);
+    std::ranges::sort(canonical_fixtures, [](const FixtureDeclInfo &lhs, const FixtureDeclInfo &rhs) {
+        return std::tie(lhs.qualified_name, lhs.declaration_site_key, lhs.scan_slot) <
+               std::tie(rhs.qualified_name, rhs.declaration_site_key, rhs.scan_slot);
+    });
+    cases    = std::move(canonical_cases);
+    fixtures = std::move(canonical_fixtures);
+    return true;
 }
 
 void merge_duplicate_mocks(std::vector<gentest::codegen::MockClassInfo> &mocks) {
@@ -592,6 +794,28 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
         error = fmt::format("expected {} --compile-context-id value(s) for {} input source(s), got {}", options.sources.size(),
                             options.sources.size(), options.compile_context_ids.size());
         return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool validate_scan_slot_kinds(const CollectorOptions &options, std::string &error) {
+    if (options.scan_slot_kinds.empty()) {
+        return true;
+    }
+    if (!options.header_declaration_registration) {
+        error = "--scan-slot-kind requires --textual-registration-output";
+        return false;
+    }
+    if (options.scan_slot_kinds.size() != options.sources.size()) {
+        error = fmt::format("expected {} --scan-slot-kind value(s) for {} input source(s), got {}", options.sources.size(),
+                            options.sources.size(), options.scan_slot_kinds.size());
+        return false;
+    }
+    for (const auto &kind : options.scan_slot_kinds) {
+        if (kind != "authored-tu" && kind != "fallback-header") {
+            error = fmt::format("unsupported --scan-slot-kind '{}'; expected 'authored-tu' or 'fallback-header'", kind);
+            return false;
+        }
     }
     return true;
 }
@@ -2739,11 +2963,114 @@ clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileC
     return command;
 }
 
-bool                       has_sysroot_arg(std::span<const std::string> args);
 std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line);
-std::string                compiler_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line,
-                                                           const std::string                          &default_compiler_path);
-bool                       is_clang_like_compiler(std::string_view path);
+
+[[nodiscard]] bool is_compile_output_option(std::string_view argument) {
+    return argument == "-o" || argument == "-MF" || argument == "-MT" || argument == "-MQ" || argument == "-MJ" ||
+           argument == "--dependency-file" || argument == "/Fo" || argument == "/Fd" || argument == "/Fe";
+}
+
+[[nodiscard]] bool is_joined_compile_output_option(std::string_view argument) {
+    for (const std::string_view prefix : {"-MF", "-MT", "-MQ", "-MJ", "/Fo", "/Fd", "/Fe"}) {
+        if (argument.size() > prefix.size() && argument.starts_with(prefix)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool is_cmake_module_map_response(std::string_view argument) {
+    return argument.starts_with('@') && argument.find(".modmap") != std::string_view::npos;
+}
+
+[[nodiscard]] std::vector<std::string> normalized_semantic_compile_context(const clang::tooling::CompileCommand &command,
+                                                                           std::string_view                      source_file) {
+    std::vector<std::string> normalized;
+    normalized.reserve(command.CommandLine.size());
+    normalized.push_back(fmt::format("directory={}", normalize_compdb_lookup_path(command.Directory)));
+
+    const std::string normalized_source = normalize_compdb_lookup_path(source_file, command.Directory);
+    bool              skip_value        = false;
+    const std::size_t compiler_index    = compiler_arg_index_for_resource_dir_probe(command.CommandLine).value_or(0);
+    for (std::size_t idx = compiler_index + 1; idx < command.CommandLine.size(); ++idx) {
+        const std::string_view argument = command.CommandLine[idx];
+        if (skip_value) {
+            skip_value = false;
+            continue;
+        }
+        if (is_compile_output_option(argument)) {
+            skip_value = true;
+            continue;
+        }
+        if (is_cmake_module_map_response(argument)) {
+            normalized.emplace_back("@<target-module-map>");
+            continue;
+        }
+        if (is_joined_compile_output_option(argument) || argument == "-c" || argument == "/c" || argument == "-MD" || argument == "-MMD" ||
+            argument == "-MP" || argument == "-fsyntax-only" || should_strip_compdb_arg(argument, true)) {
+            continue;
+        }
+        if (normalize_compdb_lookup_path(argument, command.Directory) == normalized_source) {
+            continue;
+        }
+        if (const auto joined_source = joined_msvc_source_arg_path(argument);
+            joined_source.has_value() && normalize_compdb_lookup_path(*joined_source, command.Directory) == normalized_source) {
+            continue;
+        }
+        normalized.emplace_back(argument);
+    }
+    return normalized;
+}
+
+[[nodiscard]] bool adjusted_scan_preserves_semantic_context(const clang::tooling::CompileCommand       &selected_command,
+                                                            std::string_view                            selected_source,
+                                                            const clang::tooling::CommandLineArguments &adjusted_command_line,
+                                                            std::string                                &missing_token) {
+    const auto                     selected = normalized_semantic_compile_context(selected_command, selected_source);
+    clang::tooling::CompileCommand adjusted_command;
+    adjusted_command.Directory   = selected_command.Directory;
+    adjusted_command.Filename    = std::string(selected_source);
+    adjusted_command.CommandLine = adjusted_command_line;
+    const auto adjusted          = normalized_semantic_compile_context(adjusted_command, selected_source);
+
+    auto adjusted_it = adjusted.begin();
+    for (const auto &token : selected) {
+        adjusted_it = std::find(adjusted_it, adjusted.end(), token);
+        if (adjusted_it == adjusted.end()) {
+            missing_token = token;
+            return false;
+        }
+        ++adjusted_it;
+    }
+    return true;
+}
+
+[[nodiscard]] std::string semantic_compile_context_fingerprint(const clang::tooling::CompileCommand &command,
+                                                               std::string_view                      source_file) {
+    const auto   tokens = normalized_semantic_compile_context(command, source_file);
+    llvm::SHA256 hasher;
+    for (const auto &token : tokens) {
+        const std::string size = std::to_string(token.size());
+        hasher.update(size);
+        hasher.update(llvm::StringRef{"\0", 1});
+        hasher.update(token);
+        hasher.update(llvm::StringRef{"\0", 1});
+    }
+    const auto            digest       = hasher.final();
+    static constexpr char hex_digits[] = "0123456789abcdef";
+    std::string           result       = "sha256:";
+    result.reserve(result.size() + digest.size() * 2);
+    for (const std::uint8_t byte : digest) {
+        result.push_back(hex_digits[byte >> 4U]);
+        result.push_back(hex_digits[byte & 0x0FU]);
+    }
+    return result;
+}
+
+bool        has_sysroot_arg(std::span<const std::string> args);
+std::string compiler_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line,
+                                            const std::string                          &default_compiler_path);
+bool        is_clang_like_compiler(std::string_view path);
 
 clang::tooling::CommandLineArguments
 build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file,
@@ -3645,6 +3972,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         "compile-context-id",
         llvm::cl::desc("Build-system compile context identity for an input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> scan_slot_kind_option{
+        "scan-slot-kind",
+        llvm::cl::desc("Internal textual scan-slot kind: authored-tu or fallback-header (repeat once per positional source)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> compdb_option{"compdb", llvm::cl::desc("Directory containing compile_commands.json"),
                                                     llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> source_root_option{
@@ -3670,7 +4001,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> external_module_source_option{"external-module-source",
                                                                      llvm::cl::desc("Explicit named-module source mapping (module=path)"),
                                                                      llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
-    static llvm::cl::opt<unsigned>     jobs_option{"jobs", llvm::cl::desc("Max concurrency for TU wrapper mode parsing/emission (0=auto)"),
+    static llvm::cl::opt<unsigned>     jobs_option{"jobs", llvm::cl::desc("Max concurrency for per-slot parsing/emission (0=auto)"),
                                                    llvm::cl::init(0), llvm::cl::cat(category)};
     static llvm::cl::opt<bool>         discover_mocks_option{
         "discover-mocks", llvm::cl::desc("Enable explicit gentest::mock<T> discovery and generated mock outputs"), llvm::cl::init(false),
@@ -3764,6 +4095,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     opts.textual_registration_outputs.assign(textual_registration_output_option.begin(), textual_registration_output_option.end());
     opts.module_wrapper_outputs.assign(module_wrapper_output_option.begin(), module_wrapper_output_option.end());
     opts.module_registration_outputs.assign(module_registration_output_option.begin(), module_registration_output_option.end());
+    opts.scan_slot_kinds.assign(scan_slot_kind_option.begin(), scan_slot_kind_option.end());
     opts.compile_context_ids.assign(compile_context_id_option.begin(), compile_context_id_option.end());
     opts.header_declaration_registration = !opts.textual_registration_outputs.empty();
     if (!artifact_manifest_option.getValue().empty()) {
@@ -3992,14 +4324,14 @@ int main(int argc, const char **argv) {
     }
     if (parsed_arguments.removed_template_requested) {
         gentest::codegen::log_err_raw(
-            "gentest_codegen: --template was removed with legacy manifest/single-TU mode in gentest 2.0.0; use TU-wrapper mode "
-            "registration headers instead\n");
+            "gentest_codegen: --template was removed with legacy manifest/single-TU mode in gentest 2.0.0; use explicit per-slot "
+            "registration outputs instead\n");
         return 1;
     }
     if (parsed_arguments.removed_no_include_sources_requested) {
         gentest::codegen::log_err_raw(
             "gentest_codegen: --no-include-sources/GENTEST_NO_INCLUDE_SOURCES was removed with legacy manifest mode in gentest 2.0.0; "
-            "use --tu-out-dir so owner sources stay in normal compilation units\n");
+            "additive header-declaration registration keeps authored sources in normal compilation units\n");
         return 1;
     }
     diagnose_missing_mock_phase_manifest(parsed_arguments.mock_phase, options);
@@ -4056,7 +4388,7 @@ int main(int argc, const char **argv) {
         }
         if (!options.tu_output_headers.empty() || !options.textual_wrapper_outputs.empty() ||
             !options.textual_registration_outputs.empty() || !options.module_wrapper_outputs.empty() ||
-            !options.module_registration_outputs.empty() || !options.compile_context_ids.empty() ||
+            !options.module_registration_outputs.empty() || !options.scan_slot_kinds.empty() || !options.compile_context_ids.empty() ||
             !options.artifact_owner_sources.empty() || !options.mock_registration_manifest_path.empty()) {
             gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with source/TU planning options\n");
             return 1;
@@ -4243,6 +4575,11 @@ int main(int argc, const char **argv) {
         gentest::codegen::log_err("gentest_codegen: {}\n", compile_context_error);
         return 1;
     }
+    std::string scan_slot_error;
+    if (!validate_scan_slot_kinds(options, scan_slot_error)) {
+        gentest::codegen::log_err("gentest_codegen: {}\n", scan_slot_error);
+        return 1;
+    }
     std::string artifact_owner_error;
     if (!validate_artifact_owner_sources(options, artifact_owner_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", artifact_owner_error);
@@ -4380,6 +4717,14 @@ int main(int argc, const char **argv) {
     };
 
     auto get_direct_compile_commands_for_source = [&](std::size_t idx) {
+        if (options.header_declaration_registration) {
+            const auto &registration_output = options.textual_registration_outputs[idx];
+            auto        slot_commands       = get_expanded_compile_commands_for_file(registration_output.string());
+            for (auto &command : slot_commands) {
+                command = retarget_compile_command(std::move(command), registration_output.string(), options.sources[idx]);
+            }
+            return slot_commands;
+        }
         return get_expanded_compile_commands_for_file(options.sources[idx]);
     };
 
@@ -4438,14 +4783,67 @@ int main(int argc, const char **argv) {
     std::vector<std::vector<clang::tooling::CompileCommand>> compile_commands(options.sources.size());
     std::vector<std::vector<std::filesystem::path>>          scan_include_search_paths(options.sources.size());
     std::vector<clang::tooling::CommandLineArguments>        scan_command_lines(options.sources.size());
+    std::vector<std::string>                                 compile_context_fingerprints(options.sources.size());
     for (std::size_t i = 0; i < options.sources.size(); ++i) {
-        direct_compile_commands[i] = get_direct_compile_commands_for_source(i);
-        compile_commands[i]        = get_compile_commands_for_source(i, direct_compile_commands[i]);
+        if (options.header_declaration_registration) {
+            const auto &registration_output = options.textual_registration_outputs[i];
+            auto        slot_commands       = get_expanded_compile_commands_for_file(registration_output.string());
+            if (slot_commands.size() != 1) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: additive scan slot '{}' requires exactly one target-unique compile command for '{}'; found {}\n",
+                    i < options.compile_context_ids.size() ? options.compile_context_ids[i] : fmt::format("slot {}", i),
+                    registration_output.string(), slot_commands.size());
+                return 1;
+            }
+
+            compile_context_fingerprints[i] = semantic_compile_context_fingerprint(slot_commands.front(), registration_output.string());
+            auto                                        source_candidates = get_expanded_compile_commands_for_file(options.sources[i]);
+            std::vector<clang::tooling::CompileCommand> context_matches;
+            for (auto &candidate : source_candidates) {
+                if (semantic_compile_context_fingerprint(candidate, options.sources[i]) == compile_context_fingerprints[i]) {
+                    context_matches.push_back(std::move(candidate));
+                }
+            }
+            if (!context_matches.empty()) {
+                std::ranges::sort(context_matches, [](const auto &lhs, const auto &rhs) {
+                    return std::tie(lhs.Directory, lhs.CommandLine, lhs.Filename) < std::tie(rhs.Directory, rhs.CommandLine, rhs.Filename);
+                });
+                direct_compile_commands[i].push_back(std::move(context_matches.front()));
+            } else {
+                direct_compile_commands[i].push_back(
+                    retarget_compile_command(slot_commands.front(), registration_output.string(), options.sources[i]));
+            }
+            const std::string scan_fingerprint =
+                semantic_compile_context_fingerprint(direct_compile_commands[i].front(), options.sources[i]);
+            if (scan_fingerprint != compile_context_fingerprints[i]) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: additive scan slot '{}' could not preserve its normalized semantic compile context while "
+                    "retargeting '{}' to '{}': generated={}, scan={}\n",
+                    i < options.compile_context_ids.size() ? options.compile_context_ids[i] : fmt::format("slot {}", i),
+                    registration_output.string(), options.sources[i], compile_context_fingerprints[i], scan_fingerprint);
+                return 1;
+            }
+        } else {
+            direct_compile_commands[i] = get_direct_compile_commands_for_source(i);
+        }
+        compile_commands[i] = get_compile_commands_for_source(i, direct_compile_commands[i]);
         scan_include_search_paths[i] =
             scan_include_search_paths_from_compile_commands(compile_commands[i], std::filesystem::path(options.sources[i]));
         const auto &source_commands = compile_commands[i].empty() ? direct_compile_commands[i] : compile_commands[i];
         scan_command_lines[i] =
             build_augmented_scan_command_line(source_commands, direct_compile_commands[i], options.sources[i], options.sources[i]);
+        if (options.header_declaration_registration) {
+            std::string missing_token;
+            if (!adjusted_scan_preserves_semantic_context(direct_compile_commands[i].front(), options.sources[i], scan_command_lines[i],
+                                                          missing_token)) {
+                gentest::codegen::log_err(
+                    "gentest_codegen: additive scan slot '{}' lost semantic compile-context token '{}' while constructing the "
+                    "host-Clang scan for '{}'; selected fingerprint={}\n",
+                    i < options.compile_context_ids.size() ? options.compile_context_ids[i] : fmt::format("slot {}", i), missing_token,
+                    options.sources[i], compile_context_fingerprints[i]);
+                return 1;
+            }
+        }
     }
     std::vector<std::vector<clang::tooling::CompileCommand>> tool_compile_commands(options.sources.size());
     for (std::size_t i = 0; i < options.sources.size(); ++i) {
@@ -5449,6 +5847,23 @@ int main(int argc, const char **argv) {
         std::vector<std::string> diag_texts(options.sources.size());
 
         const auto parse_one = [&](std::size_t idx) {
+            if (const auto delay = get_env_value("GENTEST_CODEGEN_TEST_DELAY_SLOT"); delay.has_value()) {
+                const std::size_t separator = delay->find(':');
+                std::size_t       delayed_slot{};
+                unsigned          delay_ms{};
+                if (separator != std::string::npos) {
+                    const std::string_view slot_text{delay->data(), separator};
+                    const std::string_view delay_text{delay->data() + separator + 1, delay->size() - separator - 1};
+                    const auto [slot_end, slot_error] =
+                        std::from_chars(slot_text.data(), slot_text.data() + slot_text.size(), delayed_slot);
+                    const auto [delay_end, delay_error] =
+                        std::from_chars(delay_text.data(), delay_text.data() + delay_text.size(), delay_ms);
+                    if (slot_error == std::errc{} && slot_end == slot_text.data() + slot_text.size() && delay_error == std::errc{} &&
+                        delay_end == delay_text.data() + delay_text.size() && delayed_slot == idx && delay_ms <= 5000) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds{delay_ms});
+                    }
+                }
+            }
             if (const auto wrapped_source = resolve_wrapped_source_from_codegen_shim(options.sources[idx]); wrapped_source.has_value()) {
                 clang::tooling::CommandLineArguments wrapped_command_line;
                 if (!compile_commands[idx].empty()) {
@@ -5542,10 +5957,12 @@ int main(int argc, const char **argv) {
             result.had_fixture_errors = !mock_manifest_discovery_only && fixture_collector.has_errors();
             result.had_mock_errors    = mock_collector.has_value() && mock_collector->has_errors();
             for (auto &test : local_cases) {
-                test.scan_slot = idx;
+                test.scan_slot    = idx;
+                test.scan_context = idx < options.compile_context_ids.size() ? options.compile_context_ids[idx] : options.sources[idx];
             }
             for (auto &fixture : local_fixtures) {
-                fixture.scan_slot = idx;
+                fixture.scan_slot    = idx;
+                fixture.scan_context = idx < options.compile_context_ids.size() ? options.compile_context_ids[idx] : options.sources[idx];
             }
             result.cases        = std::move(local_cases);
             result.fixtures     = std::move(local_fixtures);
@@ -5557,17 +5974,55 @@ int main(int argc, const char **argv) {
             diag_texts[idx] = std::move(diag_buffer);
         };
 
-        // Run one TU serially to warm up other Clang lazy initialization before
-        // fanning out across worker threads.
-        if (parse_jobs > 1) {
-            parse_one(0);
-            gentest::codegen::parallel_for(options.sources.size() - 1, parse_jobs,
-                                           [&](std::size_t local_idx) { parse_one(local_idx + 1); });
-        } else {
-            for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
-                parse_one(idx);
+        std::vector<std::size_t> authored_slots;
+        std::vector<std::size_t> fallback_slots;
+        for (std::size_t idx = 0; idx < options.sources.size(); ++idx) {
+            const bool fallback = idx < options.scan_slot_kinds.size() && options.scan_slot_kinds[idx] == "fallback-header";
+            (fallback ? fallback_slots : authored_slots).push_back(idx);
+        }
+
+        bool       llvm_warmed = false;
+        const auto parse_wave  = [&](const std::vector<std::size_t> &indices) {
+            if (indices.empty()) {
+                return;
+            }
+            std::size_t parallel_start = 0;
+            // Run one input serially to initialize Clang/LLVM lazy globals
+            // before the first parallel wave. Every subsequent worker still
+            // writes only its own pre-indexed ParseResult.
+            if (parse_jobs > 1 && !llvm_warmed) {
+                parse_one(indices.front());
+                llvm_warmed    = true;
+                parallel_start = 1;
+            }
+            if (parse_jobs > 1) {
+                gentest::codegen::parallel_for(indices.size() - parallel_start, parse_jobs,
+                                               [&](std::size_t local_idx) { parse_one(indices[parallel_start + local_idx]); });
+            } else {
+                for (const std::size_t idx : indices) {
+                    parse_one(idx);
+                }
+            }
+        };
+
+        parse_wave(authored_slots);
+
+        // Explicitly listed headers are fallback slots. Scan them only when no
+        // real authored-TU slot reached the physical header in its dependency
+        // graph; skipped slots intentionally retain an empty indexed result.
+        std::unordered_set<std::string> authored_reachability;
+        for (const std::size_t idx : authored_slots) {
+            for (const auto &dependency : results[idx].dependencies) {
+                authored_reachability.insert(normalize_compdb_lookup_path(dependency));
             }
         }
+        std::vector<std::size_t> active_fallback_slots;
+        for (const std::size_t idx : fallback_slots) {
+            if (!authored_reachability.contains(normalize_compdb_lookup_path(options.sources[idx]))) {
+                active_fallback_slots.push_back(idx);
+            }
+        }
+        parse_wave(active_fallback_slots);
 
         int  status     = 0;
         bool had_errors = false;
@@ -5642,10 +6097,12 @@ int main(int argc, const char **argv) {
             return 1;
         }
         for (auto &test : cases) {
-            test.scan_slot = 0;
+            test.scan_slot    = 0;
+            test.scan_context = !options.compile_context_ids.empty() ? options.compile_context_ids.front() : options.sources.front();
         }
         for (auto &fixture : fixtures) {
-            fixture.scan_slot = 0;
+            fixture.scan_slot    = 0;
+            fixture.scan_context = !options.compile_context_ids.empty() ? options.compile_context_ids.front() : options.sources.front();
         }
         depfile_dependencies = std::move(depfile_dependencies_local);
     }
@@ -5653,10 +6110,7 @@ int main(int argc, const char **argv) {
     merge_duplicate_mocks(mocks);
 
     if (options.header_declaration_registration) {
-        // Fixture visibility is a property of the scan context. Resolve it
-        // while every observed context still retains its fixture declarations,
-        // then deduplicate registrations for emission.
-        if (!resolve_free_fixtures(cases, fixtures) || !merge_header_declaration_occurrences(cases, fixtures)) {
+        if (!merge_header_declaration_occurrences(cases, fixtures)) {
             return 1;
         }
     }
@@ -5685,6 +6139,7 @@ int main(int argc, const char **argv) {
     auto final_options                             = options;
     final_options.module_interface_sources         = std::move(module_interface_sources);
     final_options.module_interface_names_by_source = std::move(module_interface_names_by_source);
+    final_options.compile_context_fingerprints     = std::move(compile_context_fingerprints);
     std::string textual_wrapper_error;
     if (!validate_textual_wrapper_outputs(final_options, textual_wrapper_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", textual_wrapper_error);

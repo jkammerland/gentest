@@ -138,6 +138,8 @@ target_include_directories(gentest_codegen_parallel_bench_obj PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+set_property(TARGET gentest_codegen_parallel_bench_obj PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
+
 gentest_attach_codegen(gentest_codegen_parallel_bench_obj
     OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/codegen_parallel_bench
     CLANG_ARGS

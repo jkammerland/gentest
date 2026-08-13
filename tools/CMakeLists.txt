@@ -267,6 +267,7 @@ else()
         clangASTMatchers
         clangBasic
         clangFrontend
+        clangIndex
         clangLex
         clangParse
         clangSema)

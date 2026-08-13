@@ -35,6 +35,7 @@ target_sources(multi_imported_sibling_tests
 target_link_libraries(multi_imported_sibling_tests PRIVATE gentest gentest_runtime)
 gentest_link_mocks(multi_imported_sibling_tests PRIVATE multi_imported_sibling_mocks)
 target_compile_features(multi_imported_sibling_tests PRIVATE cxx_std_20)
+set_property(TARGET multi_imported_sibling_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(multi_imported_sibling_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

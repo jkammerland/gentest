@@ -1,72 +1,57 @@
-# Story: rejected declaration-only textual registration
+# Story: additive textual header-declaration registration
 
 ## Status
 
-Rejected on 2026-04-21.
+Superseded by the issue #107 next-major decision on 2026-08-13.
 
 ## Decision
 
-Do not add declaration-only textual registration.
+The 2026-04-21 rejection applied to a secondary opt-in declaration-only mode.
+Issue #107 deliberately changes the single ordinary textual CMake model instead:
 
-Textual `.cpp` tests keep wrapper/include mode as the compatibility path. That
-mode is explicit in the artifact manifest through `includes_owner_source: true`
-and `replaces_owner_source: true`, and it remains the only path that preserves
-anonymous namespaces, `static` tests, source-local fixtures, source-local helper
-types, benchmarks, jitters, and mocks without forcing users to move declarations
-into headers.
+- Gentest attributes are written on header declarations.
+- Authored `.cpp` files stay attached to the target and compile normally.
+- Gentest appends one stable generated registration source per internal scan
+  slot; generated sources never include an authored `.cpp`.
+- A declaration may be defined out of line in a linked translation unit, or be
+  an external-linkage inline definition in its header.
+- Source-only and internal-linkage annotations are rejected with migration
+  diagnostics.
 
-Named modules remain the strategic path for declaration-free registration. For
-module test sources, same-module registration avoids including the authored
-`.cppm` source while still allowing non-exported tests and fixtures in the
-module purview.
+The public call remains `gentest_attach_codegen(target)`. Source IDs, header
+suffixes, ownership maps, generated includes, and include-root declarations are
+not part of the user protocol.
 
 ## Rationale
 
-The rejected proposal would have added an opt-in textual mode that generated
-standalone registration sources for `.cpp` tests without including the owning
-source file. That only works when every called test function and every required
-fixture/signature type is visible from another translation unit.
+Wrapper substitution removed the authored source from the target graph and its
+own `compile_commands.json` entry. The additive model restores conventional
+header/source separation, exact authored compile commands, clangd behavior, and
+unity/source ownership while retaining semantic Clang discovery.
 
-That tradeoff is not worth the additional protocol surface:
+The implementation accepts a deliberate migration cost: declarations and all
+types needed by generated adapters must be header-reachable and self-contained
+under the selected compile context. Anonymous-namespace and `static` tests do
+not have a stable target-wide entity identity and remain unsupported in this
+model.
 
-- it adds CLI/build-system switches for a narrow transitional mode
-- it adds manifest semantics that are not needed by the default textual path
-- it needs codegen-owned eligibility diagnostics for anonymous namespaces,
-  `static` functions, source-local fixtures, and source-local helper types
-- it creates more non-CMake parity work before the wrappers have been collapsed
-  to thin manifest consumers
-- it encourages a source style that modules replace more cleanly
+## Processing contract
 
-The long-term cleanup direction is therefore:
+Textual discovery uses isolated indexed scan results, a deterministic serial
+merge, and parallel emission. The merge distinguishes physical declaration
+sites from stable C++ entities, validates semantic fingerprints across compile
+contexts and redeclarations, merges fixtures before case dependency
+resolution, and chooses target-local ownership by stable scan-slot order.
 
-- keep textual wrapper/include mode for `.cpp` compatibility
-- keep same-module registration for `.cppm` sources
-- make build-system wrappers consume tool-owned manifests instead of
-  reimplementing C++ semantics
-- do not add a second textual registration protocol
+Explicitly listed headers not reached by an authored translation unit receive
+predeclared fallback slots. Reached fallback slots and otherwise unassigned
+slots still emit valid empty sources so output paths never depend on discovery
+or worker order.
 
-## Consequences
+## Compatibility
 
-- Story `037` must not gate cleanup on declaration-only textual registration.
-- Cleanup that previously depended on this story should instead preserve
-  manifest-declared textual wrapper semantics.
-- Source-inspector and wrapper cleanup should proceed through story `033`,
-  story `015`, and the release-window gates tracked by story `037`.
-- Documentation should describe declaration-only textual registration as a
-  rejected alternative, not future work.
-
-## Rejected Proposal
-
-The proposal was:
-
-- add an explicit opt-in CLI/build-system switch for declaration-only textual
-  registration
-- define manifest entries for declaration-only textual outputs, including
-  `includes_owner_source: false` and `replaces_owner_source: false`
-- generate standalone registration sources for eligible textual tests
-- reject or clearly diagnose source-local tests, anonymous-namespace tests,
-  `static` tests, and fixture/signature types that are not visible to the
-  generated translation unit
-
-This remains rejected unless a future design shows a concrete user need that is
-not better served by modules or by the existing textual wrapper mode.
+The previous-major wrapper/include backend remains an internal compatibility
+path while repository and downstream fixtures migrate. It is not a second
+ordinary `gentest_attach_codegen` strategy. Named-module-authored tests continue
+to use `MODULE_REGISTRATION FILE_SET`; explicit mock generation remains its own
+pipeline.

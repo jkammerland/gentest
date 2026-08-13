@@ -25,6 +25,7 @@ target_sources(partial_manual_codegen_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/impl_cases.cppm)
 target_link_libraries(partial_manual_codegen_tests PRIVATE gentest gentest_runtime)
 target_compile_features(partial_manual_codegen_tests PRIVATE cxx_std_20)
+set_property(TARGET partial_manual_codegen_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(partial_manual_codegen_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

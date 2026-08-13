@@ -29,6 +29,7 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp PROPERTIES
 
 set(_gentest_genex_codegen_clang_args -std=c++20 "-I${GENTEST_SOURCE_DIR}/include")
 gentest_append_public_dependency_include_args(_gentest_genex_codegen_clang_args "${CMAKE_BINARY_DIR}")
+set_property(TARGET genex_compile_definitions PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(genex_compile_definitions
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
