@@ -544,7 +544,6 @@ void cpp_only_case();
 ]=])
 set(_cpp_only_case "${_work_dir}/cpp_only_case.cpp")
 file(WRITE "${_cpp_only_case}" [=[
-#include <gentest/runner.h>
 #include "cpp_only_case.hpp"
 
 [[using gentest: test("header_declaration/cpp_only")]]
