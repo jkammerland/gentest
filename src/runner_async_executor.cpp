@@ -165,8 +165,8 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                                        state.async_log_tail);
     gentest::detail::DefaultStdoutLogWriterScope log_writer_scope(renderer.enabled() ? &renderer : nullptr,
                                                                   &write_async_log_through_renderer);
-    TestRunContext                               final_state = state;
-    final_state.suppress_case_output                         = renderer.enabled();
+    TestRunContext final_state       = state;
+    final_state.suppress_case_output = renderer.enabled();
 
     const auto record_invoke_result = [&](std::size_t run_index, const InvokeResult &inv) {
         auto     &run = async_runs[run_index];
