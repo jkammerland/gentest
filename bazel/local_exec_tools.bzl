@@ -41,7 +41,10 @@ toolchain(
 """)
         return
 
-    repository_ctx.symlink(clang, "clang++")
+    clang_path = repository_ctx.path(clang)
+    if not clang_path.exists:
+        fail("GENTEST_BAZEL_LOCAL_CLANG does not exist: {}".format(clang))
+    repository_ctx.symlink(clang_path, "clang++")
     if is_macos:
         sdk_path = repository_ctx.path(sdkroot)
         if not sdk_path.exists:
@@ -68,6 +71,7 @@ gentest_codegen_toolchain(
     name = "impl",
     codegen = "@gentest//:gentest_codegen",
     clang = ":clang++",
+    local_clang_path = {local_clang_path},
     macos_sdk_root = "MacOSX.sdk/{sdk_marker}",
     local_macos_sdk_root = {local_macos_sdk_root},
     local_only = True,
@@ -79,6 +83,7 @@ toolchain(
     exec_compatible_with = ["@platforms//os:osx"],
 )
 """.format(
+            local_clang_path = repr(str(clang_path)),
             local_macos_sdk_root = repr(str(sdk_path)),
             sdk_marker = sdk_marker,
         ))
@@ -92,6 +97,7 @@ gentest_codegen_toolchain(
     name = "impl",
     codegen = "@gentest//:gentest_codegen",
     clang = ":clang++",
+    local_clang_path = {local_clang_path},
     local_only = True,
 )
 toolchain(
@@ -100,7 +106,7 @@ toolchain(
     toolchain_type = "@gentest//bazel:gentest_codegen_toolchain_type",
     exec_compatible_with = ["@platforms//os:linux"],
 )
-""")
+""".format(local_clang_path = repr(str(clang_path))))
 
 gentest_local_exec_tools = repository_rule(
     implementation = _gentest_local_exec_tools_impl,

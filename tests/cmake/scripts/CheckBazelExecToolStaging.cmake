@@ -62,6 +62,7 @@ file(READ "${SOURCE_DIR}/bazel/local_exec_tools.bzl" _local_tools)
 foreach(_required IN ITEMS
     "repository_ctx.symlink(sdkroot, \"MacOSX.sdk\")"
     "macos_sdk_root = \"MacOSX.sdk/{sdk_marker}\""
+    "local_clang_path = {local_clang_path}"
     "local_macos_sdk_root = {local_macos_sdk_root}")
   string(FIND "${_local_tools}" "${_required}" _required_pos)
   if(_required_pos EQUAL -1)
@@ -90,6 +91,12 @@ string(FIND "${_toolchain_rules}"
   _local_sdk_precedence_pos)
 if(_local_sdk_precedence_pos EQUAL -1)
   message(FATAL_ERROR "Local macOS toolchains must export the absolute host SDK instead of the relative marker path")
+endif()
+string(FIND "${_toolchain_rules}"
+  "clang_path = ctx.attr.local_clang_path if ctx.attr.local_clang_path else ctx.executable.clang.path"
+  _local_clang_precedence_pos)
+if(_local_clang_precedence_pos EQUAL -1)
+  message(FATAL_ERROR "Local toolchains must invoke the absolute host Clang instead of its external-repository symlink")
 endif()
 
 file(READ "${SOURCE_DIR}/tests/cmake/scripts/CheckBazelModuleConsumer.cmake" _module_consumer)

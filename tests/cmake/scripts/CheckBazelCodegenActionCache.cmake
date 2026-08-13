@@ -387,6 +387,7 @@ gentest_codegen_toolchain(
     name = "local_macos_sdk_impl",
     codegen = ":gentest_codegen",
     clang = ":bin/clang++",
+    local_clang_path = "@LOCAL_CLANG_PATH@",
     macos_sdk_root = "MacOSX.sdk/SDKSettings.json",
     local_macos_sdk_root = "@LOCAL_MACOS_SDK_ROOT@",
     local_only = True,
@@ -448,6 +449,7 @@ string(REPLACE "@CXX_STANDARD_LIBRARY_ROOT_LABELS@" "${_cxx_root_labels_text}" _
 string(REPLACE "@SYSTEM_INCLUDE_ROOT_LABELS@" "${_system_root_labels_text}" _tool_build "${_tool_build}")
 string(REPLACE "@EXEC_OS@" "${_exec_os}" _tool_build "${_tool_build}")
 string(REPLACE "@LOCAL_MACOS_SDK_ROOT@" "${_staged_macos_sdk}" _tool_build "${_tool_build}")
+string(REPLACE "@LOCAL_CLANG_PATH@" "${_staged_clang}" _tool_build "${_tool_build}")
 if(_exec_os STREQUAL "macos")
   set(_exec_os_constraint "osx")
 else()
@@ -509,6 +511,15 @@ if(APPLE)
       "expected SDK: ${_selected_macos_sdk}\n${_local_aquery_out}")
   endif()
 endif()
+string(REPLACE "\\" "" _local_aquery_flat "${_local_aquery_out}")
+string(REGEX REPLACE "[ \t\r\n]+" " " _local_aquery_flat "${_local_aquery_flat}")
+string(FIND "${_local_aquery_flat}" "--host-clang ${_clang}" _local_absolute_clang_pos)
+string(FIND "${_local_aquery_flat}" "--host-clang external/" _local_relative_clang_pos)
+if(_local_absolute_clang_pos EQUAL -1 OR NOT _local_relative_clang_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Local fallback must invoke the absolute host Clang so installation-relative driver configuration remains visible.\n"
+    "expected Clang: ${_clang}\n${_local_aquery_out}")
+endif()
 
 # Exercise the provider branch on every Unix host: local-only toolchains must
 # export an absolute host-owned SDK, while the packaged leg below must retain a
@@ -533,7 +544,7 @@ if(NOT _local_sdk_aquery_rc EQUAL 0)
     "Bazel aquery for the host-owned local macOS SDK contract failed.\n"
     "stdout:\n${_local_sdk_aquery_out}\nstderr:\n${_local_sdk_aquery_err}")
 endif()
-foreach(_local_sdk_required IN ITEMS "${_staged_macos_sdk}" "no-remote" "no-cache" "no-sandbox")
+foreach(_local_sdk_required IN ITEMS "${_staged_macos_sdk}" "${_staged_clang}" "no-remote" "no-cache" "no-sandbox")
   string(FIND "${_local_sdk_aquery_out}" "${_local_sdk_required}" _local_sdk_required_pos)
   if(_local_sdk_required_pos EQUAL -1)
     message(FATAL_ERROR

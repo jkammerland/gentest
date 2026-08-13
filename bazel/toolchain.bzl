@@ -68,6 +68,14 @@ def _gentest_codegen_toolchain_impl(ctx):
         return [platform_common.ToolchainInfo(
             error = "local_macos_sdk_root must be an absolute host path.",
         )]
+    if ctx.attr.local_clang_path and not ctx.attr.local_only:
+        return [platform_common.ToolchainInfo(
+            error = "local_clang_path is only valid for a local_only Gentest codegen toolchain.",
+        )]
+    if ctx.attr.local_clang_path and not ctx.attr.local_clang_path.startswith("/"):
+        return [platform_common.ToolchainInfo(
+            error = "local_clang_path must be an absolute host path.",
+        )]
     if cxx_standard_library_roots:
         files.append(depset(cxx_standard_library_roots))
     if system_include_roots:
@@ -83,6 +91,7 @@ def _gentest_codegen_toolchain_impl(ctx):
         # then materializes a tool target's runfiles tree at the action.
         codegen = ctx.attr.codegen[DefaultInfo].files_to_run,
         clang = ctx.attr.clang[DefaultInfo].files_to_run,
+        clang_path = ctx.attr.local_clang_path if ctx.attr.local_clang_path else ctx.executable.clang.path,
         clang_scan_deps = ctx.attr.clang_scan_deps[DefaultInfo].files_to_run if scan_deps else None,
         files = depset(transitive = files),
         cxx_standard_library_root_paths = [
@@ -143,6 +152,9 @@ gentest_codegen_toolchain = rule(
         "local_only": attr.bool(
             default = False,
             doc = "Disables remote execution/cache for actions using this local host-tool bootstrap.",
+        ),
+        "local_clang_path": attr.string(
+            doc = "Absolute host Clang path for a local_only bootstrap; packaged toolchains use the clang executable label.",
         ),
         "local_macos_sdk_root": attr.string(
             doc = "Absolute host SDK path for a local_only bootstrap; packaged toolchains must use macos_sdk_root instead.",

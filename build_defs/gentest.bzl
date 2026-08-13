@@ -106,7 +106,7 @@ def _gentest_exec_tools(ctx):
 
 def _gentest_add_exec_tool_args(args, tools):
     args.add("--host-clang")
-    args.add(tools.clang.executable.path)
+    args.add(tools.clang_path)
     if tools.clang_scan_deps:
         args.add("--clang-scan-deps")
         args.add(tools.clang_scan_deps.executable.path)
@@ -780,7 +780,7 @@ def _gentest_module_suite_codegen_impl(ctx):
             dep_framework_include_dirs,
             ctx.attr.defines + dep_defines,
             _gentest_exec_driver_args(exec_tools) + ctx.attr.clang_args,
-            exec_tools.clang.executable.path,
+            exec_tools.clang_path,
         ),
     )
 
