@@ -215,6 +215,22 @@ if(NOT CMAKE_HOST_WIN32)
       COMMAND "${CMAKE_COMMAND}" --build "${_gcc_build_dir}" --target header_declaration_registration_tests
       WORKING_DIRECTORY "${_work_dir}"
       STRIP_TRAILING_WHITESPACE)
+    file(READ "${_gcc_build_dir}/compile_commands.json" _gcc_compdb)
+    string(JSON _gcc_compdb_count LENGTH "${_gcc_compdb}")
+    math(EXPR _gcc_compdb_last "${_gcc_compdb_count} - 1")
+    foreach(_gcc_compdb_idx RANGE 0 ${_gcc_compdb_last})
+      string(JSON _gcc_compdb_file GET "${_gcc_compdb}" ${_gcc_compdb_idx} file)
+      if(_gcc_compdb_file MATCHES "[/\\\\](cases_a|cases_b|cases_c|cases_rich|mock_cases|dual_target)\\.cpp$")
+        string(JSON _gcc_compdb_command GET "${_gcc_compdb}" ${_gcc_compdb_idx} command)
+        foreach(_unsupported_clangd_flag IN ITEMS "-fmodules-ts" "-fmodule-mapper=" "-fdeps-format=p1689r5")
+          string(FIND "${_gcc_compdb_command}" "${_unsupported_clangd_flag}" _unsupported_clangd_flag_pos)
+          if(NOT _unsupported_clangd_flag_pos EQUAL -1)
+            message(FATAL_ERROR
+              "Ordinary additive authored slot '${_gcc_compdb_file}' must disable CMake's GCC module scan so clangd can consume its exact command; found '${_unsupported_clangd_flag}'.\n${_gcc_compdb_command}")
+          endif()
+        endforeach()
+      endif()
+    endforeach()
     set(_gcc_exe "${_gcc_build_dir}/header_declaration_registration_tests")
     gentest_check_run_or_fail(
       COMMAND "${_gcc_exe}" --run=header_declaration/a

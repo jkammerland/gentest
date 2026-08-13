@@ -1218,6 +1218,16 @@ function(gentest_attach_codegen target)
         set(_gentest_mode "tu")
     endif()
 
+    if(_gentest_mode STREQUAL "header_declaration")
+        # This mode deliberately rejects textual TUs with active named-module
+        # imports. Disable CMake's module dependency scan for the ordinary
+        # authored slots as well as the additive outputs so GCC-only mapper and
+        # P1689 driver flags do not leak into their compilation-database
+        # entries and break clangd's otherwise exact authored commands.
+        set_source_files_properties(${_gentest_tus} TARGET_DIRECTORY ${target}
+            PROPERTIES CXX_SCAN_FOR_MODULES OFF SKIP_UNITY_BUILD_INCLUSION ON)
+    endif()
+
     set(_gentest_textual_scan_sources ${_gentest_tus})
     set(_gentest_textual_scan_source_entries ${_gentest_tu_source_entries})
     set(_gentest_textual_scan_slot_kinds "")
