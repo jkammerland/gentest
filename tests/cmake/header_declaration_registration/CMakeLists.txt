@@ -100,3 +100,17 @@ foreach(_dual_variant IN ITEMS 1 2)
     gentest_attach_codegen(${_dual_target}
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_dual_${_dual_variant}")
 endforeach()
+
+# Reusing an additive owner in a different target must not leak directory-wide
+# source properties into that target's module dependency policy.
+add_library(header_declaration_module_scan_probe OBJECT EXCLUDE_FROM_ALL dual_target.cpp)
+set_property(TARGET header_declaration_module_scan_probe PROPERTY CXX_SCAN_FOR_MODULES ON)
+get_source_file_property(_shared_source_module_scan dual_target.cpp CXX_SCAN_FOR_MODULES)
+if(NOT _shared_source_module_scan STREQUAL "NOTFOUND")
+    message(FATAL_ERROR
+        "Header-declaration registration leaked CXX_SCAN_FOR_MODULES='${_shared_source_module_scan}' through a shared source")
+endif()
+get_target_property(_probe_module_scan header_declaration_module_scan_probe CXX_SCAN_FOR_MODULES)
+if(NOT _probe_module_scan)
+    message(FATAL_ERROR "The shared-source probe lost its target-local module scan setting")
+endif()
