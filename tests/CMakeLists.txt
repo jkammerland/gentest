@@ -138,6 +138,8 @@ target_include_directories(gentest_codegen_parallel_bench_obj PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
 
+set_property(TARGET gentest_codegen_parallel_bench_obj PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
+
 gentest_attach_codegen(gentest_codegen_parallel_bench_obj
     OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/codegen_parallel_bench
     CLANG_ARGS
@@ -3417,6 +3419,17 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTuWrapperSourceProps.cmake
     cmake)
+
+_gentest_add_cmake_helper_test(
+    gentest_header_declaration_registration
+    ${PROJECT_SOURCE_DIR}/tests/cmake/header_declaration_registration
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckHeaderDeclarationRegistration.cmake
+    cmake)
+set_property(TEST gentest_header_declaration_registration APPEND PROPERTY LABELS "codegen;headers")
+# This acceptance test configures and builds several nested projects. Let its
+# Ninja processes own the available machine instead of overcommitting them with
+# other nested-build CTest jobs.
+set_property(TEST gentest_header_declaration_registration PROPERTY RUN_SERIAL TRUE)
 
 _gentest_add_cmake_helper_test(
     gentest_tu_header_case_collision

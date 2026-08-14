@@ -64,6 +64,11 @@ function(gentest_add_suite suite)
             ${PROJECT_SOURCE_DIR}/include
             ${CMAKE_CURRENT_SOURCE_DIR})
 
+    # Repository suites are migrated independently; retain explicit coverage
+    # of the previous-major wrapper backend until their annotations move to
+    # headers. This target property is intentionally not a public API.
+    set_property(TARGET ${GENTEST_TARGET} PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
+
     gentest_attach_codegen(${GENTEST_TARGET}
         OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/${GENTEST_OUTPUT_DIR}
         CLANG_ARGS

@@ -1,12 +1,17 @@
-# Parallel `gentest_codegen` (TU wrapper mode)
+# Parallel `gentest_codegen` scan slots
 
-This note documents how `gentest_codegen` parallelizes parsing/emission in **per‑TU wrapper mode** (CMake’s default mode), and how to verify that the parallel output remains identical to serial output.
+This note documents how `gentest_codegen` parallelizes parsing/emission across
+predeclared scan slots and how to verify that parallel output remains identical
+to serial output. Ordinary textual CMake targets now use additive
+header-declaration slots; the previous-major per-TU wrappers remain an internal
+compatibility path.
 
 ## Terminology
 
 - **Invocation**: a single `gentest_codegen ...` process started by the build system.
-- **Input wrapper TUs**: the generated `tu_*.gentest.cpp` shim sources passed to a single invocation (usually 1 per test target, but can be many).
-- **Codegen job**: a **worker thread inside one `gentest_codegen` process**, used to parse/emit multiple wrapper TUs concurrently.
+- **Input scan slots**: target-unique authored-TU/fallback-header slots in the
+  additive model, or generated `tu_*.gentest.cpp` shims in compatibility mode.
+- **Codegen job**: a **worker thread inside one `gentest_codegen` process**, used to parse/emit multiple scan slots concurrently.
 
 Important: this is independent of `cmake --build -j` / Ninja scheduling, which controls how many *processes / build edges* run in parallel.
 
@@ -22,7 +27,7 @@ Precedence:
 - If `--jobs` is passed (including `--jobs=0`), it overrides `GENTEST_CODEGEN_JOBS`.
 - If `--jobs` is not passed, `GENTEST_CODEGEN_JOBS` (when set) supplies the default.
 
-Auto mode (`0`) uses `std::thread::hardware_concurrency()` (clamped to the number of wrapper TUs, with a fallback to 1 if the runtime reports 0).
+Auto mode (`0`) uses `std::thread::hardware_concurrency()` (clamped to the number of scan slots, with a fallback to 1 if the runtime reports 0).
 
 `GENTEST_CODEGEN_JOBS` also accepts `auto` (case-insensitive) as a synonym for `0`.
 
@@ -30,8 +35,8 @@ Auto mode (`0`) uses `std::thread::hardware_concurrency()` (clamped to the numbe
 
 Parallel parsing/emission is enabled only when:
 
-- TU wrapper mode is active (`--tu-out-dir` is used), **and**
-- the invocation has **more than one** input wrapper TU, **and**
+- per-slot output mode is active (`--tu-out-dir` is used), **and**
+- the invocation has **more than one** input scan slot, **and**
 - resolved `jobs > 1`.
 
 ## High-level flow (one invocation)
@@ -72,7 +77,7 @@ Ninja / CMake target build
          render + write <target>_mock_registry.hpp + <target>_mock_impl.hpp
 ```
 
-So yes: wrapper TUs are effectively “pushed to a queue”, implemented as an atomic task index that workers consume from (no explicit `std::queue`).
+Scan slots are effectively “pushed to a queue”, implemented as an atomic task index that workers consume from (no explicit `std::queue`).
 
 ## Implementation notes (correctness + determinism)
 
@@ -136,8 +141,8 @@ python3 scripts/bench_compile.py \
 
 ## Limitations / expectations
 
-- If a given test target has only **one** test TU, a single `gentest_codegen` invocation won’t benefit from internal parallelism.
-  - The speedups show up when a single invocation sees many wrapper TUs (e.g., the bench target, or consumer projects with multiple test TUs per target).
+- If a given test target has only **one** scan slot, a single `gentest_codegen` invocation won’t benefit from internal parallelism.
+  - The speedups show up when a single invocation sees many authored/fallback slots (or many compatibility wrappers).
 - Internal codegen job parallelism can interact with build-system parallelism:
   - `cmake --build -j X` can run multiple `gentest_codegen` processes in parallel;
   - each process can itself use up to `--jobs` threads.

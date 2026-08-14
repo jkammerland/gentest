@@ -65,6 +65,7 @@ else()
     gentest_link_mocks(gentest_consumer PRIVATE gentest_consumer_explicit_mocks)
 endif()
 
+set_property(TARGET gentest_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 gentest_attach_codegen(gentest_consumer
     OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen)
 

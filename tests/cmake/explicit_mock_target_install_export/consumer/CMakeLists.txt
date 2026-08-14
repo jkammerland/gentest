@@ -45,6 +45,7 @@ target_link_libraries(explicit_installed_module_codegen_consumer
     PRIVATE
         gentest::gentest_main
         fixture::explicit_module_exported_mocks)
+set_property(TARGET explicit_installed_module_codegen_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 gentest_attach_codegen(explicit_installed_module_codegen_consumer
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/codegen_consumer")
 

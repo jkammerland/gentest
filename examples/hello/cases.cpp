@@ -1,3 +1,5 @@
+#include "cases.hpp"
+
 #include "gentest/test.h"
 
 #include <string>
@@ -6,14 +8,12 @@ using namespace gentest::asserts;
 
 namespace hello {
 
-[[using gentest: test("addition")]]
 void addition() {
     const auto value = 2 + 2;
     gentest::expect_true(value == 4, "addition result");
     EXPECT_EQ(value, 4);
 }
 
-[[using gentest: test("greeting")]]
 void greeting() {
     std::string message = "hello";
     message += " gentest";

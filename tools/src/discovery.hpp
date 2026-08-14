@@ -15,9 +15,11 @@ namespace gentest::codegen {
 class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
     // out: vector to append discovered tests to.
-    explicit TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes);
+    explicit TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes,
+                               bool header_declaration_registration = false);
 
-    // Called by clang tooling; extracts a TestCaseInfo when the bound node is a function definition.
+    // Called by clang tooling; extracts a TestCaseInfo from a definition in
+    // wrapper mode, or a header declaration in additive-registration mode.
     void                                run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
     std::optional<clang::TraversalKind> getCheckTraversalKind() const override { return clang::TK_IgnoreUnlessSpelledInSource; }
 
@@ -26,8 +28,9 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
 
   private:
     std::vector<TestCaseInfo> &out_;
-    bool                       strict_fixture_ = false;
-    bool                       allow_includes_ = false;
+    bool                       strict_fixture_                  = false;
+    bool                       allow_includes_                  = false;
+    bool                       header_declaration_registration_ = false;
     // Dedup emitted test cases by a composite key (qualified + display + file:line)
     std::set<std::string>                                                           seen_;
     mutable bool                                                                    had_error_ = false;
@@ -39,7 +42,7 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
 // AST matcher callback that collects suite/global fixture declarations.
 class FixtureDeclCollector : public clang::ast_matchers::MatchFinder::MatchCallback {
   public:
-    explicit FixtureDeclCollector(std::vector<FixtureDeclInfo> &out);
+    explicit FixtureDeclCollector(std::vector<FixtureDeclInfo> &out, bool header_declaration_registration = false);
 
     void                                run(const clang::ast_matchers::MatchFinder::MatchResult &result) override;
     std::optional<clang::TraversalKind> getCheckTraversalKind() const override { return clang::TK_IgnoreUnlessSpelledInSource; }
@@ -50,7 +53,8 @@ class FixtureDeclCollector : public clang::ast_matchers::MatchFinder::MatchCallb
     void report(const clang::CXXRecordDecl &decl, const clang::SourceManager &sm, std::string_view message) const;
 
     std::vector<FixtureDeclInfo>                                                   &out_;
-    mutable bool                                                                    had_error_ = false;
+    bool                                                                            header_declaration_registration_ = false;
+    mutable bool                                                                    had_error_                       = false;
     mutable std::unordered_map<const clang::NamespaceDecl *, SuiteAttributeSummary> suite_cache_;
 };
 

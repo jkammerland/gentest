@@ -51,6 +51,7 @@ add_subdirectory("@_gentest_source_dir@" gentest-build)
 add_executable(plain_tests test_main.cpp)
 target_link_libraries(plain_tests PRIVATE gentest::gentest_main)
 target_compile_features(plain_tests PRIVATE cxx_std_23)
+set_property(TARGET plain_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 gentest_attach_codegen(plain_tests)
 ]=] @ONLY)
 

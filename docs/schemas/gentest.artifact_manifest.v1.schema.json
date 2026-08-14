@@ -19,6 +19,31 @@
             "required": [
               "source",
               "kind",
+              "scan_source",
+              "scan_slot_kind",
+              "compile_context_id",
+              "compile_context_fingerprint",
+              "registration_output"
+            ],
+            "properties": {
+              "source": { "type": "string" },
+              "kind": { "const": "cxx-header-declaration-registration" },
+              "scan_source": { "type": "string" },
+              "scan_slot_kind": { "enum": ["authored-tu", "fallback-header"] },
+              "compile_context_id": { "type": "string" },
+              "compile_context_fingerprint": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "registration_output": { "type": "string" }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "kind",
               "owner_source",
               "generated_wrapper_source",
               "registration_header",
@@ -64,6 +89,39 @@
       "type": "array",
       "items": {
         "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "role",
+              "compile_as",
+              "owner_source",
+              "target_attachment",
+              "compile_context_id",
+              "compile_context_fingerprint",
+              "requires_module_scan",
+              "includes_authored_source",
+              "replaces_authored_source",
+              "depfile"
+            ],
+            "properties": {
+              "path": { "type": "string" },
+              "role": { "const": "registration" },
+              "compile_as": { "const": "cxx-header-declaration-registration" },
+              "owner_source": { "type": "string" },
+              "target_attachment": { "const": "append-generated-source" },
+              "compile_context_id": { "type": "string" },
+              "compile_context_fingerprint": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "requires_module_scan": { "const": false },
+              "includes_authored_source": { "const": false },
+              "replaces_authored_source": { "const": false },
+              "depfile": { "type": "string" }
+            }
+          },
           {
             "type": "object",
             "additionalProperties": false,

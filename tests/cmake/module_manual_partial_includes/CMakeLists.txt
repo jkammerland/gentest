@@ -33,6 +33,7 @@ target_sources(manual_partial_tests
 target_link_libraries(manual_partial_tests PRIVATE gentest gentest_main)
 gentest_link_mocks(manual_partial_tests PRIVATE manual_partial_mocks)
 target_compile_features(manual_partial_tests PRIVATE cxx_std_20)
+set_property(TARGET manual_partial_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(manual_partial_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

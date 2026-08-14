@@ -19,6 +19,7 @@ add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 add_executable(textual_wrapper_artifact_manifest_tests cases.cpp more_cases.cpp)
 target_link_libraries(textual_wrapper_artifact_manifest_tests PRIVATE gentest_main)
 target_compile_features(textual_wrapper_artifact_manifest_tests PRIVATE cxx_std_20)
+set_property(TARGET textual_wrapper_artifact_manifest_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(textual_wrapper_artifact_manifest_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

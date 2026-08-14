@@ -13,11 +13,45 @@ Build systems should predeclare concrete outputs, pass those paths to
 They should not parse C++ sources to classify modules, discover mocks, or infer
 registration semantics.
 
-## Textual Wrapper Registration
+## Textual Header-Declaration Registration
 
-Textual `.cpp` tests use wrapper mode so source-local tests, anonymous
+Ordinary CMake `gentest_attach_codegen(target)` uses additive registration.
+Build integration predeclares one target-unique generated `.cpp` per authored
+translation unit and one fallback slot per explicitly listed header. Generated
+slot sources are appended to the target, marked generated, and excluded from
+unity aggregation. Authored `.cpp` files remain attached and retain their exact
+compilation-database commands.
+
+The internal `--textual-registration-output` and `--scan-slot-kind` arguments
+are build-owned plumbing, not user source IDs or ownership controls. Each scan
+slot is paired with the generated output's unique compile command and retargeted
+to its authored input for semantic Clang scanning. Parallel workers write only
+their indexed result; a serial merge validates declaration sites, C++ entity
+identity, semantic fingerprints, fixture dependencies, and stable target-local
+ownership before parallel emission. Unassigned outputs contain a valid empty
+source.
+
+The artifact manifest records every predeclared slot as
+`cxx-header-declaration-registration`, its scan source and slot kind, and a
+`sha256:` normalized semantic compile-context fingerprint. The same
+fingerprint is attached to the generated artifact, whose contract is
+`target_attachment: "append-generated-source"`,
+`includes_authored_source: false`, and `replaces_authored_source: false`.
+Codegen computes the fingerprint from the target-unique generated compile
+command, retargets that command to the scan source, and verifies that the
+actual adjusted host-Clang invocation retains every selected semantic token in
+order. It fails if retargeting or host-tool adjustment loses context.
+
+Non-empty outputs include only the selected annotated headers and generated
+runtime support. They never include an authored `.cpp`. Definitions are
+resolved by ordinary linking.
+
+## Previous-major Textual Wrapper Compatibility
+
+The internal compatibility path uses wrapper mode so historical source-local tests, anonymous
 namespaces, `static` functions, and local fixture types stay visible to the
-generated registration header.
+generated registration header. New ordinary textual consumers do not use this
+protocol.
 
 A non-CMake adapter composes the existing protocol like this:
 
@@ -71,10 +105,9 @@ source that includes all inputs. `NO_INCLUDE_SOURCES`,
 `GENTEST_NO_INCLUDE_SOURCES`, and `gentest_codegen --template <file>` were
 removed with that mode.
 
-Use textual wrapper registration with `--tu-out-dir` and explicit per-input
-outputs. Build systems should predeclare wrapper `.cpp`/`.h` files, compile the
-wrapper sources instead of owner sources, and optionally validate the generated
-artifact manifest. The removal record is tracked in
+Use additive header-declaration registration with predeclared per-slot `.cpp`
+outputs. Build systems keep owner sources, append generated sources, and retain
+reachable-header depfiles. The removal record is tracked in
 [`DEPRECATIONS.md`](../DEPRECATIONS.md).
 
 ## Mock Manifest Phases
@@ -194,11 +227,12 @@ registration uses `--mock-registration-manifest` instead.
 
 ## Current Limits
 
-Standalone declaration-only textual registration is not part of this protocol.
-It was rejected in
-[`docs/stories/036_textual_declaration_only_registration.md`](stories/036_textual_declaration_only_registration.md);
-textual `.cpp` sources keep manifest-declared wrapper/include semantics, and
-named modules remain the declaration-free registration path.
+Textual annotations and generated-adapter dependencies must be
+header-reachable. Source-only annotations, internal-linkage cases, and active
+named-module imports in a textual scan context are rejected. Module-authored
+tests continue to use same-module registration as documented in
+[`docs/modules.md`](modules.md). The superseded decision history is recorded in
+[`docs/stories/036_textual_declaration_only_registration.md`](stories/036_textual_declaration_only_registration.md).
 
 Full non-CMake parity across supported backends is tracked separately by
 [`docs/stories/015_non_cmake_full_parity.md`](stories/015_non_cmake_full_parity.md).

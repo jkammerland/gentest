@@ -203,6 +203,10 @@ fs::path resolve_module_registration_output(const CollectorOptions &opts, std::s
 
 fs::path resolve_textual_wrapper_output(const CollectorOptions &opts, std::size_t idx) { return opts.textual_wrapper_outputs[idx]; }
 
+fs::path resolve_textual_registration_output(const CollectorOptions &opts, std::size_t idx) {
+    return opts.textual_registration_outputs[idx];
+}
+
 fs::path textual_wrapper_manifest_path(const CollectorOptions &opts, std::size_t idx) {
     if (idx < opts.textual_wrapper_outputs.size() && !opts.textual_wrapper_outputs[idx].empty()) {
         return opts.textual_wrapper_outputs[idx];
@@ -1035,6 +1039,71 @@ bool write_module_registration_manifest(const CollectorOptions &opts) {
     return write_file_atomic_if_changed(opts.artifact_manifest_path, manifest);
 }
 
+bool write_textual_header_registration_manifest(const CollectorOptions &opts) {
+    if (opts.artifact_manifest_path.empty() || opts.textual_registration_outputs.empty()) {
+        return true;
+    }
+    if (opts.compile_context_fingerprints.size() != opts.sources.size()) {
+        log_err("gentest_codegen: additive artifact manifest expected {} compile-context fingerprints, got {}\n", opts.sources.size(),
+                opts.compile_context_fingerprints.size());
+        return false;
+    }
+    if (!ensure_parent_dir(opts.artifact_manifest_path)) {
+        return false;
+    }
+
+    std::string manifest;
+    manifest.reserve(opts.sources.size() * 900 + 140);
+    fmt::format_to(std::back_inserter(manifest), "{{\n  \"schema\": \"{}\",\n  \"sources\": [\n", artifact_manifest::kSchema);
+    for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+        const fs::path    source_path         = opts.sources[idx];
+        const fs::path    registration_output = resolve_textual_registration_output(opts, idx);
+        const std::string context_id          = compile_context_id_for(opts, idx);
+        const std::string slot_kind           = idx < opts.scan_slot_kinds.size() ? opts.scan_slot_kinds[idx] : std::string{"authored-tu"};
+        const std::string comma               = idx + 1 == opts.sources.size() ? "" : ",";
+        fmt::format_to(std::back_inserter(manifest),
+                       "    {{\n"
+                       "      \"source\": \"{}\",\n"
+                       "      \"kind\": \"cxx-header-declaration-registration\",\n"
+                       "      \"scan_source\": \"{}\",\n"
+                       "      \"scan_slot_kind\": \"{}\",\n"
+                       "      \"compile_context_id\": \"{}\",\n"
+                       "      \"compile_context_fingerprint\": \"{}\",\n"
+                       "      \"registration_output\": \"{}\"\n"
+                       "    }}{}\n",
+                       render::escape_string(source_path.generic_string()), render::escape_string(source_path.generic_string()),
+                       render::escape_string(slot_kind), render::escape_string(context_id),
+                       render::escape_string(opts.compile_context_fingerprints[idx]),
+                       render::escape_string(registration_output.generic_string()), comma);
+    }
+    manifest.append("  ],\n  \"artifacts\": [\n");
+    for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
+        const fs::path    source_path         = opts.sources[idx];
+        const fs::path    registration_output = resolve_textual_registration_output(opts, idx);
+        const std::string context_id          = compile_context_id_for(opts, idx);
+        const std::string comma               = idx + 1 == opts.sources.size() ? "" : ",";
+        fmt::format_to(std::back_inserter(manifest),
+                       "    {{\n"
+                       "      \"path\": \"{}\",\n"
+                       "      \"role\": \"registration\",\n"
+                       "      \"compile_as\": \"cxx-header-declaration-registration\",\n"
+                       "      \"owner_source\": \"{}\",\n"
+                       "      \"target_attachment\": \"append-generated-source\",\n"
+                       "      \"compile_context_id\": \"{}\",\n"
+                       "      \"compile_context_fingerprint\": \"{}\",\n"
+                       "      \"requires_module_scan\": false,\n"
+                       "      \"includes_authored_source\": false,\n"
+                       "      \"replaces_authored_source\": false,\n"
+                       "      \"depfile\": \"{}\"\n"
+                       "    }}{}\n",
+                       render::escape_string(registration_output.generic_string()), render::escape_string(source_path.generic_string()),
+                       render::escape_string(context_id), render::escape_string(opts.compile_context_fingerprints[idx]),
+                       opts.depfile_path ? render::escape_string(opts.depfile_path->generic_string()) : std::string{}, comma);
+    }
+    manifest.append("  ]\n}\n");
+    return write_file_atomic_if_changed(opts.artifact_manifest_path, manifest);
+}
+
 bool write_textual_wrapper_manifest(const CollectorOptions &opts) {
     if (opts.artifact_manifest_path.empty()) {
         return true;
@@ -1110,6 +1179,12 @@ bool write_artifact_manifest(const CollectorOptions &opts) {
     if (!write_module_registration_manifest(opts)) {
         return false;
     }
+    if (!write_textual_header_registration_manifest(opts)) {
+        return false;
+    }
+    if (!opts.textual_registration_outputs.empty()) {
+        return true;
+    }
     return write_textual_wrapper_manifest(opts);
 }
 
@@ -1182,20 +1257,21 @@ bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::stri
         return false;
     };
 
-    if ((!opts.tu_output_headers.empty() || !opts.textual_wrapper_outputs.empty() || !opts.module_wrapper_outputs.empty() ||
-         !opts.module_registration_outputs.empty()) &&
+    if ((!opts.tu_output_headers.empty() || !opts.textual_wrapper_outputs.empty() || !opts.textual_registration_outputs.empty() ||
+         !opts.module_wrapper_outputs.empty() || !opts.module_registration_outputs.empty()) &&
         opts.tu_output_dir.empty()) {
         error = "source-associated generated artifact outputs require --tu-out-dir";
         return false;
     }
     if (!validate_source_alignment(opts.tu_output_headers, "--tu-header-output") ||
         !validate_source_alignment(opts.textual_wrapper_outputs, "--textual-wrapper-output") ||
+        !validate_source_alignment(opts.textual_registration_outputs, "--textual-registration-output") ||
         !validate_source_alignment(opts.module_wrapper_outputs, "--module-wrapper-output") ||
         !validate_source_alignment(opts.module_registration_outputs, "--module-registration-output")) {
         return false;
     }
 
-    if (!opts.tu_output_dir.empty()) {
+    if (!opts.tu_output_dir.empty() && opts.textual_registration_outputs.empty()) {
         for (std::size_t idx = 0; idx < opts.sources.size(); ++idx) {
             const bool        explicit_header = idx < opts.tu_output_headers.size() && !opts.tu_output_headers[idx].empty();
             const std::string owner           = fmt::format("source slot {} '{}' ({})", idx, opts.sources[idx],
@@ -1209,6 +1285,12 @@ bool validate_generated_artifact_outputs(const CollectorOptions &opts, std::stri
     for (std::size_t idx = 0; idx < opts.textual_wrapper_outputs.size(); ++idx) {
         const std::string owner = fmt::format("source slot {} '{}' (--textual-wrapper-output)", idx, opts.sources[idx]);
         if (!add_artifact(opts.textual_wrapper_outputs[idx], "textual wrapper", owner)) {
+            return false;
+        }
+    }
+    for (std::size_t idx = 0; idx < opts.textual_registration_outputs.size(); ++idx) {
+        const std::string owner = fmt::format("source slot {} '{}' (--textual-registration-output)", idx, opts.sources[idx]);
+        if (!add_artifact(opts.textual_registration_outputs[idx], "textual header registration", owner)) {
             return false;
         }
     }
@@ -1440,6 +1522,28 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         return 1;
     }
 
+    std::unordered_map<std::string, std::set<fs::path>> declared_headers_by_source;
+    if (!opts.textual_registration_outputs.empty()) {
+        for (const auto &test : cases) {
+            auto &headers = declared_headers_by_source[normalize_path_key(fs::path(test.tu_filename))];
+            if (!test.registration_headers.empty()) {
+                for (const auto &header : test.registration_headers) {
+                    if (!header.empty()) {
+                        headers.insert(fs::path(header));
+                    }
+                }
+            } else if (!test.filename.empty()) {
+                headers.insert(fs::path(test.filename));
+            }
+        }
+        for (const auto &fixture : fixtures) {
+            const auto &header = fixture.registration_header.empty() ? fixture.filename : fixture.registration_header;
+            if (!header.empty()) {
+                declared_headers_by_source[normalize_path_key(fs::path(fixture.tu_filename))].insert(fs::path(header));
+            }
+        }
+    }
+
     std::vector<TestCaseInfo> cases_for_render = cases;
     if (opts.source_root && !opts.source_root->empty()) {
         for (auto &c : cases_for_render) {
@@ -1538,6 +1642,52 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
             const auto              &source_mocks                    = source_data ? source_data->direct_module_mocks : empty_mocks;
             const bool               needs_mock_codegen_include      = source_data && source_data->needs_mock_codegen_include;
             bool                     needs_full_registration_support = !source_mocks.empty() || needs_mock_codegen_include;
+
+            if (!opts.textual_registration_outputs.empty()) {
+                if (is_module_interface_source(opts, source_path)) {
+                    log_err("gentest_codegen: --textual-registration-output does not support named module source '{}'\n",
+                            source_path.string());
+                    statuses[idx] = 1;
+                    return;
+                }
+                const fs::path registration_out = resolve_textual_registration_output(opts, idx);
+                if (!ensure_parent_dir(registration_out)) {
+                    statuses[idx] = 1;
+                    return;
+                }
+
+                std::string registration_source = "// This file is auto-generated by gentest_codegen.\n// Do not edit manually.\n\n";
+                const auto  headers_it          = declared_headers_by_source.find(key);
+                if (tu_cases.empty() && tu_fixtures.empty()) {
+                    registration_source += "// No gentest registrations were assigned to this translation unit.\n";
+                } else {
+                    if (headers_it == declared_headers_by_source.end() || headers_it->second.empty()) {
+                        log_err("gentest_codegen: missing declaring header for additive registration source '{}'\n",
+                                registration_out.string());
+                        statuses[idx] = 1;
+                        return;
+                    }
+                    for (const auto &header : headers_it->second) {
+                        fmt::format_to(std::back_inserter(registration_source), "#include \"{}\"\n",
+                                       include_literal_relative_to(registration_out, header));
+                    }
+                    registration_source += "\n";
+                    const bool has_mocks            = !source_mocks.empty() || needs_mock_codegen_include;
+                    const auto core                 = render_registration_core(tu_cases, tu_fixtures, templates, has_mocks);
+                    needs_full_registration_support = core.needs_full_registration_support;
+                    std::string body                = std::string(tpl::tu_registration_header);
+                    replace_all(body, "// This file is auto-generated by gentest_codegen.\n// Do not edit manually.\n\n", "");
+                    replace_all(body, "#pragma once\n\n", "");
+                    apply_registration_core(body, core);
+                    const std::string register_fn = fmt::format("register_tu_{:04d}", static_cast<std::uint32_t>(idx));
+                    replace_all(body, "{{REGISTER_FN}}", register_fn);
+                    registration_source += body;
+                }
+                if (!write_file_atomic_if_changed(registration_out, registration_source)) {
+                    statuses[idx] = 1;
+                }
+                return;
+            }
 
             fs::path header_out = resolve_tu_header_output(opts, idx);
             if (!ensure_parent_dir(header_out)) {

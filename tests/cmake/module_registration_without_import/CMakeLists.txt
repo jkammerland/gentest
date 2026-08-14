@@ -26,6 +26,7 @@ target_sources(module_registration_without_import
 
 target_link_libraries(module_registration_without_import PRIVATE gentest gentest_runtime)
 target_compile_features(module_registration_without_import PRIVATE cxx_std_20)
+set_property(TARGET module_registration_without_import PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(module_registration_without_import
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

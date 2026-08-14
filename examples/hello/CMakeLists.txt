@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(gentest CONFIG REQUIRED)
 
-add_executable(gentest_hello cases.cpp)
+add_executable(gentest_hello cases.cpp cases.hpp)
 target_compile_features(gentest_hello PRIVATE cxx_std_20)
 target_link_libraries(gentest_hello PRIVATE gentest::gentest_main)
 

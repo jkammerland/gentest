@@ -73,8 +73,10 @@ gentest_discover_tests(my_tests)
 
 If you do not provide your own `main()`, link `gentest::gentest_main` instead of `gentest::gentest_runtime`.
 
-Plain `gentest_attach_codegen(my_tests)` remains the default CMake wrapper mode.
-For module-authored tests, prefer `MODULE_REGISTRATION`: it adds generated
+Plain `gentest_attach_codegen(my_tests)` is the additive header-declaration path
+for ordinary textual targets: authored `.cpp` files stay attached and generated
+sources include only annotated headers. For module-authored tests, use
+`MODULE_REGISTRATION`: it adds generated
 same-module implementation units without replacing the authored `.cppm` module
 interface in the target or compile database.
 

@@ -705,9 +705,12 @@ auto collect_gentest_attributes_for(const FunctionDecl &func, const SourceManage
         return collected;
     }
 
-    // Expand macros to file location
+    // For declaration-producing macros, the attribute tokens live in the
+    // macro spelling buffer while the declaration name may come from an
+    // invocation argument. Scan backward from the spelled declaration start;
+    // the collector separately retains the full expansion chain for identity.
     if (begin.isMacroID()) {
-        begin = sm.getExpansionLoc(begin);
+        begin = sm.getSpellingLoc(begin);
     }
 
     SourceLocation file_location = sm.getFileLoc(begin);
@@ -736,7 +739,7 @@ auto collect_gentest_attributes_for(const CXXRecordDecl &rec, const SourceManage
         return collected;
     }
     if (rec_loc.isMacroID()) {
-        rec_loc = sm.getExpansionLoc(rec_loc);
+        rec_loc = sm.getSpellingLoc(rec_loc);
     }
 
     const FileID file_id = sm.getFileID(rec_loc);
