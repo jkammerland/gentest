@@ -18,6 +18,7 @@
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/Basic/Module.h>
 #include <clang/Basic/SourceManager.h>
+#include <clang/Basic/Version.h>
 #include <clang/Index/USRGeneration.h>
 #include <cmath>
 #include <cstdio>
@@ -376,6 +377,9 @@ const NamedDecl *adapter_type_declaration(QualType type) {
     if (const auto *record_type = type->getAs<RecordType>(); record_type != nullptr) {
         return record_type->getDecl();
     }
+    if (const auto *enum_type = type->getAs<EnumType>(); enum_type != nullptr) {
+        return enum_type->getDecl();
+    }
     return nullptr;
 }
 
@@ -383,6 +387,23 @@ const NamedDecl *adapter_type_naming_declaration(QualType type) {
     type = type.getUnqualifiedType();
     if (const auto *typedef_type = llvm::dyn_cast<TypedefType>(type.getTypePtr())) {
         return typedef_type->getDecl();
+    }
+    if (const auto *specialization = llvm::dyn_cast<TemplateSpecializationType>(type.getTypePtr())) {
+        if (const auto *alias_template =
+                llvm::dyn_cast_or_null<TypeAliasTemplateDecl>(specialization->getTemplateName().getAsTemplateDecl())) {
+            return alias_template;
+        }
+    }
+#if CLANG_VERSION_MAJOR < 22
+    if (const auto *elaborated = llvm::dyn_cast<ElaboratedType>(type.getTypePtr())) {
+        return adapter_type_naming_declaration(elaborated->getNamedType());
+    }
+#endif
+    if (const auto *attributed = llvm::dyn_cast<AttributedType>(type.getTypePtr())) {
+        return adapter_type_naming_declaration(attributed->getModifiedType());
+    }
+    if (const auto *paren = llvm::dyn_cast<ParenType>(type.getTypePtr())) {
+        return adapter_type_naming_declaration(paren->getInnerType());
     }
     return adapter_type_declaration(type);
 }
@@ -397,6 +418,170 @@ bool is_importer_reachable_type(QualType type) {
         return false;
     }
     return owning_module_identity(*decl).empty() || is_importer_reachable_entity(*decl);
+}
+
+struct BindingName {
+    bool                     absolute = false;
+    std::vector<std::string> parts;
+};
+
+bool is_identifier_start(char ch) { return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '_'; }
+
+bool is_identifier_continue(char ch) { return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_'; }
+
+bool is_binding_keyword(std::string_view name) {
+    static constexpr std::array keywords{
+        std::string_view{"alignof"},  std::string_view{"auto"},     std::string_view{"bool"},     std::string_view{"char"},
+        std::string_view{"char8_t"},  std::string_view{"char16_t"}, std::string_view{"char32_t"}, std::string_view{"const"},
+        std::string_view{"decltype"}, std::string_view{"double"},   std::string_view{"false"},    std::string_view{"float"},
+        std::string_view{"int"},      std::string_view{"long"},     std::string_view{"noexcept"}, std::string_view{"nullptr"},
+        std::string_view{"short"},    std::string_view{"signed"},   std::string_view{"sizeof"},   std::string_view{"true"},
+        std::string_view{"unsigned"}, std::string_view{"void"},     std::string_view{"volatile"}, std::string_view{"wchar_t"}};
+    return std::ranges::find(keywords, name) != keywords.end();
+}
+
+std::vector<BindingName> binding_names(std::string_view text) {
+    std::vector<BindingName> names;
+    for (std::size_t i = 0; i < text.size();) {
+        if (text[i] == '\'' || text[i] == '"') {
+            const char quote = text[i++];
+            while (i < text.size()) {
+                if (text[i] == '\\' && i + 1 < text.size()) {
+                    i += 2;
+                    continue;
+                }
+                if (text[i++] == quote) {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        BindingName name{};
+        if (i + 1 < text.size() && text[i] == ':' && text[i + 1] == ':') {
+            name.absolute = true;
+            i += 2;
+            while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i])) != 0) {
+                ++i;
+            }
+        }
+        if (i >= text.size() || !is_identifier_start(text[i])) {
+            ++i;
+            continue;
+        }
+
+        for (;;) {
+            const std::size_t start = i++;
+            while (i < text.size() && is_identifier_continue(text[i])) {
+                ++i;
+            }
+            name.parts.emplace_back(text.substr(start, i - start));
+
+            std::size_t next = i;
+            while (next < text.size() && std::isspace(static_cast<unsigned char>(text[next])) != 0) {
+                ++next;
+            }
+            if (next + 1 >= text.size() || text[next] != ':' || text[next + 1] != ':') {
+                break;
+            }
+            next += 2;
+            while (next < text.size() && std::isspace(static_cast<unsigned char>(text[next])) != 0) {
+                ++next;
+            }
+            if (next >= text.size() || !is_identifier_start(text[next])) {
+                break;
+            }
+            i = next;
+        }
+
+        if (!(name.parts.size() == 1 && is_binding_keyword(name.parts.front()))) {
+            names.push_back(std::move(name));
+        }
+    }
+    return names;
+}
+
+std::vector<const NamedDecl *> lookup_binding_name(const BindingName &name, const DeclContext &origin, ASTContext &context) {
+    if (name.parts.empty()) {
+        return {};
+    }
+
+    const auto lookup = [&](const DeclContext &decl_context, std::string_view part) {
+        std::vector<const NamedDecl *> matches;
+        const DeclarationName          declaration_name(&context.Idents.get(part));
+        for (const auto *decl : decl_context.lookup(declaration_name)) {
+            if (const auto *named = llvm::dyn_cast<NamedDecl>(decl)) {
+                matches.push_back(named);
+            }
+        }
+        return matches;
+    };
+    const auto as_context = [](const NamedDecl &decl) -> const DeclContext * {
+        if (const auto *alias = llvm::dyn_cast<NamespaceAliasDecl>(&decl)) {
+            return alias->getNamespace();
+        }
+        if (const auto *decl_context = llvm::dyn_cast<DeclContext>(&decl)) {
+            return decl_context;
+        }
+        if (const auto *typedef_name = llvm::dyn_cast<TypedefNameDecl>(&decl)) {
+            const QualType underlying = typedef_name->getUnderlyingType().getCanonicalType();
+            if (const auto *record = underlying->getAs<RecordType>()) {
+                return record->getDecl();
+            }
+            if (const auto *enumeration = underlying->getAs<EnumType>()) {
+                return enumeration->getDecl();
+            }
+        }
+        return nullptr;
+    };
+
+    std::vector<const NamedDecl *> current;
+    if (name.absolute) {
+        current = lookup(*context.getTranslationUnitDecl(), name.parts.front());
+    } else {
+        for (const DeclContext *scope = &origin; scope != nullptr; scope = scope->getParent()) {
+            current = lookup(*scope, name.parts.front());
+            if (!current.empty()) {
+                break;
+            }
+        }
+    }
+    for (std::size_t part_idx = 1; part_idx < name.parts.size() && !current.empty(); ++part_idx) {
+        std::vector<const NamedDecl *> next;
+        for (const auto *candidate : current) {
+            if (const DeclContext *scope = as_context(*candidate)) {
+                auto matches = lookup(*scope, name.parts[part_idx]);
+                next.insert(next.end(), matches.begin(), matches.end());
+            }
+        }
+        current = std::move(next);
+    }
+    return current;
+}
+
+bool validate_importer_template_bindings(const FunctionDecl &function, const std::vector<std::vector<std::string>> &combinations,
+                                         ASTContext &context, const std::function<void(const std::string &)> &report) {
+    for (const auto &combination : combinations) {
+        for (const auto &binding : combination) {
+            for (const auto &name : binding_names(binding)) {
+                const auto declarations = lookup_binding_name(name, *function.getDeclContext(), context);
+                if (declarations.empty()) {
+                    continue;
+                }
+                const auto reachable = [](const NamedDecl *decl) {
+                    return decl != nullptr && (owning_module_identity(*decl).empty() || is_importer_reachable_entity(*decl));
+                };
+                if (std::ranges::any_of(declarations, reachable)) {
+                    continue;
+                }
+                const auto *decl = declarations.front();
+                report(fmt::format("template binding '{}' names '{}' which is not reachable after importing named module '{}'", binding,
+                                   decl->getQualifiedNameAsString(), owning_module_identity(function)));
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 bool is_gentest_mock_adapter_type(QualType type) {
@@ -571,6 +756,13 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     }
     if (combined_tpl_combos.empty())
         combined_tpl_combos.emplace_back();
+    if (module_importer_registration_ &&
+        !validate_importer_template_bindings(*func, combined_tpl_combos, *result.Context, [&](const std::string &message) {
+            had_error_ = true;
+            report(message);
+        })) {
+        return;
+    }
 
     const bool is_function_template = func->getDescribedFunctionTemplate() != nullptr;
     auto       make_qualified       = [&](const std::vector<std::string> &tpl_ordered) {
@@ -1318,16 +1510,6 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
     if (summary.lifetime != FixtureLifetime::MemberSuite && summary.lifetime != FixtureLifetime::MemberGlobal) {
         return; // not a shared fixture declaration
     }
-    const bool importer_reachable = is_importer_reachable_entity(*record);
-    if (module_importer_registration_ && !importer_reachable) {
-        had_error_ = true;
-        report(*record, *sm,
-               fmt::format("shared fixture is not reachable after importing named module '{}'; MODULE_REGISTRATION uses an ordinary "
-                           "importer translation unit, so export the fixture definition",
-                           owning_module_identity(*record)));
-        return;
-    }
-
     const auto        suite_override = find_suite_override(record->getDeclContext(), *sm, suite_cache_, had_error_);
     const std::string suite_path     = suite_override.value_or(derive_namespace_path(record->getDeclContext()));
     if (summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
@@ -1337,11 +1519,13 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
     }
 
     FixtureDeclInfo info{};
-    info.qualified_name  = record->getQualifiedNameAsString();
-    info.base_name       = record->getNameAsString();
-    info.namespace_parts = collect_namespace_parts(record->getDeclContext());
-    info.suite_name      = suite_path;
-    info.scope           = (summary.lifetime == FixtureLifetime::MemberSuite) ? FixtureScope::Suite : FixtureScope::Global;
+    info.qualified_name         = record->getQualifiedNameAsString();
+    info.importer_reachable     = !module_importer_registration_ || is_importer_reachable_entity(*record);
+    info.registration_type_name = info.importer_reachable ? info.qualified_name : std::string{};
+    info.base_name              = record->getNameAsString();
+    info.namespace_parts        = collect_namespace_parts(record->getDeclContext());
+    info.suite_name             = suite_path;
+    info.scope                  = (summary.lifetime == FixtureLifetime::MemberSuite) ? FixtureScope::Suite : FixtureScope::Global;
     {
         const SourceLocation  tu_loc  = sm->getLocForStartOfFile(sm->getMainFileID());
         const llvm::StringRef tu_file = sm->getFilename(tu_loc);
@@ -1374,8 +1558,8 @@ struct ParsedFixtureType {
 };
 
 struct FixtureLookup {
-    std::unordered_map<std::string, std::vector<const FixtureDeclInfo *>> by_base;
-    std::unordered_map<std::string, const FixtureDeclInfo *>              by_qualified;
+    std::unordered_map<std::string, std::vector<FixtureDeclInfo *>> by_base;
+    std::unordered_map<std::string, FixtureDeclInfo *>              by_qualified;
 };
 
 std::string trim_copy(std::string_view text) {
@@ -1448,9 +1632,9 @@ std::string join_namespace(const std::vector<std::string> &parts) {
     return out;
 }
 
-auto build_fixture_lookups(const std::vector<FixtureDeclInfo> &fixtures) -> std::unordered_map<std::string, FixtureLookup> {
+auto build_fixture_lookups(std::vector<FixtureDeclInfo> &fixtures) -> std::unordered_map<std::string, FixtureLookup> {
     std::unordered_map<std::string, FixtureLookup> lookups;
-    for (const auto &fixture : fixtures) {
+    for (auto &fixture : fixtures) {
         auto &lookup = lookups[fixture.tu_filename];
         lookup.by_base[fixture.base_name].push_back(&fixture);
         if (!fixture.qualified_name.empty()) {
@@ -1464,15 +1648,14 @@ bool is_visible_fixture_for_test(const FixtureDeclInfo &fixture, const TestCaseI
     return is_prefix(fixture.namespace_parts, test.namespace_parts);
 }
 
-auto find_best_visible_fixture(const FixtureLookup &lookup, const std::string &base_name, const TestCaseInfo &test)
-    -> const FixtureDeclInfo * {
+auto find_best_visible_fixture(const FixtureLookup &lookup, const std::string &base_name, const TestCaseInfo &test) -> FixtureDeclInfo * {
     const auto it = lookup.by_base.find(base_name);
     if (it == lookup.by_base.end()) {
         return nullptr;
     }
 
-    const FixtureDeclInfo *best = nullptr;
-    for (const auto *decl : it->second) {
+    FixtureDeclInfo *best = nullptr;
+    for (auto *decl : it->second) {
         if (!is_visible_fixture_for_test(*decl, test)) {
             continue;
         }
@@ -1526,7 +1709,7 @@ std::string derive_local_fixture_type_name(const ParsedFixtureType &parsed, cons
 }
 } // namespace
 
-bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures) {
+bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, std::vector<FixtureDeclInfo> &fixtures) {
     const auto lookups = build_fixture_lookups(fixtures);
 
     bool       ok     = true;
@@ -1577,17 +1760,23 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
                 use.scope     = FixtureScope::Local;
                 test.free_fixtures.push_back(std::move(use));
             };
-            const auto emit_declared = [&](const FixtureDeclInfo *decl) {
+            const auto emit_declared = [&](FixtureDeclInfo *decl) {
                 if (required_scope.has_value() && decl->scope != *required_scope) {
                     report(test, fmt::format("fixture '{}' declared as '{}' but resolved as '{}' via '{}'", parsed.full,
                                              scope_name(*required_scope), scope_name(decl->scope), decl->qualified_name));
                     return;
                 }
-                FreeFixtureUse use{};
-                use.type_name  = decl->qualified_name + parsed.suffix;
-                use.scope      = decl->scope;
-                use.suite_name = decl->suite_name;
+                FreeFixtureUse    use{};
+                const std::string visible_type = (emit_type == raw_type) ? std::string{} : parse_fixture_type(emit_type).full;
+                use.type_name                  = visible_type.empty() ? (decl->qualified_name + parsed.suffix) : visible_type;
+                use.registry_name              = decl->qualified_name + parsed.suffix;
+                use.scope                      = decl->scope;
+                use.suite_name                 = decl->suite_name;
                 test.free_fixtures.push_back(std::move(use));
+                if (!decl->importer_reachable && !visible_type.empty() &&
+                    (decl->registration_type_name.empty() || visible_type < decl->registration_type_name)) {
+                    decl->registration_type_name = visible_type;
+                }
                 if (!decl->filename.empty() &&
                     std::ranges::find(test.registration_headers, decl->filename) == test.registration_headers.end()) {
                     test.registration_headers.push_back(decl->filename);
@@ -1598,7 +1787,7 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
                 if (parsed.qualified) {
                     const auto qit = lookup->by_qualified.find(base_no_colons);
                     if (qit != lookup->by_qualified.end()) {
-                        const FixtureDeclInfo *decl = qit->second;
+                        FixtureDeclInfo *decl = qit->second;
                         if (!is_visible_fixture_for_test(*decl, test)) {
                             report(test, fmt::format("fixture '{}' is not in an ancestor namespace of this test", base_no_colons));
                             continue;
@@ -1610,7 +1799,7 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
                     continue;
                 }
 
-                const FixtureDeclInfo *best = find_best_visible_fixture(*lookup, parsed.base, test);
+                FixtureDeclInfo *best = find_best_visible_fixture(*lookup, parsed.base, test);
                 if (best) {
                     emit_declared(best);
                     continue;
@@ -1636,7 +1825,21 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<F
         }
     }
 
+    for (const auto &fixture : fixtures) {
+        if (!fixture.importer_reachable && fixture.registration_type_name.empty()) {
+            ok = false;
+            log_err("gentest_codegen: {}:{}: shared fixture '{}' is not reachable after importing its named module; export the fixture "
+                    "definition or use an exported alias from a registered case\n",
+                    fixture.filename, fixture.line, fixture.qualified_name);
+        }
+    }
+
     return ok;
+}
+
+bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures) {
+    auto mutable_fixtures = fixtures;
+    return resolve_free_fixtures(cases, mutable_fixtures);
 }
 
 } // namespace gentest::codegen

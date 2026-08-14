@@ -283,8 +283,8 @@ bool merge_header_declaration_occurrences(std::vector<TestCaseInfo> &cases, std:
     const auto resolved_case_fingerprint = [](const TestCaseInfo &item) {
         std::string fingerprint = item.semantic_fingerprint;
         for (const auto &fixture : item.free_fixtures) {
-            fingerprint +=
-                fmt::format("|resolved-fixture:{}:{}:{}", fixture.type_name, static_cast<int>(fixture.scope), fixture.suite_name);
+            fingerprint += fmt::format("|resolved-fixture:{}:{}:{}:{}", fixture.type_name, fixture.registry_name,
+                                       static_cast<int>(fixture.scope), fixture.suite_name);
         }
         return fingerprint;
     };

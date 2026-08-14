@@ -120,6 +120,12 @@ exported redeclaration fails codegen with an importer-reachability diagnostic.
 Module partitions, private module fragments, and implementation units are not
 annotation owners in this importer-registration surface.
 
+GCC 16.1 has a compiler bug when an ordinary importer loads an exported inline
+coroutine definition from a named module. For that compiler, keep the annotated
+coroutine declaration in the exported interface and put its body in a normally
+compiled module implementation source. This is the same portable two-unit form
+shown above; Clang and earlier supported GCC releases also accept it.
+
 ## Minimal layout
 
 `main.cpp`:

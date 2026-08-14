@@ -63,6 +63,17 @@ if(NOT _clang OR NOT _clangxx)
   return()
 endif()
 
+set(_fixture_c_compiler "${_clang}")
+set(_fixture_cxx_compiler "${_clangxx}")
+if(GENERATOR STREQUAL "Ninja")
+  gentest_probe_cxx_compiler_macros(_final_is_gnu _final_is_clang _final_gnu_major "${CXX_COMPILER}")
+  if(_final_is_gnu AND NOT _final_is_clang AND NOT _final_gnu_major VERSION_LESS 16)
+    set(_fixture_c_compiler "${C_COMPILER}")
+    set(_fixture_cxx_compiler "${CXX_COMPILER}")
+    message(STATUS "Use final GCC ${_final_gnu_major} compiler for the module registration regression")
+  endif()
+endif()
+
 gentest_find_supported_ninja(_supported_ninja _supported_ninja_reason)
 if(NOT _supported_ninja)
   gentest_skip_test("module registration manifest regression: ${_supported_ninja_reason}")
@@ -79,8 +90,8 @@ endif()
 
 set(_cmake_cache_args
   "-DGENTEST_SOURCE_DIR=${GENTEST_SOURCE_DIR}"
-  "-DCMAKE_C_COMPILER=${_clang}"
-  "-DCMAKE_CXX_COMPILER=${_clangxx}"
+  "-DCMAKE_C_COMPILER=${_fixture_c_compiler}"
+  "-DCMAKE_CXX_COMPILER=${_fixture_cxx_compiler}"
   "-DCMAKE_MAKE_PROGRAM=${_supported_ninja}")
 if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
@@ -94,9 +105,11 @@ endif()
 if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
 endif()
-gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
-if(NOT "${_clang_scan_deps}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_clang_scan_deps}")
+if("${_fixture_cxx_compiler}" STREQUAL "${_clangxx}")
+  gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
+  if(NOT "${_clang_scan_deps}" STREQUAL "")
+    list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_clang_scan_deps}")
+  endif()
 endif()
 if(NOT _build_config AND DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
@@ -140,11 +153,15 @@ foreach(_expected_case IN ITEMS
     "module_registration/exported_fixture"
     "module_registration/exported_redeclaration"
     "module_registration/exported_alias_fixture"
+    "module_registration/exported_alias_template_fixture"
+    "module_registration/exported_enum_fixture"
+    "module_registration/exported_shared_fixture_alias"
     "module_registration/builtin_fixture"
     "module_registration/exported_suite_fixture"
     "module_registration/exported_global_fixture"
     "module_registration/exported_parameters"
     "module_registration/exported_template"
+    "module_registration/exported_template_alias_binding"
     "module_registration/exported_async"
     "module_registration/exported_bench"
     "module_registration/exported_jitter"
@@ -161,6 +178,9 @@ foreach(_case IN ITEMS
     exported_fixture
     exported_redeclaration
     exported_alias_fixture
+    exported_alias_template_fixture
+    exported_enum_fixture
+    exported_shared_fixture_alias
     builtin_fixture
     exported_suite_fixture
     exported_global_fixture
@@ -386,5 +406,8 @@ _gentest_expect_visibility_failure(
 _gentest_expect_visibility_failure(
   hidden_fixture
   "fixture type 'story034_hidden_fixture_detail::Fixture' is not reachable after importing named module 'gentest.story034.hidden_fixture'")
+_gentest_expect_visibility_failure(
+  hidden_template_binding
+  "template binding 'detail::Hidden' names 'story034_hidden_template_binding::detail::Hidden' which is not reachable after importing named module 'gentest.story034.hidden_template_binding'")
 
 message(STATUS "Module registration manifest regression passed")

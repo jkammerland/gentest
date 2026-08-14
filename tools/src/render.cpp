@@ -110,7 +110,7 @@ std::pair<std::string, FixtureLifetime> case_grouping_fixture(const TestCaseInfo
     for (const auto &fixture : test.free_fixtures) {
         const auto lifetime = shared_fixture_lifetime(fixture.scope);
         if (lifetime != FixtureLifetime::None) {
-            return {fixture.type_name, lifetime};
+            return {fixture.registry_name.empty() ? fixture.type_name : fixture.registry_name, lifetime};
         }
     }
 
@@ -161,8 +161,9 @@ std::string build_fixture_inits(const std::vector<FreeFixtureUse> &types) {
                                                                             : "::gentest::detail::SharedFixtureScope::Global";
         const std::string suite_literal =
             (fx.scope == FixtureScope::Suite) ? ("\"" + escape_string(fx.suite_name) + "\"") : std::string("std::string_view{}");
+        const auto &registry_name = fx.registry_name.empty() ? fx.type_name : fx.registry_name;
         append_format(inits, "    if (!gentest_init_shared_fixture(fx{}_, {}, {}, \"{}\")) return;\n", i, scope_literal, suite_literal,
-                      escape_string(fx.type_name));
+                      escape_string(registry_name));
     }
     return inits;
 }
@@ -180,8 +181,9 @@ std::string build_fixture_async_inits(const std::vector<FreeFixtureUse> &types) 
                                                                             : "::gentest::detail::SharedFixtureScope::Global";
         const std::string suite_literal =
             (fx.scope == FixtureScope::Suite) ? ("\"" + escape_string(fx.suite_name) + "\"") : std::string("std::string_view{}");
+        const auto &registry_name = fx.registry_name.empty() ? fx.type_name : fx.registry_name;
         append_format(inits, "    if (!gentest_init_shared_fixture(fx{}_, {}, {}, \"{}\")) co_return;\n", i, scope_literal, suite_literal,
-                      escape_string(fx.type_name));
+                      escape_string(registry_name));
     }
     return inits;
 }
@@ -331,8 +333,9 @@ std::string build_fixture_bench_inits(const std::vector<FreeFixtureUse> &types) 
                                                                             : "::gentest::detail::SharedFixtureScope::Global";
         const std::string suite_literal =
             (fx.scope == FixtureScope::Suite) ? ("\"" + escape_string(fx.suite_name) + "\"") : std::string("std::string_view{}");
+        const auto &registry_name = fx.registry_name.empty() ? fx.type_name : fx.registry_name;
         append_format(inits, "            if (!gentest_init_shared_fixture(bench_state.fx{}_, {}, {}, \"{}\")) return;\n", i, scope_literal,
-                      suite_literal, escape_string(fx.type_name));
+                      suite_literal, escape_string(registry_name));
     }
     return inits;
 }
@@ -938,7 +941,7 @@ std::string render_fixture_registrations(const std::vector<FixtureDeclInfo> &fix
         if (fx.scope == FixtureScope::Local) {
             continue;
         }
-        std::string type_name = fx.qualified_name;
+        std::string type_name = fx.registration_type_name.empty() ? fx.qualified_name : fx.registration_type_name;
         if (!type_name.starts_with("::")) {
             type_name.insert(type_name.begin(), ':');
             type_name.insert(type_name.begin(), ':');

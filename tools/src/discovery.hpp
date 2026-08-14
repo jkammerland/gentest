@@ -63,6 +63,7 @@ class FixtureDeclCollector : public clang::ast_matchers::MatchFinder::MatchCallb
 
 // Resolve free-function fixture uses against discovered fixture declarations.
 // Returns false on validation error.
+bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, std::vector<FixtureDeclInfo> &fixtures);
 bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, const std::vector<FixtureDeclInfo> &fixtures);
 
 } // namespace gentest::codegen

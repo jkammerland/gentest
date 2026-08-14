@@ -27,11 +27,30 @@ struct AliasFixture : gentest::FixtureSetup {
     int  value = 0;
 };
 
+template <typename T> struct AliasTemplateFixture : gentest::FixtureSetup {
+    void setUp() override { value = T{13}; }
+    T    value{};
+};
+
 } // namespace story034_module_registration_detail
+
+namespace story034_module_registration {
+
+struct [[using gentest: fixture(suite)]] HiddenSharedFixture : gentest::FixtureSetup {
+    void setUp() override { value = 19; }
+    int  value = 0;
+};
+
+} // namespace story034_module_registration
 
 export namespace story034_module_registration {
 
-using AliasFixture = story034_module_registration_detail::AliasFixture;
+using AliasFixture                               = story034_module_registration_detail::AliasFixture;
+template <typename T> using AliasTemplateFixture = story034_module_registration_detail::AliasTemplateFixture<T>;
+using SharedFixtureAlias                         = HiddenSharedFixture;
+using ExportedTemplateArgument                   = story034_module_registration_detail::AliasFixture;
+
+enum class EnumFixture { Default };
 
 struct Fixture : gentest::FixtureSetup {
     void setUp() override { value = 7; }
@@ -51,6 +70,21 @@ void exported_alias_fixture(AliasFixture &fixture) {
     gentest::asserts::EXPECT_EQ(fixture.value, 11);
 }
 
+[[using gentest: test("module_registration/exported_alias_template_fixture")]]
+void exported_alias_template_fixture(AliasTemplateFixture<int> &fixture) {
+    gentest::asserts::EXPECT_EQ(fixture.value, 13);
+}
+
+[[using gentest: test("module_registration/exported_enum_fixture")]]
+void exported_enum_fixture(EnumFixture &fixture) {
+    gentest::asserts::EXPECT_EQ(fixture, EnumFixture::Default);
+}
+
+[[using gentest: test("module_registration/exported_shared_fixture_alias")]]
+void exported_shared_fixture_alias(SharedFixtureAlias &fixture) {
+    gentest::asserts::EXPECT_EQ(fixture.value, 19);
+}
+
 [[using gentest: test("module_registration/builtin_fixture")]]
 void builtin_fixture(int &fixture) {
     gentest::asserts::EXPECT_EQ(fixture, 0);
@@ -67,10 +101,14 @@ void exported_template() {
     gentest::asserts::EXPECT_TRUE(sizeof(T) >= sizeof(int));
 }
 
-[[using gentest: test("module_registration/exported_async")]]
-gentest::async_test<void> exported_async() {
-    co_return;
+template <typename T>
+[[using gentest: test("module_registration/exported_template_alias_binding"), template(T, ExportedTemplateArgument)]]
+void exported_template_alias_binding() {
+    gentest::asserts::EXPECT_TRUE(sizeof(T) > 0);
 }
+
+[[using gentest: test("module_registration/exported_async")]]
+gentest::async_test<void> exported_async();
 
 [[using gentest: bench("module_registration/exported_bench")]]
 void exported_bench() {}

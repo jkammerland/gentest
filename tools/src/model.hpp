@@ -64,7 +64,8 @@ struct TemplateBindingSet {
 };
 
 struct FreeFixtureUse {
-    std::string  type_name; // fully qualified (no leading ::)
+    std::string  type_name;     // importer-visible C++ spelling (fully qualified, no leading ::)
+    std::string  registry_name; // canonical runtime identity; empty means type_name
     FixtureScope scope = FixtureScope::Local;
     std::string  suite_name; // only for suite fixtures
 };
@@ -83,7 +84,10 @@ struct FreeCallArg {
 };
 
 struct FixtureDeclInfo {
-    std::string              qualified_name;
+    std::string qualified_name;
+    // Importer-visible C++ spelling used to instantiate shared fixture support.
+    // This may be an exported alias for a module-private qualified_name.
+    std::string              registration_type_name;
     std::string              base_name;
     std::vector<std::string> namespace_parts;
     std::string              suite_name;
@@ -99,7 +103,8 @@ struct FixtureDeclInfo {
     // Header paired with the selected owning scan context. `filename` may be
     // replaced by the canonical metadata site during serial merge.
     std::string registration_header;
-    std::size_t scan_slot = 0;
+    std::size_t scan_slot          = 0;
+    bool        importer_reachable = true;
 };
 
 // Parsed attribute name with its argument strings as written in source.
