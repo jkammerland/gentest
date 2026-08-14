@@ -45,7 +45,7 @@ Parallel parsing/emission is enabled only when:
 Ninja / CMake target build
   |
   +-- runs: gentest_codegen  (1 process)
-       inputs: [tu_0000.gentest.cpp, tu_0001.gentest.cpp, ...]
+       inputs: [cases_0.cpp, cases_1.cpp, listed_header.hpp, ...]
        jobs:   K   (from --jobs or GENTEST_CODEGEN_JOBS; 0=auto)
 
        PARSE PHASE  (parallel when K>1 and inputs>1)
@@ -64,17 +64,17 @@ Ninja / CMake target build
          enforce cross-TU name uniqueness
          sort cases
 
-       EMIT PHASE (per-TU headers, parallel when K>1 and inputs>1)
+       EMIT PHASE (per-slot registration sources, parallel when K>1 and inputs>1)
          tasks = indices 0..N-1 for the same TU list
          shared atomic "next_index"
          K worker threads:
             loop:
               idx = next_index++
               if idx >= N: exit
-              render + write tu_XXXX_*.gentest.h
+              render + write tu_XXXX_*.header_registration.gentest.cpp
 
        MOCK OUTPUTS (single thread)
-         render + write <target>_mock_registry.hpp + <target>_mock_impl.hpp
+         render + write target/domain mock registry and implementation headers
 ```
 
 Scan slots are effectively “pushed to a queue”, implemented as an atomic task index that workers consume from (no explicit `std::queue`).
@@ -95,13 +95,13 @@ Scan slots are effectively “pushed to a queue”, implemented as an atomic tas
 
 - **Mock headers during codegen**
   - During codegen (`-DGENTEST_CODEGEN=1`), `gentest/mock.h` skips including the generated mock registry/impl headers.
-  - This prevents re-parsing stale/partial mock outputs when codegen is parsing multiple wrapper TUs.
+  - This prevents re-parsing stale/partial mock outputs while codegen scans multiple authored/fallback slots.
 
 ## Verification tooling
 
 ### 1) Multi‑TU codegen bench target
 
-The repo defines a **codegen-only** benchmark target that invokes `gentest_codegen` once with many wrapper TUs:
+The repo defines a **codegen-only** benchmark target that invokes `gentest_codegen` once with many authored scan slots:
 
 - `gentest_codegen_parallel_bench` (custom target)
 - backed by: `gentest_codegen_parallel_bench_obj` (object library)
@@ -115,7 +115,9 @@ cmake --build --preset=debug-system --target gentest_codegen_parallel_bench --cl
 
 ### 2) Equivalence check: serial vs parallel outputs
 
-Use `scripts/verify_codegen_parallel.py` to hash all generated outputs and compare:
+Use `scripts/verify_codegen_parallel.py` to hash every output declared by the
+codegen command—including additive registration sources, the artifact
+manifest, and mock-domain outputs—and compare:
 
 ```bash
 python3 scripts/verify_codegen_parallel.py \
@@ -142,7 +144,7 @@ python3 scripts/bench_compile.py \
 ## Limitations / expectations
 
 - If a given test target has only **one** scan slot, a single `gentest_codegen` invocation won’t benefit from internal parallelism.
-  - The speedups show up when a single invocation sees many authored/fallback slots (or many compatibility wrappers).
+  - The speedups show up when a single invocation sees many authored and fallback-header slots.
 - Internal codegen job parallelism can interact with build-system parallelism:
   - `cmake --build -j X` can run multiple `gentest_codegen` processes in parallel;
   - each process can itself use up to `--jobs` threads.

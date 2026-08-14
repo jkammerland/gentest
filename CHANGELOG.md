@@ -12,9 +12,8 @@ Unstable inside. No backward compatibility.
 - Ordinary importer registration units for exported module cases.
 - Generated artifact manifests.
 - Artifact manifest validation command.
-- Textual wrapper artifact manifests.
 - Module registration CLI options.
-- Textual owner-source CLI option.
+- Additive header-declaration registration for ordinary textual targets.
 - Unsupported module input diagnostics.
 - Module registration regression coverage.
 
@@ -30,6 +29,15 @@ Unstable inside. No backward compatibility.
 - Named-module registration now requires importer-reachable exported cases,
   fixtures, and adapter dependencies. Direct module-owned mock attachments are
   rejected; publish and import an explicit mock-provider target instead.
+- Ordinary textual targets retain their authored sources and exact compilation
+  database entries. Codegen appends generated registration sources instead of
+  replacing authored sources with wrappers.
+
+### Removed
+
+- Ordinary textual-wrapper source replacement, including
+  `GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY`,
+  `--textual-wrapper-output`, and `--artifact-owner-source`.
 
 ### Fixed
 
@@ -42,7 +50,8 @@ Unstable inside. No backward compatibility.
 
 ### Limitations
 
-- Textual registration still uses wrappers.
+- Ordinary textual annotations must be header-reachable; source-only,
+  `static`, and anonymous-namespace cases are rejected.
 - Private module fragments are unsupported.
 - Module partitions are unsupported.
 - Meson remains textual only.

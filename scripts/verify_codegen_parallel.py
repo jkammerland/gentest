@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Verify that gentest_codegen produces identical outputs in TU wrapper mode when
+Verify that gentest_codegen produces identical per-slot outputs when
 running serial vs parallel.
 
 This script:
   1) Extracts the exact gentest_codegen command for a target from build.ninja.
   2) Runs it once with GENTEST_CODEGEN_JOBS=<serial_jobs> (default 1).
-  3) Captures hashes of generated outputs (tu_*.gentest.h + mock outputs).
+  3) Captures hashes of every output declared by the codegen command.
   4) Runs it N times with GENTEST_CODEGEN_JOBS=<parallel_jobs> (default 0=auto).
   5) Fails if any parallel run differs from the serial baseline.
 
@@ -65,28 +65,40 @@ def extract_arg(command: str, name: str) -> str | None:
     return m.group(1)
 
 
+def extract_args(command: str, name: str) -> list[str]:
+    # The generated Ninja command uses concrete, non-space output paths.
+    return re.findall(rf"(?:^|\s){re.escape(name)}\s+([^\s]+)", command)
+
+
 def collect_outputs(command: str) -> list[Path]:
     tu_out_dir = extract_arg(command, "--tu-out-dir")
     if not tu_out_dir:
-        raise RuntimeError("Could not find --tu-out-dir in codegen command (TU wrapper mode required).")
+        raise RuntimeError("Could not find --tu-out-dir in codegen command (per-slot output mode required).")
 
     out_dir = Path(tu_out_dir)
+    output_flags = (
+        "--textual-registration-output",
+        "--module-registration-output",
+        "--tu-header-output",
+        "--module-wrapper-output",
+        "--artifact-manifest",
+        "--mock-registry",
+        "--mock-impl",
+        "--mock-domain-registry-output",
+        "--mock-domain-impl-output",
+        "--mock-aggregate-module-output",
+    )
+    declared = [Path(value) for flag in output_flags for value in extract_args(command, flag)]
+    if not declared:
+        declared.extend(sorted(out_dir.glob("*.gentest.h")))
+
     outputs: list[Path] = []
-
-    outputs.extend(sorted(out_dir.glob("*.gentest.h")))
-
-    mock_registry = extract_arg(command, "--mock-registry")
-    if mock_registry:
-        p = Path(mock_registry)
-        if p.exists():
-            outputs.append(p)
-
-    mock_impl = extract_arg(command, "--mock-impl")
-    if mock_impl:
-        p = Path(mock_impl)
-        if p.exists():
-            outputs.append(p)
-
+    missing: list[Path] = []
+    for path in dict.fromkeys(declared):
+        (outputs if path.exists() else missing).append(path)
+    if missing:
+        joined = "\n  ".join(str(path) for path in missing)
+        raise RuntimeError(f"Codegen command did not produce declared outputs:\n  {joined}")
     return outputs
 
 
