@@ -5,6 +5,9 @@ Async tests are normal `[[using gentest: test]]` cases whose return type is
 thread, so suspended tests can wait while other ready tests in the same fixture
 group continue.
 
+The ordinary textual examples below are header contents, so their
+free-function definitions are `inline`.
+
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/runner.h"
@@ -12,7 +15,7 @@ group continue.
 using namespace gentest::asserts;
 
 [[using gentest: test("async/basic")]]
-gentest::async_test<void> basic_async_test() {
+inline gentest::async_test<void> basic_async_test() {
     co_await gentest::async::yield();
     EXPECT_TRUE(true);
 }
@@ -26,19 +29,19 @@ Top-level test return values are ignored by the runner. Return values are useful
 when one async operation awaits another.
 
 ```cpp
-gentest::async_test<int> compute_value() {
+inline gentest::async_test<int> compute_value() {
     co_await gentest::async::yield();
     co_return 42;
 }
 
 [[using gentest: test("async/value")]]
-gentest::async_test<void> uses_value() {
+inline gentest::async_test<void> uses_value() {
     int value = co_await compute_value();
     EXPECT_EQ(value, 42);
 }
 
 [[using gentest: test("async/top_level_value")]]
-gentest::async_test<int> top_level_value_is_discarded() {
+inline gentest::async_test<int> top_level_value_is_discarded() {
     co_return 7;
 }
 ```
@@ -50,7 +53,7 @@ Parameterized and template tests work the same way.
 
 ```cpp
 [[using gentest: test("async/parameter"), parameters(value, 1, 2, 3)]]
-gentest::async_test<void> parameterized_async(int value) {
+inline gentest::async_test<void> parameterized_async(int value) {
     co_await gentest::async::yield();
     EXPECT_TRUE(value >= 1);
 }
@@ -78,7 +81,7 @@ Use `yield()` for cooperative fairness, not for polling.
 
 ```cpp
 [[using gentest: test("async/yield")]]
-gentest::async_test<void> yields_once() {
+inline gentest::async_test<void> yields_once() {
     co_await gentest::async::yield(); // back of the ready queue
     EXPECT_TRUE(true);
 }
@@ -90,7 +93,7 @@ Use `event<T>` as a keyed, latched barrier with a stable per-key payload slot.
 
 ```cpp
 [[using gentest: test("async/event/pre_set")]]
-gentest::async_test<void> pre_set_typed_payload() {
+inline gentest::async_test<void> pre_set_typed_payload() {
     gentest::async::event<std::string> event;
 
     event.set("phase.loaded", "ready");
@@ -159,7 +162,7 @@ complete the promise from the producer, and `co_await` the future from the test.
 
 ```cpp
 [[using gentest: test("async/promise/worker")]]
-gentest::async_test<void> worker_completion() {
+inline gentest::async_test<void> worker_completion() {
     gentest::async::promise<std::string> promise;
     auto future = promise.get_future();
 
@@ -173,7 +176,7 @@ gentest::async_test<void> worker_completion() {
 }
 
 [[using gentest: test("async/promise/blocked")]]
-gentest::async_test<void> blocked_dependency() {
+inline gentest::async_test<void> blocked_dependency() {
     gentest::async::promise<void> promise;
     auto future = promise.get_future();
 
@@ -236,7 +239,7 @@ compile time.
 
 ```cpp
 [[using gentest: test("async/timeout")]]
-gentest::async_test<void> explicit_timeout() {
+inline gentest::async_test<void> explicit_timeout() {
     gentest::async::manual_event ready;
 
     auto result = co_await gentest::async::wait_for(
@@ -256,7 +259,7 @@ waiters.
 
 ```cpp
 [[using gentest: test("async/event_timeout")]]
-gentest::async_test<void> event_timeout() {
+inline gentest::async_test<void> event_timeout() {
     gentest::async::event<int> event;
 
     auto result = co_await gentest::async::wait_for(
@@ -281,7 +284,7 @@ value, exception, or blocked result.
 
 ```cpp
 [[using gentest: test("async/future_timeout")]]
-gentest::async_test<void> future_timeout() {
+inline gentest::async_test<void> future_timeout() {
     gentest::async::promise<std::string> promise;
     auto future = promise.get_future();
 
@@ -353,12 +356,12 @@ group are not interleaved with the current group.
 
 ```cpp
 [[using gentest: test("mixed/sync")]]
-void sync_case() {
+inline void sync_case() {
     EXPECT_TRUE(true);
 }
 
 [[using gentest: test("mixed/async")]]
-gentest::async_test<void> async_case() {
+inline gentest::async_test<void> async_case() {
     co_await gentest::async::yield();
     EXPECT_TRUE(true);
 }
@@ -389,7 +392,7 @@ struct LocalAsyncFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTear
 };
 
 [[using gentest: test("async/fixture/local")]]
-gentest::async_test<void> uses_local_async_fixture(LocalAsyncFixture &fixture) {
+inline gentest::async_test<void> uses_local_async_fixture(LocalAsyncFixture &fixture) {
     EXPECT_EQ(fixture.value, 42);
     co_return;
 }
@@ -404,7 +407,7 @@ struct SyncFixture : gentest::FixtureSetup {
 };
 
 [[using gentest: test("async/fixture/mixed")]]
-gentest::async_test<void> mixed_fixtures(SyncFixture &sync, LocalAsyncFixture &async) {
+inline gentest::async_test<void> mixed_fixtures(SyncFixture &sync, LocalAsyncFixture &async) {
     EXPECT_EQ(sync.value, 7);
     EXPECT_EQ(async.value, 42);
     co_return;
@@ -431,7 +434,7 @@ struct [[using gentest: fixture(suite)]] SharedAsyncFixture
 };
 
 [[using gentest: test("async/fixture/shared")]]
-gentest::async_test<void> uses_shared_async_fixture(SharedAsyncFixture &fixture) {
+inline gentest::async_test<void> uses_shared_async_fixture(SharedAsyncFixture &fixture) {
     EXPECT_EQ(fixture.value, 10);
     co_return;
 }
@@ -454,7 +457,7 @@ and the owning test performs `EXPECT_*`, `ASSERT_*`, `gentest::fail()`,
 
 ```cpp
 [[using gentest: test("async/threaded")]]
-gentest::async_test<void> worker_thread_reports_back() {
+inline gentest::async_test<void> worker_thread_reports_back() {
     gentest::async::event<std::string> done;
     auto                               context = gentest::get_current_context();
 
@@ -475,7 +478,7 @@ with `std::condition_variable_any`.
 
 ```cpp
 [[using gentest: test("async/threaded_stop")]]
-gentest::async_test<void> worker_thread_stops() {
+inline gentest::async_test<void> worker_thread_stops() {
     std::mutex                  m;
     std::condition_variable_any cv;
     bool                        ready = false;
@@ -572,14 +575,14 @@ Async cases use the same outcomes as sync cases.
 
 ```cpp
 [[using gentest: test("async/xfail")]]
-gentest::async_test<void> expected_failure_after_suspend() {
+inline gentest::async_test<void> expected_failure_after_suspend() {
     gentest::xfail("known issue");
     co_await gentest::async::yield();
     EXPECT_TRUE(false);
 }
 
 [[using gentest: test("async/skip")]]
-gentest::async_test<void> skip_after_suspend() {
+inline gentest::async_test<void> skip_after_suspend() {
     co_await gentest::async::yield();
     gentest::skip("dependency not available");
 }
@@ -589,7 +592,7 @@ There are two important non-pass async failure modes.
 
 ```cpp
 [[using gentest: test("async/cannot_resume")]]
-gentest::async_test<void> lost_or_never_created_resume_handle() {
+inline gentest::async_test<void> lost_or_never_created_resume_handle() {
     gentest::async::manual_event never_set;
     co_await never_set.wait("external.signal");
 
@@ -601,7 +604,7 @@ gentest::async_test<void> lost_or_never_created_resume_handle() {
 
 ```cpp
 [[using gentest: test("async/blocked_dependency")]]
-gentest::async_test<void> dependency_declares_it_cannot_resume() {
+inline gentest::async_test<void> dependency_declares_it_cannot_resume() {
     gentest::async::promise<void> promise;
     auto future = promise.get_future();
 

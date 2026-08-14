@@ -73,6 +73,9 @@ This behavior is uniform across:
 
 ## Examples
 
+These ordinary textual examples are header contents, so their free-function
+definitions are `inline`.
+
 ### Unique allocation (default)
 
 ```cpp
@@ -83,7 +86,7 @@ struct MyFx {
 };
 
 [[gentest::test("free/unique")]]
-void free_unique(MyFx& fx) {
+inline void free_unique(MyFx& fx) {
     // uses the unique instance
 }
 ```
@@ -98,7 +101,7 @@ struct SharedFx {
 };
 
 [[gentest::test("free/shared")]]
-void free_shared(std::shared_ptr<SharedFx> fx) {
+inline void free_shared(std::shared_ptr<SharedFx> fx) {
     // shared ownership of the fixture instance
 }
 ```
@@ -138,7 +141,7 @@ struct RawFx {
 };
 
 [[gentest::test("free/pointer")]]
-void free_pointer(RawFx* fx) {
+inline void free_pointer(RawFx* fx) {
     // gentest adopts and owns the pointer
 }
 ```
