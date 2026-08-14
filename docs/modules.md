@@ -50,7 +50,7 @@ enable_testing()
 
 find_package(gentest CONFIG REQUIRED)
 
-add_executable(my_tests main.cpp)
+add_executable(my_tests main.cpp cases.cpp)
 
 target_sources(my_tests PRIVATE
   FILE_SET module_cases TYPE CXX_MODULES FILES
@@ -76,9 +76,49 @@ If you do not provide your own `main()`, link `gentest::gentest_main` instead of
 Plain `gentest_attach_codegen(my_tests)` is the additive header-declaration path
 for ordinary textual targets: authored `.cpp` files stay attached and generated
 sources include only annotated headers. For module-authored tests, use
-`MODULE_REGISTRATION`: it adds generated
-same-module implementation units without replacing the authored `.cppm` module
-interface in the target or compile database.
+`MODULE_REGISTRATION`: it adds generated ordinary C++ importer translation units
+without replacing the authored `.cppm` module interface in the target or compile
+database.
+
+The selected primary module interface must export every annotated case and
+every fixture type used by a generated adapter. Gentest deliberately does not
+register module-internal entities. For example:
+
+```cpp
+export module my.tests;
+import gentest;
+
+export namespace demo {
+
+struct Fixture : gentest::FixtureSetup {
+    void setUp() override { value = 7; }
+    int value = 0;
+};
+
+[[using gentest: test("demo/exported")]]
+void exported_case(Fixture& fixture) {
+    gentest::asserts::EXPECT_EQ(fixture.value, 7);
+}
+
+} // namespace demo
+```
+
+Codegen produces an ordinary source with this shape:
+
+```cpp
+#include <gentest/detail/generated_runtime.h>
+import my.tests;
+#include "tu_0000_cases.gentest.h" // emitted without a second preamble
+```
+
+An annotated exported declaration may be declaration-only. Its definition can
+be inline, appear later in the same primary interface, or live in a normally
+compiled module implementation source such as `cases.cpp`. Only the primary
+interface belongs in the `FILE_SET` selected by `MODULE_REGISTRATION`; add the
+implementation source to the target normally. A case or fixture with no
+exported redeclaration fails codegen with an importer-reachability diagnostic.
+Module partitions, private module fragments, and implementation units are not
+annotation owners in this importer-registration surface.
 
 ## Minimal layout
 
@@ -239,6 +279,12 @@ gentest::expect(service, &demo::Service::compute).times(1).with(3).returns(9);
 ```
 
 After the generated surface is visible, raw `gentest::mock<demo::Service>` is also valid.
+
+Do not put a direct `gentest::mock<T>` fixture parameter in a
+`MODULE_REGISTRATION` interface. Generated mock attachment specializations
+cannot be added from the unrelated importer TU. Publish an explicit mock target,
+import its generated module surface, and construct the exported mock type inside
+the test body as shown above.
 
 ## Practical notes
 

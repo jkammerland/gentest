@@ -26,6 +26,7 @@ set(_module_smoke_dir "${BUILD_ROOT}/cli_validation_module_fixture")
 set(_module_smoke_source "${_module_smoke_dir}/cases.cppm")
 set(_module_partition_source "${_module_smoke_dir}/partition.cppm")
 set(_module_pmf_source "${_module_smoke_dir}/pmf.cppm")
+set(_module_implementation_source "${_module_smoke_dir}/implementation.cpp")
 file(MAKE_DIRECTORY "${_module_smoke_dir}")
 file(WRITE "${_module_smoke_source}" [=[
 export module gentest.cli.validation;
@@ -46,6 +47,12 @@ export module gentest.cli.validation.pmf;
 void module_registration_pmf_rejected_case() {}
 
 module :private;
+]=])
+file(WRITE "${_module_implementation_source}" [=[
+module gentest.cli.validation;
+
+[[using gentest: test("cli/module_registration_implementation_rejected")]]
+void module_registration_implementation_rejected_case() {}
 ]=])
 
 set(_clang_args)
@@ -340,6 +347,19 @@ _gentest_expect_result(
   --tu-out-dir "${BUILD_ROOT}/pmf-module-registration"
   --module-registration-output "${BUILD_ROOT}/pmf-module-registration/pmf.registration.gentest.cpp"
   "${_module_pmf_source}"
+  --
+  ${_module_clang_args})
+
+_gentest_expect_result(
+  "module registration rejects implementation-unit annotation owners"
+  1
+  "gentest_codegen: module registration input '${_module_implementation_source}' is a module implementation unit"
+  "${PROG}"
+  --check
+  --compdb "${_compdb_root}"
+  --tu-out-dir "${BUILD_ROOT}/implementation-module-registration"
+  --module-registration-output "${BUILD_ROOT}/implementation-module-registration/implementation.registration.gentest.cpp"
+  "${_module_implementation_source}"
   --
   ${_module_clang_args})
 

@@ -200,8 +200,9 @@ function Write-ModuleArtifactManifest(
     {
       "path": "$NormalizedRegistration",
       "role": "registration",
-      "compile_as": "cxx-module-implementation",
+      "compile_as": "cxx-module-importer-registration",
       "module": "$ModuleName",
+      "imports": ["$ModuleName"],
       "owner_source": "$Source",
       "target_attachment": "private-generated-source",
       "compile_context_id": "$CompileContext",
@@ -583,8 +584,9 @@ write_module_artifact_manifest() {
     {
       "path": "$registration_path",
       "role": "registration",
-      "compile_as": "cxx-module-implementation",
+      "compile_as": "cxx-module-importer-registration",
       "module": "$module_name",
+      "imports": ["$module_name"],
       "owner_source": "$source",
       "target_attachment": "private-generated-source",
       "compile_context_id": "$compile_context",

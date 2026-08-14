@@ -133,9 +133,9 @@ set(_registration "${_generated_dir}/tu_0000_module_service.registration.gentest
 set(_depfile "${_generated_dir}/tu_0000_module_service.d")
 
 _gentest_expect_result(
-  "registration manifest mode emits same-module mock attachment"
-  0
-  ""
+  "registration manifest mode rejects same-module mock attachment"
+  1
+  "MODULE_REGISTRATION cannot generate direct mocks owned by named module 'gentest.module_mock_registration_manifest'"
   "${PROG}"
   --tu-out-dir "${_generated_dir}"
   --tu-header-output "${_header}"
@@ -146,51 +146,10 @@ _gentest_expect_result(
   --
   ${_clang_args})
 
-foreach(_generated IN ITEMS "${_header}" "${_registration}" "${_depfile}")
-  if(NOT EXISTS "${_generated}")
-    message(FATAL_ERROR "Expected module mock registration manifest output '${_generated}'")
-  endif()
-endforeach()
-
-file(READ "${_registration}" _registration_text)
-foreach(_token IN ITEMS
-    "module gentest.module_mock_registration_manifest;"
-    "gentest_codegen: injected mock attachment"
-    "mock<::module_mock_registration_manifest::Service>"
-    "MockAccess<mock<::module_mock_registration_manifest::Service>>"
-    "#include \"tu_0000_module_service.gentest.h\"")
-  string(FIND "${_registration_text}" "${_token}" _token_pos)
-  if(_token_pos EQUAL -1)
-    message(FATAL_ERROR "Expected registration output token '${_token}'.\n${_registration_text}")
-  endif()
-endforeach()
-
-foreach(_forbidden IN ITEMS
-    "#include \"${_module_source_json}\""
-    "import gentest.module_mock_registration_manifest")
-  string(FIND "${_registration_text}" "${_forbidden}" _forbidden_pos)
-  if(NOT _forbidden_pos EQUAL -1)
-    message(FATAL_ERROR "Registration output unexpectedly contains '${_forbidden}'.\n${_registration_text}")
-  endif()
-endforeach()
-
-string(FIND "${_registration_text}" "gentest_codegen: injected mock attachment" _attachment_pos)
-string(FIND "${_registration_text}" "#include \"tu_0000_module_service.gentest.h\"" _header_include_pos)
-if(_attachment_pos EQUAL -1 OR _header_include_pos EQUAL -1 OR _attachment_pos GREATER_EQUAL _header_include_pos)
-  message(FATAL_ERROR
-    "Expected mock attachment to be emitted before the generated registration header include.\n${_registration_text}")
-endif()
-
-file(READ "${_depfile}" _depfile_text)
-string(FIND "${_depfile_text}" "service.mock_manifest.json" _depfile_manifest_pos)
-if(_depfile_manifest_pos EQUAL -1)
-  message(FATAL_ERROR "Expected depfile to include the mock registration manifest dependency.\n${_depfile_text}")
-endif()
-
 _gentest_expect_result(
-  "registration manifest validates during check-only mode"
-  0
-  ""
+  "registration manifest rejects same-module attachment during check-only mode"
+  1
+  "MODULE_REGISTRATION cannot generate direct mocks owned by named module 'gentest.module_mock_registration_manifest'"
   "${PROG}"
   --check
   --tu-out-dir "${_generated_dir}/check"

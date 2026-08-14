@@ -13,6 +13,7 @@ function(gentest_expect_module_artifact_manifest manifest expected_module expect
   string(JSON _artifact_path GET "${_manifest_json}" artifacts 0 path)
   string(JSON _artifact_compile_as GET "${_manifest_json}" artifacts 0 compile_as)
   string(JSON _artifact_module GET "${_manifest_json}" artifacts 0 module)
+  string(JSON _artifact_import GET "${_manifest_json}" artifacts 0 imports 0)
   string(JSON _artifact_attachment GET "${_manifest_json}" artifacts 0 target_attachment)
   string(JSON _artifact_context GET "${_manifest_json}" artifacts 0 compile_context_id)
   string(JSON _artifact_scan GET "${_manifest_json}" artifacts 0 requires_module_scan)
@@ -25,8 +26,9 @@ function(gentest_expect_module_artifact_manifest manifest expected_module expect
       "_source_kind=module-primary-interface"
       "_source_module=${expected_module}"
       "_source_partition_type=NULL"
-      "_artifact_compile_as=cxx-module-implementation"
+      "_artifact_compile_as=cxx-module-importer-registration"
       "_artifact_module=${expected_module}"
+      "_artifact_import=${expected_module}"
       "_artifact_attachment=private-generated-source"
       "_artifact_scan=ON")
     string(REPLACE "=" ";" _pair "${_actual_expected}")

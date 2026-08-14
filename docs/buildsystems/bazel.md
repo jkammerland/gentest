@@ -26,8 +26,8 @@ The contract is explicit 2-step codegen:
 2. attach suite codegen
 
 For module suites, `gentest_attach_codegen_modules(...)` now keeps the authored
-`.cppm` as a module interface and adds a generated same-module registration
-implementation source. The rule also materializes a
+`.cppm` as a module interface and adds a generated ordinary importer
+registration source. The rule also materializes a
 `<target>.artifact_manifest.json` product that records the generated
 registration source, generated header, owning source, module name, and compile
 context. Bazel still predeclares those outputs during analysis; the manifest is

@@ -1517,6 +1517,12 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
     if (!artifact_module || !expect_equal(fmt::format("{}.module", artifact_location), expected_module, *artifact_module, error)) {
         return false;
     }
+    if (options.expected_compile_as == "cxx-module-importer-registration") {
+        const auto imported_module = json_single_string_array_field(artifact, "imports", artifact_location, error);
+        if (!imported_module || !expect_equal(fmt::format("{}.imports[0]", artifact_location), expected_module, *imported_module, error)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -3965,8 +3971,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::list<std::string> module_registration_output_option{
         "module-registration-output",
-        llvm::cl::desc(
-            "Explicit same-module registration implementation path for a TU-mode input source (repeat once per positional source)"),
+        llvm::cl::desc("Explicit module-importer registration source path for a TU-mode input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::opt<std::string>  artifact_manifest_option{"artifact-manifest",
                                                                 llvm::cl::desc("Path to a generated artifact manifest JSON file"),
@@ -4041,8 +4046,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
                                                                  llvm::cl::desc("Read mock discovery data from a mock manifest JSON file"),
                                                                  llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> mock_registration_manifest_option{
-        "mock-registration-manifest",
-        llvm::cl::desc("Read mock discovery data for same-module registration attachment from a mock manifest JSON file"),
+        "mock-registration-manifest", llvm::cl::desc("Read mock discovery data to reject unsupported direct module-owned mock attachment"),
         llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> mock_domain_registry_output_option{
         "mock-domain-registry-output",
@@ -4105,6 +4109,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     opts.scan_slot_kinds.assign(scan_slot_kind_option.begin(), scan_slot_kind_option.end());
     opts.compile_context_ids.assign(compile_context_id_option.begin(), compile_context_id_option.end());
     opts.header_declaration_registration = !opts.textual_registration_outputs.empty();
+    opts.module_importer_registration    = !opts.module_registration_outputs.empty();
     if (!artifact_manifest_option.getValue().empty()) {
         opts.artifact_manifest_path = std::filesystem::path{artifact_manifest_option.getValue()};
     }
@@ -4481,7 +4486,7 @@ int main(int argc, const char **argv) {
         }
         if (!options.module_wrapper_outputs.empty()) {
             gentest::codegen::log_err_raw(
-                "gentest_codegen: --mock-registration-manifest is only supported with same-module registration outputs\n");
+                "gentest_codegen: --mock-registration-manifest is only supported with module importer registration outputs\n");
             return 1;
         }
         if (!options.mock_registry_path.empty() || !options.mock_impl_path.empty() || !options.mock_public_header_path.empty() ||
@@ -5130,7 +5135,7 @@ int main(int argc, const char **argv) {
             }
             if (!shape.exported_module_declaration) {
                 gentest::codegen::log_err(
-                    "gentest_codegen: module registration input '{}' is a module implementation unit; first-slice module registration "
+                    "gentest_codegen: module registration input '{}' is a module implementation unit; module importer registration "
                     "requires a primary module interface unit\n",
                     options.sources[idx]);
                 return 1;
@@ -5138,14 +5143,14 @@ int main(int argc, const char **argv) {
             if (shape.module_name->find(':') != std::string::npos) {
                 gentest::codegen::log_err(
                     "gentest_codegen: module registration input '{}' declares module partition '{}'; partitions are not supported by "
-                    "same-module registration in this first slice\n",
+                    "module importer registration\n",
                     options.sources[idx], *shape.module_name);
                 return 1;
             }
             if (shape.has_private_module_fragment) {
                 gentest::codegen::log_err(
                     "gentest_codegen: module registration input '{}' contains a private module fragment; private module fragments cannot "
-                    "have an additive same-module registration implementation unit\n",
+                    "be registered by a separate importer translation unit\n",
                     options.sources[idx]);
                 return 1;
             }
@@ -5942,9 +5947,11 @@ int main(int argc, const char **argv) {
             tool.appendArgumentsAdjuster(syntax_only_adjuster);
 
             std::vector<TestCaseInfo> local_cases;
-            TestCaseCollector collector{local_cases, options.strict_fixture, allow_includes, options.header_declaration_registration};
+            TestCaseCollector collector{local_cases, options.strict_fixture, allow_includes, options.header_declaration_registration,
+                                        options.module_importer_registration};
             std::vector<FixtureDeclInfo>                 local_fixtures;
-            FixtureDeclCollector                         fixture_collector{local_fixtures, options.header_declaration_registration};
+            FixtureDeclCollector                         fixture_collector{local_fixtures, options.header_declaration_registration,
+                                                                           options.module_importer_registration};
             std::vector<gentest::codegen::MockClassInfo> local_mocks;
             std::optional<MockUsageCollector>            mock_collector;
             if (options.discover_mocks) {
@@ -6081,8 +6088,9 @@ int main(int argc, const char **argv) {
         tool.appendArgumentsAdjuster(args_adjuster);
         tool.appendArgumentsAdjuster(syntax_only_adjuster);
 
-        TestCaseCollector                 collector{cases, options.strict_fixture, allow_includes, options.header_declaration_registration};
-        FixtureDeclCollector              fixture_collector{fixtures, options.header_declaration_registration};
+        TestCaseCollector    collector{cases, options.strict_fixture, allow_includes, options.header_declaration_registration,
+                                       options.module_importer_registration};
+        FixtureDeclCollector fixture_collector{fixtures, options.header_declaration_registration, options.module_importer_registration};
         std::optional<MockUsageCollector> mock_collector;
         if (options.discover_mocks) {
             mock_collector.emplace(mocks);
@@ -6230,6 +6238,13 @@ int main(int argc, const char **argv) {
         }
         merge_duplicate_mocks(registration_mocks);
         mocks = std::move(registration_mocks);
+    }
+    if (!options.module_registration_outputs.empty() && !mocks.empty()) {
+        gentest::codegen::log_err(
+            "gentest_codegen: MODULE_REGISTRATION cannot generate direct mocks owned by named module '{}'; export a mock-provider API "
+            "from the module and attach its generated implementation explicitly\n",
+            mocks.front().definition_module_name);
+        return 1;
     }
     if (options.check_only) {
         return 0;

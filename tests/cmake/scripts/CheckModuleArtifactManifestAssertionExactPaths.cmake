@@ -27,8 +27,9 @@ file(WRITE "${_manifest}" [=[
     {
       "path": "generated/tu_0000_suite_0000.registration.gentest.cpp",
       "role": "registration",
-      "compile_as": "cxx-module-implementation",
+      "compile_as": "cxx-module-importer-registration",
       "module": "example.module",
+      "imports": ["example.module"],
       "owner_source": "suite_0000.cppm",
       "target_attachment": "private-generated-source",
       "compile_context_id": "example_target:suite_0000.cppm",

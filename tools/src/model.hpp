@@ -134,9 +134,9 @@ struct CollectorOptions {
     // aligned with `sources`; any discovered named module source requires a
     // non-empty explicit slot instead of tool-side filename derivation.
     std::vector<std::filesystem::path> module_wrapper_outputs;
-    // Build-owned per-source same-module registration implementation outputs.
-    // This first-slice mode stays aligned with `sources` and is validated by
-    // gentest_codegen after it has classified each module source.
+    // Build-owned per-source importer registration outputs. This mode stays
+    // aligned with `sources` and is validated by gentest_codegen after it has
+    // classified each module source.
     std::vector<std::filesystem::path> module_registration_outputs;
     // Build-owned per-source textual wrapper outputs. This is used by
     // non-CMake textual integrations that pass owner sources directly to
@@ -189,6 +189,7 @@ struct CollectorOptions {
     bool        quiet_clang                     = false;
     bool        check_only                      = false;
     bool        header_declaration_registration = false;
+    bool        module_importer_registration    = false;
 };
 
 // Description of a discovered test function or member function.
@@ -246,6 +247,9 @@ struct TestCaseInfo {
     // Free-function fixtures inferred from function signature parameter types.
     // Raw fixture type tokens as discovered from the signature; resolved after discovery.
     std::vector<std::string> free_fixture_types;
+    // Source-level spellings used when a fixture resolves as local. These may differ from
+    // free_fixture_types for exported aliases whose canonical type is module-private.
+    std::vector<std::string> free_fixture_emit_types;
     // Optional expected scope for each inferred fixture type (same length/order as free_fixture_types).
     // Set when the referenced type declaration is explicitly marked fixture(suite/global).
     std::vector<std::optional<FixtureScope>> free_fixture_required_scopes;

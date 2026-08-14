@@ -1,5 +1,11 @@
 # Story: Codegen-Owned Artifact Manifest and Same-Module Registration
 
+> Historical design record: the same-module visibility decision in this story
+> was superseded by issue #114. Current `MODULE_REGISTRATION` emits ordinary
+> importer TUs and intentionally requires exported cases and fixture types. See
+> [`docs/modules.md`](../modules.md) and
+> [`docs/codegen_artifact_protocols.md`](../codegen_artifact_protocols.md).
+
 ## Goal
 
 Make `gentest_codegen` the only layer that understands C++ source semantics for
@@ -117,8 +123,9 @@ like:
     {
       "path": "build/gentest/tu_0000_cases.registration.gentest.cpp",
       "role": "registration",
-      "compile_as": "cxx-module-implementation",
+      "compile_as": "cxx-module-importer-registration",
       "module": "my.tests",
+      "imports": ["my.tests"],
       "owner_source": "tests/cases.cppm",
       "target_attachment": "private-generated-source",
       "compile_context_id": "my_tests:tests/cases.cppm",
@@ -574,8 +581,9 @@ Done for the first implementation slice described above.
 - Regression coverage now includes direct codegen invocation for textual
   wrapper artifact manifests plus schema rejection checks for artifact and mock
   manifests.
-- Same-module registration without module-owned mock injection, textual wrapper
-  artifacts, and split mock manifests are the completed scope for this story.
+- The original same-module registration slice was later replaced by exported
+  importer registration under issue #114; textual wrapper artifacts and split
+  mock manifests remain part of this historical implementation record.
 - The split mock protocol still does not replace the integrated
   `--discover-mocks` path for module-wrapper source transformation and
   module-owned mock attachment injection; that is moved to story `035`.

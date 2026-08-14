@@ -9,7 +9,7 @@
 - `gentest_codegen` supports three output styles:
   - Additive header-declaration mode (ordinary textual default): annotations live in headers, authored `.cpp` files remain attached, and stable per-slot generated registration `.cpp` files are appended.
   - Per-TU wrapper registration (internal previous-major compatibility): emits per-TU registration headers and shim TUs that include the original source.
-  - CMake module-registration mode (`gentest_attach_codegen(... MODULE_REGISTRATION FILE_SET <name>)`): emits additive same-module implementation units (`tu_*.registration.gentest.cpp`), per-TU headers, and `<target>.artifact_manifest.json`; authored module interface sources stay in the target.
+  - CMake module-registration mode (`gentest_attach_codegen(... MODULE_REGISTRATION FILE_SET <name>)`): emits ordinary importer registration TUs (`tu_*.registration.gentest.cpp`), per-TU headers, and `<target>.artifact_manifest.json`; authored module interfaces stay in the target and annotated cases/fixtures must be exported.
 - Additive header-declaration mode never includes or replaces an authored `.cpp`; wrapper substitution is retained only for internal compatibility regression targets.
 - Public named modules are controlled by `GENTEST_ENABLE_PUBLIC_MODULES=AUTO|ON|OFF` (default `OFF`); set `ON` or `AUTO` explicitly when you want the public module surface.
 - Each suite under `tests/<suite>/` provides handwritten `cases.cpp`; shared test entry lives in `tests/support/test_entry.cpp`. Generated outputs land in the build tree (e.g. `${binaryDir}/tests/<suite>/tu_*.gentest.{cpp,h}` plus mock headers).

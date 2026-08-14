@@ -1,5 +1,9 @@
 # Story: replace module-wrapper mock injection with split mock registration
 
+> Historical design record: issue #114 replaced same-module registration with
+> ordinary importer TUs. Direct module-owned mock attachment is now rejected;
+> module tests use explicit exported mock-provider targets instead.
+
 ## Status
 
 Done.
@@ -34,8 +38,8 @@ passes the generated manifest back to `gentest_codegen` with
 
 ## Protocol
 
-The command shape and schema contract live in
-[`docs/codegen_artifact_protocols.md#same-module-mock-registration`](../codegen_artifact_protocols.md#same-module-mock-registration).
+The current command shape and schema contract live in
+[`docs/codegen_artifact_protocols.md#named-module-importer-registration`](../codegen_artifact_protocols.md#named-module-importer-registration).
 
 ## Acceptance Criteria
 

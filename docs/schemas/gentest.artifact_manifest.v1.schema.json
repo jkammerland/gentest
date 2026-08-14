@@ -205,6 +205,53 @@
               },
               "depfile": { "type": "string" }
             }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "role",
+              "compile_as",
+              "module",
+              "imports",
+              "owner_source",
+              "target_attachment",
+              "compile_context_id",
+              "requires_module_scan",
+              "generated_include_dirs",
+              "generated_headers",
+              "depfile"
+            ],
+            "properties": {
+              "path": { "type": "string" },
+              "role": { "const": "registration" },
+              "compile_as": { "const": "cxx-module-importer-registration" },
+              "module": { "type": "string" },
+              "imports": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": { "type": "string" }
+              },
+              "owner_source": { "type": "string" },
+              "target_attachment": { "const": "private-generated-source" },
+              "compile_context_id": { "type": "string" },
+              "requires_module_scan": { "const": true },
+              "generated_include_dirs": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": { "type": "string" }
+              },
+              "generated_headers": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": { "type": "string" }
+              },
+              "depfile": { "type": "string" }
+            }
           }
         ]
       }

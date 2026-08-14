@@ -23,7 +23,7 @@ The contract is still explicit 2-step codegen:
 
 For module suites, `gentest_attach_codegen({ kind = "modules", ... })` requires
 an explicit `module_name`. Xmake keeps the authored `.cppm` in the module build
-and adds a generated same-module registration implementation source plus a
+and adds a generated ordinary importer registration source plus a
 `<target>.artifact_manifest.json` product. The helper predeclares those files
 for Xmake, then `gentest_codegen` fills and classifies them.
 
