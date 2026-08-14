@@ -409,5 +409,14 @@ _gentest_expect_visibility_failure(
 _gentest_expect_visibility_failure(
   hidden_template_binding
   "template binding 'detail::Hidden' names 'story034_hidden_template_binding::detail::Hidden' which is not reachable after importing named module 'gentest.story034.hidden_template_binding'")
+_gentest_expect_visibility_failure(
+  global_fragment_fixture
+  "fixture type 'GlobalFragmentFixture' is not reachable after importing named module 'gentest.story034.global_fragment_fixture'")
+_gentest_expect_visibility_failure(
+  hidden_parameter
+  "parameter expression 'detail::hidden_value' names 'story034_hidden_parameter::detail::hidden_value' which is not reachable after importing named module 'gentest.story034.hidden_parameter'")
+_gentest_expect_visibility_failure(
+  hidden_parameter_pack
+  "parameter expression 'detail::first' names 'story034_hidden_parameter_pack::detail::first' which is not reachable after importing named module 'gentest.story034.hidden_parameter_pack'")
 
 message(STATUS "Module registration manifest regression passed")

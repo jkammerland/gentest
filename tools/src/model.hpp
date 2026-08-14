@@ -252,6 +252,9 @@ struct TestCaseInfo {
     // Free-function fixtures inferred from function signature parameter types.
     // Raw fixture type tokens as discovered from the signature; resolved after discovery.
     std::vector<std::string> free_fixture_types;
+    // Stable canonical declaration identity for each inferred fixture type.
+    // Used to resolve the same shared fixture across module-primary scan slots.
+    std::vector<std::string> free_fixture_entity_keys;
     // Source-level spellings used when a fixture resolves as local. These may differ from
     // free_fixture_types for exported aliases whose canonical type is module-private.
     std::vector<std::string> free_fixture_emit_types;

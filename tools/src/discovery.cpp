@@ -92,12 +92,14 @@ std::string declaration_site_identity(const NamedDecl &decl, const SourceManager
     return key;
 }
 
+const Module *owning_linkage_module(const Decl &decl) { return decl.getOwningModuleForLinkage(); }
+
 std::string owning_module_identity(const Decl &decl) {
     // getTopLevelOwningNamedModule() is newer than the oldest supported
     // libTooling. The linkage owner is specifically a standard C++ named
     // module on every supported Clang, unlike getOwningModule(), which can
     // also name a Clang header module.
-    if (const Module *module = decl.getOwningModuleForLinkage(); module != nullptr) {
+    if (const Module *module = owning_linkage_module(decl); module != nullptr) {
         std::string name = module->getFullModuleName();
         if (const auto partition = name.find(':'); partition != std::string::npos) {
             name.resize(partition);
@@ -126,6 +128,42 @@ bool is_importer_reachable_entity(const NamedDecl &decl) {
         return std::ranges::any_of(tag->redecls(), exported);
     }
     return exported(&decl) || exported(llvm::dyn_cast_or_null<NamedDecl>(decl.getCanonicalDecl()));
+}
+
+bool module_reexports(const Module &importer, const Module &target, std::unordered_set<const Module *> &visited) {
+    if (!visited.insert(&importer).second) {
+        return false;
+    }
+    for (const auto &export_decl : importer.Exports) {
+        const Module *exported = export_decl.getPointer();
+        if (exported == nullptr) {
+            continue;
+        }
+        if (exported == &target || exported->getFullModuleName() == target.getFullModuleName()) {
+            return true;
+        }
+        if (module_reexports(*exported, target, visited)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_reachable_from_importer(const NamedDecl &decl, const NamedDecl &importer, ASTContext &context) {
+    const Module *decl_module     = owning_linkage_module(decl);
+    const Module *importer_module = owning_linkage_module(importer);
+    if (decl_module == nullptr) {
+        const SourceLocation location = context.getSourceManager().getExpansionLoc(decl.getLocation());
+        return location.isValid() && context.getSourceManager().isInSystemHeader(location);
+    }
+    if (importer_module == nullptr || !is_importer_reachable_entity(decl)) {
+        return false;
+    }
+    if (decl_module == importer_module || decl_module->getFullModuleName() == importer_module->getFullModuleName()) {
+        return true;
+    }
+    std::unordered_set<const Module *> visited;
+    return module_reexports(*importer_module, *decl_module, visited);
 }
 
 std::string stable_entity_identity(const NamedDecl &decl) {
@@ -409,7 +447,7 @@ const NamedDecl *adapter_type_naming_declaration(QualType type) {
     return adapter_type_declaration(type);
 }
 
-bool is_importer_reachable_type(QualType type) {
+bool is_importer_reachable_type(QualType type, const FunctionDecl &importer, ASTContext &context) {
     type = type.getUnqualifiedType();
     if (type->isBuiltinType()) {
         return true;
@@ -418,7 +456,7 @@ bool is_importer_reachable_type(QualType type) {
     if (decl == nullptr) {
         return false;
     }
-    return owning_module_identity(*decl).empty() || is_importer_reachable_entity(*decl);
+    return is_reachable_from_importer(*decl, importer, context);
 }
 
 struct BindingName {
@@ -560,24 +598,32 @@ std::vector<const NamedDecl *> lookup_binding_name(const BindingName &name, cons
     return current;
 }
 
+bool validate_importer_binding(const FunctionDecl &function, std::string_view binding, std::string_view binding_kind, ASTContext &context,
+                               const std::function<void(const std::string &)> &report) {
+    for (const auto &name : binding_names(binding)) {
+        const auto declarations = lookup_binding_name(name, *function.getDeclContext(), context);
+        if (declarations.empty()) {
+            continue;
+        }
+        const auto reachable = [&](const NamedDecl *decl) {
+            return decl != nullptr && is_reachable_from_importer(*decl, function, context);
+        };
+        if (std::ranges::any_of(declarations, reachable)) {
+            continue;
+        }
+        const auto *decl = declarations.front();
+        report(fmt::format("{} '{}' names '{}' which is not reachable after importing named module '{}'", binding_kind, binding,
+                           decl->getQualifiedNameAsString(), owning_module_identity(function)));
+        return false;
+    }
+    return true;
+}
+
 bool validate_importer_template_bindings(const FunctionDecl &function, const std::vector<std::vector<std::string>> &combinations,
                                          ASTContext &context, const std::function<void(const std::string &)> &report) {
     for (const auto &combination : combinations) {
         for (const auto &binding : combination) {
-            for (const auto &name : binding_names(binding)) {
-                const auto declarations = lookup_binding_name(name, *function.getDeclContext(), context);
-                if (declarations.empty()) {
-                    continue;
-                }
-                const auto reachable = [](const NamedDecl *decl) {
-                    return decl != nullptr && (owning_module_identity(*decl).empty() || is_importer_reachable_entity(*decl));
-                };
-                if (std::ranges::any_of(declarations, reachable)) {
-                    continue;
-                }
-                const auto *decl = declarations.front();
-                report(fmt::format("template binding '{}' names '{}' which is not reachable after importing named module '{}'", binding,
-                                   decl->getQualifiedNameAsString(), owning_module_identity(function)));
+            if (!validate_importer_binding(function, binding, "template binding", context, report)) {
                 return false;
             }
         }
@@ -898,6 +944,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &display_args, const std::string &call_args,
                         const std::vector<std::string> &free_fixture_types, const std::vector<std::string> &free_fixture_emit_types,
+                        const std::vector<std::string>                 &free_fixture_entity_keys,
                         const std::vector<std::optional<FixtureScope>> &free_fixture_required_scopes,
                         const std::vector<FreeCallArg>                 &free_call_args) {
         TestCaseInfo info{};
@@ -926,6 +973,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.returns_async                = returns_async;
         info.namespace_parts              = namespace_parts;
         info.free_fixture_types           = free_fixture_types;
+        info.free_fixture_entity_keys     = free_fixture_entity_keys;
         info.free_fixture_emit_types      = free_fixture_emit_types;
         info.free_fixture_required_scopes = free_fixture_required_scopes;
         info.free_call_args               = free_call_args;
@@ -953,6 +1001,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
         for (const auto &fixture_type : info.free_fixture_emit_types) {
             info.semantic_fingerprint += "|fixture-emit:" + fixture_type;
+        }
+        for (const auto &fixture_entity : info.free_fixture_entity_keys) {
+            info.semantic_fingerprint += "|fixture-entity:" + fixture_entity;
         }
         for (const auto required_scope : info.free_fixture_required_scopes) {
             info.semantic_fingerprint +=
@@ -1041,6 +1092,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     }
 
     std::vector<std::string>                 inferred_fixture_types;
+    std::vector<std::string>                 inferred_fixture_entity_keys;
     std::vector<std::string>                 inferred_fixture_emit_types;
     std::vector<std::optional<FixtureScope>> inferred_fixture_required_scopes;
     for (auto &param : function_params) {
@@ -1081,7 +1133,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                                    owning_module_identity(*func)));
                 return;
             }
-            if (!is_importer_reachable_type(fixture_qual_type)) {
+            if (!is_importer_reachable_type(fixture_qual_type, *func, *result.Context)) {
                 had_error_ = true;
                 report(fmt::format("fixture type '{}' is not reachable after importing named module '{}'; the generated registration "
                                    "importer must name and instantiate this type",
@@ -1090,6 +1142,11 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             }
         }
         inferred_fixture_types.push_back(std::move(fixture_type));
+        if (const NamedDecl *fixture_decl = adapter_type_declaration(fixture_qual_type); fixture_decl != nullptr) {
+            inferred_fixture_entity_keys.push_back(stable_entity_identity(*fixture_decl));
+        } else {
+            inferred_fixture_entity_keys.emplace_back();
+        }
         inferred_fixture_emit_types.push_back(std::move(fixture_emit_type));
         inferred_fixture_required_scopes.push_back(param.required_scope);
     }
@@ -1384,6 +1441,13 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             }
             auto        kind = classify_type(param.type_spelling);
             std::string expr = quote_for_type(kind, it->second, param.type_spelling);
+            if (module_importer_registration_ &&
+                !validate_importer_binding(*func, expr, "parameter expression", *result.Context, [&](const std::string &message) {
+                    had_error_ = true;
+                    report(message);
+                })) {
+                return;
+            }
             value_exprs_for_call.push_back(expr);
             value_exprs_for_display.push_back(expr);
             FreeCallArg arg{};
@@ -1394,8 +1458,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
         const std::string display_args = join_csv(value_exprs_for_display);
         const std::string call_args    = join_csv(value_exprs_for_call);
-        add_case(tpl_combo, display_args, call_args, inferred_fixture_types, inferred_fixture_emit_types, inferred_fixture_required_scopes,
-                 free_call_args);
+        add_case(tpl_combo, display_args, call_args, inferred_fixture_types, inferred_fixture_emit_types, inferred_fixture_entity_keys,
+                 inferred_fixture_required_scopes, free_call_args);
     };
 
     std::function<void(std::size_t, const std::vector<std::string> &)> visit_scalars = [&](std::size_t                     idx,
@@ -1713,7 +1777,13 @@ std::string derive_local_fixture_type_name(const ParsedFixtureType &parsed, cons
 } // namespace
 
 bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, std::vector<FixtureDeclInfo> &fixtures) {
-    const auto lookups = build_fixture_lookups(fixtures);
+    const auto                                         lookups = build_fixture_lookups(fixtures);
+    std::unordered_map<std::string, FixtureDeclInfo *> fixtures_by_entity;
+    for (auto &fixture : fixtures) {
+        if (!fixture.entity_key.empty()) {
+            fixtures_by_entity.try_emplace(fixture.entity_key, &fixture);
+        }
+    }
 
     bool       ok     = true;
     const auto report = [&](const TestCaseInfo &test, const std::string &message) {
@@ -1743,6 +1813,8 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, std::vector<Fixture
                 (fixture_idx < test.free_fixture_emit_types.size()) ? test.free_fixture_emit_types[fixture_idx] : raw_type;
             const std::optional<FixtureScope> required_scope =
                 (fixture_idx < test.free_fixture_required_scopes.size()) ? test.free_fixture_required_scopes[fixture_idx] : std::nullopt;
+            const std::string fixture_entity =
+                (fixture_idx < test.free_fixture_entity_keys.size()) ? test.free_fixture_entity_keys[fixture_idx] : std::string{};
             ParsedFixtureType parsed = parse_fixture_type(raw_type);
             if (parsed.base.empty()) {
                 report(test, "empty inferred fixture type from function signature");
@@ -1785,6 +1857,19 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, std::vector<Fixture
                     test.registration_headers.push_back(decl->filename);
                 }
             };
+
+            if (!fixture_entity.empty()) {
+                const auto entity_it = fixtures_by_entity.find(fixture_entity);
+                if (entity_it != fixtures_by_entity.end()) {
+                    FixtureDeclInfo *decl = entity_it->second;
+                    if (!is_visible_fixture_for_test(*decl, test)) {
+                        report(test, fmt::format("fixture '{}' is not in an ancestor namespace of this test", parsed.full));
+                        continue;
+                    }
+                    emit_declared(decl);
+                    continue;
+                }
+            }
 
             if (lookup) {
                 if (parsed.qualified) {

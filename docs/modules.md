@@ -111,14 +111,18 @@ import my.tests;
 #include "tu_0000_cases.gentest.h" // emitted without a second preamble
 ```
 
-An annotated exported declaration may be declaration-only. Its definition can
-be inline, appear later in the same primary interface, or live in a normally
-compiled module implementation source such as `cases.cpp`. Only the primary
-interface belongs in the `FILE_SET` selected by `MODULE_REGISTRATION`; add the
-implementation source to the target normally. A case or fixture with no
-exported redeclaration fails codegen with an importer-reachability diagnostic.
-Module partitions, private module fragments, and implementation units are not
-annotation owners in this importer-registration surface.
+An annotated exported non-template declaration may be declaration-only. Its
+definition can be inline, appear later in the same primary interface, or live
+in a normally compiled module implementation source such as `cases.cpp`. A
+function template defined only in an implementation unit also needs explicit
+instantiation definitions for every generated `template(...)` binding; keeping
+the template definition in the exported interface is usually simpler. Only the
+primary interface belongs in the `FILE_SET` selected by
+`MODULE_REGISTRATION`; add the implementation source to the target normally.
+A case or fixture with no exported redeclaration fails codegen with an
+importer-reachability diagnostic. Module partitions, private module fragments,
+and implementation units are not annotation owners in this
+importer-registration surface.
 
 GCC 16.1 has a compiler bug when an ordinary importer loads an exported inline
 coroutine definition from a named module. For that compiler, keep the annotated
