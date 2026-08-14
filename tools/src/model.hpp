@@ -143,10 +143,6 @@ struct CollectorOptions {
     // aligned with `sources` and is validated by gentest_codegen after it has
     // classified each module source.
     std::vector<std::filesystem::path> module_registration_outputs;
-    // Build-owned per-source textual wrapper outputs. This is used by
-    // non-CMake textual integrations that pass owner sources directly to
-    // gentest_codegen and need the generator to emit the compilable wrapper TU.
-    std::vector<std::filesystem::path> textual_wrapper_outputs;
     // Build-owned per-source additive registration sources. These sources
     // include annotated headers and are appended to the target; they never
     // include an authored implementation source.
@@ -158,9 +154,8 @@ struct CollectorOptions {
     // Normalized semantic compile-context fingerprints computed from the
     // target-unique generated slot commands and verified after retargeting the
     // same commands to their authored scan inputs.
-    std::vector<std::string>           compile_context_fingerprints;
-    std::filesystem::path              artifact_manifest_path;
-    std::vector<std::filesystem::path> artifact_owner_sources;
+    std::vector<std::string> compile_context_fingerprints;
+    std::filesystem::path    artifact_manifest_path;
     // Build-owned per-domain mock outputs. When mock outputs are requested,
     // these must stay aligned with the ordered mock domain plan: header first,
     // then the first-seen unique named modules in source order.

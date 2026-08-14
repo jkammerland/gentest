@@ -30,16 +30,22 @@ file(READ "${_meson_file}" _meson_content)
 foreach(_expected IN ITEMS
     "gentest_consumer_textual_meson"
     "Meson named-module support is"
-    "'--textual-wrapper-output'"
+    "'--textual-registration-output'"
+    "'--scan-slot-kind'"
     "'--mock-public-header'"
     "'--depfile'"
     "'--artifact-manifest'"
-    "'--artifact-owner-source'"
     "'--compile-context-id'"
     "depfile:")
   string(FIND "${_meson_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "meson.build is missing expected repo-local textual wiring token: ${_expected}")
+  endif()
+endforeach()
+foreach(_forbidden IN ITEMS "'--textual-wrapper-output'" "'--artifact-owner-source'")
+  string(FIND "${_meson_content}" "${_forbidden}" _forbidden_pos)
+  if(NOT _forbidden_pos EQUAL -1)
+    message(FATAL_ERROR "meson.build retains obsolete textual replacement token: ${_forbidden}")
   endif()
 endforeach()
 string(FIND "${_meson_content}" "gentest_buildsystem_codegen.py" _meson_helper_pos)
@@ -71,14 +77,21 @@ foreach(_expected IN ITEMS
     "module_public_output_rel"
     "module_registration_output_rel"
     "\"--module-registration-output\""
+    "\"--textual-registration-output\""
+    "\"--scan-slot-kind\""
     "\"--artifact-manifest\""
-    "\"--artifact-owner-source\""
     "\"--compile-context-id\""
     "registered_target_metadata()"
     "collect_mock_metadata_inputs")
   string(FIND "${_xmake_helper_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "xmake/gentest.lua is missing repo-local module helper token: ${_expected}")
+  endif()
+endforeach()
+foreach(_forbidden IN ITEMS "\"--textual-wrapper-output\"" "\"--artifact-owner-source\"")
+  string(FIND "${_xmake_helper_content}" "${_forbidden}" _forbidden_pos)
+  if(NOT _forbidden_pos EQUAL -1)
+    message(FATAL_ERROR "xmake/gentest.lua retains obsolete textual replacement token: ${_forbidden}")
   endif()
 endforeach()
 string(FIND "${_xmake_helper_content}" "gentest_buildsystem_codegen.py" _xmake_helper_pos)
@@ -106,8 +119,9 @@ foreach(_expected IN ITEMS
     "codegen_support.framework_include_dirs"
     "_gentest_module_registration_relpath"
     "\"--module-registration-output\""
+    "\"--textual-registration-output\""
+    "\"--scan-slot-kind\""
     "\"--artifact-manifest\""
-    "\"--artifact-owner-source\""
     "\"--compile-context-id\""
     "defs_modules"
     "output_group = \"artifact_manifests\""
@@ -115,6 +129,12 @@ foreach(_expected IN ITEMS
   string(FIND "${_bazel_rules_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "build_defs/gentest.bzl is missing repo-local module wiring token: ${_expected}")
+  endif()
+endforeach()
+foreach(_forbidden IN ITEMS "\"--textual-wrapper-output\"" "\"--artifact-owner-source\"" "suite_0000.cppm")
+  string(FIND "${_bazel_rules_content}" "${_forbidden}" _forbidden_pos)
+  if(NOT _forbidden_pos EQUAL -1)
+    message(FATAL_ERROR "build_defs/gentest.bzl retains obsolete source replacement/staging token: ${_forbidden}")
   endif()
 endforeach()
 string(FIND "${_bazel_rules_content}" "gentest_buildsystem_codegen.py" _bazel_helper_pos)

@@ -470,7 +470,6 @@ elseif(TEST_CASE STREQUAL "native_default_args_surface")
     target_link_libraries(explicit_validation_native_default_args_consumer PRIVATE
         gentest::gentest_main
         explicit_validation_native_default_args)
-    set_property(TARGET explicit_validation_native_default_args_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
     gentest_attach_codegen(explicit_validation_native_default_args_consumer
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_default_args")
 elseif(TEST_CASE STREQUAL "native_inherited_concrete_surface")
@@ -484,7 +483,6 @@ elseif(TEST_CASE STREQUAL "native_inherited_concrete_surface")
     target_link_libraries(explicit_validation_native_inherited_concrete_consumer PRIVATE
         gentest::gentest_main
         explicit_validation_native_inherited_concrete)
-    set_property(TARGET explicit_validation_native_inherited_concrete_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
     gentest_attach_codegen(explicit_validation_native_inherited_concrete_consumer
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_inherited_concrete")
 elseif(TEST_CASE STREQUAL "native_generic_alias_template_surface")
@@ -498,7 +496,6 @@ elseif(TEST_CASE STREQUAL "native_generic_alias_template_surface")
     target_link_libraries(explicit_validation_native_generic_alias_consumer PRIVATE
         gentest::gentest_main
         explicit_validation_native_generic_alias)
-    set_property(TARGET explicit_validation_native_generic_alias_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
     gentest_attach_codegen(explicit_validation_native_generic_alias_consumer
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_generic_alias")
 elseif(TEST_CASE STREQUAL "native_conversion_operator_rejected")
@@ -557,7 +554,6 @@ elseif(TEST_CASE STREQUAL "native_ignored_unsupported_surface")
     target_link_libraries(explicit_validation_native_ignored_unsupported_consumer PRIVATE
         gentest::gentest_main
         explicit_validation_native_ignored_unsupported)
-    set_property(TARGET explicit_validation_native_ignored_unsupported_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
     gentest_attach_codegen(explicit_validation_native_ignored_unsupported_consumer
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_ignored_unsupported")
 elseif(TEST_CASE STREQUAL "native_inherited_final_surface")
@@ -571,7 +567,6 @@ elseif(TEST_CASE STREQUAL "native_inherited_final_surface")
     target_link_libraries(explicit_validation_native_inherited_final_consumer PRIVATE
         gentest::gentest_main
         explicit_validation_native_inherited_final)
-    set_property(TARGET explicit_validation_native_inherited_final_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
     gentest_attach_codegen(explicit_validation_native_inherited_final_consumer
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_inherited_final")
 elseif(TEST_CASE STREQUAL "native_final_pure_method_rejected")
@@ -603,7 +598,6 @@ elseif(TEST_CASE STREQUAL "native_default_arg_namespace_surface")
     target_link_libraries(explicit_validation_native_default_arg_namespace_consumer PRIVATE
         gentest::gentest_main
         explicit_validation_native_default_arg_namespace)
-    set_property(TARGET explicit_validation_native_default_arg_namespace_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
     gentest_attach_codegen(explicit_validation_native_default_arg_namespace_consumer
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_default_arg_namespace")
 elseif(TEST_CASE STREQUAL "native_default_arg_type_surface")
@@ -617,7 +611,6 @@ elseif(TEST_CASE STREQUAL "native_default_arg_type_surface")
     target_link_libraries(explicit_validation_native_default_arg_type_consumer PRIVATE
         gentest::gentest_main
         explicit_validation_native_default_arg_type)
-    set_property(TARGET explicit_validation_native_default_arg_type_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
     gentest_attach_codegen(explicit_validation_native_default_arg_type_consumer
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_default_arg_type")
 elseif(TEST_CASE STREQUAL "native_ambiguous_zero_arg_ctor_surface")
@@ -631,7 +624,6 @@ elseif(TEST_CASE STREQUAL "native_ambiguous_zero_arg_ctor_surface")
     target_link_libraries(explicit_validation_native_ambiguous_zero_arg_ctor_consumer PRIVATE
         gentest::gentest_main
         explicit_validation_native_ambiguous_zero_arg_ctor)
-    set_property(TARGET explicit_validation_native_ambiguous_zero_arg_ctor_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
     gentest_attach_codegen(explicit_validation_native_ambiguous_zero_arg_ctor_consumer
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_tests/native_ambiguous_zero_arg_ctor")
 elseif(TEST_CASE STREQUAL "missing_named_module")

@@ -25,7 +25,6 @@ target_sources(module_auto_tests
 
 target_link_libraries(module_auto_tests PRIVATE gentest gentest_main)
 target_compile_features(module_auto_tests PRIVATE cxx_std_20)
-set_property(TARGET module_auto_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(module_auto_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

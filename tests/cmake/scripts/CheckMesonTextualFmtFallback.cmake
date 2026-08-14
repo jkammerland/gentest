@@ -185,14 +185,13 @@ if(NOT EXISTS "${_consumer_bin}")
 endif()
 
 foreach(_expected_file IN ITEMS
-    "${_out_dir}/consumer_textual_mocks_defs.cpp"
-    "${_out_dir}/tu_0000_consumer_textual_mocks_defs.gentest.h"
+    "${_out_dir}/consumer_textual_mocks_anchor.cpp"
     "${_out_dir}/consumer_textual_mocks_mock_registry.hpp"
     "${_out_dir}/consumer_textual_mocks_mock_impl.hpp"
     "${_out_dir}/consumer_textual_mocks_mock_registry__domain_0000_header.hpp"
     "${_out_dir}/consumer_textual_mocks_mock_impl__domain_0000_header.hpp"
     "${_out_dir}/gentest_consumer_mocks.hpp"
-    "${_out_dir}/tu_0000_consumer_textual_cases.gentest.h")
+    "${_out_dir}/tu_0000_consumer_textual_cases.header_registration.gentest.cpp")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR
       "Meson textual consumer build did not produce expected mock/codegen artifact '${_expected_file}'.\n"
@@ -203,8 +202,8 @@ endforeach()
 
 foreach(_expected_depfile_flag IN ITEMS
     "--depfile"
-    "tu_0000_consumer_textual_mocks_defs.gentest.h.d"
-    "tu_0000_consumer_textual_cases.gentest.h.d")
+    "consumer_textual_mocks_mock_codegen.d"
+    "gentest_consumer_textual_meson.gentest.d")
   string(FIND "${_build_log}" "${_expected_depfile_flag}" _depfile_flag_pos)
   if(_depfile_flag_pos EQUAL -1)
     message(FATAL_ERROR

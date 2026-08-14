@@ -195,8 +195,7 @@ endif()
 
 set(_meson_textual_dir "${_out_dir}/subprojects/gentest/meson/textual")
 foreach(_expected_mock_file IN ITEMS
-    "${_meson_textual_dir}/downstream_textual_mocks_defs.cpp"
-    "${_meson_textual_dir}/tu_0000_downstream_textual_mocks_defs.gentest.h"
+    "${_meson_textual_dir}/downstream_textual_mocks_anchor.cpp"
     "${_meson_textual_dir}/downstream_textual_mocks_mock_registry.hpp"
     "${_meson_textual_dir}/downstream_textual_mocks_mock_impl.hpp"
     "${_meson_textual_dir}/gentest_downstream_mocks.hpp")
@@ -222,12 +221,11 @@ if(NOT _build_rc EQUAL 0)
 endif()
 
 foreach(_expected_file IN ITEMS
-    "${_meson_textual_dir}/downstream_textual_mocks_defs.cpp"
-    "${_meson_textual_dir}/tu_0000_downstream_textual_mocks_defs.gentest.h"
+    "${_meson_textual_dir}/downstream_textual_mocks_anchor.cpp"
     "${_meson_textual_dir}/downstream_textual_mocks_mock_registry.hpp"
     "${_meson_textual_dir}/downstream_textual_mocks_mock_impl.hpp"
     "${_meson_textual_dir}/gentest_downstream_mocks.hpp"
-    "${_meson_textual_dir}/tu_0000_downstream_textual_cases.gentest.h"
+    "${_meson_textual_dir}/tu_0000_downstream_textual_cases.header_registration.gentest.cpp"
     "${_meson_textual_dir}/gentest_downstream_textual.artifact_manifest.json")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR
@@ -238,13 +236,22 @@ foreach(_expected_file IN ITEMS
 endforeach()
 
 set(_combined_build_log "${_mock_build_out}\n${_mock_build_err}\n${_build_out}\n${_build_err}")
+set(_authored_source "${_scratch_root}/workspace/tests/cases.cpp")
+string(REGEX MATCHALL "-c[ \t\r\n]+${_authored_source}" _authored_compile_matches "${_combined_build_log}")
+list(LENGTH _authored_compile_matches _authored_compile_count)
+if(NOT _authored_compile_count EQUAL 1)
+  message(FATAL_ERROR
+    "Meson must compile the authored cases.cpp exactly once; found ${_authored_compile_count} compile commands.\n"
+    "${_combined_build_log}")
+endif()
 foreach(_expected_depfile_flag IN ITEMS
     "--depfile"
     "--artifact-manifest"
-    "--artifact-owner-source"
+    "--textual-registration-output"
+    "--scan-slot-kind"
     "--compile-context-id"
-    "tu_0000_downstream_textual_mocks_defs.gentest.h.d"
-    "tu_0000_downstream_textual_cases.gentest.h.d")
+    "downstream_textual_mocks_mock_codegen.d"
+    "downstream_textual.gentest.d")
   string(FIND "${_combined_build_log}" "${_expected_depfile_flag}" _depfile_flag_pos)
   if(_depfile_flag_pos EQUAL -1)
     message(FATAL_ERROR
@@ -259,12 +266,13 @@ endforeach()
 set(_textual_manifest "${_meson_textual_dir}/gentest_downstream_textual.artifact_manifest.json")
 file(READ "${_textual_manifest}" _textual_manifest_json)
 foreach(_expected_manifest_token IN ITEMS
-    "\"kind\": \"textual-wrapper\""
+    "\"kind\": \"cxx-header-declaration-registration\""
     "\"role\": \"registration\""
-    "\"compile_as\": \"cxx-textual-wrapper\""
-    "\"target_attachment\": \"replace-owner-source\""
-    "\"includes_owner_source\": true"
-    "\"replaces_owner_source\": true"
+    "\"compile_as\": \"cxx-header-declaration-registration\""
+    "\"target_attachment\": \"append-generated-source\""
+    "\"includes_authored_source\": false"
+    "\"replaces_authored_source\": false"
+    "\"scan_slot_kind\": \"authored-tu\""
     "\"requires_module_scan\": false")
   string(FIND "${_textual_manifest_json}" "${_expected_manifest_token}" _manifest_token_pos)
   if(_manifest_token_pos EQUAL -1)
@@ -273,6 +281,27 @@ foreach(_expected_manifest_token IN ITEMS
       "${_textual_manifest_json}")
   endif()
 endforeach()
+
+foreach(_forbidden_manifest_token IN ITEMS
+    "textual-wrapper"
+    "cxx-textual-wrapper"
+    "replace-owner-source"
+    "includes_owner_source"
+    "replaces_owner_source")
+  string(FIND "${_textual_manifest_json}" "${_forbidden_manifest_token}" _forbidden_manifest_pos)
+  if(NOT _forbidden_manifest_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson wrap consumer textual artifact manifest retains obsolete token '${_forbidden_manifest_token}'.\n"
+      "${_textual_manifest_json}")
+  endif()
+endforeach()
+
+set(_registration_source "${_meson_textual_dir}/tu_0000_downstream_textual_cases.header_registration.gentest.cpp")
+file(READ "${_registration_source}" _registration_source_content)
+string(FIND "${_registration_source_content}" "cases.cpp" _authored_include_pos)
+if(NOT _authored_include_pos EQUAL -1)
+  message(FATAL_ERROR "Additive Meson registration must not include the authored cases.cpp.\n${_registration_source_content}")
+endif()
 
 set(_consumer_bin "${_meson_textual_dir}/gentest_downstream_textual")
 if(NOT EXISTS "${_consumer_bin}")

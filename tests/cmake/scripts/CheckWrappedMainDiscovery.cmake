@@ -25,7 +25,7 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-set(_work_dir "${BUILD_ROOT}/wrapped_main_discovery")
+set(_work_dir "${BUILD_ROOT}/additive_main_discovery")
 set(_src_dir "${_work_dir}/src")
 set(_build_dir "${_work_dir}/build")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -34,7 +34,7 @@ file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
-  gentest_skip_test("wrapped main.cpp discovery regression: no usable clang/clang++ pair was provided")
+  gentest_skip_test("additive main.cpp discovery regression: no usable clang/clang++ pair was provided")
   return()
 endif()
 
@@ -53,7 +53,7 @@ set(_cmake_cache_args
 if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
   gentest_find_supported_ninja(_supported_ninja _supported_ninja_reason)
   if(NOT _supported_ninja)
-    gentest_skip_test("wrapped main.cpp discovery regression: ${_supported_ninja_reason}")
+    gentest_skip_test("additive main.cpp discovery regression: ${_supported_ninja_reason}")
     return()
   endif()
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${_supported_ninja}")
@@ -112,9 +112,9 @@ foreach(_expected IN ITEMS
   string(FIND "${_list_output}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR
-      "The wrapped main.cpp discovery listing is missing '${_expected}'.\n"
+      "The additive main.cpp discovery listing is missing '${_expected}'.\n"
       "Output:\n${_list_output}")
   endif()
 endforeach()
 
-message(STATUS "Wrapped main.cpp discovery regression passed")
+message(STATUS "Additive main.cpp discovery regression passed")

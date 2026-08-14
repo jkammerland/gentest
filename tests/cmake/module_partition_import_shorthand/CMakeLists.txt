@@ -22,12 +22,14 @@ add_executable(partition_import_tests
 target_sources(partition_import_tests
     PRIVATE
         FILE_SET partition_cases TYPE CXX_MODULES FILES
-            ${CMAKE_CURRENT_SOURCE_DIR}/helpers.cppm
-            ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
+            ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm
+        FILE_SET partition_helpers TYPE CXX_MODULES FILES
+            ${CMAKE_CURRENT_SOURCE_DIR}/helpers.cppm)
 
 target_link_libraries(partition_import_tests PRIVATE gentest gentest_runtime)
 target_compile_features(partition_import_tests PRIVATE cxx_std_20)
-set_property(TARGET partition_import_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(partition_import_tests
+    MODULE_REGISTRATION
+    FILE_SET partition_cases
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

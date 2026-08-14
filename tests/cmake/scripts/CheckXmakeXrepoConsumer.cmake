@@ -281,10 +281,10 @@ endif()
 
 foreach(_expected_glob IN ITEMS
     "${_generated_glob_root}/${_textual_mock_leaf}/gentest_xrepo_mocks.hpp"
-    "${_generated_glob_root}/${_textual_mock_leaf}/tu_0000_xrepo_textual_mocks_defs.gentest.h"
+    "${_generated_glob_root}/${_textual_mock_leaf}/xrepo_textual_mocks_anchor.cpp"
     "${_generated_glob_root}/${_textual_mock_leaf}/xrepo_textual_mocks_mock_registry.hpp"
     "${_generated_glob_root}/${_textual_mock_leaf}/xrepo_textual_mocks_mock_impl.hpp"
-    "${_generated_glob_root}/${_textual_leaf}/tu_0000_cases.gentest.h"
+    "${_generated_glob_root}/${_textual_leaf}/tu_0000_cases.header_registration.gentest.cpp"
     "${_generated_glob_root}/${_module_mock_leaf}/downstream/xrepo/consumer_mocks.cppm"
     "${_generated_glob_root}/${_module_mock_leaf}/tu_0000_service_module.module.gentest.cppm"
     "${_generated_glob_root}/${_module_mock_leaf}/tu_0001_module_mock_defs.module.gentest.cppm"
@@ -300,6 +300,16 @@ foreach(_expected_glob IN ITEMS
       "log:\n${_build_log}")
   endif()
 endforeach()
+
+file(GLOB _textual_anchor_matches LIST_DIRECTORIES FALSE
+  "${_generated_glob_root}/${_textual_mock_leaf}/xrepo_textual_mocks_anchor.cpp")
+list(GET _textual_anchor_matches 0 _textual_anchor)
+file(READ "${_textual_anchor}" _textual_anchor_contents)
+if(NOT _textual_anchor_contents MATCHES "#include \"gentest_xrepo_mocks\\.hpp\"")
+  message(FATAL_ERROR
+    "The Xmake xrepo mock anchor must include its generated public header by a relocatable sibling path.\n"
+    "${_textual_anchor_contents}")
+endif()
 
 file(GLOB _module_manifest_matches
   LIST_DIRECTORIES FALSE

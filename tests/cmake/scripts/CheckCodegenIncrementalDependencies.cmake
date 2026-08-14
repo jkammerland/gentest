@@ -107,7 +107,7 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}")
 
 include("${_build_dir}/gentest_codegen_targets.cmake")
-set(_generated_cpp "${_build_dir}/generated/tu_0000_cases.gentest.h")
+set(_generated_cpp "${_build_dir}/generated/tu_0000_cases.header_registration.gentest.cpp")
 set(_mock_registry "${_build_dir}/generated/mocks/${DEP_MOCKS_CODEGEN_ID}_mock_registry.hpp")
 set(_mock_registry_header_domain "${_build_dir}/generated/mocks/${DEP_MOCKS_CODEGEN_ID}_mock_registry__domain_0000_header.hpp")
 set(_exe "${_build_dir}/dep_tests")

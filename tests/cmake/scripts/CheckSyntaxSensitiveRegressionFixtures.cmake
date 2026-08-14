@@ -19,13 +19,11 @@ function(_gentest_require_substring file_path needle description)
 endfunction()
 
 set(_multiline_mock_defs "${SOURCE_DIR}/tests/cmake/module_multiline_directives/mock_defs.cppm")
-set(_manual_include_whitespace "${SOURCE_DIR}/tests/cmake/module_manual_include_whitespace/cases.cppm")
 set(_install_header_mocks "${SOURCE_DIR}/tests/cmake/explicit_mock_target_install_export/producer/header_mocks.hpp")
 set(_install_module_support "${SOURCE_DIR}/tests/cmake/explicit_mock_target_install_export/producer/service_module.cppm")
 
 foreach(_required IN ITEMS
     "${_multiline_mock_defs}"
-    "${_manual_include_whitespace}"
     "${_install_header_mocks}"
     "${_install_module_support}")
   if(NOT EXISTS "${_required}")
@@ -46,13 +44,6 @@ string(REGEX MATCH "export import[ \t\r]*\n[ \t]+gentest\\.mock;" _multiline_mat
 if(_multiline_match STREQUAL "")
   message(FATAL_ERROR
     "Module multiline regression fixture must keep `export import` and `gentest.mock;` on separate lines.")
-endif()
-
-file(READ "${_manual_include_whitespace}" _manual_include_whitespace_content)
-string(FIND "${_manual_include_whitespace_content}" "# include \"public/manual_include_whitespace_mocks.hpp\"" _manual_include_pos)
-if(_manual_include_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Manual include whitespace regression fixture must preserve the spaced `# include` form.")
 endif()
 
 file(READ "${_install_header_mocks}" _header_mocks_content)
@@ -104,23 +95,6 @@ _gentest_require_substring(
   "${SOURCE_DIR}/tests/smoke/codegen_template_parser_edges.cpp"
   "template(CW, L'f')"
   "Template parser edge fixture lost the wchar_t literal candidate")
-
-_gentest_require_substring(
-  "${SOURCE_DIR}/tests/cmake/module_manual_partial_includes/impl_cases.cppm"
-  "#include \"gentest/mock_impl_codegen.h\""
-  "Module manual partial include fixture lost the manual impl include")
-_gentest_require_substring(
-  "${SOURCE_DIR}/tests/cmake/module_manual_partial_includes/registry_cases.cppm"
-  "#include \"gentest/mock_registry_codegen.h\""
-  "Module manual partial include fixture lost the manual registry include")
-_gentest_require_substring(
-  "${SOURCE_DIR}/tests/cmake/module_partial_manual_codegen_includes/impl_cases.cppm"
-  "#include \"gentest/mock_impl_codegen.h\""
-  "Module partial manual codegen include fixture lost the impl include")
-_gentest_require_substring(
-  "${SOURCE_DIR}/tests/cmake/module_partial_manual_codegen_includes/registry_cases.cppm"
-  "#include \"gentest/mock_registry_codegen.h\""
-  "Module partial manual codegen include fixture lost the registry include")
 
 _gentest_require_substring(
   "${SOURCE_DIR}/tests/cmake/module_header_unit_import_preamble/cases.cppm"

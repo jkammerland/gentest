@@ -684,7 +684,6 @@ def build_codegen_command(
     discover_mocks: bool,
     external_module_sources: list[str],
     artifact_manifest: str = "",
-    artifact_owner_sources: list[pathlib.Path] | None = None,
     compile_context_ids: list[str] | None = None,
 ) -> list[str]:
     command = [
@@ -700,8 +699,6 @@ def build_codegen_command(
         command.extend(["--depfile", str(pathlib.Path(depfile).resolve())])
     if artifact_manifest:
         command.extend(["--artifact-manifest", str(pathlib.Path(artifact_manifest).resolve())])
-        for owner_source in artifact_owner_sources or []:
-            command.extend(["--artifact-owner-source", str(owner_source.resolve())])
     for compile_context_id in compile_context_ids or []:
         command.extend(["--compile-context-id", compile_context_id])
     if compdb_dir:
@@ -816,7 +813,6 @@ def main() -> int:
             discover_mocks=False,
             external_module_sources=normalize_external_module_sources(args.external_module_source + metadata_module_sources, source_root),
             artifact_manifest=args.artifact_manifest if args.kind == "textual" else "",
-            artifact_owner_sources=[source_file] if args.kind == "textual" and args.artifact_manifest else [],
             compile_context_ids=[
                 f"{args.target_id or wrapper_output.stem}:{source_file}"
             ] if args.kind == "textual" and args.artifact_manifest else [],

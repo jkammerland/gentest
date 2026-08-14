@@ -1,5 +1,9 @@
 # Story: per-TU registration wrappers (CMake)
 
+> Historical design record. Ordinary textual wrappers and source replacement were removed by the cleanup tracked in issue #115. Current textual
+> targets compile authored sources directly and append generated header-declaration registration sources. The separate generated named-module mock
+> provider path is not described here.
+
 ## Goal
 
 Make gentest usage closer to gtest/catch/doctest by compiling tests as separate TUs (no single unity `test_impl.cpp` TU), while still using

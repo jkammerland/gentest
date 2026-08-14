@@ -1,10 +1,4 @@
-#include "append_iota_workload.hpp"
-#include "gentest/attributes.h"
-#include "gentest/bench_util.h"
-
-#include <deque>
-#include <list>
-#include <vector>
+#include "gentest_append_iota_bench.hpp"
 
 namespace gentest_compare_benchmarks {
 
@@ -14,19 +8,22 @@ template <typename Container> void appendIota() {
     gentest::clobberMemory();
 }
 
-[[using gentest: bench("append_iota/vector_1m")]]
-void append_iota_vector_1m() {
-    appendIota<std::vector<int>>();
-}
+} // namespace gentest_compare_benchmarks
 
-[[using gentest: bench("append_iota/list_1m")]]
-void append_iota_list_1m() {
-    appendIota<std::list<int>>();
-}
+namespace gentest_compare_benchmarks {
 
-[[using gentest: bench("append_iota/deque_1m")]]
-void append_iota_deque_1m() {
-    appendIota<std::deque<int>>();
-}
+void append_iota_vector_1m() { appendIota<std::vector<int>>(); }
+
+} // namespace gentest_compare_benchmarks
+
+namespace gentest_compare_benchmarks {
+
+void append_iota_list_1m() { appendIota<std::list<int>>(); }
+
+} // namespace gentest_compare_benchmarks
+
+namespace gentest_compare_benchmarks {
+
+void append_iota_deque_1m() { appendIota<std::deque<int>>(); }
 
 } // namespace gentest_compare_benchmarks

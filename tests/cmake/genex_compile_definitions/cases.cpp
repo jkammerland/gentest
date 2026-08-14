@@ -1,3 +1,5 @@
+#include "cases.hpp"
+
 #include "gentest/assertions.h"
 
 using namespace gentest::asserts;
@@ -10,7 +12,4 @@ using namespace gentest::asserts;
 #error "source config generator expressions must stay mutually exclusive"
 #endif
 
-[[using gentest: test("genex_compile_definitions/builds")]]
-void genexCompileDefinitionsBuild() {
-    EXPECT_TRUE(true);
-}
+void genexCompileDefinitionsBuild() { EXPECT_TRUE(true); }

@@ -107,20 +107,15 @@ while IFS= read -r tidy_file; do
 done < <(python3 - "${repo_root}" "${build_dir}/compile_commands.json" "${tidy_compdb}" <<'PY'
 import json
 import pathlib
-import re
-import shlex
 import sys
 
 repo_root = pathlib.Path(sys.argv[1]).resolve()
 compile_commands_path = pathlib.Path(sys.argv[2])
 output_path = pathlib.Path(sys.argv[3])
 compile_commands = json.loads(compile_commands_path.read_text())
-build_root = compile_commands_path.parent.resolve()
-generated_root = (build_root / "tests" / "generated").resolve()
 
 allowed_prefixes = ("include/", "src/", "tools/", "tests/")
 allowed_suffixes = (".c", ".cc", ".cpp", ".cxx", ".cu", ".c++", ".cppm", ".ixx", ".mpp")
-include_re = re.compile(r'^\s*#include\s+"([^"]+)"', re.MULTILINE)
 
 def repo_rel(path: pathlib.Path):
     try:
@@ -135,82 +130,16 @@ def repo_rel(path: pathlib.Path):
         return None
     return rel
 
-def mapped_repo_rel(path: pathlib.Path):
-    if not str(path).startswith(str(build_root)):
-        return None
-    if ".gentest." not in path.name:
-        return None
-    if path.suffix not in (".cpp", ".cppm", ".ixx"):
-        return None
-    try:
-        content = path.read_text()
-    except Exception:
-        return None
-    match = include_re.search(content)
-    if not match:
-        return None
-    return repo_rel((path.parent / match.group(1)).resolve())
-
-def transformed_entry(entry, source_path: pathlib.Path):
-    argv = entry.get("arguments")
-    if argv is None:
-        argv = shlex.split(entry["command"])
-    original = str(pathlib.Path(entry["file"]).resolve())
-    rewritten = str(source_path)
-    replaced = False
-    transformed = []
-    def resolve_include(include_arg: str):
-        include_path = pathlib.Path(include_arg)
-        if include_path.is_absolute():
-            return include_path.resolve()
-        return (pathlib.Path(entry["directory"]) / include_path).resolve()
-    index = 0
-    while index < len(argv):
-        arg = argv[index]
-        if arg == original:
-            transformed.append(rewritten)
-            replaced = True
-            index += 1
-            continue
-        if arg == "-I" and index + 1 < len(argv):
-            resolved_include = resolve_include(argv[index + 1])
-            if str(resolved_include).startswith(str(generated_root)):
-                transformed.extend(["-isystem", argv[index + 1]])
-                index += 2
-                continue
-        if arg.startswith("-I") and len(arg) > 2:
-            resolved_include = resolve_include(arg[2:])
-            if str(resolved_include).startswith(str(generated_root)):
-                transformed.extend(["-isystem", arg[2:]])
-                index += 1
-                continue
-        transformed.append(arg)
-        index += 1
-    if not replaced:
-        transformed.append(rewritten)
-    return {
-        "directory": entry["directory"],
-        "file": rewritten,
-        "arguments": transformed,
-    }
-
 seen = {}
 
 for entry in compile_commands:
     file_path = pathlib.Path(entry["file"]).resolve()
     rel = repo_rel(file_path)
-    priority = 2
-    if rel is None:
-        rel = mapped_repo_rel(file_path)
-        priority = 1
     if rel is None:
         continue
-    existing = seen.get(rel)
-    if existing is not None and existing[0] >= priority:
-        continue
-    seen[rel] = (priority, transformed_entry(entry, repo_root / rel))
+    seen.setdefault(rel, entry)
 
-output_path.write_text(json.dumps([seen[key][1] for key in sorted(seen)], indent = 2))
+output_path.write_text(json.dumps([seen[key] for key in sorted(seen)], indent = 2))
 for rel in sorted(seen):
     print(rel)
 PY

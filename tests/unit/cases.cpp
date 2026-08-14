@@ -1,22 +1,7 @@
-#include "gentest/attributes.h"
-#include "gentest/bench_util.h"
-#include "gentest/detail/bench_stats.h"
-#include "gentest/runner.h"
-using namespace gentest::asserts;
-
-#include <array>
-#include <cmath>
-#include <numeric>
-#include <stdexcept>
-#include <string>
-#include <vector>
+#include "cases.hpp"
 
 namespace unit {
 
-inline void throw_runtime_error() { throw std::runtime_error("boom"); }
-inline void no_throw() {}
-
-[[using gentest: test("arithmetic/sum"), fast]]
 void sum_is_computed() {
     std::array values{1, 2, 3, 4};
     const auto result = std::accumulate(values.begin(), values.end(), 0);
@@ -29,28 +14,40 @@ void sum_is_computed() {
     EXPECT_EQ(average, 2.5, "arithmetic mean");
 }
 
-[[using gentest: test("approx/absolute")]]
+} // namespace unit
+
+namespace unit {
+
 void approx_absolute() {
     using gentest::approx::Approx;
     EXPECT_EQ(3.1415, Approx(3.14).abs(0.01));
     EXPECT_EQ(Approx(10.0).abs(0.5), 10.3);
 }
 
-[[using gentest: test("approx/relative")]]
+} // namespace unit
+
+namespace unit {
+
 void approx_relative() {
     using gentest::approx::Approx;
     EXPECT_EQ(101.0, Approx(100.0).rel(2.0)); // 1% diff within 2%
     EXPECT_EQ(Approx(200.0).rel(1.0), 198.5); // 0.75% diff within 1%
 }
 
-[[using gentest: test("approx/relative_negative")]]
+} // namespace unit
+
+namespace unit {
+
 void approx_relative_negative() {
     using gentest::approx::Approx;
     EXPECT_EQ(-101.0, Approx(-100.0).rel(2.0)); // 1% diff within 2%
     EXPECT_EQ(Approx(-200.0).rel(1.0), -198.5); // 0.75% diff within 1%
 }
 
-[[using gentest: test("strings/concatenate"), req("#42"), slow]]
+} // namespace unit
+
+namespace unit {
+
 void concatenate_strings() {
     std::string greeting = "hello";
     EXPECT_EQ(greeting.size(), std::size_t{5}, "initial size");
@@ -61,7 +58,10 @@ void concatenate_strings() {
     EXPECT_TRUE(greeting == "hello world");
 }
 
-[[using gentest: test("conditions/negate"), linux]]
+} // namespace unit
+
+namespace unit {
+
 void negate_condition() {
     bool flag = false;
     ASSERT_EQ(flag, false, "starts false");
@@ -77,7 +77,10 @@ void negate_condition() {
     EXPECT_EQ(flag, false, "double negation");
 }
 
-[[using gentest: test("conditions/false_and_relations")]]
+} // namespace unit
+
+namespace unit {
+
 void false_and_relations() {
     EXPECT_FALSE(false);
     ASSERT_FALSE(false, "still false");
@@ -93,70 +96,73 @@ void false_and_relations() {
     ASSERT_GE(2, 2);
 }
 
-[[gentest::fast]]
-void default_name_free() {
-    EXPECT_TRUE(true);
-}
+} // namespace unit
 
-[[using gentest: test("attributes/close_marker_in_string_]]_ok"), fast]]
-void attribute_name_with_close_marker_literal() {
-    EXPECT_TRUE(true);
-}
+namespace unit {
 
-[[maybe_unused]] constexpr const char *kCloseMarkerAttrParserRawNoise =
-    R"gentest(raw "quoted" text [[not_an_attribute and stray ]] plus // and /* markers)gentest";
+void default_name_free() { EXPECT_TRUE(true); }
 
-[[using gentest: test("attributes/close_marker_after_line_comment_]]_ok"), fast]]
-// Parser regression: close-marker text in comments should not terminate attribute scanning ]]
-void attribute_name_with_close_marker_after_line_comment() {
-    EXPECT_TRUE(true);
-}
+} // namespace unit
 
-[[using gentest: test("attributes/close_marker_after_block_comment_]]_ok"), fast]]
-/* Parser regression: raw-string-like text R"( [[not_attr]] )" is comment noise. */
-void attribute_name_with_close_marker_after_block_comment() {
-    EXPECT_TRUE(true);
-}
+namespace unit {
 
-[[maybe_unused]] constexpr auto kDigitSeparatedValueBeforeAttribute = 30'000'000;
+void attribute_name_with_close_marker_literal() { EXPECT_TRUE(true); }
 
-[[using gentest: test("attributes/digit_separator_before_attribute"), fast]]
-// A digit separator in source or comment text such as 1'000 must not hide this test. ]]
-void attribute_after_digit_separator() {
-    EXPECT_EQ(kDigitSeparatedValueBeforeAttribute, 30'000'000);
-}
+} // namespace unit
 
-[[gentest::test("exceptions/expect_throw")]]
+namespace unit {
+
+void attribute_name_with_close_marker_after_line_comment() { EXPECT_TRUE(true); }
+
+} // namespace unit
+
+namespace unit {
+
+void attribute_name_with_close_marker_after_block_comment() { EXPECT_TRUE(true); }
+
+} // namespace unit
+
+namespace unit {
+
+void attribute_after_digit_separator() { EXPECT_EQ(kDigitSeparatedValueBeforeAttribute, 30'000'000); }
+
+} // namespace unit
+
+namespace unit {
+
 void expect_throw_simple() {
     EXPECT_THROW(throw_runtime_error(), std::runtime_error);
     EXPECT_THROW(throw 123, int);
 }
 
-[[using gentest: test("exceptions/expect_no_throw")]]
-void expect_no_throw_simple() {
-    EXPECT_NO_THROW(no_throw());
-}
+} // namespace unit
 
-[[using gentest: test("exceptions/assert_throw")]]
+namespace unit {
+
+void expect_no_throw_simple() { EXPECT_NO_THROW(no_throw()); }
+
+} // namespace unit
+
+namespace unit {
+
 void assert_throw_simple() {
     ASSERT_THROW(throw_runtime_error(), std::runtime_error);
     EXPECT_TRUE(true, "continues after ASSERT_THROW");
 }
 
-[[using gentest: test("exceptions/assert_no_throw")]]
+} // namespace unit
+
+namespace unit {
+
 void assert_no_throw_simple() {
     ASSERT_NO_THROW(no_throw());
     EXPECT_TRUE(true, "continues after ASSERT_NO_THROW");
 }
 
-struct DefaultNameFixture {
-    [[gentest::fast]]
-    void default_name_member() {
-        EXPECT_TRUE(true);
-    }
-};
+} // namespace unit
 
-[[using gentest: test("bench_stats/stats_known")]]
+namespace unit {
+
 void bench_stats_known() {
     std::vector<double> samples{1, 2, 3, 4, 5};
     const auto          stats = gentest::detail::compute_sample_stats(samples);
@@ -171,7 +177,10 @@ void bench_stats_known() {
     EXPECT_EQ(stats.stddev, Approx(std::sqrt(2.0)).abs(0.0001));
 }
 
-[[using gentest: test("bench_stats/hist_bimodal")]]
+} // namespace unit
+
+namespace unit {
+
 void bench_stats_hist_bimodal() {
     std::vector<double> samples{0, 0, 0, 0, 10, 10, 10, 10};
     const auto          hist = gentest::detail::compute_histogram(samples, 4);
@@ -187,7 +196,10 @@ void bench_stats_hist_bimodal() {
     EXPECT_TRUE(hist.bins[3].inclusive_hi);
 }
 
-[[using gentest: test("bench_stats/hist_skewed")]]
+} // namespace unit
+
+namespace unit {
+
 void bench_stats_hist_skewed() {
     std::vector<double> samples{0, 0, 0, 0, 10};
     const auto          hist = gentest::detail::compute_histogram(samples, 2);
@@ -200,7 +212,10 @@ void bench_stats_hist_skewed() {
     EXPECT_EQ(hist.bins[1].cumulative_percent, Approx(100.0).abs(0.01));
 }
 
-[[using gentest: test("bench_util/clobber_memory_smoke")]]
+} // namespace unit
+
+namespace unit {
+
 void bench_util_clobber_memory_smoke() {
     int        value     = 7;
     const int &value_ref = value;

@@ -1,6 +1,6 @@
-#include "gentest/attributes.h"
+#include "cases.hpp"
+
 #include "gentest/bench_util.h"
-#include "gentest/context.h"
 #include "gentest_downstream_mocks.hpp"
 
 #include <sstream>
@@ -21,25 +21,11 @@ bool contains(std::string_view haystack, std::string_view needle) { return hayst
 
 namespace downstream {
 
-struct [[using gentest: fixture(suite)]] SuiteFixture : gentest::FixtureSetup {
-    void setUp() override { value = 7; }
-
-    int value = 0;
-};
-
-struct [[using gentest: fixture(global)]] GlobalFixture : gentest::FixtureSetup {
-    void setUp() override { value = 11; }
-
-    int value = 0;
-};
-
-[[using gentest: test("textual_test")]]
 void module_test(SuiteFixture &suite_fx, GlobalFixture &global_fx) {
     EXPECT_EQ(suite_fx.value, 7);
     EXPECT_EQ(global_fx.value, 11);
 }
 
-[[using gentest: test("textual_mock")]]
 void module_mock() {
     downstream::mocks::ServiceMock mock_service;
     gentest::expect(mock_service, &Service::compute).times(1).with(3).returns(9);
@@ -48,7 +34,6 @@ void module_mock() {
     EXPECT_EQ(service->compute(3), 9);
 }
 
-[[using gentest: test("textual_log_sink")]]
 void log_sink() {
     RestoreDefaultLogSink restore;
     gentest::remove_all_log_sinks();
@@ -63,14 +48,8 @@ void log_sink() {
     EXPECT_FALSE(contains(out.str(), "downstream meson log sink after remove"));
 }
 
-[[using gentest: bench("textual_bench"), baseline]]
-void module_bench(SuiteFixture &suite_fx) {
-    gentest::doNotOptimizeAway(suite_fx.value);
-}
+void module_bench(SuiteFixture &suite_fx) { gentest::doNotOptimizeAway(suite_fx.value); }
 
-[[using gentest: jitter("textual_jitter")]]
-void module_jitter(GlobalFixture &global_fx) {
-    gentest::doNotOptimizeAway(global_fx.value);
-}
+void module_jitter(GlobalFixture &global_fx) { gentest::doNotOptimizeAway(global_fx.value); }
 
 } // namespace downstream

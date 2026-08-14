@@ -26,13 +26,13 @@ downstream helper documentation/tests for Meson, Xmake, and Bazel.
 
 Implemented already:
 
-- Meson, Xmake, and Bazel use native per-TU wrapper generation for the classic
-  repository suites.
+- Meson, Xmake, and Bazel compile authored sources directly and append generated
+  header-declaration registration sources for classic repository suites.
 - Legacy `gentest_codegen --output ...` manifest mode has been removed from the
   active non-CMake suite integrations.
 - Meson has a textual-only declarative helper in
   [`meson/textual/meson.build`](../../meson/textual/meson.build), exercised by
-  the downstream wrap fixture. Its textual wrapper sources and generated mock
+  the downstream wrap fixture. Its additive registration sources and generated mock
   public headers are emitted by `gentest_codegen`, not checked-in Meson
   templates.
 - Xmake has textual and module helper APIs in

@@ -1,5 +1,8 @@
 # Story: Codegen Contract Cleanup Campaign
 
+> Historical campaign record. Its rejection of declaration-only registration and preservation of ordinary textual wrappers were superseded by
+> issue #107 and the wrapper-removal cleanup in issue #115. Current ordinary textual targets use additive header-declaration registration.
+
 ## Goal
 
 Retire duplicated and legacy code paths that remain in the build-system wrappers
@@ -109,9 +112,8 @@ In scope:
 
 Out of scope:
 
-- Designing new codegen protocols. Declaration-only textual registration was
-  rejected in `036`; module registration and textual wrapper semantics are the
-  active protocol paths.
+- Designing new codegen protocols. At the time of this campaign, declaration-only
+  textual registration was rejected in `036`; that decision has since been superseded.
 - Adding non-CMake features to reach parity. Captured by `015`.
 - Splitting `GentestCodegen.cmake` internals. Captured by `033`.
 - Shrinking the installed runtime devkit surface. Captured by closed story
@@ -281,9 +283,8 @@ owns the retirement schedule that ties their closures together:
   duplication.
 - `033` modularizes `GentestCodegen.cmake`; `037` is the deletion pass that
   becomes mechanical once the modules exist.
-- `036` records the rejected declaration-only textual alternative; `037`
-  preserves textual wrapper/include mode instead of waiting for that rejected
-  feature.
+- `036` records the then-rejected declaration-only textual alternative; that
+  historical decision was later superseded by additive header-declaration registration.
 
 Separating the campaign avoids each of those stories reopening after its own
 closure just to delete residue, and gives the deprecation schedule one owner

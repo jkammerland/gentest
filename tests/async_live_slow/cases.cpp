@@ -1,30 +1,7 @@
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
-
-#include <chrono>
-#include <string>
-#include <string_view>
-#include <thread>
-#include <vector>
-
-using namespace gentest::asserts;
-using namespace std::chrono_literals;
+#include "cases.hpp"
 
 namespace async_live_slow {
 
-gentest::async::manual_event long_driver_done;
-gentest::async::manual_event sync_releases_async;
-gentest::async::manual_event ping_turn;
-gentest::async::manual_event pong_turn;
-std::vector<std::string>     mix_events;
-
-constexpr auto kVisiblePause   = 250ms;
-constexpr auto kPingPongPause  = 600ms;
-constexpr auto kPingPongRounds = 8;
-
-auto count_log(std::string_view test_name, int count) -> std::string { return std::string(test_name) + " count " + std::to_string(count); }
-
-[[using gentest: test("panel/00_async_waits_for_sync")]]
 gentest::async_test<void> async_waits_for_sync() {
     mix_events.clear();
     long_driver_done.reset_all();
@@ -38,7 +15,10 @@ gentest::async_test<void> async_waits_for_sync() {
     EXPECT_EQ(mix_events[2], "async:resumed");
 }
 
-[[using gentest: test("panel/01_sync_releases_async")]]
+} // namespace async_live_slow
+
+namespace async_live_slow {
+
 void sync_releases_async_case() {
     ASSERT_EQ(mix_events.size(), std::size_t{1});
     EXPECT_EQ(mix_events[0], "async:start");
@@ -46,7 +26,10 @@ void sync_releases_async_case() {
     sync_releases_async.set("sync case released async case");
 }
 
-[[using gentest: test("panel/02_short_pass")]]
+} // namespace async_live_slow
+
+namespace async_live_slow {
+
 gentest::async_test<void> short_pass() {
     gentest::log("short async case started");
     std::this_thread::sleep_for(kVisiblePause);
@@ -55,7 +38,10 @@ gentest::async_test<void> short_pass() {
     EXPECT_TRUE(true);
 }
 
-[[using gentest: test("panel/03_medium_pass")]]
+} // namespace async_live_slow
+
+namespace async_live_slow {
+
 gentest::async_test<void> medium_pass() {
     for (int i = 0; i < 4; ++i) {
         gentest::log("medium async tick " + std::to_string(i));
@@ -65,7 +51,10 @@ gentest::async_test<void> medium_pass() {
     EXPECT_TRUE(true);
 }
 
-[[using gentest: test("panel/04_long_driver")]]
+} // namespace async_live_slow
+
+namespace async_live_slow {
+
 gentest::async_test<void> long_driver() {
     for (int i = 0; i < 14; ++i) {
         gentest::log("long async driver tick " + std::to_string(i));
@@ -76,13 +65,19 @@ gentest::async_test<void> long_driver() {
     EXPECT_TRUE(true);
 }
 
-[[using gentest: test("panel/05_waiting_on_driver")]]
+} // namespace async_live_slow
+
+namespace async_live_slow {
+
 gentest::async_test<void> waiting_on_driver() {
     co_await long_driver_done.wait("long driver completed");
     EXPECT_TRUE(true);
 }
 
-[[using gentest: test("pingpong/00_ping")]]
+} // namespace async_live_slow
+
+namespace async_live_slow {
+
 gentest::async_test<void> ping_counter() {
     ping_turn.reset_all();
     pong_turn.reset_all();
@@ -98,7 +93,10 @@ gentest::async_test<void> ping_counter() {
     EXPECT_TRUE(true);
 }
 
-[[using gentest: test("pingpong/01_pong")]]
+} // namespace async_live_slow
+
+namespace async_live_slow {
+
 gentest::async_test<void> pong_counter() {
     for (int i = 0; i < kPingPongRounds; ++i) {
         co_await pong_turn.wait("pingpong.turn");

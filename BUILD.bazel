@@ -315,7 +315,10 @@ gentest_attach_codegen_textual(
     name = 'gentest_consumer_textual_bazel',
     src = 'tests/consumer/cases.cpp',
     main = 'tests/consumer/main.cpp',
-    source_hdrs = ['tests/consumer/bazel_private_case_value.hpp'],
+    source_hdrs = [
+        'tests/consumer/bazel_private_case_value.hpp',
+        'tests/consumer/cases.hpp',
+    ],
     mock_targets = [':gentest_consumer_textual_mocks'],
     deps = [':gentest_consumer_codegen_headers'],
     linkopts = _gentest_linkopts,

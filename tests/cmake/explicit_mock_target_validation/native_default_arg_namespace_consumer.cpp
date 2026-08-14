@@ -1,10 +1,10 @@
+#include "native_default_arg_namespace_consumer.hpp"
+
 #include "gentest/assertions.h"
-#include "gentest/attributes.h"
 #include "public/native_default_arg_namespace.hpp"
 
 using namespace gentest::asserts;
 
-[[using gentest: test("mock/native_default_arg_namespace")]]
 void native_default_arg_namespace() {
     fixture::validation::mocks::NamespaceDefaultArgServiceMock mock;
 

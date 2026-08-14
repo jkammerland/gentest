@@ -44,7 +44,8 @@ foreach(_expected IN ITEMS
     "'gentest_consumer_textual_meson'"
     "'gen_consumer_textual_mocks'"
     "'--tu-out-dir'"
-    "'--textual-wrapper-output'"
+    "'--textual-registration-output'"
+    "'--scan-slot-kind'"
     "'--mock-public-header'"
     "'--depfile'"
     "'--artifact-manifest'"
@@ -52,6 +53,12 @@ foreach(_expected IN ITEMS
   string(FIND "${_meson_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "meson.build is missing expected native-textual token: ${_expected}")
+  endif()
+endforeach()
+foreach(_forbidden IN ITEMS "'--textual-wrapper-output'" "'--artifact-owner-source'")
+  string(FIND "${_meson_content}" "${_forbidden}" _forbidden_pos)
+  if(NOT _forbidden_pos EQUAL -1)
+    message(FATAL_ERROR "meson.build retains obsolete textual replacement token: ${_forbidden}")
   endif()
 endforeach()
 
@@ -72,12 +79,20 @@ foreach(_expected IN ITEMS
     "module_public_output_rel"
     "module_registration_output_rel"
     "\"--module-registration-output\""
+    "\"--textual-registration-output\""
+    "\"--scan-slot-kind\""
     "\"--artifact-manifest\""
     "requires `defs_modules` with one explicit module name per defs file"
     "kind == \"modules\"")
   string(FIND "${_xmake_helper_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "xmake/gentest.lua is missing expected native Xmake token: ${_expected}")
+  endif()
+endforeach()
+foreach(_forbidden IN ITEMS "\"--textual-wrapper-output\"" "\"--artifact-owner-source\"")
+  string(FIND "${_xmake_helper_content}" "${_forbidden}" _forbidden_pos)
+  if(NOT _forbidden_pos EQUAL -1)
+    message(FATAL_ERROR "xmake/gentest.lua retains obsolete textual replacement token: ${_forbidden}")
   endif()
 endforeach()
 
@@ -111,12 +126,20 @@ foreach(_expected IN ITEMS
     "public_module = ctx.actions.declare_file"
     "_gentest_module_registration_relpath"
     "\"--module-registration-output\""
+    "\"--textual-registration-output\""
+    "\"--scan-slot-kind\""
     "\"--artifact-manifest\""
     "_gentest_codegen_target("
     "output_group = \"module_interfaces\"")
   string(FIND "${_bazel_rules_content}" "${_expected}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR "build_defs/gentest.bzl is missing expected native Bazel token: ${_expected}")
+  endif()
+endforeach()
+foreach(_forbidden IN ITEMS "\"--textual-wrapper-output\"" "\"--artifact-owner-source\"" "suite_0000.cppm")
+  string(FIND "${_bazel_rules_content}" "${_forbidden}" _forbidden_pos)
+  if(NOT _forbidden_pos EQUAL -1)
+    message(FATAL_ERROR "build_defs/gentest.bzl retains obsolete source replacement/staging token: ${_forbidden}")
   endif()
 endforeach()
 
@@ -159,7 +182,7 @@ foreach(_expected IN ITEMS
     "gentest_add_mocks_modules("
     "defs_modules = ["
     "gentest_attach_codegen_modules("
-    "source_hdrs = ['tests/consumer/bazel_private_case_value.hpp']"
+    "'tests/consumer/cases.hpp'"
     "gentest_consumer_codegen_headers"
     "gentest_consumer_module_mocks"
     "gentest_consumer_module_bazel")

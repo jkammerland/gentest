@@ -461,9 +461,8 @@ foreach(_expected_file IN ITEMS
     "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0000_m_0000_service_module.gentest.h"
     "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.module.gentest.cppm"
     "${_bazel_bin_dir}/gen/gentest_consumer_module_mocks/tu_0001_m_0001_module_mock_defs.gentest.h"
-    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/suite_0000.cppm"
-    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/tu_0000_suite_0000.registration.gentest.cpp"
-    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/tu_0000_suite_0000.gentest.h"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/tu_0000_cases.registration.gentest.cpp"
+    "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/tu_0000_cases.gentest.h"
     "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/gentest_consumer_module_bazel.artifact_manifest.json")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR
@@ -476,9 +475,9 @@ endforeach()
 gentest_expect_module_artifact_manifest(
   "${_bazel_bin_dir}/gen/gentest_consumer_module_bazel/gentest_consumer_module_bazel.artifact_manifest.json"
   "gentest.consumer_cases"
-  "gentest_consumer_module_bazel:"
-  "suite_0000.cppm"
-  "gentest_consumer_module_bazel/tu_0000_suite_0000.registration.gentest.cpp")
+  "gentest_consumer_module_bazel:tests/consumer/cases.cppm"
+  "tests/consumer/cases.cppm"
+  "gentest_consumer_module_bazel/tu_0000_cases.registration.gentest.cpp")
 
 execute_process(
   COMMAND "${_consumer_binary}" --list

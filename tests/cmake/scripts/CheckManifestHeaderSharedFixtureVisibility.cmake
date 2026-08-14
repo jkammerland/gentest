@@ -34,7 +34,7 @@ file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
-  gentest_skip_test("manifest header shared fixture visibility regression: no usable clang/clang++ pair was provided")
+  gentest_skip_test("additive header shared fixture visibility regression: no usable clang/clang++ pair was provided")
   return()
 endif()
 
@@ -53,7 +53,7 @@ set(_cmake_cache_args
 if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
   gentest_find_supported_ninja(_supported_ninja _supported_ninja_reason)
   if(NOT _supported_ninja)
-    gentest_skip_test("manifest header shared fixture visibility regression: ${_supported_ninja_reason}")
+    gentest_skip_test("additive header shared fixture visibility regression: ${_supported_ninja_reason}")
     return()
   endif()
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${_supported_ninja}")
@@ -110,8 +110,8 @@ string(FIND "${_run_output}" "[ PASS ]" _pass_marker_pos)
 string(FIND "${_run_output}" "manifest_fixture/manifest/header_shared_fixture" _case_pos)
 if(_pass_marker_pos EQUAL -1 OR _case_pos EQUAL -1)
   message(FATAL_ERROR
-    "Expected manifest header shared fixture case to pass.\n"
+    "Expected additive header shared fixture case to pass.\n"
     "Output:\n${_run_output}")
 endif()
 
-message(STATUS "Manifest header shared fixture visibility regression passed")
+message(STATUS "Additive header shared fixture visibility regression passed")

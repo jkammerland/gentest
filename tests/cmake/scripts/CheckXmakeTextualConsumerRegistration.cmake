@@ -205,10 +205,20 @@ foreach(_expected IN ITEMS
   endif()
 endforeach()
 
-string(FIND "${_target_out_norm}" "tu_0000_cases.gentest.cpp" _source_pos)
-if(_source_pos EQUAL -1)
+foreach(_expected_source IN ITEMS
+    "tests/consumer/cases.cpp"
+    "tu_0000_cases.header_registration.gentest.cpp")
+  string(FIND "${_target_out_norm}" "${_expected_source}" _source_pos)
+  if(_source_pos EQUAL -1)
+    message(FATAL_ERROR
+      "gentest_consumer_textual_xmake should compile '${_expected_source}'.\n"
+      "xmake target output:\n${_target_out}")
+  endif()
+endforeach()
+string(FIND "${_target_out_norm}" "tu_0000_cases.gentest.cpp" _obsolete_source_pos)
+if(NOT _obsolete_source_pos EQUAL -1)
   message(FATAL_ERROR
-    "gentest_consumer_textual_xmake should generate the shared consumer wrapper for cases.cpp.\n"
+    "gentest_consumer_textual_xmake must not retain the textual replacement wrapper.\n"
     "xmake target output:\n${_target_out}")
 endif()
 

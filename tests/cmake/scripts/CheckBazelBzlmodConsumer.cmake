@@ -480,9 +480,8 @@ foreach(_expected_file IN ITEMS
     "${_bazel_bin_dir}/gen/gentest_downstream_module_mocks/downstream/bazel/consumer_mocks.cppm"
     "${_bazel_bin_dir}/gen/gentest_downstream_module_mocks/gentest_downstream_module_mocks_mock_registry.hpp"
     "${_bazel_bin_dir}/gen/gentest_downstream_module_mocks/gentest_downstream_module_mocks_mock_impl.hpp"
-    "${_bazel_bin_dir}/gen/gentest_downstream_module/suite_0000.cppm"
-    "${_bazel_bin_dir}/gen/gentest_downstream_module/tu_0000_suite_0000.registration.gentest.cpp"
-    "${_bazel_bin_dir}/gen/gentest_downstream_module/tu_0000_suite_0000.gentest.h"
+    "${_bazel_bin_dir}/gen/gentest_downstream_module/tu_0000_cases.registration.gentest.cpp"
+    "${_bazel_bin_dir}/gen/gentest_downstream_module/tu_0000_cases.gentest.h"
     "${_bazel_bin_dir}/gen/gentest_downstream_module/gentest_downstream_module.artifact_manifest.json")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR
@@ -495,9 +494,9 @@ endforeach()
 gentest_expect_module_artifact_manifest(
   "${_bazel_bin_dir}/gen/gentest_downstream_module/gentest_downstream_module.artifact_manifest.json"
   "downstream.bazel.consumer_cases"
-  "gentest_downstream_module:"
-  "suite_0000.cppm"
-  "gentest_downstream_module/tu_0000_suite_0000.registration.gentest.cpp")
+  "gentest_downstream_module:tests/cases.cppm"
+  "tests/cases.cppm"
+  "gentest_downstream_module/tu_0000_cases.registration.gentest.cpp")
 
 foreach(_binary IN ITEMS
     "${_bazel_bin_dir}/gentest_downstream_textual"

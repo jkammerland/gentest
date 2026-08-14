@@ -63,8 +63,6 @@ target_compile_features(gentest_compare_tests PRIVATE cxx_std_20)
 target_include_directories(gentest_compare_tests PRIVATE
     "${GENTEST_COMPARE_SOURCE_DIR}/include"
     "${GENTEST_COMPARE_SOURCE_DIR}/tests")
-set_property(TARGET gentest_compare_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
-
 gentest_attach_codegen(gentest_compare_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/gentest_compare_generated"
     CLANG_ARGS
@@ -78,8 +76,6 @@ target_compile_features(gentest_compare_benchmarks PRIVATE cxx_std_20)
 target_include_directories(gentest_compare_benchmarks PRIVATE
     "${GENTEST_COMPARE_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}")
-set_property(TARGET gentest_compare_benchmarks PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
-
 gentest_attach_codegen(gentest_compare_benchmarks
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/gentest_compare_benchmark_generated"
     CLANG_ARGS

@@ -50,8 +50,7 @@ or worker order.
 
 ## Compatibility
 
-The previous-major wrapper/include backend remains an internal compatibility
-path while repository and downstream fixtures migrate. It is not a second
-ordinary `gentest_attach_codegen` strategy. Named-module-authored tests continue
-to use `MODULE_REGISTRATION FILE_SET`; explicit mock generation remains its own
-pipeline.
+The previous-major ordinary wrapper/include backend was removed after repository
+and downstream fixtures migrated. Named-module-authored tests use
+`MODULE_REGISTRATION FILE_SET`; explicit named-module mock generation remains a
+separate internal pipeline rather than a test-registration fallback.

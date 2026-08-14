@@ -30,12 +30,6 @@ if(NOT _clang OR NOT _clangxx)
   gentest_skip_test("module .cpp source regression: clang/clang++ not found")
   return()
 endif()
-gentest_module_cpp_source_textual_wrapper_skip_reason(_module_cpp_source_skip_reason "${_clangxx}")
-if(NOT "${_module_cpp_source_skip_reason}" STREQUAL "")
-  gentest_skip_test("${_module_cpp_source_skip_reason}")
-  return()
-endif()
-
 set(_cmake_gen_args -G "${GENERATOR}")
 if(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")
   list(APPEND _cmake_gen_args -A "${GENERATOR_PLATFORM}")
@@ -103,19 +97,38 @@ if(DEFINED NO_EXPLICIT_CODEGEN AND NO_EXPLICIT_CODEGEN)
   endif()
 endif()
 
-if(EXISTS "${_build_dir}/generated/tu_0001_import_only.module.gentest.cpp")
-  message(FATAL_ERROR
-    "Import-only .cpp source with CXX_SCAN_FOR_MODULES=ON was misclassified as a named module wrapper")
-endif()
-if(NOT EXISTS "${_build_dir}/generated/tu_0001_import_only.gentest.cpp")
-  message(FATAL_ERROR
-    "Expected import-only .cpp source with CXX_SCAN_FOR_MODULES=ON to use the textual TU wrapper")
-endif()
-
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target cpp_source_module_tests
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
+
+file(READ "${_build_dir}/compile_commands.json" _compdb)
+string(JSON _compdb_count LENGTH "${_compdb}")
+set(_import_only_entry_count 0)
+math(EXPR _compdb_last "${_compdb_count} - 1")
+foreach(_compdb_index RANGE 0 ${_compdb_last})
+  string(JSON _compdb_file GET "${_compdb}" ${_compdb_index} file)
+  file(TO_CMAKE_PATH "${_compdb_file}" _compdb_file)
+  if(_compdb_file MATCHES "/import_only\\.cpp$")
+    math(EXPR _import_only_entry_count "${_import_only_entry_count} + 1")
+  elseif(_compdb_file MATCHES "import_only.*gentest\\.cpp")
+    message(FATAL_ERROR "The classic importing source was replaced by generated code: ${_compdb_file}")
+  endif()
+endforeach()
+if(NOT _import_only_entry_count EQUAL 1)
+  message(FATAL_ERROR "Expected one direct compile command for import_only.cpp, got ${_import_only_entry_count}")
+endif()
+
+file(GLOB _registration_sources "${_build_dir}/generated/tu_*.registration.gentest.cpp")
+list(LENGTH _registration_sources _registration_source_count)
+if(NOT _registration_source_count EQUAL 2)
+  message(FATAL_ERROR
+    "Expected two importer registration sources for the module file set, got ${_registration_source_count}: ${_registration_sources}")
+endif()
+file(GLOB _import_only_wrappers "${_build_dir}/generated/tu_*_import_only.gentest.cpp")
+if(_import_only_wrappers)
+  message(FATAL_ERROR "The classic importing source must not have a generated replacement: ${_import_only_wrappers}")
+endif()
 
 set(_exe "${_build_dir}/cpp_source_module_tests")
 if(CMAKE_HOST_WIN32)

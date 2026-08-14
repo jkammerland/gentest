@@ -1,37 +1,7 @@
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
-#include "helper.hpp" // use mock<T> in non-annotated helper code
-#include "public/gentest_textual_suite_mocks.hpp"
+#include "cases.hpp"
 
-#include <array>
-#include <atomic>
-#include <condition_variable>
-#include <list>
-#include <mutex>
-#include <thread>
-#include <tuple>
-#include <type_traits>
-#include <vector>
-
-using namespace gentest::asserts;
 namespace mocking {
 
-static_assert(!std::is_default_constructible_v<gentest::mock<NoDefault>>);
-static_assert(std::is_nothrow_constructible_v<gentest::mock<NoDefault>, int>);
-static_assert(std::is_constructible_v<gentest::mock<NoDefault>, int, long>);
-static_assert(!std::is_nothrow_constructible_v<gentest::mock<NoDefault>, int, long>);
-static_assert(std::is_nothrow_constructible_v<gentest::mock<NoDefault>, short, int>);
-
-static_assert(!std::is_default_constructible_v<gentest::mock<NeedsInit>>);
-static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, int>);
-static_assert(std::is_constructible_v<gentest::mock<NeedsInit>, int, long>);
-static_assert(!std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, int, long>);
-static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, short>);
-static_assert(std::is_nothrow_constructible_v<gentest::mock<NeedsInit>, short, int>);
-
-static_assert(std::is_nothrow_constructible_v<gentest::mock<TemplateTemplateCtorTarget>, std::array<int, 2>>);
-
-[[using gentest: test("mocking/interface/returns")]]
 void interface_returns() {
     gentest::mock<Calculator> mock_calc;
     EXPECT_CALL(mock_calc, compute).times(1).returns(42);
@@ -41,7 +11,10 @@ void interface_returns() {
     EXPECT_EQ(result, 42);
 }
 
-[[using gentest: test("mocking/interface/returns_ref")]]
+} // namespace mocking
+
+namespace mocking {
+
 void interface_returns_ref() {
     gentest::mock<RefProvider> mock_ref;
     int                        storage = 7;
@@ -54,7 +27,10 @@ void interface_returns_ref() {
     EXPECT_EQ(storage, 9);
 }
 
-[[using gentest: test("mocking/interface/returns_matches")]]
+} // namespace mocking
+
+namespace mocking {
+
 void interface_returns_matches() {
     gentest::mock<Calculator> mock_calc;
     EXPECT_CALL(mock_calc, compute).with(12, 30).returns(42);
@@ -64,7 +40,10 @@ void interface_returns_matches() {
     EXPECT_EQ(result, 42);
 }
 
-[[using gentest: test("mocking/interface/reset")]]
+} // namespace mocking
+
+namespace mocking {
+
 void interface_reset() {
     gentest::mock<Calculator> mock_calc;
     int                       resets = 0;
@@ -77,7 +56,10 @@ void interface_reset() {
     EXPECT_EQ(resets, 2);
 }
 
-[[using gentest: test("mocking/interface/non_default_ctor")]]
+} // namespace mocking
+
+namespace mocking {
+
 void interface_non_default_ctor() {
     gentest::mock<NeedsInit> mock_clock{5};
     EXPECT_CALL(mock_clock, now).times(1).returns(123);
@@ -86,7 +68,10 @@ void interface_non_default_ctor() {
     EXPECT_EQ(iface->now(), 123);
 }
 
-[[using gentest: test("mocking/concrete/invokes")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concrete_invokes() {
     gentest::mock<Ticker> mock_tick;
     int                   observed = 0;
@@ -99,7 +84,10 @@ void concrete_invokes() {
     EXPECT_EQ(observed, 6);
 }
 
-[[using gentest: test("mocking/concrete/non_default_ctor")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concrete_non_default_ctor() {
     gentest::mock<NoDefault> mock_nd{7};
     EXPECT_CALL(mock_nd, work).times(1).with(3);
@@ -107,7 +95,10 @@ void concrete_non_default_ctor() {
     mock_nd.work(3);
 }
 
-[[using gentest: test("mocking/concrete/static_member")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concrete_static_member() {
     gentest::mock<Ticker> mock_tick;
     EXPECT_CALL(mock_tick, add).times(1).returns(123);
@@ -115,7 +106,10 @@ void concrete_static_member() {
     EXPECT_EQ(mock_tick.add(4, 5), 123);
 }
 
-[[using gentest: test("mocking/concrete/invokes_matches")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concrete_invokes_matches() {
     gentest::mock<Ticker> mock_tick;
     int                   observed = 0;
@@ -128,7 +122,10 @@ void concrete_invokes_matches() {
     EXPECT_EQ(observed, 3);
 }
 
-[[using gentest: test("mocking/concrete/predicate_match")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concrete_predicate_match() {
     gentest::mock<Ticker> mock_tick;
     int                   sum = 0;
@@ -141,7 +138,10 @@ void concrete_predicate_match() {
     EXPECT_EQ(sum, 6);
 }
 
-[[using gentest: test("mocking/concrete/template_member_expect_int")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concrete_template_member_expect_int() {
     gentest::mock<Ticker> mock_tick;
     int                   sum = 0;
@@ -153,7 +153,10 @@ void concrete_template_member_expect_int() {
     EXPECT_EQ(sum, 10);
 }
 
-[[using gentest: test("mocking/concrete/template_member_signature_collision")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concrete_template_member_signature_collision() {
     gentest::mock<Ticker> mock_tick;
     int                   tick_sum = 0;
@@ -170,7 +173,10 @@ void concrete_template_member_signature_collision() {
     EXPECT_EQ(tadd_sum, 10);
 }
 
-[[using gentest: test("mocking/concrete/template_member_instantiation_split")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concrete_template_member_instantiation_split() {
     gentest::mock<Ticker> mock_tick;
     int                   int_sum  = 0;
@@ -186,7 +192,10 @@ void concrete_template_member_instantiation_split() {
     EXPECT_EQ(long_sum, 6L);
 }
 
-[[using gentest: test("mocking/concrete/direct_expect_signature_collision")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concrete_direct_expect_signature_collision() {
     gentest::mock<Ticker> mock_tick;
     int                   tick_sum = 0;
@@ -203,7 +212,10 @@ void concrete_direct_expect_signature_collision() {
     EXPECT_EQ(tadd_sum, 14);
 }
 
-[[using gentest: test("mocking/concrete/direct_constant_expect_signature_collision")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concrete_direct_constant_expect_signature_collision() {
     gentest::mock<Ticker> mock_tick;
     int                   tick_sum = 0;
@@ -220,7 +232,10 @@ void concrete_direct_constant_expect_signature_collision() {
     EXPECT_EQ(tadd_sum, 18);
 }
 
-[[using gentest: test("mocking/template/forwarding_alias")]]
+} // namespace mocking
+
+namespace mocking {
+
 void template_forwarding_alias() {
     gentest::mock<ForwardingAlias> mock_alias;
     TrackedMove                    value;
@@ -233,7 +248,10 @@ void template_forwarding_alias() {
     EXPECT_FALSE(value.moved);
 }
 
-[[using gentest: test("mocking/template/direct_unique_template_member_expect")]]
+} // namespace mocking
+
+namespace mocking {
+
 void direct_unique_template_member_expect() {
     gentest::mock<ForwardingAlias> mock_alias;
     TrackedMove                    value;
@@ -247,7 +265,10 @@ void direct_unique_template_member_expect() {
     EXPECT_FALSE(value.moved);
 }
 
-[[using gentest: test("mocking/template/template_template_member_expect")]]
+} // namespace mocking
+
+namespace mocking {
+
 void template_template_member_expect() {
     gentest::mock<TemplateTemplateFixed> mock_fixed;
     int                                  calls = 0;
@@ -261,7 +282,10 @@ void template_template_member_expect() {
     EXPECT_EQ(calls, 1);
 }
 
-[[using gentest: test("mocking/template/template_template_ctor")]]
+} // namespace mocking
+
+namespace mocking {
+
 void template_template_ctor() {
     gentest::mock<TemplateTemplateCtorTarget> mock_target{std::array<int, 2>{1, 2}};
     EXPECT_CALL(mock_target, ping).times(1);
@@ -269,7 +293,10 @@ void template_template_ctor() {
     mock_target.ping();
 }
 
-[[using gentest: test("mocking/template/template_template_pack_direct_expect")]]
+} // namespace mocking
+
+namespace mocking {
+
 void template_template_pack_direct_expect() {
     gentest::mock<TemplateTemplatePacker> mock_packer;
     int                                   calls = 0;
@@ -287,7 +314,10 @@ void template_template_pack_direct_expect() {
     EXPECT_EQ(calls, 3);
 }
 
-[[using gentest: test("mocking/crtp/bridge")]]
+} // namespace mocking
+
+namespace mocking {
+
 void crtp_bridge() {
     gentest::mock<DerivedRunner> mock_runner;
     std::vector<int>             captured;
@@ -301,7 +331,10 @@ void crtp_bridge() {
     EXPECT_EQ(captured[1], 11);
 }
 
-[[using gentest: test("mocking/crtp/bridge_matches")]]
+} // namespace mocking
+
+namespace mocking {
+
 void crtp_bridge_matches() {
     gentest::mock<DerivedRunner> mock_runner;
     int                          count = 0;
@@ -313,7 +346,10 @@ void crtp_bridge_matches() {
     EXPECT_EQ(count, 2);
 }
 
-[[using gentest: test("mocking/matchers/eq_any")]]
+} // namespace mocking
+
+namespace mocking {
+
 void matchers_eq_any() {
     using namespace gentest::match;
     gentest::mock<Calculator> mock_calc;
@@ -324,7 +360,10 @@ void matchers_eq_any() {
     EXPECT_EQ(result, 300);
 }
 
-[[using gentest: test("mocking/matchers/in_range")]]
+} // namespace mocking
+
+namespace mocking {
+
 void matchers_in_range() {
     using namespace gentest::match;
     gentest::mock<Ticker> mock_tick;
@@ -336,7 +375,10 @@ void matchers_in_range() {
     EXPECT_EQ(count, 2);
 }
 
-[[using gentest: test("mocking/matchers/not")]]
+} // namespace mocking
+
+namespace mocking {
+
 void matchers_not() {
     using namespace gentest::match;
     gentest::mock<Ticker> mock_tick;
@@ -348,7 +390,10 @@ void matchers_not() {
     EXPECT_EQ(sum, 3);
 }
 
-[[using gentest: test("mocking/matchers/where_call")]]
+} // namespace mocking
+
+namespace mocking {
+
 void matchers_where_call() {
     gentest::mock<Calculator> mock_calc;
     EXPECT_CALL(mock_calc, compute).times(1).where_call([](int lhs, int rhs) { return ((lhs + rhs) % 2) == 0; }).returns(42);
@@ -358,7 +403,10 @@ void matchers_where_call() {
     EXPECT_EQ(result, 42);
 }
 
-[[using gentest: test("mocking/move_only/with_eq")]]
+} // namespace mocking
+
+namespace mocking {
+
 void move_only_with_eq() {
     gentest::mock<MOConsumer> mock_mo;
     int                       hits = 0;
@@ -368,7 +416,10 @@ void move_only_with_eq() {
     EXPECT_EQ(hits, 1);
 }
 
-[[using gentest: test("mocking/move_only/refwrap_by_value")]]
+} // namespace mocking
+
+namespace mocking {
+
 void move_only_refwrap_by_value() {
     gentest::mock<RefWrapConsumer> mock_wrap;
     EXPECT_CALL(mock_wrap, take).times(1);
@@ -377,7 +428,10 @@ void move_only_refwrap_by_value() {
     EXPECT_TRUE(true);
 }
 
-[[using gentest: test("mocking/matchers/str_contains")]]
+} // namespace mocking
+
+namespace mocking {
+
 void matchers_str_contains() {
     using namespace gentest::match;
     gentest::mock<Stringer> mock_str;
@@ -389,7 +443,10 @@ void matchers_str_contains() {
     EXPECT_EQ(hits, 2);
 }
 
-[[using gentest: test("mocking/matchers/starts_ends")]]
+} // namespace mocking
+
+namespace mocking {
+
 void matchers_starts_ends() {
     using namespace gentest::match;
     gentest::mock<Stringer> mock_str;
@@ -400,7 +457,10 @@ void matchers_starts_ends() {
     EXPECT_EQ(hits, 1);
 }
 
-[[using gentest: test("mocking/matchers/cstr_null_safe")]]
+} // namespace mocking
+
+namespace mocking {
+
 void matchers_cstr_null_safe() {
     using namespace gentest::match;
 
@@ -426,7 +486,10 @@ void matchers_cstr_null_safe() {
     EXPECT_TRUE(ends.test("123xyz"));
 }
 
-[[using gentest: test("mocking/matchers/near")]]
+} // namespace mocking
+
+namespace mocking {
+
 void matchers_near() {
     using namespace gentest::match;
     gentest::mock<Floater> mock_fl;
@@ -438,7 +501,10 @@ void matchers_near() {
     EXPECT_EQ(hits, 2);
 }
 
-[[using gentest: test("mocking/matchers/ge_anyof")]]
+} // namespace mocking
+
+namespace mocking {
+
 void matchers_ge_anyof() {
     using namespace gentest::match;
     gentest::mock<Ticker> mock_tick;
@@ -450,7 +516,10 @@ void matchers_ge_anyof() {
     EXPECT_EQ(count, 2);
 }
 
-[[using gentest: test("mocking/concurrency/adopted_ordered_dispatch")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concurrency_adopted_ordered_dispatch() {
     gentest::mock<Calculator> mock_calc;
     std::mutex                gate_mtx;
@@ -512,7 +581,10 @@ void concurrency_adopted_ordered_dispatch() {
     EXPECT_EQ(results[1], 22);
 }
 
-[[using gentest: test("mocking/concurrency/late_mutation_ignored_after_runtime_start")]]
+} // namespace mocking
+
+namespace mocking {
+
 void concurrency_late_mutation_ignored_after_runtime_start() {
     gentest::mock<Calculator> mock_calc;
     std::mutex                gate_mtx;
@@ -569,7 +641,10 @@ void concurrency_late_mutation_ignored_after_runtime_start() {
     EXPECT_TRUE(first_args_ok.load(std::memory_order_acquire));
 }
 
-[[using gentest: test("mocking/nice/unexpected_ok")]]
+} // namespace mocking
+
+namespace mocking {
+
 void nice_unexpected_ok() {
     gentest::mock<Ticker> mock_tick;
     gentest::make_nice(mock_tick, true);

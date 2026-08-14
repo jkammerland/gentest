@@ -109,6 +109,7 @@ local function gentest_suite(name)
             name = "gentest_" .. name .. "_xmake",
             kind = "textual",
             source = path.join("tests", name, "cases.cpp"),
+            headerfiles = {path.join("tests", name, "cases.hpp")},
             output_dir = path.join(current_gen_root(), name),
             deps = {"gentest_main"},
         })
@@ -147,6 +148,7 @@ target("gentest_consumer_textual_xmake")
         name = "gentest_consumer_textual_xmake",
         kind = "textual",
         source = "tests/consumer/cases.cpp",
+        headerfiles = {"tests/consumer/cases.hpp"},
         main = "tests/consumer/main.cpp",
         output_dir = path.join(current_gen_root(), "consumer_textual"),
         deps = {"gentest_main", "gentest_consumer_textual_mocks_xmake"},

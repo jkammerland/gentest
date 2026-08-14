@@ -12,6 +12,7 @@ gentest_main_dep = gentest_sp.get_variable('gentest_main_dep')
 gentest_runtime_dep = gentest_sp.get_variable('gentest_runtime_dep')
 gentest_public_include_path = gentest_sp.get_variable('gentest_public_include_path')
 gentest_third_party_include_path = gentest_sp.get_variable('gentest_third_party_include_path')
+gentest_textual_mock_anchor_template = gentest_sp.get_variable('gentest_textual_mock_anchor_template')
 gentest_fmt_pkgconfig_include_dirs = gentest_sp.get_variable('fmt_pkgconfig_include_dirs')
 gentest_fmt_fallback_include_dir = gentest_sp.get_variable('fmt_fallback_include_dir')
 
@@ -58,6 +59,7 @@ foreach suite_decl : gentest_textual_suites
     error('gentest Meson helper is textual-only; named modules are intentionally unsupported')
   endif
   gentest_textual_support_seed_paths += [suite_decl['source']]
+  gentest_textual_support_seed_paths += suite_decl.get('declaration_headers', [])
   gentest_textual_support_seed_paths += suite_decl.get('source_includes', [])
 endforeach
 
@@ -100,6 +102,7 @@ endif
 
 gentest_textual_mock_targets = {}
 gentest_textual_mock_codegen_targets = {}
+gentest_textual_mock_codegen_dependencies = {}
 gentest_textual_mock_public_headers = {}
 
 foreach mock_decl : gentest_textual_mocks
@@ -124,20 +127,24 @@ foreach mock_decl : gentest_textual_mocks
     mock_cpp_args += ['-I@0@'.format(include_abs)]
   endforeach
 
-  mock_defs_cpp = '@0@_defs.cpp'.format(mock_id)
-  mock_codegen_h = 'tu_0000_@0@_defs.gentest.h'.format(mock_id)
-  mock_depfile = '@0@.d'.format(mock_codegen_h)
+  mock_anchor_cpp = '@0@_anchor.cpp'.format(mock_id)
+  mock_depfile = '@0@_mock_codegen.d'.format(mock_id)
   mock_registry_h = '@0@_mock_registry.hpp'.format(mock_id)
   mock_impl_h = '@0@_mock_impl.hpp'.format(mock_id)
   mock_domain_registry_h = '@0@_mock_registry__domain_0000_header.hpp'.format(mock_id)
   mock_domain_impl_h = '@0@_mock_impl__domain_0000_header.hpp'.format(mock_id)
   mock_public_h = mock_decl.get('public_header', '@0@.hpp'.format(mock_name))
+  mock_anchor_config = configuration_data()
+  mock_anchor_config.set('GENTEST_MOCK_PUBLIC_HEADER', mock_public_h)
+  mock_anchor = configure_file(
+    input: gentest_textual_mock_anchor_template,
+    output: mock_anchor_cpp,
+    configuration: mock_anchor_config,
+  )
 
   mock_codegen = custom_target(
     'gen_@0@'.format(mock_id),
     output: [
-      mock_defs_cpp,
-      mock_codegen_h,
       mock_registry_h,
       mock_impl_h,
       mock_domain_registry_h,
@@ -149,8 +156,6 @@ foreach mock_decl : gentest_textual_mocks
       gentest_codegen,
       '--source-root', meson.project_source_root(),
       '--tu-out-dir', meson.current_build_dir(),
-      '--tu-header-output', join_paths(meson.current_build_dir(), mock_codegen_h),
-      '--textual-wrapper-output', join_paths(meson.current_build_dir(), mock_defs_cpp),
       '--mock-registry', join_paths(meson.current_build_dir(), mock_registry_h),
       '--mock-impl', join_paths(meson.current_build_dir(), mock_impl_h),
       '--mock-domain-registry-output', join_paths(meson.current_build_dir(), mock_domain_registry_h),
@@ -169,7 +174,7 @@ foreach mock_decl : gentest_textual_mocks
 
   mock_lib = static_library(
     mock_name,
-    [mock_codegen[0]],
+    [mock_anchor, mock_codegen],
     include_directories: mock_include_dirs,
     cpp_args: mock_cpp_args,
     dependencies: [gentest_runtime_dep] + mock_decl.get('dependencies', []),
@@ -178,7 +183,8 @@ foreach mock_decl : gentest_textual_mocks
 
   gentest_textual_mock_targets += {mock_name: mock_lib}
   gentest_textual_mock_codegen_targets += {mock_name: mock_codegen}
-  gentest_textual_mock_public_headers += {mock_name: mock_codegen[6]}
+  gentest_textual_mock_codegen_dependencies += {mock_name: declare_dependency(sources: mock_codegen)}
+  gentest_textual_mock_public_headers += {mock_name: mock_codegen[4]}
 endforeach
 
 gentest_textual_suite_targets = {}
@@ -193,6 +199,15 @@ foreach suite_decl : gentest_textual_suites
     suite_source_abs = join_paths(meson.project_source_root(), suite_source_abs)
   endif
   suite_main = suite_decl.get('main', [])
+  suite_declaration_headers = suite_decl.get('declaration_headers', [])
+  suite_declaration_header_inputs = []
+  foreach declaration_header : suite_declaration_headers
+    declaration_header_abs = declaration_header
+    if not fs.is_absolute(declaration_header_abs)
+      declaration_header_abs = join_paths(meson.project_source_root(), declaration_header_abs)
+    endif
+    suite_declaration_header_inputs += [declaration_header_abs]
+  endforeach
 
   suite_source_includes = suite_decl.get('source_includes', [])
   suite_clang_args = gentest_textual_base_clang_args + suite_decl.get('clang_args', [])
@@ -208,30 +223,30 @@ foreach suite_decl : gentest_textual_suites
   endforeach
 
   suite_mock_codegen_inputs = []
+  suite_mock_codegen_dependencies = []
   suite_mock_libraries = []
   foreach suite_mock_name : suite_decl.get('mocks', [])
     suite_mock_codegen_inputs += [gentest_textual_mock_codegen_targets[suite_mock_name]]
+    suite_mock_codegen_dependencies += [gentest_textual_mock_codegen_dependencies[suite_mock_name]]
     suite_mock_libraries += [gentest_textual_mock_targets[suite_mock_name]]
   endforeach
 
-  suite_wrapper_cpp = 'tu_0000_@0@_cases.gentest.cpp'.format(suite_id)
-  suite_wrapper_h = 'tu_0000_@0@_cases.gentest.h'.format(suite_id)
-  suite_depfile = '@0@.d'.format(suite_wrapper_h)
+  suite_registration_cpp = 'tu_0000_@0@_cases.header_registration.gentest.cpp'.format(suite_id)
+  suite_depfile = '@0@.gentest.d'.format(suite_id)
   suite_manifest = '@0@.artifact_manifest.json'.format(suite_name)
 
   suite_codegen = custom_target(
     'gen_@0@'.format(suite_id),
-    output: [suite_wrapper_cpp, suite_wrapper_h, suite_manifest],
-    input: [suite_source_abs] + suite_mock_codegen_inputs + gentest_textual_support_inputs,
+    output: [suite_registration_cpp, suite_manifest],
+    input: [suite_source_abs] + suite_declaration_header_inputs + suite_mock_codegen_inputs + gentest_textual_support_inputs,
     command: [
       gentest_codegen,
       '--source-root', meson.project_source_root(),
       '--tu-out-dir', meson.current_build_dir(),
-      '--tu-header-output', join_paths(meson.current_build_dir(), suite_wrapper_h),
-      '--textual-wrapper-output', join_paths(meson.current_build_dir(), suite_wrapper_cpp),
+      '--textual-registration-output', join_paths(meson.current_build_dir(), suite_registration_cpp),
+      '--scan-slot-kind', 'authored-tu',
       '--depfile', join_paths(meson.current_build_dir(), suite_depfile),
       '--artifact-manifest', join_paths(meson.current_build_dir(), suite_manifest),
-      '--artifact-owner-source', suite_source_abs,
       '--compile-context-id', '@0@:@1@'.format(suite_name, suite_source_abs),
       gentest_codegen_tool_args,
       '@INPUT0@',
@@ -242,14 +257,14 @@ foreach suite_decl : gentest_textual_suites
     build_by_default: suite_decl.get('build_by_default', true)
   )
 
-  suite_sources = [suite_codegen[0]]
+  suite_sources = [suite_source_abs, suite_codegen[0]]
   suite_sources += suite_main
   suite_target = executable(
     suite_name,
     suite_sources,
     include_directories: suite_include_dirs,
     link_with: suite_mock_libraries + suite_decl.get('link_with', []),
-    dependencies: [gentest_main_dep, gentest_runtime_dep] + suite_decl.get('dependencies', []),
+    dependencies: [gentest_main_dep, gentest_runtime_dep] + suite_mock_codegen_dependencies + suite_decl.get('dependencies', []),
     cpp_args: suite_cpp_args,
     install: suite_decl.get('install', false),
   )

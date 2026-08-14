@@ -3,14 +3,14 @@
 This note documents how `gentest_codegen` parallelizes parsing/emission across
 predeclared scan slots and how to verify that parallel output remains identical
 to serial output. Ordinary textual CMake targets now use additive
-header-declaration slots; the previous-major per-TU wrappers remain an internal
-compatibility path.
+header-declaration slots. Ordinary per-TU wrappers no longer have an internal
+compatibility path; only the separate generated named-module mock provider uses module-specific transformation.
 
 ## Terminology
 
 - **Invocation**: a single `gentest_codegen ...` process started by the build system.
 - **Input scan slots**: target-unique authored-TU/fallback-header slots in the
-  additive model, or generated `tu_*.gentest.cpp` shims in compatibility mode.
+  additive model, or module-specific generated inputs for named-module mock providers.
 - **Codegen job**: a **worker thread inside one `gentest_codegen` process**, used to parse/emit multiple scan slots concurrently.
 
 Important: this is independent of `cmake --build -j` / Ninja scheduling, which controls how many *processes / build edges* run in parallel.
