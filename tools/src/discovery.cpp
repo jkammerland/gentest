@@ -130,8 +130,13 @@ bool is_importer_reachable_entity(const NamedDecl &decl) {
     return exported(&decl) || exported(llvm::dyn_cast_or_null<NamedDecl>(decl.getCanonicalDecl()));
 }
 
-bool module_reexports(const Module &importer, const Module &target, std::unordered_set<const Module *> &visited) {
-    if (!visited.insert(&importer).second) {
+struct ModuleReexportSearch {
+    const Module                      &target;
+    std::unordered_set<const Module *> visited;
+};
+
+bool module_reexports(const Module &importer, ModuleReexportSearch &search) {
+    if (!search.visited.insert(&importer).second) {
         return false;
     }
     for (const auto &export_decl : importer.Exports) {
@@ -139,10 +144,10 @@ bool module_reexports(const Module &importer, const Module &target, std::unorder
         if (exported == nullptr) {
             continue;
         }
-        if (exported == &target || exported->getFullModuleName() == target.getFullModuleName()) {
+        if (exported == &search.target || exported->getFullModuleName() == search.target.getFullModuleName()) {
             return true;
         }
-        if (module_reexports(*exported, target, visited)) {
+        if (module_reexports(*exported, search)) {
             return true;
         }
     }
@@ -162,8 +167,8 @@ bool is_reachable_from_importer(const NamedDecl &decl, const NamedDecl &importer
     if (decl_module == importer_module || decl_module->getFullModuleName() == importer_module->getFullModuleName()) {
         return true;
     }
-    std::unordered_set<const Module *> visited;
-    return module_reexports(*importer_module, *decl_module, visited);
+    ModuleReexportSearch search{.target = *decl_module};
+    return module_reexports(*importer_module, search);
 }
 
 std::string stable_entity_identity(const NamedDecl &decl) {
