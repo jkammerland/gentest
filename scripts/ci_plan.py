@@ -67,8 +67,6 @@ BAZEL_PATHS = frozenset(
 MESON_PATHS = frozenset({"meson.build", "meson_options.txt"})
 XMAKE_PATHS = frozenset({"xmake.lua"})
 
-BUILDSYSTEM_COMMON_PATHS = frozenset({"scripts/gentest_buildsystem_codegen.py"})
-
 CORE_PREFIXES = (
     "benchmarks/",
     "cmake/",
@@ -197,8 +195,6 @@ def _is_doc_path(path: str) -> bool:
 def _specific_lanes(path: str) -> frozenset[str] | None:
     if path in LINT_PATHS:
         return frozenset({"lint"})
-    if path in BUILDSYSTEM_COMMON_PATHS:
-        return BUILDSYSTEM_LANES
     if path in BAZEL_PATHS or path.startswith(("bazel/", "build_defs/")) or path.endswith(".bzl"):
         return frozenset({"bazel"})
     if path in MESON_PATHS or path.startswith("meson/"):

@@ -25,12 +25,13 @@ foreach(_required IN ITEMS
 endforeach()
 
 foreach(_obsolete IN ITEMS
+    "${SOURCE_DIR}/scripts/gentest_buildsystem_codegen.py"
     "${SOURCE_DIR}/meson/tu_wrapper.cpp.in"
     "${SOURCE_DIR}/meson/textual_mock_defs.cpp.in"
     "${SOURCE_DIR}/meson/anchor.cpp.in"
     "${SOURCE_DIR}/meson/textual_mock_public.hpp.in")
   if(EXISTS "${_obsolete}")
-    message(FATAL_ERROR "Obsolete Meson template should be codegen-owned now: ${_obsolete}")
+    message(FATAL_ERROR "Obsolete build-system compatibility helper remains: ${_obsolete}")
   endif()
 endforeach()
 

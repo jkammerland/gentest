@@ -64,12 +64,6 @@ class PathClassificationTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(ci_plan.classify_paths([path]), plan)
 
-    def test_common_buildsystem_helper_runs_all_buildsystem_lanes(self) -> None:
-        self.assertEqual(
-            ci_plan.classify_paths(["scripts/gentest_buildsystem_codegen.py"]),
-            expected("bazel", "meson", "xmake"),
-        )
-
     def test_dependency_changes_enable_every_lane(self) -> None:
         for path in ["vcpkg.json", "MODULE.bazel.lock", "requirements-dev.txt"]:
             with self.subTest(path=path):
