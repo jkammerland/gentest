@@ -3426,6 +3426,10 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckHeaderDeclarationRegistration.cmake
     cmake)
 set_property(TEST gentest_header_declaration_registration APPEND PROPERTY LABELS "codegen;headers")
+# This acceptance test configures and builds several nested projects. Let its
+# Ninja processes own the available machine instead of overcommitting them with
+# other nested-build CTest jobs.
+set_property(TEST gentest_header_declaration_registration PROPERTY RUN_SERIAL TRUE)
 
 _gentest_add_cmake_helper_test(
     gentest_tu_header_case_collision
