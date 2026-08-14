@@ -867,7 +867,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
         const QualType fixture_qual_type = infer_fixture_qual_type_from_param(*param.decl);
         std::string    fixture_type      = infer_fixture_type_from_param(*param.decl, policy);
-        std::string    fixture_emit_type = print_type(fixture_qual_type, policy);
+        std::string    fixture_emit_type = fixture_type;
         if (fixture_type.empty()) {
             had_error_                      = true;
             const std::string fallback_name = param.name.empty() ? std::string("<unnamed>") : param.name;
@@ -875,6 +875,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             return;
         }
         if (module_importer_registration_) {
+            PrintingPolicy emit_policy     = policy;
+            emit_policy.SuppressScope      = false;
+            emit_policy.FullyQualifiedName = true;
+            fixture_emit_type              = print_type(fixture_qual_type, emit_policy);
             if (is_gentest_mock_adapter_type(fixture_qual_type)) {
                 had_error_ = true;
                 report(fmt::format("MODULE_REGISTRATION cannot generate direct mocks owned by named module '{}'; export a mock-provider "
