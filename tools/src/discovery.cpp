@@ -16,6 +16,7 @@
 #include <clang/AST/DeclTemplate.h>
 #include <clang/AST/ODRHash.h>
 #include <clang/AST/PrettyPrinter.h>
+#include <clang/AST/QualTypeNames.h>
 #include <clang/Basic/Module.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Basic/Version.h>
@@ -1070,7 +1071,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             PrintingPolicy emit_policy     = policy;
             emit_policy.SuppressScope      = false;
             emit_policy.FullyQualifiedName = true;
-            fixture_emit_type              = print_type(fixture_qual_type, emit_policy);
+            // The generic type printer preserves source spelling and can omit namespace qualifiers. Generated importer code needs a
+            // stable name valid outside the declaration's original scope.
+            fixture_emit_type = TypeName::getFullyQualifiedName(fixture_qual_type, *result.Context, emit_policy);
             if (is_gentest_mock_adapter_type(fixture_qual_type)) {
                 had_error_ = true;
                 report(fmt::format("MODULE_REGISTRATION cannot generate direct mocks owned by named module '{}'; export a mock-provider "
