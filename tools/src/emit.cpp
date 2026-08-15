@@ -576,7 +576,9 @@ std::string additive_header_include(const CollectorOptions &opts, std::size_t sc
     const std::string normalized_header = header.lexically_normal().generic_string();
     if (scan_index < opts.compile_context_ids.size()) {
         const std::string &context_id = opts.compile_context_ids[scan_index];
-        if (const auto separator = context_id.rfind(':'); separator != std::string::npos) {
+        // Compile-context IDs are "<target-id>:<source>". Use the first
+        // delimiter so a Windows drive colon remains part of the source path.
+        if (const auto separator = context_id.find(':'); separator != std::string::npos) {
             const fs::path    context_source = context_id.substr(separator + 1);
             const std::string context_parent = context_source.parent_path().lexically_normal().generic_string();
             if (!context_parent.empty() && context_parent != "." && !context_source.is_absolute()) {
