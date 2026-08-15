@@ -20,6 +20,11 @@ if("${_clangxx}" STREQUAL "")
   gentest_skip_test("module command retargeting regression: no clang++ compiler available")
   return()
 endif()
+gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
+if("${_clang_scan_deps}" STREQUAL "")
+  gentest_skip_test("module command retargeting regression: clang-scan-deps not found")
+  return()
+endif()
 
 file(TO_CMAKE_PATH "${_clangxx}" _clangxx_norm)
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
@@ -33,7 +38,7 @@ function(_gentest_run_codegen_expect_success)
     message(FATAL_ERROR "_gentest_run_codegen_expect_success requires NAME, COMPDB_DIR, and SOURCE_FILE")
   endif()
 
-  set(_cmd "${PROG}" --check --compdb "${RUN_COMPDB_DIR}")
+  set(_cmd "${PROG}" --check --compdb "${RUN_COMPDB_DIR}" --clang-scan-deps "${_clang_scan_deps}")
   if(DEFINED RUN_TU_OUT_DIR AND NOT "${RUN_TU_OUT_DIR}" STREQUAL "")
     list(APPEND _cmd --tu-out-dir "${RUN_TU_OUT_DIR}")
   endif()
@@ -144,7 +149,9 @@ if(NOT APPLE)
       "--unset=GENTEST_CODEGEN_HOST_CLANG"
       "PATH=${_env_fallback_empty_path}"
       "CXX=${_clangxx_norm}"
-      "${PROG}" --check --compdb "${_env_fallback_dir}" --tu-out-dir "${_env_fallback_generated_dir}"
+      "${PROG}" --check --compdb "${_env_fallback_dir}"
+      --clang-scan-deps "${_clang_scan_deps}"
+      --tu-out-dir "${_env_fallback_generated_dir}"
       --module-wrapper-output "${_env_fallback_wrapper_abs}"
       "${_env_fallback_source_abs}"
     WORKING_DIRECTORY "${_env_fallback_dir}"
@@ -225,7 +232,9 @@ gentest_fixture_make_compdb_entry(_joined_dep_entry
 gentest_fixture_write_compdb("${_joined_dep_dir}/compile_commands.json" "${_joined_dep_entry}")
 
 execute_process(
-  COMMAND "${PROG}" --check --compdb "${_joined_dep_dir}" "${_joined_dep_source_abs}"
+  COMMAND "${PROG}" --check --compdb "${_joined_dep_dir}"
+    --clang-scan-deps "${_clang_scan_deps}"
+    "${_joined_dep_source_abs}"
   RESULT_VARIABLE _joined_dep_rc
   OUTPUT_VARIABLE _joined_dep_out
   ERROR_VARIABLE _joined_dep_err
@@ -387,7 +396,9 @@ export int clang_cl_consumer_value() { return clang_cl_provider_value(); }
       "--unset=GENTEST_CODEGEN_HOST_CLANG"
       "CXX=${_fake_clangxx}"
       "GENTEST_CODEGEN_LOG_PRECOMPILE=1"
-      "${PROG}" --check --compdb "${_clang_cl_dir}" --tu-out-dir "${_clang_cl_dir}/generated"
+      "${PROG}" --check --compdb "${_clang_cl_dir}"
+      --clang-scan-deps "${_clang_scan_deps}"
+      --tu-out-dir "${_clang_cl_dir}/generated"
       --module-wrapper-output "${_clang_cl_provider_wrapper_abs}"
       --module-wrapper-output "${_clang_cl_consumer_wrapper_abs}"
       "${_clang_cl_provider_rel}" "${_clang_cl_consumer_rel}"
@@ -452,6 +463,7 @@ gentest_fixture_write_compdb("${_extra_arg_shell_tail_dir}/compile_commands.json
 
 execute_process(
   COMMAND "${PROG}" --check --compdb "${_extra_arg_shell_tail_dir}"
+    --clang-scan-deps "${_clang_scan_deps}"
     "${_extra_arg_provider_source_abs}" "${_extra_arg_consumer_source_abs}"
     --
     -isystem
@@ -507,6 +519,7 @@ gentest_fixture_write_compdb("${_module_dep_dir}/compile_commands.json"
 execute_process(
   COMMAND "${PROG}"
     --compdb "${_module_dep_dir}"
+    --clang-scan-deps "${_clang_scan_deps}"
     --tu-out-dir "${_module_dep_dir}/generated"
     --module-wrapper-output "${_module_dep_provider_wrapper}"
     --module-wrapper-output "${_module_dep_consumer_wrapper}"

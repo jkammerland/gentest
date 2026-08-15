@@ -471,7 +471,6 @@ endif()
 foreach(_required_action_token IN ITEMS
     "--source-root"
     "--host-clang"
-    "--scan-deps-mode=OFF"
     "no-remote"
     "no-sandbox"
     "gentest_codegen"

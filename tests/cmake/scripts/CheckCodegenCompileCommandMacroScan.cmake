@@ -18,16 +18,14 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_work_dir "${BUILD_ROOT}/codegen_compile_command_macro_scan")
-set(_generated_off_dir "${_work_dir}/generated_off")
-set(_generated_auto_dir "${_work_dir}/generated_auto")
-set(_generated_on_real_dir "${_work_dir}/generated_on_real")
-set(_generated_on_bad_dir "${_work_dir}/generated_on_bad")
-file(TO_CMAKE_PATH "${_generated_off_dir}/tu_0000_consumer.module.gentest.cppm" _off_wrapper_abs)
-file(TO_CMAKE_PATH "${_generated_auto_dir}/tu_0000_consumer.module.gentest.cppm" _auto_wrapper_abs)
-file(TO_CMAKE_PATH "${_generated_on_real_dir}/tu_0000_consumer.module.gentest.cppm" _on_real_wrapper_abs)
-file(TO_CMAKE_PATH "${_generated_on_bad_dir}/tu_0000_consumer.module.gentest.cppm" _on_bad_wrapper_abs)
+set(_generated_missing_dir "${_work_dir}/generated_missing")
+set(_generated_real_dir "${_work_dir}/generated_real")
+set(_generated_bad_dir "${_work_dir}/generated_bad")
+file(TO_CMAKE_PATH "${_generated_missing_dir}/tu_0000_consumer.module.gentest.cppm" _missing_wrapper_abs)
+file(TO_CMAKE_PATH "${_generated_real_dir}/tu_0000_consumer.module.gentest.cppm" _real_wrapper_abs)
+file(TO_CMAKE_PATH "${_generated_bad_dir}/tu_0000_consumer.module.gentest.cppm" _bad_wrapper_abs)
 file(REMOVE_RECURSE "${_work_dir}")
-file(MAKE_DIRECTORY "${_work_dir}" "${_generated_off_dir}" "${_generated_auto_dir}" "${_generated_on_real_dir}" "${_generated_on_bad_dir}")
+file(MAKE_DIRECTORY "${_work_dir}" "${_generated_missing_dir}" "${_generated_real_dir}" "${_generated_bad_dir}")
 
 gentest_resolve_clang_fixture_compilers(_clang _clangxx)
 if(NOT _clang OR NOT _clangxx)
@@ -100,114 +98,63 @@ gentest_fixture_make_compdb_entry(
     "-c" "${_consumer}" "-o" "${_consumer_obj}")
 gentest_fixture_write_compdb("${_compdb}" "${_provider_entry}" "${_consumer_entry}")
 
-message(STATUS "Run gentest_codegen with compile-command-defined module/import guards and scan-deps OFF...")
-gentest_check_run_or_fail(
+message(STATUS "Require clang-scan-deps for compile-command-defined module imports...")
+execute_process(
   COMMAND
-    "${CMAKE_COMMAND}" -E env
-    "GENTEST_CODEGEN_LOG_MODULE_IMPORTS=1"
     "${PROG}"
     --compdb "${_work_dir}"
-    --scan-deps-mode=OFF
-    --tu-out-dir "${_generated_off_dir}"
-    --module-wrapper-output "${_off_wrapper_abs}"
+    --tu-out-dir "${_generated_missing_dir}"
+    --module-wrapper-output "${_missing_wrapper_abs}"
     "${_consumer}"
   WORKING_DIRECTORY "${_work_dir}"
-  OUTPUT_VARIABLE _off_output
-  STRIP_TRAILING_WHITESPACE)
-
-string(FIND "${_off_output}" "gentest_codegen: source-scanned module imports for '${_consumer}':" _off_log_pos)
-if(_off_log_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected gentest_codegen scan-deps OFF leg to log the source-scanned module imports for the consumer source. Output:\n${_off_output}")
+  RESULT_VARIABLE _missing_rc
+  OUTPUT_VARIABLE _missing_out
+  ERROR_VARIABLE _missing_err
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_STRIP_TRAILING_WHITESPACE)
+if(_missing_rc EQUAL 0)
+  message(FATAL_ERROR "Expected named-module codegen without clang-scan-deps to fail")
 endif()
-
-string(FIND "${_off_output}" "  gentest.scan.provider" _off_import_pos)
-if(_off_import_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected gentest_codegen scan-deps OFF leg to log the discovered gentest.scan.provider import. Output:\n${_off_output}")
-endif()
-
-file(GLOB _provider_pcm_candidates "${_generated_off_dir}/.gentest_codegen_modules_*/ext_*.pcm")
-if(NOT _provider_pcm_candidates)
-  message(FATAL_ERROR
-    "Expected gentest_codegen to precompile the externally discovered macro-guarded provider module, which proves the consumer-side guarded import was discovered")
-endif()
-if(NOT EXISTS "${_generated_off_dir}/consumer.h")
-  message(FATAL_ERROR "Expected registration header for macro-guarded consumer to be generated")
-endif()
-
-# Windows-specific split /D and /U handling is covered by
-# CheckCodegenCompileCommandConditionWarnings.cmake. This helper keeps the
-# end-to-end macro-guarded import path on the stable GNU-style Clang flow so it
-# can assert successful external-module precompile plus header generation.
-
-set(_bad_scan_deps "${_work_dir}/missing-clang-scan-deps")
-
-message(STATUS "Run gentest_codegen with compile-command-defined module/import guards and scan-deps AUTO fallback...")
-gentest_check_run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}" -E env
-    "GENTEST_CODEGEN_LOG_SCAN_DEPS=1"
-    "${PROG}"
-    --compdb "${_work_dir}"
-    --scan-deps-mode=AUTO
-    --clang-scan-deps "${_bad_scan_deps}"
-    --tu-out-dir "${_generated_auto_dir}"
-    --module-wrapper-output "${_auto_wrapper_abs}"
-    "${_consumer}"
-  WORKING_DIRECTORY "${_work_dir}"
-  OUTPUT_VARIABLE _auto_output
-  STRIP_TRAILING_WHITESPACE)
-
-string(FIND "${_auto_output}" "gentest_codegen: info: falling back to source-scan named-module discovery" _auto_fallback_pos)
-if(_auto_fallback_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected gentest_codegen AUTO fallback leg to report source-scan fallback. Output:\n${_auto_output}")
-endif()
-
-file(GLOB _provider_pcm_auto_candidates "${_generated_auto_dir}/.gentest_codegen_modules_*/ext_*.pcm")
-if(NOT _provider_pcm_auto_candidates)
-  message(FATAL_ERROR
-    "Expected gentest_codegen AUTO fallback to precompile the externally discovered macro-guarded provider module")
-endif()
-if(NOT EXISTS "${_generated_auto_dir}/consumer.h")
-  message(FATAL_ERROR "Expected AUTO fallback to generate the registration header for the macro-guarded consumer")
+set(_missing_all "${_missing_out}\n${_missing_err}")
+string(FIND "${_missing_all}" "named-module codegen requires clang-scan-deps" _missing_message_pos)
+if(_missing_message_pos EQUAL -1)
+  message(FATAL_ERROR "Expected missing clang-scan-deps guidance. Output:\n${_missing_all}")
 endif()
 
 if(_scan_deps)
-  message(STATUS "Run gentest_codegen with compile-command-defined module/import guards and scan-deps ON...")
+  message(STATUS "Run gentest_codegen with compile-command-defined module/import guards and required clang-scan-deps...")
   gentest_check_run_or_fail(
     COMMAND
       "${CMAKE_COMMAND}" -E env
       "GENTEST_CODEGEN_LOG_SCAN_DEPS=1"
       "${PROG}"
       --compdb "${_work_dir}"
-      --scan-deps-mode=ON
       --clang-scan-deps "${_scan_deps}"
-      --tu-out-dir "${_generated_on_real_dir}"
-      --module-wrapper-output "${_on_real_wrapper_abs}"
+      --tu-out-dir "${_generated_real_dir}"
+      --module-wrapper-output "${_real_wrapper_abs}"
       "${_consumer}"
     WORKING_DIRECTORY "${_work_dir}"
-    OUTPUT_VARIABLE _on_real_output
+    OUTPUT_VARIABLE _real_output
     STRIP_TRAILING_WHITESPACE)
 
-  string(FIND "${_on_real_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _on_real_scan_deps_pos)
-  if(_on_real_scan_deps_pos EQUAL -1)
+  string(FIND "${_real_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _real_scan_deps_pos)
+  if(_real_scan_deps_pos EQUAL -1)
     message(FATAL_ERROR
-      "Expected gentest_codegen scan-deps ON leg to report actual clang-scan-deps usage. Output:\n${_on_real_output}")
+      "Expected gentest_codegen to report actual clang-scan-deps usage. Output:\n${_real_output}")
   endif()
 
-  file(GLOB _provider_pcm_on_real_candidates "${_generated_on_real_dir}/.gentest_codegen_modules_*/ext_*.pcm")
-  if(NOT _provider_pcm_on_real_candidates)
+  file(GLOB _provider_pcm_candidates "${_generated_real_dir}/.gentest_codegen_modules_*/ext_*.pcm")
+  if(NOT _provider_pcm_candidates)
     message(FATAL_ERROR
-      "Expected gentest_codegen scan-deps ON mode to precompile the externally discovered macro-guarded provider module")
+      "Expected gentest_codegen to precompile the externally discovered macro-guarded provider module")
   endif()
-  if(NOT EXISTS "${_generated_on_real_dir}/consumer.h")
-    message(FATAL_ERROR "Expected scan-deps ON mode to generate the registration header for the macro-guarded consumer")
+  if(NOT EXISTS "${_generated_real_dir}/consumer.h")
+    message(FATAL_ERROR "Expected registration header for the macro-guarded consumer")
   endif()
 endif()
 
-message(STATUS "Run gentest_codegen with compile-command-defined module/import guards and scan-deps ON failure...")
+set(_bad_scan_deps "${_work_dir}/missing-clang-scan-deps")
+message(STATUS "Reject an unusable required clang-scan-deps executable...")
 execute_process(
   COMMAND
     "${CMAKE_COMMAND}" -E env
@@ -215,10 +162,9 @@ execute_process(
     "CTEST_PARALLEL_LEVEL=2"
     "${PROG}"
     --compdb "${_work_dir}"
-    --scan-deps-mode=ON
     --clang-scan-deps "${_bad_scan_deps}"
-    --tu-out-dir "${_generated_on_bad_dir}"
-    --module-wrapper-output "${_on_bad_wrapper_abs}"
+    --tu-out-dir "${_generated_bad_dir}"
+    --module-wrapper-output "${_bad_wrapper_abs}"
     "${_consumer}"
   WORKING_DIRECTORY "${_work_dir}"
   RESULT_VARIABLE _scan_deps_on_rc
@@ -228,13 +174,11 @@ execute_process(
   ERROR_STRIP_TRAILING_WHITESPACE)
 
 if(_scan_deps_on_rc EQUAL 0)
-  message(FATAL_ERROR
-    "Expected gentest_codegen scan-deps ON mode to fail when clang-scan-deps is unavailable")
+  message(FATAL_ERROR "Expected gentest_codegen to fail when required clang-scan-deps is unavailable")
 endif()
 
 set(_scan_deps_on_all "${_scan_deps_on_out}\n${_scan_deps_on_err}")
-string(FIND "${_scan_deps_on_all}" "failed to resolve named-module dependencies via clang-scan-deps (mode=ON)" _scan_deps_on_pos)
+string(FIND "${_scan_deps_on_all}" "failed to resolve named-module dependencies via clang-scan-deps" _scan_deps_on_pos)
 if(_scan_deps_on_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected gentest_codegen scan-deps ON mode to report a clang-scan-deps failure. Output:\n${_scan_deps_on_all}")
+  message(FATAL_ERROR "Expected a required clang-scan-deps failure. Output:\n${_scan_deps_on_all}")
 endif()

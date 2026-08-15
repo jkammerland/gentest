@@ -17,12 +17,6 @@ if(NOT DEFINED GENTEST_CODEGEN_DEFAULT_CLANG_ARGS)
         "Default extra clang arguments for gentest_codegen. Set empty to disable.")
 endif()
 
-if(NOT DEFINED GENTEST_CODEGEN_SCAN_DEPS_MODE)
-    set(GENTEST_CODEGEN_SCAN_DEPS_MODE "" CACHE STRING
-        "Optional gentest_codegen named-module dependency discovery mode override (AUTO, ON, or OFF). Empty keeps the tool default.")
-    set_property(CACHE GENTEST_CODEGEN_SCAN_DEPS_MODE PROPERTY STRINGS "" AUTO ON OFF auto on off)
-endif()
-
 # CMake can schedule several gentest_codegen custom commands concurrently.  A
 # process-local auto setting would make every one of those commands consume all
 # hardware threads, which is especially expensive on CI.  Keep the direct
@@ -51,7 +45,7 @@ endif()
 
 if(NOT DEFINED GENTEST_CODEGEN_CLANG_SCAN_DEPS)
     set(GENTEST_CODEGEN_CLANG_SCAN_DEPS "" CACHE STRING
-        "Optional path to the clang-scan-deps executable used by gentest_codegen for named-module dependency discovery.")
+        "Host clang-scan-deps executable override for named-module codegen (normally discovered automatically).")
 endif()
 
 if(NOT DEFINED GENTEST_CODEGEN_HOST_CLANG)

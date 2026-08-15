@@ -84,9 +84,11 @@ if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
 endif()
 gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
-if(NOT "${_clang_scan_deps}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_clang_scan_deps}")
+if("${_clang_scan_deps}" STREQUAL "")
+  gentest_skip_test("module PCM cache isolation regression: clang-scan-deps not found")
+  return()
 endif()
+list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_clang_scan_deps}")
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
@@ -169,6 +171,8 @@ function(_gentest_run_codegen_fixture output_stem)
       --mock-domain-impl-output "${_mock_impl_module_domain_b}"
       --depfile "${_depfile}"
       --compdb "${_build_dir}"
+      --clang-scan-deps "${_clang_scan_deps}"
+      --host-clang "${_clangxx}"
       --source-root "${_src_dir}"
       ${GENTEST_SOURCES}
       --

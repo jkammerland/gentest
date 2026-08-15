@@ -107,7 +107,7 @@ execute_process(
     "PATH=${_empty_path_dir}"
     "CC=${_bin_dir}/g++"
     "CXX=${_bin_dir}/g++"
-    "${PROG}" --check --scan-deps-mode=ON --clang-scan-deps "${_clang_scan_deps}" --external-module-source "gentest.hostclang.provider=${_provider_source_abs}" --compdb "${_module_dir}" --tu-out-dir "${_generated_default_dir}" --module-wrapper-output "${_default_wrapper_abs}" "${_suite_source_abs}"
+    "${PROG}" --check --clang-scan-deps "${_clang_scan_deps}" --external-module-source "gentest.hostclang.provider=${_provider_source_abs}" --compdb "${_module_dir}" --tu-out-dir "${_generated_default_dir}" --module-wrapper-output "${_default_wrapper_abs}" "${_suite_source_abs}"
   WORKING_DIRECTORY "${_module_dir}"
   RESULT_VARIABLE _default_rc
   OUTPUT_VARIABLE _default_out
@@ -132,7 +132,7 @@ execute_process(
     "PATH=${_empty_path_dir}"
     "CC=${_bin_dir}/g++"
     "CXX=${_bin_dir}/g++"
-    "${PROG}" --check --scan-deps-mode=ON --clang-scan-deps "${_clang_scan_deps}" --host-clang "${_clangxx_norm}" --external-module-source "gentest.hostclang.provider=${_provider_source_abs}" --compdb "${_module_dir}" --tu-out-dir "${_generated_cli_dir}" --module-wrapper-output "${_cli_wrapper_abs}" "${_suite_source_abs}"
+    "${PROG}" --check --clang-scan-deps "${_clang_scan_deps}" --host-clang "${_clangxx_norm}" --external-module-source "gentest.hostclang.provider=${_provider_source_abs}" --compdb "${_module_dir}" --tu-out-dir "${_generated_cli_dir}" --module-wrapper-output "${_cli_wrapper_abs}" "${_suite_source_abs}"
   WORKING_DIRECTORY "${_module_dir}"
   RESULT_VARIABLE _cli_rc
   OUTPUT_VARIABLE _cli_out
@@ -157,7 +157,7 @@ execute_process(
     "CC=${_bin_dir}/g++"
     "CXX=${_bin_dir}/g++"
     "GENTEST_CODEGEN_HOST_CLANG=${_clangxx_norm}"
-    "${PROG}" --check --scan-deps-mode=ON --clang-scan-deps "${_clang_scan_deps}" --external-module-source "gentest.hostclang.provider=${_provider_source_abs}" --compdb "${_module_dir}" --tu-out-dir "${_generated_env_dir}" --module-wrapper-output "${_env_wrapper_abs}" "${_suite_source_abs}"
+    "${PROG}" --check --clang-scan-deps "${_clang_scan_deps}" --external-module-source "gentest.hostclang.provider=${_provider_source_abs}" --compdb "${_module_dir}" --tu-out-dir "${_generated_env_dir}" --module-wrapper-output "${_env_wrapper_abs}" "${_suite_source_abs}"
   WORKING_DIRECTORY "${_module_dir}"
   RESULT_VARIABLE _env_rc
   OUTPUT_VARIABLE _env_out

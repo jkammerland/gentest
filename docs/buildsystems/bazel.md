@@ -53,7 +53,7 @@ gentest_codegen_toolchain(
     exec_os = "linux",
     codegen = "@gentest_tool_bundle//:gentest_codegen",
     clang = "@llvm_exec_bundle//:clangxx",
-    # Optional. If omitted, Gentest uses its deterministic source scanner.
+    # Required by gentest_add_mocks_modules/gentest_attach_codegen_modules.
     clang_scan_deps = "@llvm_exec_bundle//:clang_scan_deps",
     # Files not already supplied by executable DefaultInfo files/runfiles.
     runtime_files = [
@@ -88,9 +88,10 @@ bazel_dep(name = "platforms", version = "1.0.0")
 register_toolchains("//tools/gentest_codegen:registered")
 ```
 
-`codegen`, `clang`, and optional `clang_scan_deps` are executable labels in the
-exec configuration. Gentest passes their `FilesToRunProvider` objects to every
-codegen action, retaining runfiles-tree layout for wrappers and packaged tools.
+`codegen` and `clang` are executable labels in the exec configuration;
+`clang_scan_deps` is additionally required by the named-module rules. Gentest
+passes their `FilesToRunProvider` objects to the relevant codegen actions,
+retaining runfiles-tree layout for wrappers and packaged tools.
 It also declares their files/runfiles plus `runtime_files` in every action.
 Package Clang's resource directory, shared libraries, scan-deps closure, and
 the complete C++ standard-library header trees. Packaged toolchains must set
@@ -114,6 +115,12 @@ Copying `/usr/bin/clang++` alone is not a packaged AppleClang toolchain: its
 resource directory remains owned by the active Xcode toolchain. Use the
 local-only fallback for that host-owned driver, or package a relocatable LLVM
 distribution and its declared resource/runtime closure.
+
+The source-tree local bootstrap discovers `clang-scan-deps` beside the selected
+`GENTEST_BAZEL_LOCAL_CLANG`, then through `PATH`. This is automatic for local
+development. `GENTEST_BAZEL_LOCAL_CLANG_SCAN_DEPS` is only an override for
+nonstandard host-tool layouts; packaged toolchains keep the explicit label
+because Bazel must know the complete executable and runfiles closure.
 
 `exec_os` controls Gentest's invocation contract; it does not constrain Bazel
 toolchain resolution. Every enclosing `toolchain(...)` must set the matching

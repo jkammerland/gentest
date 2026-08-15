@@ -1,7 +1,7 @@
 # Requires:
-#  -DSOURCE_DIR=<path>
 #  -DBUILD_ROOT=<path>
 #  -DGENTEST_SOURCE_DIR=<path to gentest source tree>
+#  -DPROG=<path to gentest_codegen>
 
 if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
   message(FATAL_ERROR "CheckCodegenPublicModuleImports.cmake: BUILD_ROOT not set")
@@ -18,12 +18,8 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_work_dir "${BUILD_ROOT}/cgpmi")
 set(_producer_build_dir "${_work_dir}/p")
-set(_consumer_build_off_dir "${_work_dir}/co")
-set(_consumer_build_auto_dir "${_work_dir}/ca")
-set(_consumer_build_on_dir "${_work_dir}/cn")
-set(_consumer_build_on_bare_dir "${_work_dir}/cb")
-set(_consumer_build_auto_bad_dir "${_work_dir}/cab")
-set(_consumer_build_on_bad_dir "${_work_dir}/cob")
+set(_consumer_build_dir "${_work_dir}/consumer")
+set(_consumer_missing_build_dir "${_work_dir}/missing")
 set(_install_prefix "${_work_dir}/i")
 set(_consumer_source_dir "${GENTEST_SOURCE_DIR}/tests/consumer")
 
@@ -43,28 +39,18 @@ if(NOT _ninja)
 endif()
 
 gentest_find_clang_scan_deps(_scan_deps "${_clangxx}")
-set(_scan_deps_regex "")
-if(_scan_deps)
-  set(_scan_deps_regex "${_scan_deps}")
-  string(REGEX REPLACE "([][+.*^$(){}|\\\\])" "\\\\\\1" _scan_deps_regex "${_scan_deps_regex}")
-  get_filename_component(_scan_deps_name "${_scan_deps}" NAME)
-  get_filename_component(_scan_deps_dir "${_scan_deps}" DIRECTORY)
-  if(CMAKE_HOST_WIN32)
-    set(_path_sep ";")
-  else()
-    set(_path_sep ":")
-  endif()
-  set(_scan_deps_env_path "${_scan_deps_dir}${_path_sep}$ENV{PATH}")
+if(NOT _scan_deps)
+  gentest_skip_test("codegen public module imports regression: clang-scan-deps not found")
+  return()
 endif()
+
 set(_common_cache_args
   "-DCMAKE_MAKE_PROGRAM=${_ninja}"
   "-DCMAKE_C_COMPILER=${_clang}"
-  "-DCMAKE_CXX_COMPILER=${_clangxx}")
+  "-DCMAKE_CXX_COMPILER=${_clangxx}"
+  "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_scan_deps}")
 if(CMAKE_HOST_WIN32)
   list(APPEND _common_cache_args "-DCMAKE_OBJECT_PATH_MAX=160")
-endif()
-if(_scan_deps)
-  list(APPEND _common_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_scan_deps}")
 endif()
 if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
   list(APPEND _common_cache_args "-DLLVM_DIR=${LLVM_DIR}")
@@ -79,7 +65,7 @@ endif()
 gentest_append_windows_native_llvm_cache_args(_common_cache_args "${_clangxx}" ${_common_cache_args})
 gentest_append_host_apple_sysroot(_common_cache_args)
 
-message(STATUS "Configure producer for codegen public module imports regression...")
+message(STATUS "Configure producer for required module dependency scanning...")
 gentest_check_run_or_fail(
   COMMAND
     "${CMAKE_COMMAND}"
@@ -95,20 +81,19 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 gentest_assert_windows_native_llvm_cache_args(
-  "${_producer_build_dir}" "${_clangxx}" "codegen public module imports producer")
+  "${_producer_build_dir}" "${_clangxx}" "required module dependency scanning producer")
 
-message(STATUS "Build and install producer for codegen public module imports regression...")
+message(STATUS "Build and install producer...")
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-function(_gentest_configure_consumer build_dir scan_mode)
-  set(_extra_cache_args ${ARGN})
+function(_gentest_configure_consumer build_dir)
   gentest_check_run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}"
-    -G Ninja
+    COMMAND
+      "${CMAKE_COMMAND}"
+      -G Ninja
       -S "${_consumer_source_dir}"
       -B "${build_dir}"
       ${_common_cache_args}
@@ -116,15 +101,14 @@ function(_gentest_configure_consumer build_dir scan_mode)
       "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}"
       "-DGENTEST_CONSUMER_USE_MODULES=ON"
       "-DGENTEST_CONSUMER_LINK_MODE=double"
-    "-DGENTEST_CODEGEN_SCAN_DEPS_MODE=${scan_mode}"
-    ${_extra_cache_args}
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-  gentest_assert_windows_native_llvm_cache_args("${build_dir}" "${_clangxx}" "codegen public module imports consumer (${scan_mode})")
+      ${ARGN}
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE)
+  gentest_assert_windows_native_llvm_cache_args(
+    "${build_dir}" "${_clangxx}" "required module dependency scanning consumer")
 endfunction()
 
 function(_gentest_try_read_windows_launcher command_text build_dir out_var)
-  set(_launcher_text "")
   set(_launcher_path "")
   if("${command_text}" MATCHES "^\"([^\"]+\\.bat)\"( .*)?$")
     set(_launcher_path "${CMAKE_MATCH_1}")
@@ -138,30 +122,27 @@ function(_gentest_try_read_windows_launcher command_text build_dir out_var)
     set(${out_var} "" PARENT_SCOPE)
     return()
   endif()
-
   if(NOT IS_ABSOLUTE "${_launcher_path}")
     set(_launcher_path "${build_dir}/${_launcher_path}")
   endif()
   cmake_path(NORMAL_PATH _launcher_path)
   if(NOT EXISTS "${_launcher_path}")
-    message(FATAL_ERROR
-      "Expected Windows gentest_codegen launcher batch file at '${_launcher_path}'.")
+    message(FATAL_ERROR "Expected Windows gentest_codegen launcher at '${_launcher_path}'")
   endif()
   file(READ "${_launcher_path}" _launcher_text)
   set(${out_var} "${_launcher_text}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_extract_codegen_command_text build_ninja_text build_dir expected_output_regex out_var)
-  set(_expected_output_regex "${expected_output_regex}")
+function(_gentest_extract_codegen_command build_dir out_var)
+  set(_build_ninja "${build_dir}/build.ninja")
+  file(READ "${_build_ninja}" _build_ninja_text)
   string(REGEX MATCH
-    "build [^\r\n]*${_expected_output_regex}[^\r\n]*: CUSTOM_COMMAND[^\r\n]*[\r\n]+  COMMAND = ([^\r\n]+)"
+    "build [^\r\n]*gentest_codegen/tu_[0-9]+_[^ ]+\\.gentest\\.h[^\r\n]*: CUSTOM_COMMAND[^\r\n]*[\r\n]+  COMMAND = ([^\r\n]+)"
     _command_block
-    "${build_ninja_text}")
+    "${_build_ninja_text}")
   if(_command_block STREQUAL "")
-    message(FATAL_ERROR
-      "Expected build.ninja to declare a custom command matching '${expected_output_regex}'.")
+    message(FATAL_ERROR "Expected '${_build_ninja}' to declare the Gentest codegen command")
   endif()
-
   set(_command_text "${CMAKE_MATCH_1}")
   if(WIN32)
     _gentest_try_read_windows_launcher("${_command_text}" "${build_dir}" _launcher_text)
@@ -169,243 +150,83 @@ function(_gentest_extract_codegen_command_text build_ninja_text build_dir expect
       set(_command_text "${_launcher_text}")
     endif()
   endif()
-
   set(${out_var} "${_command_text}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_assert_codegen_mode build_dir scan_mode)
-  set(_expected_scan_deps "${_scan_deps}")
-  if(ARGC GREATER 2)
-    set(_expected_scan_deps "${ARGV2}")
+function(_gentest_assert_required_scanner build_dir expected_scanner)
+  _gentest_extract_codegen_command("${build_dir}" _command_text)
+  if(_command_text MATCHES "--scan-deps-mode")
+    message(FATAL_ERROR "Generated codegen command still exposes the removed --scan-deps-mode option: ${_command_text}")
   endif()
-  set(_build_ninja "${build_dir}/build.ninja")
-  if(NOT EXISTS "${_build_ninja}")
-    message(FATAL_ERROR "Expected build.ninja at '${_build_ninja}'")
-  endif()
-  file(READ "${_build_ninja}" _build_ninja_text)
-  _gentest_extract_codegen_command_text(
-    "${_build_ninja_text}"
-    "${build_dir}"
-    "gentest_codegen/tu_[0-9]+_[^ ]+\\.gentest\\.h"
-    _codegen_command_text)
-  if(NOT _codegen_command_text MATCHES "--scan-deps-mode=${scan_mode}")
+  set(_expected_regex "${expected_scanner}")
+  string(REGEX REPLACE "([][+.*^$(){}|\\\\])" "\\\\\\1" _expected_regex "${_expected_regex}")
+  if(NOT _command_text MATCHES "--clang-scan-deps(=| )${_expected_regex}")
     message(FATAL_ERROR
-      "Expected build-time gentest_codegen command in '${_build_ninja}' to propagate --scan-deps-mode=${scan_mode}")
-  endif()
-  if(_expected_scan_deps)
-    set(_expected_scan_deps_regex "${_expected_scan_deps}")
-    string(REGEX REPLACE "([][+.*^$(){}|\\\\])" "\\\\\\1" _expected_scan_deps_regex "${_expected_scan_deps_regex}")
-    if(NOT _codegen_command_text MATCHES "--clang-scan-deps(=| )${_expected_scan_deps_regex}")
-      message(FATAL_ERROR
-        "Expected build-time gentest_codegen command in '${_build_ninja}' to propagate --clang-scan-deps=${_expected_scan_deps}")
-    endif()
+      "Expected generated codegen command to require --clang-scan-deps=${expected_scanner}. Command: ${_command_text}")
   endif()
 endfunction()
 
-message(STATUS "Configure consumer with scan-deps disabled...")
-_gentest_configure_consumer("${_consumer_build_off_dir}" "OFF")
-_gentest_assert_codegen_mode("${_consumer_build_off_dir}" "OFF")
-file(STRINGS "${_consumer_build_off_dir}/gentest_codegen_target.txt" _consumer_codegen_target LIMIT_COUNT 1)
+message(STATUS "Configure consumer with automatically selected clang-scan-deps...")
+_gentest_configure_consumer("${_consumer_build_dir}")
+_gentest_assert_required_scanner("${_consumer_build_dir}" "${_scan_deps}")
+file(STRINGS "${_consumer_build_dir}/gentest_codegen_target.txt" _consumer_codegen_target LIMIT_COUNT 1)
 if("${_consumer_codegen_target}" STREQUAL "")
   message(FATAL_ERROR "Consumer fixture did not expose its GENTEST_CODEGEN_DEP_TARGET")
 endif()
 
-message(STATUS "Build build-time gentest_codegen target with scan-deps disabled...")
+message(STATUS "Build codegen through the required scanner...")
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_off_dir}" --target "${_consumer_codegen_target}"
+  COMMAND
+    "${CMAKE_COMMAND}" -E env
+    "GENTEST_CODEGEN_LOG_SCAN_DEPS=1"
+    "${CMAKE_COMMAND}" --build "${_consumer_build_dir}" --target "${_consumer_codegen_target}"
+  WORKING_DIRECTORY "${_work_dir}"
+  OUTPUT_VARIABLE _codegen_output
+  STRIP_TRAILING_WHITESPACE)
+string(FIND "${_codegen_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _scan_deps_pos)
+if(_scan_deps_pos EQUAL -1)
+  message(FATAL_ERROR "Expected actual clang-scan-deps usage. Output:\n${_codegen_output}")
+endif()
+
+message(STATUS "Build and run the module consumer...")
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_dir}" --target gentest_consumer
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
-
-message(STATUS "Build consumer with scan-deps disabled...")
+set(_consumer_exe "${_consumer_build_dir}/gentest_consumer${CMAKE_EXECUTABLE_SUFFIX}")
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_off_dir}" --target gentest_consumer
+  COMMAND "${_consumer_exe}" --run=consumer/module_mock
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
-
-set(_consumer_off_exe "${_consumer_build_off_dir}/gentest_consumer${CMAKE_EXECUTABLE_SUFFIX}")
-message(STATUS "Run consumer smoke with scan-deps disabled...")
 gentest_check_run_or_fail(
-  COMMAND "${_consumer_off_exe}" --run=consumer/module_mock
+  COMMAND "${_consumer_exe}" --run=consumer/log_sink
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
 set(_missing_scan_deps "${_work_dir}/missing-clang-scan-deps")
-
-message(STATUS "Configure consumer with scan-deps auto mode and missing scanner...")
-_gentest_configure_consumer("${_consumer_build_auto_bad_dir}" "AUTO"
+message(STATUS "Configure consumer with an unusable required scanner...")
+_gentest_configure_consumer(
+  "${_consumer_missing_build_dir}"
   "-DGENTEST_CODEGEN_CLANG_SCAN_DEPS=${_missing_scan_deps}")
-_gentest_assert_codegen_mode("${_consumer_build_auto_bad_dir}" "AUTO" "${_missing_scan_deps}")
+_gentest_assert_required_scanner("${_consumer_missing_build_dir}" "${_missing_scan_deps}")
 
-message(STATUS "Build build-time gentest_codegen target with scan-deps auto mode and missing scanner...")
-gentest_check_run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}" -E env
-    "GENTEST_CODEGEN_LOG_SCAN_DEPS=1"
-    "${CMAKE_COMMAND}" --build "${_consumer_build_auto_bad_dir}" --target "${_consumer_codegen_target}"
-  WORKING_DIRECTORY "${_work_dir}"
-  OUTPUT_VARIABLE _auto_bad_codegen_output
-  STRIP_TRAILING_WHITESPACE)
-
-string(FIND "${_auto_bad_codegen_output}" "gentest_codegen: info: falling back to source-scan named-module discovery" _auto_bad_fallback_pos)
-if(_auto_bad_fallback_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected build-time gentest_codegen AUTO missing-scanner leg to report source-scan fallback. Output:\n${_auto_bad_codegen_output}")
-endif()
-
-message(STATUS "Build consumer with scan-deps auto mode and missing scanner...")
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_auto_bad_dir}" --target gentest_consumer
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
-set(_consumer_auto_bad_exe "${_consumer_build_auto_bad_dir}/gentest_consumer${CMAKE_EXECUTABLE_SUFFIX}")
-message(STATUS "Run consumer smoke with scan-deps auto mode and missing scanner...")
-gentest_check_run_or_fail(
-  COMMAND "${_consumer_auto_bad_exe}" --run=consumer/module_mock
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
-message(STATUS "Configure consumer with scan-deps ON mode and missing scanner...")
-_gentest_configure_consumer("${_consumer_build_on_bad_dir}" "ON"
-  "-DGENTEST_CODEGEN_CLANG_SCAN_DEPS=${_missing_scan_deps}")
-_gentest_assert_codegen_mode("${_consumer_build_on_bad_dir}" "ON" "${_missing_scan_deps}")
-
-message(STATUS "Build build-time gentest_codegen target with scan-deps ON mode and missing scanner (expect failure)...")
+message(STATUS "Require module codegen to fail instead of source-scanning as a fallback...")
 execute_process(
-  COMMAND
-    "${CMAKE_COMMAND}" -E env
-    "CMAKE_BUILD_PARALLEL_LEVEL=2"
-    "CTEST_PARALLEL_LEVEL=2"
-    "${CMAKE_COMMAND}" --build "${_consumer_build_on_bad_dir}" --target "${_consumer_codegen_target}"
+  COMMAND "${CMAKE_COMMAND}" --build "${_consumer_missing_build_dir}" --target "${_consumer_codegen_target}"
   WORKING_DIRECTORY "${_work_dir}"
-  RESULT_VARIABLE _on_missing_rc
-  OUTPUT_VARIABLE _on_missing_out
-  ERROR_VARIABLE _on_missing_err
+  RESULT_VARIABLE _missing_rc
+  OUTPUT_VARIABLE _missing_out
+  ERROR_VARIABLE _missing_err
   OUTPUT_STRIP_TRAILING_WHITESPACE
   ERROR_STRIP_TRAILING_WHITESPACE)
-
-if(_on_missing_rc EQUAL 0)
-  message(FATAL_ERROR
-    "Expected build-time gentest_codegen target to fail in scan-deps ON mode when clang-scan-deps is unavailable")
+if(_missing_rc EQUAL 0)
+  message(FATAL_ERROR "Expected module codegen to fail with an unusable required clang-scan-deps executable")
+endif()
+set(_missing_all "${_missing_out}\n${_missing_err}")
+string(FIND "${_missing_all}" "failed to resolve named-module dependencies via clang-scan-deps" _missing_pos)
+if(_missing_pos EQUAL -1)
+  message(FATAL_ERROR "Expected required clang-scan-deps failure. Output:\n${_missing_all}")
 endif()
 
-set(_on_missing_all "${_on_missing_out}\n${_on_missing_err}")
-string(FIND "${_on_missing_all}" "failed to resolve named-module dependencies via clang-scan-deps (mode=ON)" _on_missing_pos)
-if(_on_missing_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected scan-deps ON mode failure message in build output. Output:\n${_on_missing_all}")
-endif()
-
-if(NOT _scan_deps)
-  message(STATUS "clang-scan-deps not found; covered OFF plus missing-scanner AUTO/ON paths only")
-  return()
-endif()
-
-message(STATUS "Configure consumer with scan-deps enabled...")
-_gentest_configure_consumer("${_consumer_build_on_dir}" "ON")
-_gentest_assert_codegen_mode("${_consumer_build_on_dir}" "ON")
-
-message(STATUS "Configure consumer with scan-deps enabled via bare scanner name...")
-set(_old_path "$ENV{PATH}")
-set(ENV{PATH} "${_scan_deps_env_path}")
-gentest_check_run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}"
-    -G Ninja
-    -S "${_consumer_source_dir}"
-    -B "${_consumer_build_on_bare_dir}"
-    ${_common_cache_args}
-    "-DCMAKE_PREFIX_PATH=${_install_prefix}"
-    "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}"
-    "-DGENTEST_CONSUMER_USE_MODULES=ON"
-    "-DGENTEST_CONSUMER_LINK_MODE=double"
-    "-DGENTEST_CODEGEN_SCAN_DEPS_MODE=ON"
-    "-DGENTEST_CODEGEN_CLANG_SCAN_DEPS=${_scan_deps_name}"
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-gentest_assert_windows_native_llvm_cache_args(
-  "${_consumer_build_on_bare_dir}" "${_clangxx}" "codegen public module imports consumer (ON bare-name)")
-_gentest_assert_codegen_mode("${_consumer_build_on_bare_dir}" "ON" "${_scan_deps_name}")
-set(ENV{PATH} "${_old_path}")
-
-message(STATUS "Build build-time gentest_codegen target with scan-deps enabled...")
-gentest_check_run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}" -E env
-    "GENTEST_CODEGEN_LOG_SCAN_DEPS=1"
-    "${CMAKE_COMMAND}" --build "${_consumer_build_on_dir}" --target "${_consumer_codegen_target}"
-  WORKING_DIRECTORY "${_work_dir}"
-  OUTPUT_VARIABLE _on_codegen_output
-  STRIP_TRAILING_WHITESPACE)
-
-string(FIND "${_on_codegen_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _on_scan_deps_pos)
-if(_on_scan_deps_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected build-time gentest_codegen ON leg to report actual clang-scan-deps usage. Output:\n${_on_codegen_output}")
-endif()
-
-message(STATUS "Build build-time gentest_codegen target with scan-deps enabled via bare scanner name...")
-set(_old_path "$ENV{PATH}")
-set(ENV{PATH} "${_scan_deps_env_path}")
-set(_old_log_scan_deps "$ENV{GENTEST_CODEGEN_LOG_SCAN_DEPS}")
-set(ENV{GENTEST_CODEGEN_LOG_SCAN_DEPS} "1")
-gentest_check_run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}" --build "${_consumer_build_on_bare_dir}" --target "${_consumer_codegen_target}"
-  WORKING_DIRECTORY "${_work_dir}"
-  OUTPUT_VARIABLE _on_bare_codegen_output
-  STRIP_TRAILING_WHITESPACE)
-set(ENV{GENTEST_CODEGEN_LOG_SCAN_DEPS} "${_old_log_scan_deps}")
-set(ENV{PATH} "${_old_path}")
-
-string(FIND "${_on_bare_codegen_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _on_bare_scan_deps_pos)
-if(_on_bare_scan_deps_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected build-time gentest_codegen ON bare-name leg to report actual clang-scan-deps usage. Output:\n${_on_bare_codegen_output}")
-endif()
-
-message(STATUS "Build consumer with scan-deps enabled...")
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_on_dir}" --target gentest_consumer
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
-set(_consumer_exe "${_consumer_build_on_dir}/gentest_consumer${CMAKE_EXECUTABLE_SUFFIX}")
-message(STATUS "Run consumer smoke with scan-deps enabled...")
-gentest_check_run_or_fail(
-    COMMAND "${_consumer_exe}" --run=consumer/module_mock
-    WORKING_DIRECTORY "${_work_dir}"
-    STRIP_TRAILING_WHITESPACE)
-
-gentest_check_run_or_fail(
-    COMMAND "${_consumer_exe}" --run=consumer/log_sink
-    WORKING_DIRECTORY "${_work_dir}"
-    STRIP_TRAILING_WHITESPACE)
-
-message(STATUS "Configure consumer with scan-deps auto mode...")
-_gentest_configure_consumer("${_consumer_build_auto_dir}" "AUTO")
-_gentest_assert_codegen_mode("${_consumer_build_auto_dir}" "AUTO")
-
-message(STATUS "Build build-time gentest_codegen target with scan-deps auto mode...")
-gentest_check_run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}" -E env
-    "GENTEST_CODEGEN_LOG_SCAN_DEPS=1"
-    "${CMAKE_COMMAND}" --build "${_consumer_build_auto_dir}" --target "${_consumer_codegen_target}"
-  WORKING_DIRECTORY "${_work_dir}"
-  OUTPUT_VARIABLE _auto_codegen_output
-  STRIP_TRAILING_WHITESPACE)
-
-string(FIND "${_auto_codegen_output}" "gentest_codegen: info: using clang-scan-deps for named-module dependency discovery" _auto_scan_deps_pos)
-if(_auto_scan_deps_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected build-time gentest_codegen AUTO leg to report actual clang-scan-deps usage. Output:\n${_auto_codegen_output}")
-endif()
-
-message(STATUS
-  "Observed public module import consumer success for scan-deps OFF/ON and generated output for AUTO on the real build-time codegen path")
-
-# This helper materializes several nested producer/consumer build trees. Remove
-# them after success so long ctest runs do not accumulate module artifacts until
-# the runner disk fills late in the suite.
+message(STATUS "Named-module codegen requires clang-scan-deps and exposes no OFF/ON/AUTO policy")
 gentest_remove_fixture_path("${_work_dir}")

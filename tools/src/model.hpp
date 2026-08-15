@@ -29,12 +29,6 @@ enum class FixtureScope {
     Global,
 };
 
-enum class ModuleDependencyScanMode {
-    Auto,
-    Off,
-    On,
-};
-
 enum class MockBackend {
     Gentest,
     GMock,
@@ -178,8 +172,7 @@ struct CollectorOptions {
     std::vector<std::string>                                            clang_args;
     std::optional<std::filesystem::path>                                compilation_database;
     std::optional<std::filesystem::path>                                source_root;
-    ModuleDependencyScanMode                                            module_dependency_scan_mode = ModuleDependencyScanMode::Auto;
-    MockBackend                                                         mock_backend                = MockBackend::Gentest;
+    MockBackend                                                         mock_backend = MockBackend::Gentest;
     std::optional<std::filesystem::path>                                clang_scan_deps_executable;
     // Maximum parallelism used when parsing/emitting multiple TUs in TU wrapper mode.
     // 0 selects std::thread::hardware_concurrency().

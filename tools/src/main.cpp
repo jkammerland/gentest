@@ -74,7 +74,6 @@ using gentest::codegen::FixtureDeclCollector;
 using gentest::codegen::FixtureDeclInfo;
 using gentest::codegen::MockBackend;
 using gentest::codegen::MockUsageCollector;
-using gentest::codegen::ModuleDependencyScanMode;
 using gentest::codegen::register_mock_matchers;
 using gentest::codegen::resolve_free_fixtures;
 using gentest::codegen::SourceDeclMatcher;
@@ -1876,11 +1875,11 @@ bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_
     // CMake's experimental C++ modules support (and some GCC-based toolchains)
     // can inject GCC-only module/dependency scanning flags into compile commands.
     // Clang (which is embedded in our clang-tooling binary) rejects these.
-    const bool is_module_mapping_arg = arg.starts_with("-fmodule-mapper=") || arg.starts_with("-fdeps-format=") ||
-                                       arg.starts_with("-fdeps-file=") || arg.starts_with("-fdeps-target=") ||
-                                       arg.starts_with("-fmodule-file=") || arg.starts_with("-fprebuilt-module-path=") ||
-                                       (arg.starts_with("@") && arg.find(".modmap") != std::string_view::npos);
-    return arg == "-fmodules-ts" || arg == "-fmodule-header" || arg == "-fmodule-only" ||
+    const bool is_build_system_dependency_scan_arg = arg.starts_with("-fmodule-mapper=") || arg.starts_with("-fdeps-format=") ||
+                                                     arg.starts_with("-fdeps-file=") || arg.starts_with("-fdeps-target=");
+    const bool is_module_mapping_arg               = arg.starts_with("-fmodule-file=") || arg.starts_with("-fprebuilt-module-path=") ||
+                                                     (arg.starts_with("@") && arg.find(".modmap") != std::string_view::npos);
+    return arg == "-fmodules-ts" || arg == "-fmodule-header" || arg == "-fmodule-only" || is_build_system_dependency_scan_arg ||
            (!preserve_module_mapping_args && is_module_mapping_arg) || arg == "-fconcepts-diagnostics-depth" ||
            arg.starts_with("-fconcepts-diagnostics-depth=") ||
            // -Werror (and variants) are useful for real builds but make codegen brittle, because
@@ -2459,23 +2458,6 @@ std::string resolve_program_invocation_path(std::string_view program) {
     return std::string(program);
 }
 
-std::optional<ModuleDependencyScanMode> parse_module_dependency_scan_mode(std::string_view raw_value) {
-    const std::string value = gentest::codegen::scan::to_lower_ascii_copy(gentest::codegen::scan::trim_ascii_view(raw_value));
-    if (value.empty()) {
-        return std::nullopt;
-    }
-    if (value == "auto") {
-        return ModuleDependencyScanMode::Auto;
-    }
-    if (value == "off") {
-        return ModuleDependencyScanMode::Off;
-    }
-    if (value == "on") {
-        return ModuleDependencyScanMode::On;
-    }
-    return std::nullopt;
-}
-
 std::optional<MockBackend> parse_mock_backend(std::string_view raw_value) {
     const std::string value = gentest::codegen::scan::to_lower_ascii_copy(gentest::codegen::scan::trim_ascii_view(raw_value));
     if (value == "gentest") {
@@ -2488,15 +2470,6 @@ std::optional<MockBackend> parse_mock_backend(std::string_view raw_value) {
         return MockBackend::Trompeloeil;
     }
     return std::nullopt;
-}
-
-std::string_view module_dependency_scan_mode_name(ModuleDependencyScanMode mode) {
-    switch (mode) {
-    case ModuleDependencyScanMode::Auto: return "AUTO";
-    case ModuleDependencyScanMode::Off: return "OFF";
-    case ModuleDependencyScanMode::On: return "ON";
-    }
-    return "AUTO";
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -3226,9 +3199,9 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             if (is_shell_control_token(arg)) {
                 break;
             }
-            if (!preserve_module_mapping_args &&
-                (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
-                 arg == "-fmodule-file" || arg == "-fprebuilt-module-path" || arg == "-fconcepts-diagnostics-depth")) {
+            if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
+                (!preserve_module_mapping_args && (arg == "-fmodule-file" || arg == "-fprebuilt-module-path")) ||
+                arg == "-fconcepts-diagnostics-depth") {
                 skip_next_arg = true;
                 continue;
             }
@@ -4016,9 +3989,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         llvm::cl::init(false), llvm::cl::cat(category)};
     static llvm::cl::opt<bool>        quiet_clang_option{"quiet-clang", llvm::cl::desc("Suppress clang diagnostics"), llvm::cl::init(false),
                                                          llvm::cl::cat(category)};
-    static llvm::cl::opt<std::string> scan_deps_mode_option{"scan-deps-mode",
-                                                            llvm::cl::desc("Named-module dependency discovery mode: AUTO, ON, or OFF"),
-                                                            llvm::cl::init("AUTO"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> scan_deps_executable_option{
         "clang-scan-deps", llvm::cl::desc("Path to the clang-scan-deps executable used for named-module dependency discovery"),
         llvm::cl::init(""), llvm::cl::cat(category)};
@@ -4131,13 +4101,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     strip_shell_control_tail(opts.clang_args);
     opts.check_only  = check_option.getValue();
     opts.quiet_clang = quiet_clang_option.getValue();
-    if (const auto parsed_mode = parse_module_dependency_scan_mode(scan_deps_mode_option.getValue()); parsed_mode.has_value()) {
-        opts.module_dependency_scan_mode = *parsed_mode;
-    } else {
-        gentest::codegen::log_err("gentest_codegen: warning: ignoring invalid --scan-deps-mode='{}'; using AUTO\n",
-                                  scan_deps_mode_option.getValue());
-        opts.module_dependency_scan_mode = ModuleDependencyScanMode::Auto;
-    }
     if (scan_deps_executable_option.getNumOccurrences() != 0 && !scan_deps_executable_option.getValue().empty()) {
         opts.clang_scan_deps_executable = std::filesystem::path{scan_deps_executable_option.getValue()};
     }
@@ -4177,21 +4140,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
             } else {
                 opts.jobs = *parsed;
             }
-        }
-    }
-    if (scan_deps_mode_option.getNumOccurrences() == 0) {
-        if (const auto scan_deps_mode_env = get_env_value("GENTEST_CODEGEN_SCAN_DEPS_MODE"); scan_deps_mode_env) {
-            if (const auto parsed_mode = parse_module_dependency_scan_mode(*scan_deps_mode_env); parsed_mode.has_value()) {
-                opts.module_dependency_scan_mode = *parsed_mode;
-            } else {
-                gentest::codegen::log_err("gentest_codegen: warning: ignoring invalid GENTEST_CODEGEN_SCAN_DEPS_MODE='{}'\n",
-                                          *scan_deps_mode_env);
-            }
-        }
-    }
-    if (scan_deps_executable_option.getNumOccurrences() == 0) {
-        if (const auto scan_deps_env = get_env_value("GENTEST_CODEGEN_CLANG_SCAN_DEPS"); scan_deps_env && !scan_deps_env->empty()) {
-            opts.clang_scan_deps_executable = std::filesystem::path{*scan_deps_env};
         }
     }
     std::optional<std::string> explicit_host_clang_path;
@@ -4914,7 +4862,7 @@ int main(int argc, const char **argv) {
 
     bool        used_scan_deps = false;
     std::string scan_deps_error;
-    if (options.module_dependency_scan_mode != ModuleDependencyScanMode::Off) {
+    if (options.clang_scan_deps_executable.has_value() && !options.header_declaration_registration) {
         std::vector<ScanDepsPreparedCommand> prepared_scan_deps_commands;
         prepared_scan_deps_commands.reserve(options.sources.size());
 
@@ -5045,14 +4993,10 @@ int main(int argc, const char **argv) {
             }
         }
 
-        if (!used_scan_deps && options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
-            gentest::codegen::log_err("gentest_codegen: failed to resolve named-module dependencies via clang-scan-deps (mode=ON): {}\n",
+        if (!used_scan_deps) {
+            gentest::codegen::log_err("gentest_codegen: failed to resolve named-module dependencies via clang-scan-deps: {}\n",
                                       scan_deps_error.empty() ? std::string{"unknown error"} : scan_deps_error);
             return 1;
-        }
-        if (!used_scan_deps && options.module_dependency_scan_mode != ModuleDependencyScanMode::Off && should_log_scan_deps_decisions()) {
-            gentest::codegen::log_err("gentest_codegen: info: falling back to source-scan named-module discovery{}\n",
-                                      scan_deps_error.empty() ? std::string{} : fmt::format(" ({})", scan_deps_error));
         }
     }
 
@@ -5114,6 +5058,16 @@ int main(int argc, const char **argv) {
                 }
             }
         }
+    }
+
+    const bool source_scan_found_named_imports =
+        std::ranges::any_of(imported_named_modules_by_source, [](const auto &imports) { return !imports.empty(); });
+    if (!used_scan_deps &&
+        (!named_module_sources.empty() || (source_scan_found_named_imports && !options.header_declaration_registration))) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: named-module codegen requires clang-scan-deps; pass --clang-scan-deps <path> or configure the "
+            "build integration with the host LLVM scanner\n");
+        return 1;
     }
 
     for (auto &module_source : named_module_sources) {
@@ -5314,9 +5268,8 @@ int main(int argc, const char **argv) {
                 return;
             }
             external_scan_deps_hard_failure = true;
-            gentest::codegen::log_err(
-                "gentest_codegen: failed to resolve external named module '{}' via clang-scan-deps in ON mode for '{}': {}\n", module_name,
-                candidate.string(), detail.empty() ? std::string_view{"unknown error"} : detail);
+            gentest::codegen::log_err("gentest_codegen: failed to resolve external named module '{}' via clang-scan-deps for '{}': {}\n",
+                                      module_name, candidate.string(), detail.empty() ? std::string_view{"unknown error"} : detail);
         };
 
         auto append_preserved_scan_deps_module_args = [&](std::span<const std::string> scan_deps_module_args,
@@ -5407,19 +5360,29 @@ int main(int argc, const char **argv) {
                     }
                 }
                 if (used_scan_deps) {
+                    std::optional<clang::tooling::CompileCommand> external_scan_command;
                     if (!candidate_source_commands.empty()) {
-                        auto adjusted_scan_deps_command =
-                            build_adjusted_command_line(candidate_source_commands.front().CommandLine, candidate.string(),
-                                                        resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args,
-                                                        compdb_dir, {}, explicit_host_clang_path, external_forced_compiler_path, true);
+                        external_scan_command = candidate_source_commands.front();
+                    } else if (!candidate_driver_commands.empty()) {
+                        external_scan_command =
+                            retarget_compile_command(candidate_driver_commands.front(), context.owner_key, candidate.string());
+                    }
+
+                    if (external_scan_command.has_value()) {
+                        external_command_line = external_scan_command->CommandLine;
+                        external_working_directory =
+                            external_scan_command->Directory.empty() ? compdb_dir : external_scan_command->Directory;
+                        const auto external_scan_deps_command_line = expand_compile_command_response_files(
+                            external_scan_command->CommandLine, external_scan_command->Directory, false);
+                        auto adjusted_scan_deps_command = build_adjusted_command_line(
+                            external_scan_deps_command_line, candidate.string(), resource_dir_for_compiler, default_compiler_path,
+                            default_sysroot, extra_args, compdb_dir, {}, explicit_host_clang_path, external_forced_compiler_path, true);
                         std::string external_scan_deps_error;
                         if (const auto scan_deps_results = run_clang_scan_deps(
                                 std::array<ScanDepsPreparedCommand, 1>{ScanDepsPreparedCommand{
                                     .source_file       = candidate.string(),
-                                    .output_file       = candidate_source_commands.front().Output,
-                                    .working_directory = candidate_source_commands.front().Directory.empty()
-                                                             ? compdb_dir
-                                                             : candidate_source_commands.front().Directory,
+                                    .output_file       = external_scan_command->Output,
+                                    .working_directory = external_working_directory,
                                     .command_line      = std::move(adjusted_scan_deps_command),
                                 }},
                                 options.clang_scan_deps_executable ? options.clang_scan_deps_executable->string() : std::string{},
@@ -5431,20 +5394,23 @@ int main(int argc, const char **argv) {
                                 imported_modules             = scan_deps_it->second.named_module_deps;
                                 std::erase(imported_modules, std::string(module_name));
                                 external_scan_deps_module_args = scan_deps_it->second.module_file_args;
-                            } else if (options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
+                            } else {
                                 note_external_scan_deps_failure(module_name, candidate,
                                                                 "clang-scan-deps produced no result for the external module source");
                                 return nullptr;
                             }
-                        } else if (options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
+                        } else {
                             note_external_scan_deps_failure(module_name, candidate, external_scan_deps_error);
                             return nullptr;
                         }
+                    } else {
+                        note_external_scan_deps_failure(module_name, candidate,
+                                                        "no compilation context is available for the external module source");
+                        return nullptr;
                     }
                 }
                 if (!external_scan_deps_succeeded) {
-                    if (used_scan_deps && !candidate_source_commands.empty() &&
-                        options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
+                    if (used_scan_deps) {
                         note_external_scan_deps_failure(module_name, candidate, "clang-scan-deps did not provide module dependency data");
                         return nullptr;
                     }

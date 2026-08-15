@@ -28,8 +28,8 @@ and never replaces or includes the authored implementation. Textual mocks use a
 header-only scan aggregate plus a generated public-header anchor.
 
 For module suites, `gentest_attach_codegen({ kind = "modules", ... })` requires
-an explicit `module_name`. Xmake keeps the authored `.cppm` in the module build
-and adds a generated ordinary importer registration source plus a
+an explicit `module_name` and a resolvable host `clang-scan-deps`. Xmake keeps
+the authored `.cppm` in the module build and adds a generated ordinary importer registration source plus a
 `<target>.artifact_manifest.json` product. The helper predeclares those files
 for Xmake, then `gentest_codegen` fills and classifies them.
 

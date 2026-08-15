@@ -1216,13 +1216,12 @@ gentest_add_cmake_script_test(
     NAME gentest_codegen_warns_unknown_preprocessor_condition
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS
-        --check
-        --compdb ${CMAKE_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_unknown_condition_warn.cppm
-        -- ${_gentest_codegen_direct_clang_args}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenPreprocessorCondition.cmake"
     DEFINES
+        "BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}/tests"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_unknown_condition_warn.cppm"
+        "CODEGEN_STD=${_gentest_codegen_scan_std_flag}"
         "EXPECT_RC=0"
         "REQUIRED_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan at ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_unknown_condition_warn.cppm:6"
         "EXPECT_COUNT_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan"
@@ -1232,13 +1231,12 @@ gentest_add_cmake_script_test(
     NAME gentest_codegen_active_elif_unknown_warn
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS
-        --check
-        --compdb ${CMAKE_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_active_elif_unknown_warn.cppm
-        -- ${_gentest_codegen_direct_clang_args}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenPreprocessorCondition.cmake"
     DEFINES
+        "BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}/tests"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_active_elif_unknown_warn.cppm"
+        "CODEGEN_STD=${_gentest_codegen_scan_std_flag}"
         "EXPECT_RC=0"
         "REQUIRED_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan at ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_active_elif_unknown_warn.cppm:7"
         "EXPECT_COUNT_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan"
@@ -1248,13 +1246,12 @@ gentest_add_cmake_script_test(
     NAME gentest_codegen_supported_preprocessor_condition_no_warning
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS
-        --check
-        --compdb ${CMAKE_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_supported_condition_nowarn.cppm
-        -- ${_gentest_codegen_direct_clang_args}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenPreprocessorCondition.cmake"
     DEFINES
+        "BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}/tests"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_supported_condition_nowarn.cppm"
+        "CODEGEN_STD=${_gentest_codegen_scan_std_flag}"
         "EXPECT_RC=0"
         "FORBID_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan")
 
@@ -1262,13 +1259,12 @@ gentest_add_cmake_script_test(
     NAME gentest_codegen_dead_elif_unknown_no_warning
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
-    ARGS
-        --check
-        --compdb ${CMAKE_BINARY_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_dead_elif_unknown_nowarn.cppm
-        -- ${_gentest_codegen_direct_clang_args}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenPreprocessorCondition.cmake"
     DEFINES
+        "BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}/tests"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/smoke/scan_dead_elif_unknown_nowarn.cppm"
+        "CODEGEN_STD=${_gentest_codegen_scan_std_flag}"
         "EXPECT_RC=0"
         "FORBID_SUBSTRING=warning: unable to evaluate preprocessor condition during module/import scan")
 

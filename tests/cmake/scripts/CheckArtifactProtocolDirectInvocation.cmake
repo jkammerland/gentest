@@ -75,6 +75,7 @@ gentest_check_run_or_fail(
     --artifact-manifest "${_manifest}"
     --compile-context-id "direct_textual:${_owner_source}"
     --depfile "${_depfile}"
+    --clang-scan-deps "${_work_dir}/missing-clang-scan-deps"
     "${_owner_source}"
     --
     ${_clang_args}

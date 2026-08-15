@@ -12,6 +12,7 @@ if(NOT DEFINED CODEGEN_STD OR "${CODEGEN_STD}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 
 set(_work_dir "${BUILD_ROOT}/module_mock_registration_manifest")
 set(_generated_dir "${_work_dir}/generated")
@@ -91,7 +92,18 @@ set(_clang_args)
 if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
   list(APPEND _clang_args "${TARGET_ARG}")
 endif()
-set(_codegen_host_compiler "clang++")
+gentest_resolve_clang_fixture_compilers(_module_clang _module_clangxx)
+if(NOT _module_clang OR NOT _module_clangxx)
+  gentest_skip_test("module mock registration manifest regression: clang/clang++ not found")
+  return()
+endif()
+gentest_find_clang_scan_deps(_module_scan_deps "${_module_clangxx}")
+if(NOT _module_scan_deps)
+  gentest_skip_test("module mock registration manifest regression: clang-scan-deps not found")
+  return()
+endif()
+
+set(_codegen_host_compiler "${_module_clangxx}")
 if(DEFINED ENV{GENTEST_CODEGEN_HOST_CLANG} AND NOT "$ENV{GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
   set(_codegen_host_compiler "$ENV{GENTEST_CODEGEN_HOST_CLANG}")
 endif()
@@ -101,6 +113,21 @@ gentest_make_public_api_include_args(
   SOURCE_ROOT "${SOURCE_DIR}"
   APPLE_SYSROOT)
 list(APPEND _clang_args "${_codegen_std}" ${_public_include_args})
+
+gentest_fixture_make_compdb_entry(
+  _module_compdb_entry
+  DIRECTORY "${_work_dir}"
+  FILE "${_module_source}"
+  ARGUMENTS
+    "${_codegen_host_compiler}"
+    ${_clang_args}
+    -c "${_module_source}"
+    -o "${_work_dir}/module_service.o")
+gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_module_compdb_entry}")
+set(_module_context_args
+  --compdb "${_work_dir}"
+  --clang-scan-deps "${_module_scan_deps}"
+  --host-clang "${_codegen_host_compiler}")
 
 function(_gentest_expect_result label expected_rc expected_substring)
   execute_process(
@@ -137,6 +164,7 @@ _gentest_expect_result(
   1
   "MODULE_REGISTRATION cannot generate direct mocks owned by named module 'gentest.module_mock_registration_manifest'"
   "${PROG}"
+  ${_module_context_args}
   --tu-out-dir "${_generated_dir}"
   --tu-header-output "${_header}"
   --module-registration-output "${_registration}"
@@ -151,6 +179,7 @@ _gentest_expect_result(
   1
   "MODULE_REGISTRATION cannot generate direct mocks owned by named module 'gentest.module_mock_registration_manifest'"
   "${PROG}"
+  ${_module_context_args}
   --check
   --tu-out-dir "${_generated_dir}/check"
   --tu-header-output "${_generated_dir}/check/tu_0000_module_service.gentest.h"
@@ -169,6 +198,7 @@ _gentest_expect_result(
   1
   "unsupported mock manifest schema"
   "${PROG}"
+  ${_module_context_args}
   --check
   --tu-out-dir "${_generated_dir}/bad-schema"
   --tu-header-output "${_generated_dir}/bad-schema/tu_0000_module_service.gentest.h"
@@ -195,6 +225,7 @@ _gentest_expect_result(
   1
   "no module registration input provides it"
   "${PROG}"
+  ${_module_context_args}
   --check
   --tu-out-dir "${_generated_dir}/stale-module"
   --tu-header-output "${_generated_dir}/stale-module/tu_0000_module_service.gentest.h"
@@ -216,6 +247,7 @@ _gentest_expect_result(
   1
   "--mock-registration-manifest does not support header-like mock"
   "${PROG}"
+  ${_module_context_args}
   --tu-out-dir "${_generated_dir}/header-like"
   --tu-header-output "${_generated_dir}/header-like/tu_0000_module_service.gentest.h"
   --module-registration-output "${_generated_dir}/header-like/tu_0000_module_service.registration.gentest.cpp"
@@ -229,6 +261,7 @@ _gentest_expect_result(
   1
   "--mock-registration-manifest cannot be combined with --discover-mocks"
   "${PROG}"
+  ${_module_context_args}
   --discover-mocks
   --tu-out-dir "${_generated_dir}/invalid-discover"
   --tu-header-output "${_generated_dir}/invalid-discover/tu_0000_module_service.gentest.h"
@@ -243,6 +276,7 @@ _gentest_expect_result(
   1
   "--mock-registration-manifest requires --tu-out-dir and --module-registration-output"
   "${PROG}"
+  ${_module_context_args}
   --tu-out-dir "${_generated_dir}/missing-registration"
   --tu-header-output "${_generated_dir}/missing-registration/tu_0000_module_service.gentest.h"
   --mock-registration-manifest "${_manifest}"

@@ -81,28 +81,124 @@ function(_gentest_collect_common_codegen_system_include_args out_var)
     set(${out_var} "${_gentest_args}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_resolve_codegen_program_candidate out_var candidate)
+    if("${candidate}" STREQUAL "")
+        set(${out_var} "" PARENT_SCOPE)
+        return()
+    endif()
+
+    if(EXISTS "${candidate}" AND NOT IS_DIRECTORY "${candidate}")
+        set(${out_var} "${candidate}" PARENT_SCOPE)
+        return()
+    endif()
+
+    if(NOT IS_ABSOLUTE "${candidate}" AND NOT "${candidate}" MATCHES "[/\\\\]")
+        unset(_gentest_codegen_resolved_program CACHE)
+        unset(_gentest_codegen_resolved_program)
+        find_program(_gentest_codegen_resolved_program NAMES "${candidate}" NO_CACHE)
+        if(_gentest_codegen_resolved_program)
+            set(${out_var} "${_gentest_codegen_resolved_program}" PARENT_SCOPE)
+            return()
+        endif()
+    endif()
+
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+function(_gentest_append_adjacent_scan_deps_candidates list_var executable)
+    if("${executable}" STREQUAL "")
+        set(${list_var} "${${list_var}}" PARENT_SCOPE)
+        return()
+    endif()
+
+    get_filename_component(_gentest_tool_dir "${executable}" DIRECTORY)
+    get_filename_component(_gentest_tool_name "${executable}" NAME_WE)
+    string(REGEX MATCH "[0-9]+$" _gentest_tool_version "${_gentest_tool_name}")
+    _gentest_get_host_executable_suffix(_gentest_host_executable_suffix)
+
+    set(_gentest_candidates "${${list_var}}")
+    if(NOT "${_gentest_tool_version}" STREQUAL "")
+        list(APPEND _gentest_candidates
+            "${_gentest_tool_dir}/clang-scan-deps-${_gentest_tool_version}${_gentest_host_executable_suffix}")
+    endif()
+    list(APPEND _gentest_candidates "${_gentest_tool_dir}/clang-scan-deps${_gentest_host_executable_suffix}")
+    set(${list_var} "${_gentest_candidates}" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_resolve_codegen_clang_scan_deps out_var)
-    set(_gentest_clang_scan_deps "${GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
-    if("${_gentest_clang_scan_deps}" STREQUAL ""
-       AND DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
+    # Explicit wiring wins. Keep invalid explicit paths intact so the build
+    # reports the selected host-tool path instead of silently choosing another
+    # LLVM installation.
+    set(_gentest_explicit_scan_deps "${GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
+    if("${_gentest_explicit_scan_deps}" STREQUAL ""
+       AND DEFINED ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS}
+       AND NOT "$ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS}" STREQUAL "")
+        set(_gentest_explicit_scan_deps "$ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
+    endif()
+    if(NOT "${_gentest_explicit_scan_deps}" STREQUAL "")
+        _gentest_resolve_codegen_program_candidate(_gentest_resolved_scan_deps "${_gentest_explicit_scan_deps}")
+        if(NOT "${_gentest_resolved_scan_deps}" STREQUAL "")
+            set(${out_var} "${_gentest_resolved_scan_deps}" PARENT_SCOPE)
+        else()
+            set(${out_var} "${_gentest_explicit_scan_deps}" PARENT_SCOPE)
+        endif()
+        return()
+    endif()
+
+    if(DEFINED CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS
        AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL ""
        AND NOT "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" MATCHES "-NOTFOUND$")
-        set(_gentest_clang_scan_deps "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+        _gentest_resolve_codegen_program_candidate(
+            _gentest_resolved_scan_deps "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+        if(NOT "${_gentest_resolved_scan_deps}" STREQUAL "")
+            set(${out_var} "${_gentest_resolved_scan_deps}" PARENT_SCOPE)
+        else()
+            set(${out_var} "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}" PARENT_SCOPE)
+        endif()
+        return()
     endif()
-    set(${out_var} "${_gentest_clang_scan_deps}" PARENT_SCOPE)
+
+    set(_gentest_candidates "")
+    _gentest_append_adjacent_scan_deps_candidates(_gentest_candidates "${GENTEST_CODEGEN_HOST_CLANG}")
+    _gentest_append_adjacent_scan_deps_candidates(_gentest_candidates "${CMAKE_CXX_COMPILER}")
+    if(DEFINED LLVM_TOOLS_BINARY_DIR AND NOT "${LLVM_TOOLS_BINARY_DIR}" STREQUAL "")
+        _gentest_get_host_executable_suffix(_gentest_host_executable_suffix)
+        list(APPEND _gentest_candidates "${LLVM_TOOLS_BINARY_DIR}/clang-scan-deps${_gentest_host_executable_suffix}")
+    endif()
+
+    set(_gentest_llvm_major "")
+    if(DEFINED LLVM_VERSION_MAJOR AND NOT "${LLVM_VERSION_MAJOR}" STREQUAL "")
+        set(_gentest_llvm_major "${LLVM_VERSION_MAJOR}")
+    elseif(DEFINED LLVM_PACKAGE_VERSION AND NOT "${LLVM_PACKAGE_VERSION}" STREQUAL "")
+        string(REGEX MATCH "^[0-9]+" _gentest_llvm_major "${LLVM_PACKAGE_VERSION}")
+    endif()
+    if(NOT "${_gentest_llvm_major}" STREQUAL "")
+        list(APPEND _gentest_candidates "clang-scan-deps-${_gentest_llvm_major}")
+    endif()
+    list(APPEND _gentest_candidates
+        clang-scan-deps-23
+        clang-scan-deps-22
+        clang-scan-deps-21
+        clang-scan-deps-20
+        clang-scan-deps-19
+        clang-scan-deps)
+    list(REMOVE_DUPLICATES _gentest_candidates)
+
+    foreach(_gentest_candidate IN LISTS _gentest_candidates)
+        _gentest_resolve_codegen_program_candidate(_gentest_resolved_scan_deps "${_gentest_candidate}")
+        if(NOT "${_gentest_resolved_scan_deps}" STREQUAL "")
+            set(${out_var} "${_gentest_resolved_scan_deps}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+
+    set(${out_var} "" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_append_codegen_module_context_args command_var target clang_scan_deps)
     set(_gentest_command "${${command_var}}")
-    set(_gentest_scan_deps_mode "${GENTEST_CODEGEN_SCAN_DEPS_MODE}")
-    if(ARGC GREATER 3)
-        set(_gentest_scan_deps_mode "${ARGV3}")
-    endif()
     if(DEFINED GENTEST_CODEGEN_JOBS AND NOT "${GENTEST_CODEGEN_JOBS}" STREQUAL "")
         list(APPEND _gentest_command "--jobs=${GENTEST_CODEGEN_JOBS}")
-    endif()
-    if(NOT "${_gentest_scan_deps_mode}" STREQUAL "")
-        list(APPEND _gentest_command "--scan-deps-mode=${_gentest_scan_deps_mode}")
     endif()
     if(NOT "${clang_scan_deps}" STREQUAL "")
         list(APPEND _gentest_command --clang-scan-deps "${clang_scan_deps}")

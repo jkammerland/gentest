@@ -28,7 +28,7 @@ All non-CMake downstream consumers need the same host-side codegen tools:
 
 - `gentest_codegen`
 - a host `clang++`
-- optionally `clang-scan-deps`
+- `clang-scan-deps` for named-module codegen
 
 Keep these separate from the final target compiler:
 
@@ -39,7 +39,7 @@ The stable rule is:
 
 1. configure or pass the host `gentest_codegen`
 2. configure or pass the host `clang++`
-3. optionally configure `clang-scan-deps`
+3. make `clang-scan-deps` available when using named modules
 4. keep target sysroot / target flags in the normal build-system toolchain flow
 
 ## Quickstarts

@@ -1102,6 +1102,9 @@ local function ensure_codegen(batchcmds, target)
 end
 
 local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+    if config.kind == "modules" and (not scan_deps or scan_deps == "") then
+        fail("gentest_add_mocks(kind='modules') requires clang-scan-deps in the configured host LLVM toolchain")
+    end
     local args = {
         "--source-root", project_root(),
         "--tu-out-dir", config.out_dir_abs,
@@ -1167,6 +1170,9 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
 end
 
 local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+    if config.kind == "modules" and (not scan_deps or scan_deps == "") then
+        fail("gentest_add_suite(kind='modules') requires clang-scan-deps in the configured host LLVM toolchain")
+    end
     local args = {
         "--source-root", project_root(),
         "--tu-out-dir", config.out_dir_abs,
@@ -1405,9 +1411,13 @@ function gentest_add_mocks(opts)
         add_deps(table.unpack(dep_targets))
     end
     on_config(function ()
+        local compdb_sources = {config.source_file}
+        if kind == "modules" then
+            compdb_sources = config.defs
+        end
         ensure_fallback_compdb(
             config.fallback_compdb_file,
-            {config.source_file},
+            compdb_sources,
             config.defines,
             incdirs(),
             config.clang_args,

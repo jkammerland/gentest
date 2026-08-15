@@ -1252,16 +1252,6 @@ function(gentest_attach_codegen target)
         endforeach()
     endif()
 
-    # Generated provider targets with no CMake module metadata cannot require
-    # module dependency discovery.  Avoid launching a separate
-    # clang-scan-deps process for those targets, while retaining AUTO for
-    # anything CMake identifies as module-aware and preserving explicit user
-    # overrides.
-    set(_gentest_effective_scan_deps_mode "${GENTEST_CODEGEN_SCAN_DEPS_MODE}")
-    if(_gentest_effective_scan_deps_mode STREQUAL "" AND NOT _gentest_target_module_context AND NOT _gentest_has_module_sources)
-        set(_gentest_effective_scan_deps_mode "OFF")
-    endif()
-
     set(_gentest_wrapper_cpp "")
     set(_gentest_wrapper_headers "")
     set(_gentest_extra_cpp "")
@@ -1546,8 +1536,16 @@ function(gentest_attach_codegen target)
     if(_gentest_attach_discovers_mocks AND NOT _gentest_mode STREQUAL "module_registration")
         list(APPEND _command --discover-mocks)
     endif()
-    _gentest_resolve_codegen_clang_scan_deps(_gentest_clang_scan_deps)
-    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}" "${_gentest_effective_scan_deps_mode}")
+    set(_gentest_clang_scan_deps "")
+    if(_gentest_mode STREQUAL "module_registration" OR _gentest_mode STREQUAL "module_mock_provider")
+        _gentest_resolve_codegen_clang_scan_deps(_gentest_clang_scan_deps)
+        if("${_gentest_clang_scan_deps}" STREQUAL "")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): named-module codegen requires clang-scan-deps. "
+                "Install it with the host LLVM toolchain, or configure GENTEST_CODEGEN_CLANG_SCAN_DEPS with its path.")
+        endif()
+    endif()
+    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}")
 
     if(_gentest_mode STREQUAL "module_mock_provider" OR _gentest_mode STREQUAL "header_declaration")
         # Explicit module mock providers scan their generated provider units;
@@ -1581,7 +1579,7 @@ function(gentest_attach_codegen target)
             list(APPEND _gentest_mock_inspect_command --quiet-clang)
         endif()
         _gentest_append_codegen_module_context_args(
-            _gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}" "${_gentest_effective_scan_deps_mode}")
+            _gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}")
         list(APPEND _gentest_mock_inspect_command ${_gentest_tus})
         list(APPEND _gentest_mock_inspect_command --)
         list(APPEND _gentest_mock_inspect_command ${_gentest_source_inspection_clang_args})

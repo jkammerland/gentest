@@ -21,6 +21,11 @@ if("${_clangxx}" STREQUAL "")
   gentest_skip_test("forced non-clang compiler fallback regression: no clang++ compiler available")
   return()
 endif()
+gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
+if("${_clang_scan_deps}" STREQUAL "")
+  gentest_skip_test("forced non-clang compiler fallback regression: clang-scan-deps not found")
+  return()
+endif()
 
 file(TO_CMAKE_PATH "${_clangxx}" _clangxx_norm)
 file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
@@ -90,7 +95,9 @@ gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_source_ent
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
     "CXX=${_clangxx_norm}"
-    "${PROG}" --check --compdb "${_work_dir}" --tu-out-dir "${_generated_dir}"
+    "${PROG}" --check --compdb "${_work_dir}"
+    --clang-scan-deps "${_clang_scan_deps}"
+    --tu-out-dir "${_generated_dir}"
     --module-wrapper-output "${_wrapper_abs}"
     "${_suite_source_abs}"
   WORKING_DIRECTORY "${_work_dir}"
