@@ -170,20 +170,20 @@ project(gentest_artifact_protocol_direct_consumer LANGUAGES CXX)
 
 set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
-add_subdirectory("@GENTEST_SOURCE_ROOT@" gentest-src EXCLUDE_FROM_ALL)
+add_subdirectory("__GENTEST_SOURCE_ROOT__" gentest-src EXCLUDE_FROM_ALL)
 
-add_executable(protocol_direct "@GENTEST_OWNER_SOURCE@" "@GENTEST_REGISTRATION_SOURCE@")
-target_include_directories(protocol_direct PRIVATE "@GENTEST_SOURCE_DIR@")
+add_executable(protocol_direct "__GENTEST_OWNER_SOURCE__" "__GENTEST_REGISTRATION_SOURCE__")
+target_include_directories(protocol_direct PRIVATE "__GENTEST_SOURCE_DIR__")
 target_link_libraries(protocol_direct PRIVATE gentest::gentest_main)
 
 enable_testing()
 add_test(NAME protocol_direct COMMAND protocol_direct --run=protocol/direct_textual)
 ]=])
 file(READ "${_consumer_dir}/CMakeLists.txt" _consumer_cmake)
-string(REPLACE "@GENTEST_SOURCE_ROOT@" "${SOURCE_DIR}" _consumer_cmake "${_consumer_cmake}")
-string(REPLACE "@GENTEST_OWNER_SOURCE@" "${_owner_source}" _consumer_cmake "${_consumer_cmake}")
-string(REPLACE "@GENTEST_REGISTRATION_SOURCE@" "${_registration_source}" _consumer_cmake "${_consumer_cmake}")
-string(REPLACE "@GENTEST_SOURCE_DIR@" "${_source_dir}" _consumer_cmake "${_consumer_cmake}")
+string(REPLACE "__GENTEST_SOURCE_ROOT__" "${SOURCE_DIR}" _consumer_cmake "${_consumer_cmake}")
+string(REPLACE "__GENTEST_OWNER_SOURCE__" "${_owner_source}" _consumer_cmake "${_consumer_cmake}")
+string(REPLACE "__GENTEST_REGISTRATION_SOURCE__" "${_registration_source}" _consumer_cmake "${_consumer_cmake}")
+string(REPLACE "__GENTEST_SOURCE_DIR__" "${_source_dir}" _consumer_cmake "${_consumer_cmake}")
 file(WRITE "${_consumer_dir}/CMakeLists.txt" "${_consumer_cmake}")
 
 set(_consumer_configure_args
