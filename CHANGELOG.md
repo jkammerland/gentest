@@ -9,7 +9,7 @@ Unstable inside. No backward compatibility.
 - Third-party mock backends.
 - CMake-only mock generation.
 - CMake module registration support.
-- Same-module registration units.
+- Ordinary importer registration units for exported module cases.
 - Generated artifact manifests.
 - Artifact manifest validation command.
 - Textual wrapper artifact manifests.
@@ -27,6 +27,9 @@ Unstable inside. No backward compatibility.
 - CMake classifies modules from metadata.
 - Installed packages include gentest_codegen.
 - AppleClang requires Xcode 26.
+- Named-module registration now requires importer-reachable exported cases,
+  fixtures, and adapter dependencies. Direct module-owned mock attachments are
+  rejected; publish and import an explicit mock-provider target instead.
 
 ### Fixed
 

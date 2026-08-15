@@ -220,6 +220,24 @@ int main() {
     }
 
     {
+        auto fixture       = make_fixture("outer::SharedFx", {"outer"}, FixtureScope::Suite, "provider.cppm", "outer");
+        fixture.entity_key = "fixture:outer::SharedFx@provider";
+
+        std::vector<TestCaseInfo> cases;
+        auto                      imported = make_test("cross-primary-shared", {"outer", "consumer"}, "consumer.cppm");
+        imported.free_fixture_types        = {"outer::SharedFx"};
+        imported.free_fixture_entity_keys  = {fixture.entity_key};
+        cases.push_back(std::move(imported));
+
+        t.expect(resolve_free_fixtures(cases, {fixture}), "canonical entity resolves a fixture from another module primary");
+        t.expect(cases[0].free_fixtures.size() == 1, "cross-primary fixture resolves one use");
+        t.expect(cases[0].free_fixtures[0].scope == FixtureScope::Suite, "cross-primary fixture preserves suite scope");
+        t.expect(cases[0].free_fixtures[0].suite_name == "outer", "cross-primary fixture preserves declaring suite");
+        t.expect(cases[0].free_fixtures[0].registry_name == "outer::SharedFx",
+                 "cross-primary fixture preserves canonical registry identity");
+    }
+
+    {
         const std::vector<FixtureDeclInfo> fixtures = {
             make_fixture("outer::SharedFx", {"outer"}, FixtureScope::Suite, "tu_err.cpp", "outer"),
             make_fixture("outer::inner::NestedFx", {"outer", "inner"}, FixtureScope::Suite, "tu_err.cpp", "outer/inner"),

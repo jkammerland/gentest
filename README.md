@@ -688,11 +688,15 @@ export module mytests.cases;
 import gentest;
 import mytests.service_mocks;
 
+export namespace mytests::cases {
+
 [[using gentest: test("module/mock")]]
 void module_mock() {
     mytests::mocks::ServiceMock mock_service;
     gentest::expect(mock_service, &mytests::Service::compute).times(1).with(3).returns(9);
 }
+
+} // namespace mytests::cases
 ```
 
 Safeguards:

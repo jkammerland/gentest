@@ -21,10 +21,17 @@ target_compile_definitions(module_registration_manifest_context INTERFACE GENTES
 
 add_executable(module_registration_manifest_tests)
 
+set(_gentest_module_case_source cases.cppm)
+if(DEFINED GENTEST_VISIBILITY_SCENARIO AND NOT "${GENTEST_VISIBILITY_SCENARIO}" STREQUAL "")
+    set(_gentest_module_case_source "${GENTEST_VISIBILITY_SCENARIO}.cppm")
+else()
+    target_sources(module_registration_manifest_tests PRIVATE cases_impl.cpp)
+endif()
+
 target_sources(module_registration_manifest_tests
     PRIVATE
         FILE_SET module_cases TYPE CXX_MODULES FILES
-            ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
+            ${CMAKE_CURRENT_SOURCE_DIR}/${_gentest_module_case_source})
 
 target_link_libraries(module_registration_manifest_tests PRIVATE module_registration_manifest_context gentest gentest_main)
 target_compile_features(module_registration_manifest_tests PRIVATE cxx_std_20)

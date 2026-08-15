@@ -191,46 +191,40 @@ still pass those files with `--external-module-source=<name>=<path>`.
 `gentest_codegen` reads each candidate and only uses it for the requested
 module when the source declares that module name.
 
-## Same-Module Mock Registration
+## Named-Module Importer Registration
 
-`MODULE_REGISTRATION` composes module-owned mocks by consuming the mock manifest
-directly during registration emission. Build systems should predeclare the mock
-manifest, run `inspect-mocks`, then pass that manifest to the registration
-phase:
+`MODULE_REGISTRATION` scans selected primary module interfaces and emits one
+ordinary importer translation unit per input. Cases and adapter-visible fixture
+types must be exported; module-internal entities are rejected. Build systems
+predeclare the generated header, importer source, manifest, and depfile:
 
 ```bash
-gentest_codegen inspect-mocks \
-  --mock-manifest-output gen/tests.mock_manifest.json \
-  --depfile gen/tests.mock_manifest.d \
-  tests/provider.cppm tests/cases.cppm \
-  -- -std=c++20 -I/path/to/gentest/include
-
 gentest_codegen \
   --tu-out-dir gen \
-  --tu-header-output gen/tu_0000_provider.gentest.h \
-  --tu-header-output gen/tu_0001_cases.gentest.h \
-  --module-registration-output gen/tu_0000_provider.registration.gentest.cpp \
-  --module-registration-output gen/tu_0001_cases.registration.gentest.cpp \
+  --tu-header-output gen/tu_0000_cases.gentest.h \
+  --module-registration-output gen/tu_0000_cases.registration.gentest.cpp \
   --artifact-manifest gen/tests.artifact_manifest.json \
-  --mock-registration-manifest gen/tests.mock_manifest.json \
   --depfile gen/tests.gentest.d \
-  tests/provider.cppm tests/cases.cppm \
+  tests/cases.cppm \
   -- -std=c++20 -I/path/to/gentest/include
 ```
 
-The registration phase validates the mock manifest schema, named-module output
-domains, and owning module coverage. It emits same-module registration
-implementation units that attach module-owned mocks without including the owning
-`.cppm` source or importing the owning module. `emit-mocks` remains the
-independent phase for final mock registry/implementation outputs; same-module
-registration uses `--mock-registration-manifest` instead.
+The generated source includes registration support, imports the owning module,
+and then includes the generated registration header with its preamble disabled.
+It never includes the authored `.cppm` and never declares `module M;`. Its
+artifact entry uses `compile_as: "cxx-module-importer-registration"`, records
+`imports: ["M"]`, and keeps `requires_module_scan: true`.
+
+Direct module-owned `gentest::mock<T>` fixture parameters are rejected. Use an
+explicit mock target that publishes a generated module surface, import that
+surface from the case module, and use the published mock inside the test body.
 
 ## Current Limits
 
 Textual annotations and generated-adapter dependencies must be
 header-reachable. Source-only annotations, internal-linkage cases, and active
 named-module imports in a textual scan context are rejected. Module-authored
-tests continue to use same-module registration as documented in
+tests use exported importer registration as documented in
 [`docs/modules.md`](modules.md). The superseded decision history is recorded in
 [`docs/stories/036_textual_declaration_only_registration.md`](stories/036_textual_declaration_only_registration.md).
 

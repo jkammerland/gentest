@@ -838,7 +838,8 @@ function(_gentest_attach_module_registration_sources)
 
     if(GENTEST_REGISTRATION_CPP)
         target_sources(${GENTEST_TARGET} PRIVATE ${GENTEST_REGISTRATION_CPP})
-        set_source_files_properties(${GENTEST_REGISTRATION_CPP} TARGET_DIRECTORY ${GENTEST_TARGET} PROPERTIES CXX_SCAN_FOR_MODULES ON)
+        set_source_files_properties(${GENTEST_REGISTRATION_CPP} TARGET_DIRECTORY ${GENTEST_TARGET}
+            PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION ON CXX_SCAN_FOR_MODULES ON)
     endif()
 
     add_custom_target(gentest_codegen_${GENTEST_TARGET_ID} DEPENDS ${GENTEST_CODEGEN_OUTPUTS})
@@ -1190,7 +1191,7 @@ function(gentest_attach_codegen target)
 
     # Ordinary textual targets use additive header-declaration registration.
     # Named module sources retain their existing internal wrapper path unless
-    # the caller explicitly selects same-module registration. The internal
+    # the caller explicitly selects importer registration. The internal
     # compatibility property is also used by repository migration/regression
     # targets that intentionally exercise the previous-major wrapper protocol.
     set(_gentest_mode "header_declaration")
@@ -1691,7 +1692,7 @@ function(gentest_attach_codegen target)
             DEPFILE "${_gentest_depfile}"
             TARGET_ATTACHMENT "private-generated-source"
             ARTIFACT_ROLE "registration"
-            COMPILE_AS "cxx-module-implementation"
+            COMPILE_AS "cxx-module-importer-registration"
             REQUIRES_MODULE_SCAN "ON"
             COMPDB "${_gentest_codegen_compdb_dir}"
             SOURCES ${_gentest_tus}

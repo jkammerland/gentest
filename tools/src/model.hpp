@@ -64,7 +64,8 @@ struct TemplateBindingSet {
 };
 
 struct FreeFixtureUse {
-    std::string  type_name; // fully qualified (no leading ::)
+    std::string  type_name;     // importer-visible C++ spelling (fully qualified, no leading ::)
+    std::string  registry_name; // canonical runtime identity; empty means type_name
     FixtureScope scope = FixtureScope::Local;
     std::string  suite_name; // only for suite fixtures
 };
@@ -83,7 +84,10 @@ struct FreeCallArg {
 };
 
 struct FixtureDeclInfo {
-    std::string              qualified_name;
+    std::string qualified_name;
+    // Importer-visible C++ spelling used to instantiate shared fixture support.
+    // This may be an exported alias for a module-private qualified_name.
+    std::string              registration_type_name;
     std::string              base_name;
     std::vector<std::string> namespace_parts;
     std::string              suite_name;
@@ -99,7 +103,8 @@ struct FixtureDeclInfo {
     // Header paired with the selected owning scan context. `filename` may be
     // replaced by the canonical metadata site during serial merge.
     std::string registration_header;
-    std::size_t scan_slot = 0;
+    std::size_t scan_slot          = 0;
+    bool        importer_reachable = true;
 };
 
 // Parsed attribute name with its argument strings as written in source.
@@ -134,9 +139,9 @@ struct CollectorOptions {
     // aligned with `sources`; any discovered named module source requires a
     // non-empty explicit slot instead of tool-side filename derivation.
     std::vector<std::filesystem::path> module_wrapper_outputs;
-    // Build-owned per-source same-module registration implementation outputs.
-    // This first-slice mode stays aligned with `sources` and is validated by
-    // gentest_codegen after it has classified each module source.
+    // Build-owned per-source importer registration outputs. This mode stays
+    // aligned with `sources` and is validated by gentest_codegen after it has
+    // classified each module source.
     std::vector<std::filesystem::path> module_registration_outputs;
     // Build-owned per-source textual wrapper outputs. This is used by
     // non-CMake textual integrations that pass owner sources directly to
@@ -189,6 +194,7 @@ struct CollectorOptions {
     bool        quiet_clang                     = false;
     bool        check_only                      = false;
     bool        header_declaration_registration = false;
+    bool        module_importer_registration    = false;
 };
 
 // Description of a discovered test function or member function.
@@ -246,6 +252,12 @@ struct TestCaseInfo {
     // Free-function fixtures inferred from function signature parameter types.
     // Raw fixture type tokens as discovered from the signature; resolved after discovery.
     std::vector<std::string> free_fixture_types;
+    // Stable canonical declaration identity for each inferred fixture type.
+    // Used to resolve the same shared fixture across module-primary scan slots.
+    std::vector<std::string> free_fixture_entity_keys;
+    // Source-level spellings used when a fixture resolves as local. These may differ from
+    // free_fixture_types for exported aliases whose canonical type is module-private.
+    std::vector<std::string> free_fixture_emit_types;
     // Optional expected scope for each inferred fixture type (same length/order as free_fixture_types).
     // Set when the referenced type declaration is explicitly marked fixture(suite/global).
     std::vector<std::optional<FixtureScope>> free_fixture_required_scopes;
