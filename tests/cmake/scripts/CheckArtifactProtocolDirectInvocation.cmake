@@ -153,8 +153,8 @@ set(_validator_args
   --expected-artifact-role registration
   --expected-compile-as cxx-header-declaration-registration
   --expected-requires-module-scan OFF
-  --expected-includes-owner-source OFF
-  --expected-replaces-owner-source OFF)
+  --expected-includes-authored-source OFF
+  --expected-replaces-authored-source OFF)
 gentest_check_run_or_fail(
   COMMAND ${_validator_args}
   STRIP_TRAILING_WHITESPACE)
@@ -264,8 +264,8 @@ set(_bad_validator_args
   --expected-artifact-role registration
   --expected-compile-as cxx-header-declaration-registration
   --expected-requires-module-scan false
-  --expected-includes-owner-source false
-  --expected-replaces-owner-source 0)
+  --expected-includes-authored-source false
+  --expected-replaces-authored-source 0)
 execute_process(
   COMMAND ${_bad_validator_args}
   RESULT_VARIABLE _bad_schema_rc
@@ -309,8 +309,8 @@ function(_gentest_expect_additive_manifest_rejected suffix manifest_json expecte
       --expected-artifact-role registration
       --expected-compile-as cxx-header-declaration-registration
       --expected-requires-module-scan false
-      --expected-includes-owner-source false
-      --expected-replaces-owner-source false
+      --expected-includes-authored-source false
+      --expected-replaces-authored-source false
     RESULT_VARIABLE _bad_rc
     OUTPUT_VARIABLE _bad_out
     ERROR_VARIABLE _bad_err

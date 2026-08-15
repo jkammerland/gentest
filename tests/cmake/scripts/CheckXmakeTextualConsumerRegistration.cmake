@@ -215,13 +215,6 @@ foreach(_expected_source IN ITEMS
       "xmake target output:\n${_target_out}")
   endif()
 endforeach()
-string(FIND "${_target_out_norm}" "tu_0000_cases.gentest.cpp" _obsolete_source_pos)
-if(NOT _obsolete_source_pos EQUAL -1)
-  message(FATAL_ERROR
-    "gentest_consumer_textual_xmake must not retain the textual replacement wrapper.\n"
-    "xmake target output:\n${_target_out}")
-endif()
-
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
           "${_xmake}" show ${_xmake_show_args} -t gentest_consumer_module_mocks_xmake

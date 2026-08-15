@@ -174,7 +174,7 @@ struct CollectorOptions {
     std::optional<std::filesystem::path>                                source_root;
     MockBackend                                                         mock_backend = MockBackend::Gentest;
     std::optional<std::filesystem::path>                                clang_scan_deps_executable;
-    // Maximum parallelism used when parsing/emitting multiple TUs in TU wrapper mode.
+    // Maximum parallelism used when parsing/emitting multiple inputs.
     // 0 selects std::thread::hardware_concurrency().
     std::size_t jobs                            = 0;
     bool        discover_mocks                  = false;

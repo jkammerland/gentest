@@ -51,8 +51,8 @@ resolved by ordinary linking.
 `gentest_codegen --output <file>`, `--textual-wrapper-output`, and
 `--artifact-owner-source`, plus
 `gentest_attach_codegen(... OUTPUT <file>)` were removed in `2.0.0`. They now
-hard-fail with migration guidance instead of producing a single generated
-source that includes all inputs. `NO_INCLUDE_SOURCES`,
+produce no compatibility artifacts; the textual-wrapper-specific CLI options
+are no longer accepted. `NO_INCLUDE_SOURCES`,
 `GENTEST_NO_INCLUDE_SOURCES`, and `gentest_codegen --template <file>` were
 removed with that mode.
 

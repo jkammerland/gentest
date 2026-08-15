@@ -167,6 +167,7 @@ file(MAKE_DIRECTORY "${_out_dir}/tmp")
 set(_xmake_env
   "GENTEST_CODEGEN=${_codegen}"
   "GENTEST_CODEGEN_HOST_CLANG=${_clang_cxx}"
+  "GENTEST_CODEGEN_CLANG_SCAN_DEPS=${_out_dir}/must-not-be-resolved-clang-scan-deps"
   "GENTEST_XMAKE_SKIP_MODULE_TARGETS=1"
   "CC=${_target_cc}"
   "CXX=${_target_cxx}"
@@ -245,6 +246,12 @@ if(_host_clang_flag_pos EQUAL -1 OR _host_clang_path_pos EQUAL -1)
     "Expected host clang: ${_clang_cxx}\n"
     "stdout:\n${_build_out}\n"
     "stderr:\n${_build_err}")
+endif()
+string(FIND "${_build_log}" "--clang-scan-deps" _scan_deps_flag_pos)
+string(FIND "${_build_log}" "must-not-be-resolved-clang-scan-deps" _scan_deps_path_pos)
+if(NOT _scan_deps_flag_pos EQUAL -1 OR NOT _scan_deps_path_pos EQUAL -1)
+  message(FATAL_ERROR
+    "xmake textual codegen must not resolve or forward clang-scan-deps.\n${_build_log}")
 endif()
 foreach(_expected IN ITEMS
     "-DGENTEST_XMAKE_TEXTUAL_MOCKS_DEFINE=1"

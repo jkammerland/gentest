@@ -155,8 +155,7 @@ meson.override_dependency('gentest', gentest_dep)
 # via `-Dcodegen_host_clang=...`. Meson remains textual-only here today.
 # Example:
 #   meson setup build/meson -Dcodegen_path=build/host-codegen/tools/gentest_codegen \
-#     -Dcodegen_host_clang=/opt/llvm/bin/clang++ \
-#     -Dcodegen_clang_scan_deps=/opt/llvm/bin/clang-scan-deps
+#     -Dcodegen_host_clang=/opt/llvm/bin/clang++
 #   meson compile -C build/meson
 
 clang_args = [

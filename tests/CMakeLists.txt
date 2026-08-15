@@ -3423,12 +3423,6 @@ _gentest_add_cmake_helper_test(
 unset(_gentest_discover_tests_config)
 
 _gentest_add_cmake_helper_test(
-    gentest_textual_wrapper_compatibility_removed
-    ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTuWrapperSourceProps.cmake
-    cmake)
-
-_gentest_add_cmake_helper_test(
     gentest_header_declaration_registration
     ${PROJECT_SOURCE_DIR}/tests/cmake/header_declaration_registration
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckHeaderDeclarationRegistration.cmake

@@ -250,8 +250,7 @@ Downstream setup:
 meson setup build/meson path/to/downstream \
   --native-file clang.ini \
   -Dgentest_codegen_path=/opt/sdk/host-tools/bin/gentest_codegen \
-  -Dgentest_codegen_host_clang=/opt/sdk/host-llvm/bin/clang++ \
-  -Dgentest_codegen_clang_scan_deps=/opt/sdk/host-llvm/bin/clang-scan-deps
+  -Dgentest_codegen_host_clang=/opt/sdk/host-llvm/bin/clang++
 meson compile -C build/meson
 meson test -C build/meson --print-errorlogs
 ```
@@ -265,6 +264,8 @@ Notes:
   `-Dcodegen_path=...` and `-Dcodegen_host_clang=...` option names.
 - Keep target `c` / `cpp` compiler selection in the Meson native file or
   cross file. Do not use it as a substitute for the codegen-host contract.
+- Gentest's Meson integration is textual-only, so it neither discovers nor
+  accepts a `clang-scan-deps` option.
 - The checked-in downstream proof consumes `gentest` as a subproject with
   `build_self_tests=false` and runs a textual mock + suite consumer end to end.
 

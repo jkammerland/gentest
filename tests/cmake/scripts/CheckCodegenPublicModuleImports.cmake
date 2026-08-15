@@ -166,9 +166,29 @@ function(_gentest_assert_required_scanner build_dir expected_scanner)
   endif()
 endfunction()
 
+function(_gentest_assert_scanner_dependency build_dir expected_scanner)
+  if(WIN32)
+    return()
+  endif()
+  file(READ "${build_dir}/build.ninja" _build_ninja_text)
+  string(REGEX MATCH
+    "build [^\r\n]*gentest_codegen/tu_[0-9]+_[^ ]+\\.gentest\\.h[^\r\n]*: CUSTOM_COMMAND[^\r\n]*"
+    _codegen_build_edge
+    "${_build_ninja_text}")
+  if(_codegen_build_edge STREQUAL "")
+    message(FATAL_ERROR "Expected '${build_dir}/build.ninja' to declare the Gentest codegen build edge")
+  endif()
+  string(FIND "${_codegen_build_edge}" "${expected_scanner}" _scanner_dependency_pos)
+  if(_scanner_dependency_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected named-module codegen to depend on clang-scan-deps '${expected_scanner}'.\n${_codegen_build_edge}")
+  endif()
+endfunction()
+
 message(STATUS "Configure consumer with automatically selected clang-scan-deps...")
 _gentest_configure_consumer("${_consumer_build_dir}")
 _gentest_assert_required_scanner("${_consumer_build_dir}" "${_scan_deps}")
+_gentest_assert_scanner_dependency("${_consumer_build_dir}" "${_scan_deps}")
 file(STRINGS "${_consumer_build_dir}/gentest_codegen_target.txt" _consumer_codegen_target LIMIT_COUNT 1)
 if("${_consumer_codegen_target}" STREQUAL "")
   message(FATAL_ERROR "Consumer fixture did not expose its GENTEST_CODEGEN_DEP_TARGET")

@@ -127,9 +127,9 @@ def _gentest_exec_driver_args(tools):
         ]
     return ["-nostdinc++"] + cxx_roots
 
-def _gentest_run_codegen(ctx, tools, inputs, outputs, args, mnemonic):
+def _gentest_run_codegen(ctx, tools, inputs, outputs, args, mnemonic, requires_scan_deps = False):
     action_tools = [tools.codegen, tools.clang]
-    if tools.clang_scan_deps:
+    if requires_scan_deps:
         action_tools.append(tools.clang_scan_deps)
     execution_requirements = {}
     if tools.local_only:
@@ -604,6 +604,7 @@ def _gentest_module_mocks_codegen_impl(ctx):
         codegen_outputs,
         args,
         "GentestModuleMocksCodegen",
+        requires_scan_deps = True,
     )
 
     module_mappings = []
@@ -801,6 +802,7 @@ def _gentest_module_suite_codegen_impl(ctx):
         [registration_cpp, registration_h, artifact_manifest],
         args,
         "GentestModuleSuiteCodegen",
+        requires_scan_deps = True,
     )
 
     return [

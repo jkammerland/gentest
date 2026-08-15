@@ -10,7 +10,8 @@ additionally provide ordered markers for Clang's resource and C/SDK system
 include roots; the actions disable all ambient standard include discovery.
 macOS packages provide a marker file directly under the declared SDK root and
 include the full SDK in ``runtime_files``. The codegen rules add the returned
-``files`` depset to every action's declared tools.
+``files`` depset to every action and add the scanner only to named-module
+actions.
 """
 
 def _runfiles_files(target):
@@ -31,8 +32,6 @@ def _gentest_codegen_toolchain_impl(ctx):
                     "GENTEST_BAZEL_LOCAL_CLANG to use Gentest's explicitly local development bootstrap.",
         )]
     files = [_runfiles_files(ctx.attr.codegen), _runfiles_files(ctx.attr.clang)]
-    if scan_deps:
-        files.append(_runfiles_files(ctx.attr.clang_scan_deps))
     cxx_standard_library_roots = ctx.files.cxx_standard_library_roots
     system_include_roots = ctx.files.system_include_roots
     if not ctx.attr.local_only and not cxx_standard_library_roots:

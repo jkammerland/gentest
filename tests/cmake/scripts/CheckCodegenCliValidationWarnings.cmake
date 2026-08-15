@@ -75,37 +75,38 @@ if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
   list(APPEND _module_clang_args "${TARGET_ARG}")
 endif()
 gentest_resolve_clang_fixture_compilers(_module_clang _module_compiler)
-if(NOT _module_clang OR NOT _module_compiler)
-  gentest_skip_test("CLI validation warnings regression: clang/clang++ not found")
-  return()
-endif()
-gentest_find_clang_scan_deps(_module_scan_deps "${_module_compiler}")
-if(NOT _module_scan_deps)
-  gentest_skip_test("CLI validation warnings regression: clang-scan-deps not found")
-  return()
-endif()
-gentest_normalize_std_flag_for_compiler(_module_codegen_std "${_module_compiler}" "${CODEGEN_STD}")
-list(APPEND _module_clang_args "${_module_codegen_std}" ${_public_include_args})
+set(_module_validation_available FALSE)
+if(_module_clang AND _module_compiler)
+  gentest_find_clang_scan_deps(_module_scan_deps "${_module_compiler}")
+  if(_module_scan_deps)
+    set(_module_validation_available TRUE)
+    gentest_normalize_std_flag_for_compiler(_module_codegen_std "${_module_compiler}" "${CODEGEN_STD}")
+    list(APPEND _module_clang_args "${_module_codegen_std}" ${_public_include_args})
 
-set(_module_compdb_entries)
-foreach(_module_source IN ITEMS
-    "${_module_smoke_source}"
-    "${_module_partition_source}"
-    "${_module_pmf_source}"
-    "${_module_implementation_source}")
-  get_filename_component(_module_source_stem "${_module_source}" NAME_WE)
-  gentest_fixture_make_compdb_entry(
-    _module_compdb_entry
-    DIRECTORY "${_module_smoke_dir}"
-    FILE "${_module_source}"
-    ARGUMENTS
-      "${_module_compiler}"
-      ${_module_clang_args}
-      -c "${_module_source}"
-      -o "${_module_smoke_dir}/${_module_source_stem}.o")
-  list(APPEND _module_compdb_entries "${_module_compdb_entry}")
-endforeach()
-gentest_fixture_write_compdb("${_module_smoke_dir}/compile_commands.json" ${_module_compdb_entries})
+    set(_module_compdb_entries)
+    foreach(_module_source IN ITEMS
+        "${_module_smoke_source}"
+        "${_module_partition_source}"
+        "${_module_pmf_source}"
+        "${_module_implementation_source}")
+      get_filename_component(_module_source_stem "${_module_source}" NAME_WE)
+      gentest_fixture_make_compdb_entry(
+        _module_compdb_entry
+        DIRECTORY "${_module_smoke_dir}"
+        FILE "${_module_source}"
+        ARGUMENTS
+          "${_module_compiler}"
+          ${_module_clang_args}
+          -c "${_module_source}"
+          -o "${_module_smoke_dir}/${_module_source_stem}.o")
+      list(APPEND _module_compdb_entries "${_module_compdb_entry}")
+    endforeach()
+    gentest_fixture_write_compdb("${_module_smoke_dir}/compile_commands.json" ${_module_compdb_entries})
+  endif()
+endif()
+if(NOT _module_validation_available)
+  message(STATUS "clang/clang++/clang-scan-deps unavailable; running scanner-independent CLI validation only")
+endif()
 
 set(_common_args
   --check
@@ -175,14 +176,6 @@ _gentest_expect_result(
   ${_common_args})
 
 _gentest_expect_result(
-  "textual wrapper output removed"
-  1
-  "gentest_codegen: --textual-wrapper-output was removed"
-  "${PROG}"
-  --textual-wrapper-output "${BUILD_ROOT}/unused.gentest.cpp"
-  ${_common_args})
-
-_gentest_expect_result(
   "module wrapper output requires tu out dir"
   1
   "gentest_codegen: --module-wrapper-output requires --tu-out-dir"
@@ -200,18 +193,20 @@ _gentest_expect_result(
   --module-wrapper-output "${BUILD_ROOT}/b.module.gentest.cpp"
   ${_common_args})
 
-_gentest_expect_result(
-  "module source requires explicit wrapper output"
-  1
-  "gentest_codegen: named module source '${_module_smoke_source}' requires an explicit --module-wrapper-output path in TU mode"
-  "${PROG}"
-  --check
-  --compdb "${_module_smoke_dir}"
-  --clang-scan-deps "${_module_scan_deps}"
-  --tu-out-dir "${BUILD_ROOT}/missing-module-wrapper"
-  "${_module_smoke_source}"
-  --
-  ${_module_clang_args})
+if(_module_validation_available)
+  _gentest_expect_result(
+    "module source requires explicit wrapper output"
+    1
+    "gentest_codegen: named module source '${_module_smoke_source}' requires an explicit --module-wrapper-output path in TU mode"
+    "${PROG}"
+    --check
+    --compdb "${_module_smoke_dir}"
+    --clang-scan-deps "${_module_scan_deps}"
+    --tu-out-dir "${BUILD_ROOT}/missing-module-wrapper"
+    "${_module_smoke_source}"
+    --
+    ${_module_clang_args})
+endif()
 
 _gentest_expect_result(
   "module registration output requires tu out dir"
@@ -250,56 +245,49 @@ _gentest_expect_result(
   --compile-context-id b
   ${_common_args})
 
-_gentest_expect_result(
-  "artifact owner source removed"
-  1
-  "gentest_codegen: --artifact-owner-source was removed"
-  "${PROG}"
-  --artifact-manifest "${BUILD_ROOT}/unused.artifact_manifest.json"
-  --artifact-owner-source "${_smoke_source}"
-  ${_common_args})
+if(_module_validation_available)
+  _gentest_expect_result(
+    "module registration rejects partitions"
+    1
+    "gentest_codegen: module registration input '${_module_partition_source}' declares module partition 'gentest.cli.validation:partition'"
+    "${PROG}"
+    --check
+    --compdb "${_module_smoke_dir}"
+    --clang-scan-deps "${_module_scan_deps}"
+    --tu-out-dir "${BUILD_ROOT}/partition-module-registration"
+    --module-registration-output "${BUILD_ROOT}/partition-module-registration/partition.registration.gentest.cpp"
+    "${_module_partition_source}"
+    --
+    ${_module_clang_args})
 
-_gentest_expect_result(
-  "module registration rejects partitions"
-  1
-  "gentest_codegen: module registration input '${_module_partition_source}' declares module partition 'gentest.cli.validation:partition'"
-  "${PROG}"
-  --check
-  --compdb "${_module_smoke_dir}"
-  --clang-scan-deps "${_module_scan_deps}"
-  --tu-out-dir "${BUILD_ROOT}/partition-module-registration"
-  --module-registration-output "${BUILD_ROOT}/partition-module-registration/partition.registration.gentest.cpp"
-  "${_module_partition_source}"
-  --
-  ${_module_clang_args})
+  _gentest_expect_result(
+    "module registration rejects private module fragments"
+    1
+    "gentest_codegen: module registration input '${_module_pmf_source}' contains a private module fragment"
+    "${PROG}"
+    --check
+    --compdb "${_module_smoke_dir}"
+    --clang-scan-deps "${_module_scan_deps}"
+    --tu-out-dir "${BUILD_ROOT}/pmf-module-registration"
+    --module-registration-output "${BUILD_ROOT}/pmf-module-registration/pmf.registration.gentest.cpp"
+    "${_module_pmf_source}"
+    --
+    ${_module_clang_args})
 
-_gentest_expect_result(
-  "module registration rejects private module fragments"
-  1
-  "gentest_codegen: module registration input '${_module_pmf_source}' contains a private module fragment"
-  "${PROG}"
-  --check
-  --compdb "${_module_smoke_dir}"
-  --clang-scan-deps "${_module_scan_deps}"
-  --tu-out-dir "${BUILD_ROOT}/pmf-module-registration"
-  --module-registration-output "${BUILD_ROOT}/pmf-module-registration/pmf.registration.gentest.cpp"
-  "${_module_pmf_source}"
-  --
-  ${_module_clang_args})
-
-_gentest_expect_result(
-  "module registration rejects implementation-unit annotation owners"
-  1
-  "gentest_codegen: module registration input '${_module_implementation_source}' is a module implementation unit"
-  "${PROG}"
-  --check
-  --compdb "${_module_smoke_dir}"
-  --clang-scan-deps "${_module_scan_deps}"
-  --tu-out-dir "${BUILD_ROOT}/implementation-module-registration"
-  --module-registration-output "${BUILD_ROOT}/implementation-module-registration/implementation.registration.gentest.cpp"
-  "${_module_implementation_source}"
-  --
-  ${_module_clang_args})
+  _gentest_expect_result(
+    "module registration rejects implementation-unit annotation owners"
+    1
+    "gentest_codegen: module registration input '${_module_implementation_source}' is a module implementation unit"
+    "${PROG}"
+    --check
+    --compdb "${_module_smoke_dir}"
+    --clang-scan-deps "${_module_scan_deps}"
+    --tu-out-dir "${BUILD_ROOT}/implementation-module-registration"
+    --module-registration-output "${BUILD_ROOT}/implementation-module-registration/implementation.registration.gentest.cpp"
+    "${_module_implementation_source}"
+    --
+    ${_module_clang_args})
+endif()
 
 _gentest_expect_result(
   "mock domain outputs require base outputs"

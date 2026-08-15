@@ -44,26 +44,6 @@
             "required": [
               "source",
               "kind",
-              "owner_source",
-              "generated_wrapper_source",
-              "registration_header",
-              "compile_context_id"
-            ],
-            "properties": {
-              "source": { "type": "string" },
-              "kind": { "const": "textual-wrapper" },
-              "owner_source": { "type": "string" },
-              "generated_wrapper_source": { "type": "string" },
-              "registration_header": { "type": "string" },
-              "compile_context_id": { "type": "string" }
-            }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "source",
-              "kind",
               "module",
               "partition",
               "compile_context_id",
@@ -119,50 +99,6 @@
               "requires_module_scan": { "const": false },
               "includes_authored_source": { "const": false },
               "replaces_authored_source": { "const": false },
-              "depfile": { "type": "string" }
-            }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "path",
-              "role",
-              "compile_as",
-              "owner_source",
-              "generated_wrapper_source",
-              "target_attachment",
-              "compile_context_id",
-              "requires_module_scan",
-              "includes_owner_source",
-              "replaces_owner_source",
-              "generated_include_dirs",
-              "generated_headers",
-              "depfile"
-            ],
-            "properties": {
-              "path": { "type": "string" },
-              "role": { "const": "registration" },
-              "compile_as": { "const": "cxx-textual-wrapper" },
-              "owner_source": { "type": "string" },
-              "generated_wrapper_source": { "type": "string" },
-              "target_attachment": { "const": "replace-owner-source" },
-              "compile_context_id": { "type": "string" },
-              "requires_module_scan": { "const": false },
-              "includes_owner_source": { "const": true },
-              "replaces_owner_source": { "const": true },
-              "generated_include_dirs": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 1,
-                "items": { "type": "string" }
-              },
-              "generated_headers": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 1,
-                "items": { "type": "string" }
-              },
               "depfile": { "type": "string" }
             }
           },

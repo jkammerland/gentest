@@ -272,20 +272,6 @@ foreach(_expected_manifest_token IN ITEMS
   endif()
 endforeach()
 
-foreach(_forbidden_manifest_token IN ITEMS
-    "textual-wrapper"
-    "cxx-textual-wrapper"
-    "replace-owner-source"
-    "includes_owner_source"
-    "replaces_owner_source")
-  string(FIND "${_textual_manifest_json}" "${_forbidden_manifest_token}" _forbidden_manifest_pos)
-  if(NOT _forbidden_manifest_pos EQUAL -1)
-    message(FATAL_ERROR
-      "Meson wrap consumer textual artifact manifest retains obsolete token '${_forbidden_manifest_token}'.\n"
-      "${_textual_manifest_json}")
-  endif()
-endforeach()
-
 set(_registration_source "${_meson_textual_dir}/tu_0000_downstream_textual_cases.header_registration.gentest.cpp")
 file(READ "${_registration_source}" _registration_source_content)
 string(FIND "${_registration_source_content}" "cases.cpp" _authored_include_pos)
