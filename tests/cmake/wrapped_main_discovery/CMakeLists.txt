@@ -22,7 +22,6 @@ add_executable(wrapped_main_tests
 
 target_link_libraries(wrapped_main_tests PRIVATE gentest gentest_main)
 target_compile_features(wrapped_main_tests PRIVATE cxx_std_20)
-set_property(TARGET wrapped_main_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(wrapped_main_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

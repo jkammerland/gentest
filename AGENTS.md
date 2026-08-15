@@ -6,11 +6,10 @@
 - Runtime execution lives in `src/` (notably `src/runner_impl.cpp`). Fixture allocation and ownership live in `include/gentest/fixture.h`.
 - Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits generated registrations/implementation sources. Codegen templates live in `tools/src/templates.hpp` and `tools/src/templates_mocks.hpp`.
 - Helper macro wiring is in `cmake/GentestCodegen.cmake`.
-- `gentest_codegen` supports three output styles:
+- `gentest_codegen` supports two test-registration output styles:
   - Additive header-declaration mode (ordinary textual default): annotations live in headers, authored `.cpp` files remain attached, and stable per-slot generated registration `.cpp` files are appended.
-  - Per-TU wrapper registration (internal previous-major compatibility): emits per-TU registration headers and shim TUs that include the original source.
   - CMake module-registration mode (`gentest_attach_codegen(... MODULE_REGISTRATION FILE_SET <name>)`): emits ordinary importer registration TUs (`tu_*.registration.gentest.cpp`), per-TU headers, and `<target>.artifact_manifest.json`; authored module interfaces stay in the target and annotated cases/fixtures must be exported.
-- Additive header-declaration mode never includes or replaces an authored `.cpp`; wrapper substitution is retained only for internal compatibility regression targets.
+- Additive header-declaration mode never includes or replaces an authored `.cpp`. Explicit named-module mocks retain a separate generated provider path; it is not a test-registration fallback.
 - Public named modules are controlled by `GENTEST_ENABLE_PUBLIC_MODULES=AUTO|ON|OFF` (default `OFF`); set `ON` or `AUTO` explicitly when you want the public module surface.
 - Each suite under `tests/<suite>/` provides handwritten `cases.cpp`; shared test entry lives in `tests/support/test_entry.cpp`. Generated outputs land in the build tree (e.g. `${binaryDir}/tests/<suite>/tu_*.gentest.{cpp,h}` plus mock headers).
 
@@ -87,7 +86,7 @@
 - Follow `.clang-format` (LLVM-derived): 4-space indent, 140-column limit.
 - Format edited C/C++ files explicitly with `clang-format -i <paths...>`; there is no dedicated format preset in this repo today.
 - Run the CI-aligned format gate with `scripts/check_clang_format.sh` when you want the same repo-wide dry-run check used by the lint workflow.
-- Run the same clang-tidy script CI uses with `scripts/check_clang_tidy.sh build/debug-system` after configuring a Clang-based `debug-system` build, for example `cmake --preset=debug-system -DGENTEST_ENABLE_PACKAGE_TESTS=OFF -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`. If CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=... -DClang_DIR=...`. The script checks the translation units present in the active compile database, remapping gentest `tu_*.gentest.*` shims back to their original repo sources when possible, so the CI-aligned `debug-system` lane covers the configured `src/`, `tools/`, `tests/`, and public module units. It also surfaces diagnostics from matching repo headers included by those translation units, while still excluding generated fixture outputs outside the active preset. When the active compile database references generated explicit mock/codegen surfaces, `scripts/check_clang_tidy.sh` materializes any generated mock/codegen targets referenced by the active compile database before running clang-tidy, so a configure-only build dir is sufficient for the lint lane.
+- Run the same clang-tidy script CI uses with `scripts/check_clang_tidy.sh build/debug-system` after configuring a Clang-based `debug-system` build, for example `cmake --preset=debug-system -DGENTEST_ENABLE_PACKAGE_TESTS=OFF -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`. If CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=... -DClang_DIR=...`. The script checks direct authored repository translation units from the active compile database, so the CI-aligned `debug-system` lane covers the configured `src/`, `tools/`, `tests/`, and public module units. It also surfaces diagnostics from matching repo headers included by those translation units, while still excluding generated fixture outputs outside the active preset. When the active compile database references generated explicit mock/codegen surfaces, `scripts/check_clang_tidy.sh` materializes any generated mock/codegen targets referenced by the active compile database before running clang-tidy, so a configure-only build dir is sufficient for the lint lane.
 - Run the repo-owned coverage report with `python3 scripts/coverage_report.py --build-dir build/coverage-system` after a coverage-instrumented serial test pass. It reads the same `scripts/coverage_hygiene.toml` policy as the hygiene gate, scopes totals to repo-owned implementation files under `src/` and `tools/src/`, includes internal headers in those trees, excludes intentional exemptions, writes a Markdown summary for GitHub Actions, and emits the detailed HTML report under `build/<preset>/coverage-report/`.
 - For the vcpkg-backed static-analysis workflow, use the `tidy` / `tidy-fix` presets when you want configure/build/test wired together.
 - Filenames: lowercase `snake_case`; types: `PascalCase`; functions: `camelCase`.
@@ -119,10 +118,10 @@
   - See `docs/modules.md` for the supported named-module flows (`import gentest;`, `import gentest.mock;`, `import gentest.bench_util;`).
   - `import gentest;` consumers should link `gentest::gentest`; test executables typically link both `gentest::gentest` and `gentest::gentest_main` (or `gentest::gentest_runtime` if they provide their own `main()`).
   - Public named-module export/import support is gated by `GENTEST_ENABLE_PUBLIC_MODULES`; set it to `ON` (or `AUTO` if you want toolchain-driven fallback) when you are explicitly testing public modules.
-  - Internal per-TU wrapper compatibility for module sources requires a single-config generator/build dir (for example Ninja). Prefer `MODULE_REGISTRATION FILE_SET <name>` for module-authored tests.
+  - Module-authored tests require `MODULE_REGISTRATION FILE_SET <name>` and exported cases/fixture types. Explicit named-module mock providers use separate generated-mock internals.
   - Link explicit mock targets before `gentest_attach_codegen()` so codegen sees the generated mock surface during discovery.
 - Ordinary textual `gentest_attach_codegen()` uses additive header-declaration registration. Use a generator that exports compile commands; Ninja and Ninja Multi-Config are supported.
-- In additive header-declaration and internal per-TU modes, `OUTPUT_DIR` must be a concrete root path (no generator expressions); multi-config builds add their configuration subdirectory automatically.
+- In additive header-declaration mode, `OUTPUT_DIR` must be a concrete root path (no generator expressions); multi-config builds add their configuration subdirectory automatically.
 - Cross-compiling (target = arm/riscv/etc, host runs codegen):
   - `GENTEST_BUILD_CODEGEN` defaults to `gentest_BUILD_TESTING` for native builds and to `OFF` for cross builds.
   - Build the host tool separately, then point the target build at it with `GENTEST_CODEGEN_EXECUTABLE`:
@@ -138,7 +137,7 @@
   - Some Windows Debug CI environments hang on the two concurrency "death" tests; the CI sets `-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON` (only disables `concurrency_fail_single_death` and `concurrency_multi_noadopt_death` in `Debug` on `WIN32`).
 
 ## `gentest_codegen` parallelism (per-slot modes)
-- Applies when `gentest_codegen` is invoked once with multiple scan slots (`--tu-out-dir`), including additive header-declaration and compatibility wrapper inputs.
+- Applies when `gentest_codegen` is invoked once with multiple scan slots (`--tu-out-dir`), including additive header-declaration and named-module inputs.
 - A “codegen job” is a **worker thread inside a single `gentest_codegen` process** (not a CMake/Ninja job).
 - Controls:
   - `gentest_codegen --jobs=<N>` (0 = auto / `std::thread::hardware_concurrency()`)

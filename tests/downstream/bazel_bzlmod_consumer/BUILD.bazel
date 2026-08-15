@@ -39,7 +39,10 @@ gentest_attach_codegen_textual(
     name = "gentest_downstream_textual",
     src = "tests/cases.cpp",
     main = "tests/main.cpp",
-    source_hdrs = ["tests/private_case_value.hpp"],
+    source_hdrs = [
+        "tests/cases.hpp",
+        "tests/private_case_value.hpp",
+    ],
     mock_targets = [":gentest_downstream_textual_mocks"],
     deps = [":codegen_headers"],
     source_includes = ["tests"],

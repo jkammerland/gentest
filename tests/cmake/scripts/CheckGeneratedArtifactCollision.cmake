@@ -265,23 +265,6 @@ _gentest_expect_artifact_failure(
     "mock output domain slot 0 'header'"
 )
 
-set(_empty_slot_dir "${_work_dir}/empty_slot")
-_gentest_expect_artifact_failure(
-  "empty textual wrapper output slot"
-  ARGS
-    --tu-out-dir "${_empty_slot_dir}"
-    --tu-header-output "${_empty_slot_dir}/case.gentest.h"
-    "--textual-wrapper-output="
-    --compdb "${_build_dir}"
-    "${_source}"
-  OUTPUTS
-    "${_empty_slot_dir}"
-    "${_empty_slot_dir}/case.gentest.h"
-  REQUIRED_SUBSTRINGS
-    "generated artifact output is empty for role 'textual wrapper'"
-    "source slot 0"
-)
-
 # An empty TU-header slot intentionally selects the derived header path.
 set(_derived_dir "${_work_dir}/derived_header")
 file(SHA256 "${_source}" _source_hash_before)

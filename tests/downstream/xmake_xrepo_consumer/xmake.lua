@@ -108,6 +108,7 @@ target("gentest_xrepo_textual")
         name = "gentest_xrepo_textual",
         kind = "textual",
         source = "tests/cases.cpp",
+        headerfiles = {"tests/cases.hpp"},
         main = "tests/main.cpp",
         output_dir = path.join(current_gen_root(), fixture_output_leaf("consumer_textual", "t")),
         deps = {"gentest_xrepo_textual_mocks"},

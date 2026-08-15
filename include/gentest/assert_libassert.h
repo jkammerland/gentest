@@ -80,6 +80,7 @@ inline void install() { ::libassert::set_failure_handler(&failure_handler); }
 struct AutoInstall {
     AutoInstall() { install(); }
 };
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization,cert-err58-cpp)
 inline static AutoInstall _auto_install{};
 
 } // namespace gentest::libassert_integration

@@ -1,31 +1,13 @@
-#include "gentest/runner.h"
-using namespace gentest::asserts;
-
-#include "public/gentest_textual_suite_mocks.hpp"
-
-#include <memory>
-#include <stdexcept>
+#include "cases.hpp"
 
 namespace failing {
 
-struct NullFreeFixture {
-    static std::unique_ptr<NullFreeFixture> gentest_allocate() { return {}; }
-};
-
-[[using gentest: test("alloc/free_null")]]
 void free_null_fixture(NullFreeFixture &) {}
 
-struct [[using gentest: fixture(suite)]] NullSuiteFixture {
-    static std::unique_ptr<NullSuiteFixture>         gentest_allocate() { return {}; }
-    [[using gentest: test("alloc/suite_null")]] void t() {}
-};
+} // namespace failing
 
-struct [[using gentest: fixture(global)]] NullGlobalFixture {
-    static std::unique_ptr<NullGlobalFixture>         gentest_allocate() { return {}; }
-    [[using gentest: test("alloc/global_null")]] void t() {}
-};
+namespace failing {
 
-[[using gentest: test("single")]]
 void will_fail() {
     using namespace gentest::asserts;
     EXPECT_TRUE(false, "non-fatal 1");
@@ -33,7 +15,10 @@ void will_fail() {
     ASSERT_TRUE(false, "fatal now");
 }
 
-[[using gentest: test("mocking/predicate_mismatch")]]
+} // namespace failing
+
+namespace failing {
+
 void predicate_mismatch() {
     using namespace gentest::match;
     gentest::mock<mocking::Ticker> mock_obj;
@@ -42,13 +27,19 @@ void predicate_mismatch() {
     mock_obj.tick(4);
 }
 
-[[using gentest: test("mocking/ambiguous_template_member_pointer")]]
+} // namespace failing
+
+namespace failing {
+
 void ambiguous_template_member_pointer() {
     gentest::mock<mocking::Ticker> mock_obj;
     gentest::expect(mock_obj, &mocking::Ticker::tadd<int>).times(1);
 }
 
-[[using gentest: test("logging/attachment")]]
+} // namespace failing
+
+namespace failing {
+
 void logging_attachment() {
     gentest::log("hello from log");
     gentest::log("world from log");
@@ -56,29 +47,34 @@ void logging_attachment() {
     EXPECT_TRUE(false, "trigger failure to capture logs");
 }
 
-[[using gentest: test("exceptions/expect_throw_location")]]
-void expect_throw_location() {
-    EXPECT_THROW((void)0, std::runtime_error);
-}
+} // namespace failing
 
-[[using gentest: test("exceptions/expect_no_throw_unknown")]]
-void expect_no_throw_unknown() {
-    EXPECT_NO_THROW(throw 123);
-}
+namespace failing {
 
-[[using gentest: test("exceptions/assert_throw_location")]]
-void assert_throw_location() {
-    ASSERT_THROW((void)0, std::runtime_error);
-}
+void expect_throw_location() { EXPECT_THROW((void)0, std::runtime_error); }
 
-[[using gentest: test("exceptions/assert_no_throw_unknown")]]
-void assert_no_throw_unknown() {
-    ASSERT_NO_THROW(throw 123);
-}
+} // namespace failing
 
-[[using gentest: test("comparison/expect_eq_message_values")]]
-void expect_eq_message_values() {
-    EXPECT_EQ(1, 2, "comparison detail");
-}
+namespace failing {
+
+void expect_no_throw_unknown() { EXPECT_NO_THROW(throw 123); }
+
+} // namespace failing
+
+namespace failing {
+
+void assert_throw_location() { ASSERT_THROW((void)0, std::runtime_error); }
+
+} // namespace failing
+
+namespace failing {
+
+void assert_no_throw_unknown() { ASSERT_NO_THROW(throw 123); }
+
+} // namespace failing
+
+namespace failing {
+
+void expect_eq_message_values() { EXPECT_EQ(1, 2, "comparison detail"); }
 
 } // namespace failing

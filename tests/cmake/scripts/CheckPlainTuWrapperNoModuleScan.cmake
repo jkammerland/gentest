@@ -24,7 +24,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
-set(_work_dir "${BUILD_ROOT}/plain_tu_wrapper_no_module_scan")
+set(_work_dir "${BUILD_ROOT}/plain_additive_no_module_scan")
 set(_source_dir "${_work_dir}/src")
 set(_build_dir "${_work_dir}/build")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -51,14 +51,23 @@ add_subdirectory("@_gentest_source_dir@" gentest-build)
 add_executable(plain_tests test_main.cpp)
 target_link_libraries(plain_tests PRIVATE gentest::gentest_main)
 target_compile_features(plain_tests PRIVATE cxx_std_23)
-set_property(TARGET plain_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 gentest_attach_codegen(plain_tests)
 ]=] @ONLY)
 
-file(WRITE "${_source_dir}/test_main.cpp" [=[
-#include "gentest/assertions.h"
+file(WRITE "${_source_dir}/test_cases.hpp" [=[
+#pragma once
+
+#include "gentest/attributes.h"
 
 [[using gentest: test("plain/basic")]]
+void plain_basic();
+]=])
+
+file(WRITE "${_source_dir}/test_main.cpp" [=[
+#include "test_cases.hpp"
+
+#include "gentest/assertions.h"
+
 void plain_basic() {
     gentest::asserts::EXPECT_TRUE(true);
 }
@@ -89,7 +98,7 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
-message(STATUS "Configure plain-TU wrapper fixture...")
+message(STATUS "Configure plain additive fixture...")
 gentest_check_run_or_fail(
   COMMAND
     "${CMAKE_COMMAND}"
@@ -106,35 +115,54 @@ if(NOT EXISTS "${_compdb}")
 endif()
 
 file(READ "${_compdb}" _compdb_content)
-string(REGEX MATCHALL "\\{[^}]*tu_0000_test_main\\.gentest\\.cpp[^}]*\\}" _wrapper_entries "${_compdb_content}")
-list(LENGTH _wrapper_entries _wrapper_entry_count)
-if(NOT _wrapper_entry_count EQUAL 1)
-  message(FATAL_ERROR "Expected exactly one generated plain-TU wrapper compile command, got ${_wrapper_entry_count}")
+string(JSON _compdb_count LENGTH "${_compdb_content}")
+set(_authored_entry_count 0)
+set(_registration_entry_count 0)
+math(EXPR _compdb_last "${_compdb_count} - 1")
+foreach(_compdb_index RANGE 0 ${_compdb_last})
+  string(JSON _compdb_file GET "${_compdb_content}" ${_compdb_index} file)
+  string(JSON _compdb_command GET "${_compdb_content}" ${_compdb_index} command)
+  file(TO_CMAKE_PATH "${_compdb_file}" _compdb_file)
+  if(_compdb_file MATCHES "/test_main\\.cpp$")
+    math(EXPR _authored_entry_count "${_authored_entry_count} + 1")
+    set(_authored_entry "${_compdb_command}")
+  elseif(_compdb_file MATCHES "/tu_[0-9]+_test_main\\.header_registration\\.gentest\\.cpp$")
+    math(EXPR _registration_entry_count "${_registration_entry_count} + 1")
+    set(_registration_entry "${_compdb_command}")
+  endif()
+endforeach()
+
+if(NOT _authored_entry_count EQUAL 1)
+  message(FATAL_ERROR "Expected one direct authored test_main.cpp compile command, got ${_authored_entry_count}")
 endif()
-list(GET _wrapper_entries 0 _wrapper_entry)
+if(NOT _registration_entry_count EQUAL 1)
+  message(FATAL_ERROR "Expected one appended header-registration compile command, got ${_registration_entry_count}")
+endif()
 
 foreach(_forbidden IN ITEMS "-fmodules-ts" "-fdeps-format=" "-fmodule-mapper=")
-  string(FIND "${_wrapper_entry}" "${_forbidden}" _forbidden_pos)
-  if(NOT _forbidden_pos EQUAL -1)
-    message(FATAL_ERROR
-      "Plain gentest TU wrapper must not enable CMake module scanning by default.\n"
-      "Found '${_forbidden}' in compile command:\n${_wrapper_entry}")
-  endif()
+  foreach(_entry IN ITEMS "${_authored_entry}" "${_registration_entry}")
+    string(FIND "${_entry}" "${_forbidden}" _forbidden_pos)
+    if(NOT _forbidden_pos EQUAL -1)
+      message(FATAL_ERROR
+        "Plain additive registration must not enable CMake module scanning by default.\n"
+        "Found '${_forbidden}' in compile command:\n${_entry}")
+    endif()
+  endforeach()
 endforeach()
 
 set(_ninja_file "${_build_dir}/build.ninja")
 if(EXISTS "${_ninja_file}")
   file(READ "${_ninja_file}" _ninja_content)
   foreach(_forbidden IN ITEMS
-      "tu_0000_test_main\\.gentest\\.cpp(\\.(o|obj))?\\.ddi"
-      "tu_0000_test_main\\.gentest\\.cpp(\\.(o|obj))?\\.modmap")
+      "tu_[0-9]+_test_main\\.header_registration\\.gentest\\.cpp(\\.(o|obj))?\\.ddi"
+      "tu_[0-9]+_test_main\\.header_registration\\.gentest\\.cpp(\\.(o|obj))?\\.modmap")
     string(REGEX MATCH "${_forbidden}" _forbidden_match "${_ninja_content}")
     if(_forbidden_match)
       message(FATAL_ERROR
-        "Plain gentest TU wrapper must not have CMake module-scanning build edges.\n"
+        "Plain additive registration must not have CMake module-scanning build edges.\n"
         "Matched '${_forbidden_match}' in build.ninja")
     endif()
   endforeach()
 endif()
 
-message(STATUS "Plain gentest TU wrapper compile command has no module-scanning flags")
+message(STATUS "Plain authored and additive registration compile commands have no module-scanning flags")

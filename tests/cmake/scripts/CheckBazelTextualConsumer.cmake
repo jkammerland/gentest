@@ -425,21 +425,23 @@ if(_consumer_binary STREQUAL "")
   message(FATAL_ERROR "Expected Bazel textual consumer binary not found: ${_consumer_binary_base}")
 endif()
 
-set(_bazel_textual_wrapper "${_bazel_bin_dir}/gen/gentest_consumer_textual_bazel/tu_0000_cases.gentest.cpp")
-if(NOT EXISTS "${_bazel_textual_wrapper}")
-  message(FATAL_ERROR "Expected Bazel textual wrapper is missing: ${_bazel_textual_wrapper}")
+set(_bazel_textual_registration
+  "${_bazel_bin_dir}/gen/gentest_consumer_textual_bazel/tu_0000_cases.header_registration.gentest.cpp")
+if(NOT EXISTS "${_bazel_textual_registration}")
+  message(FATAL_ERROR "Expected Bazel textual registration is missing: ${_bazel_textual_registration}")
 endif()
-file(READ "${_bazel_textual_wrapper}" _bazel_textual_wrapper_content)
-foreach(_forbidden_wrapper_path IN ITEMS "${SOURCE_DIR}" "repos/gentest")
-  string(FIND "${_bazel_textual_wrapper_content}" "${_forbidden_wrapper_path}" _forbidden_wrapper_pos)
-  if(NOT _forbidden_wrapper_pos EQUAL -1)
+file(READ "${_bazel_textual_registration}" _bazel_textual_registration_content)
+foreach(_forbidden_registration_path IN ITEMS "${SOURCE_DIR}" "repos/gentest" "cases.cpp")
+  string(FIND "${_bazel_textual_registration_content}" "${_forbidden_registration_path}" _forbidden_registration_pos)
+  if(NOT _forbidden_registration_pos EQUAL -1)
     message(FATAL_ERROR
-      "Bazel textual wrapper leaked host checkout spelling '${_forbidden_wrapper_path}'.\n${_bazel_textual_wrapper_content}")
+      "Bazel textual registration contains forbidden owner spelling '${_forbidden_registration_path}'.\n"
+      "${_bazel_textual_registration_content}")
   endif()
 endforeach()
-string(REGEX MATCH "#include[ \\t]+\"([A-Za-z]:)?/" _absolute_wrapper_include "${_bazel_textual_wrapper_content}")
-if(NOT _absolute_wrapper_include STREQUAL "")
-  message(FATAL_ERROR "Bazel textual wrapper contains an absolute include.\n${_bazel_textual_wrapper_content}")
+string(REGEX MATCH "#include[ \\t]+\"([A-Za-z]:)?/" _absolute_registration_include "${_bazel_textual_registration_content}")
+if(NOT _absolute_registration_include STREQUAL "")
+  message(FATAL_ERROR "Bazel textual registration contains an absolute include.\n${_bazel_textual_registration_content}")
 endif()
 
 execute_process(
@@ -475,6 +477,8 @@ foreach(_required_action_token IN ITEMS
     "gentest_codegen"
     "clang++"
     "tests/consumer/cases.cpp"
+    "--textual-registration-output"
+    "--scan-slot-kind"
     "include/gentest/runner.h"
     "gentest_consumer_mocks.hpp")
   string(FIND "${_aquery_out}" "${_required_action_token}" _required_action_pos)
@@ -483,7 +487,12 @@ foreach(_required_action_token IN ITEMS
       "Bazel textual codegen action is missing '${_required_action_token}'.\n${_aquery_out}")
   endif()
 endforeach()
-foreach(_forbidden_action_token IN ITEMS "${SOURCE_DIR}" "PATH=" "GENTEST_CODEGEN_HOST_CLANG")
+foreach(_forbidden_action_token IN ITEMS
+    "${SOURCE_DIR}"
+    "PATH="
+    "GENTEST_CODEGEN_HOST_CLANG"
+    "--textual-wrapper-output"
+    "--artifact-owner-source")
   string(FIND "${_aquery_out}" "${_forbidden_action_token}" _forbidden_action_pos)
   if(NOT _forbidden_action_pos EQUAL -1)
     message(FATAL_ERROR
@@ -493,7 +502,7 @@ endforeach()
 
 foreach(_expected_file IN ITEMS
     "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_mocks.hpp"
-    "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/tu_0000_gentest_consumer_textual_mocks_defs.gentest.h"
+    "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_anchor.cpp"
     "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_registry.hpp"
     "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_impl.hpp"
     "${_bazel_bin_dir}/gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_mock_registry__domain_0000_header.hpp"
@@ -511,12 +520,13 @@ set(_bazel_textual_manifest
   "${_bazel_bin_dir}/gen/gentest_consumer_textual_bazel/gentest_consumer_textual_bazel.artifact_manifest.json")
 file(READ "${_bazel_textual_manifest}" _bazel_textual_manifest_json)
 foreach(_expected IN ITEMS
-    "\"kind\": \"textual-wrapper\""
+    "\"kind\": \"cxx-header-declaration-registration\""
     "\"role\": \"registration\""
-    "\"compile_as\": \"cxx-textual-wrapper\""
-    "\"target_attachment\": \"replace-owner-source\""
-    "\"includes_owner_source\": true"
-    "\"replaces_owner_source\": true"
+    "\"compile_as\": \"cxx-header-declaration-registration\""
+    "\"target_attachment\": \"append-generated-source\""
+    "\"includes_authored_source\": false"
+    "\"replaces_authored_source\": false"
+    "\"scan_slot_kind\": \"authored-tu\""
     "\"requires_module_scan\": false"
     "\"compile_context_id\": \"gentest_consumer_textual_bazel:tests/consumer/cases.cpp\"")
   string(FIND "${_bazel_textual_manifest_json}" "${_expected}" _manifest_pos)

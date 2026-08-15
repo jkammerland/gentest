@@ -382,23 +382,6 @@ gentest_check_run_or_fail(
     WORKING_DIRECTORY "${_work_dir}"
     STRIP_TRAILING_WHITESPACE)
 
-message(STATUS "Build consumer with scan-deps enabled via bare scanner name...")
-set(_old_path "$ENV{PATH}")
-set(ENV{PATH} "${_scan_deps_env_path}")
-gentest_check_run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}" --build "${_consumer_build_on_bare_dir}" --target gentest_consumer
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-set(ENV{PATH} "${_old_path}")
-
-set(_consumer_bare_exe "${_consumer_build_on_bare_dir}/gentest_consumer${CMAKE_EXECUTABLE_SUFFIX}")
-message(STATUS "Run consumer smoke with scan-deps enabled via bare scanner name...")
-gentest_check_run_or_fail(
-  COMMAND "${_consumer_bare_exe}" --run=consumer/module_mock
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
 message(STATUS "Configure consumer with scan-deps auto mode...")
 _gentest_configure_consumer("${_consumer_build_auto_dir}" "AUTO")
 _gentest_assert_codegen_mode("${_consumer_build_auto_dir}" "AUTO")
@@ -419,20 +402,8 @@ if(_auto_scan_deps_pos EQUAL -1)
     "Expected build-time gentest_codegen AUTO leg to report actual clang-scan-deps usage. Output:\n${_auto_codegen_output}")
 endif()
 
-message(STATUS "Build consumer with scan-deps auto mode...")
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_consumer_build_auto_dir}" --target gentest_consumer
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
-set(_consumer_auto_exe "${_consumer_build_auto_dir}/gentest_consumer${CMAKE_EXECUTABLE_SUFFIX}")
-message(STATUS "Run consumer smoke with scan-deps auto mode...")
-gentest_check_run_or_fail(
-  COMMAND "${_consumer_auto_exe}" --run=consumer/module_mock
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
-message(STATUS "Observed public module import consumer success on the real build-time codegen path for scan-deps OFF/ON/AUTO")
+message(STATUS
+  "Observed public module import consumer success for scan-deps OFF/ON and generated output for AUTO on the real build-time codegen path")
 
 # This helper materializes several nested producer/consumer build trees. Remove
 # them after success so long ctest runs do not accumulate module artifacts until

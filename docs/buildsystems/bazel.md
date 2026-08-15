@@ -209,7 +209,10 @@ gentest_attach_codegen_textual(
     name = "gentest_downstream_textual",
     src = "tests/cases.cpp",
     main = "tests/main.cpp",
-    source_hdrs = ["tests/private_case_value.hpp"],
+    source_hdrs = [
+        "tests/cases.hpp",
+        "tests/private_case_value.hpp",
+    ],
     mock_targets = [":gentest_downstream_textual_mocks"],
     deps = [":codegen_headers"],
     source_includes = ["tests"],
@@ -258,6 +261,7 @@ your_project/
   BUILD.bazel
   tests/
     main.cpp
+    cases.hpp
     cases.cpp
     cases.cppm
     dep_case_value.hpp
@@ -266,6 +270,17 @@ your_project/
     service.cppm
     private_case_value.hpp
 ```
+
+For textual suites, `src` is compiled directly and exactly once. It must include
+a self-contained annotated declaration header listed in `source_hdrs`; codegen
+appends `tu_0000_<stem>.header_registration.gentest.cpp`. `source_hdrs` are
+declared action dependencies, not independently inferred scan slots.
+
+For module suites, the authored `.cppm` is the `module_interfaces` input and the
+generated ordinary importer is appended to `srcs`; Bazel does not stage or copy
+the module owner. Named-module mock definitions remain the one compatibility
+exception: they still require transformed codegen wrappers until Gentest gains
+a non-transforming exported mock-provider protocol.
 
 ## Build and run
 

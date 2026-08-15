@@ -174,21 +174,21 @@ if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
     WORKING_DIRECTORY "${_work_dir}"
     STRIP_TRAILING_WHITESPACE)
 
-  set(_generated_wrapper "${_generated_dir}/tu_0000_conditional_false_match.module.gentest.ixx")
-  if(NOT EXISTS "${_generated_wrapper}")
+  set(_generated_registration "${_generated_dir}/tu_0000_conditional_false_match.registration.gentest.cpp")
+  if(NOT EXISTS "${_generated_registration}")
     message(FATAL_ERROR
-      "Expected generated module wrapper '${_generated_wrapper}' to exist after building the fixture.")
+      "Expected generated module registration source '${_generated_registration}' to exist after building the fixture.")
   endif()
 
-  file(READ "${_generated_wrapper}" _generated_wrapper_text)
-  if(NOT _generated_wrapper_text MATCHES "(^|\n)(export[ \t]+)?module[ \t]+real_conditional;")
+  file(READ "${_generated_registration}" _generated_registration_text)
+  if(NOT _generated_registration_text MATCHES "(^|\n)import[ \t]+real_conditional;")
     message(FATAL_ERROR
-      "gentest_codegen did not emit the expected active module declaration.\nGenerated wrapper:\n${_generated_wrapper_text}")
+      "gentest_codegen did not import the expected active module.\nGenerated registration:\n${_generated_registration_text}")
   endif()
 
-  if(NOT _generated_wrapper_text MATCHES "__has_include\\(\"tu_0000_conditional_false_match\\.gentest\\.h\"\\)")
+  if(NOT _generated_registration_text MATCHES "tu_0000_conditional_false_match\\.gentest\\.h")
     message(FATAL_ERROR
-      "gentest_codegen did not append the TU registration include to the expected wrapper.\nGenerated wrapper:\n${_generated_wrapper_text}")
+      "gentest_codegen did not include the expected registration header.\nGenerated registration:\n${_generated_registration_text}")
   endif()
 
   set(_fixture_exe "${_fixture_build_dir}/module_name_false_match_tests")

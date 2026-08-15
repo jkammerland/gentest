@@ -306,8 +306,8 @@ function(_gentest_prepare_tu_mode)
 
     if("${_gentest_output_dir}" MATCHES "\\$<")
         message(FATAL_ERROR
-            "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT_DIR contains generator expressions, which is not supported in TU wrapper mode "
-            "(requires a concrete directory to generate shim translation units). "
+            "gentest_attach_codegen(${GENTEST_TARGET}): OUTPUT_DIR contains generator expressions, which is not supported for generated "
+            "named-module mock providers (they require a concrete directory for generated module units). "
             "Pass a concrete OUTPUT_DIR.")
     endif()
 
@@ -623,7 +623,7 @@ function(_gentest_make_artifact_manifest_validation_args)
         INCLUDES_OWNER_SOURCE REPLACES_OWNER_SOURCE COMPDB OUT_ARGS)
     set(multi_value_args
         SOURCES SOURCE_KINDS REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS OWNER_SOURCES SOURCE_REGISTRATION_OUTPUTS
-        )
+        SCAN_SLOT_KINDS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     set(_gentest_args
@@ -650,6 +650,9 @@ function(_gentest_make_artifact_manifest_validation_args)
     _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-registration-output" ${GENTEST_REGISTRATION_OUTPUTS})
     _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-header" ${GENTEST_HEADERS})
     _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-compile-context-id" ${GENTEST_COMPILE_CONTEXT_IDS})
+    if(GENTEST_SCAN_SLOT_KINDS)
+        _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-scan-slot-kind" ${GENTEST_SCAN_SLOT_KINDS})
+    endif()
     if(GENTEST_OWNER_SOURCES)
         _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-owner-source" ${GENTEST_OWNER_SOURCES})
     endif()
@@ -1190,21 +1193,18 @@ function(gentest_attach_codegen target)
     endforeach()
 
     # Ordinary textual targets use additive header-declaration registration.
-    # Named module sources retain their existing internal wrapper path unless
-    # the caller explicitly selects importer registration. The internal
-    # compatibility property is also used by repository migration/regression
-    # targets that intentionally exercise the previous-major wrapper protocol.
+    # Named-module test targets must select importer registration explicitly.
+    # The only remaining TU transformation is private to explicit named-module
+    # mock generation until that provider surface is emitted additively.
     set(_gentest_mode "header_declaration")
     if(GENTEST_MODULE_REGISTRATION)
         set(_gentest_mode "module_registration")
     endif()
     get_target_property(_gentest_internal_wrapper_compat ${target} GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY)
     if(_gentest_internal_wrapper_compat AND NOT _gentest_internal_wrapper_compat MATCHES "-NOTFOUND$")
-        if(GENTEST_MODULE_REGISTRATION)
-            message(FATAL_ERROR
-                "gentest_attach_codegen(${target}): internal textual wrapper compatibility cannot be combined with MODULE_REGISTRATION.")
-        endif()
-        set(_gentest_mode "tu")
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${target}): GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY was removed. "
+            "Move ordinary annotations to header declarations, or use MODULE_REGISTRATION FILE_SET <name> for exported named-module cases.")
     endif()
 
     set(_gentest_has_module_sources FALSE)
@@ -1215,8 +1215,15 @@ function(gentest_attach_codegen target)
         endif()
     endforeach()
 
+    get_target_property(_gentest_is_explicit_mock_target ${target} GENTEST_EXPLICIT_MOCK_TARGET)
     if(_gentest_mode STREQUAL "header_declaration" AND _gentest_has_module_sources)
-        set(_gentest_mode "tu")
+        if(_gentest_is_explicit_mock_target AND NOT _gentest_is_explicit_mock_target MATCHES "-NOTFOUND$")
+            set(_gentest_mode "module_mock_provider")
+        else()
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): named-module sources require explicit importer registration. "
+                "Call gentest_attach_codegen(${target} MODULE_REGISTRATION FILE_SET <name> ...), and export each case and fixture type.")
+        endif()
     endif()
 
     if(_gentest_mode STREQUAL "header_declaration")
@@ -1245,7 +1252,7 @@ function(gentest_attach_codegen target)
         endforeach()
     endif()
 
-    # Textual wrapper targets with no CMake module metadata cannot require
+    # Generated provider targets with no CMake module metadata cannot require
     # module dependency discovery.  Avoid launching a separate
     # clang-scan-deps process for those targets, while retaining AUTO for
     # anything CMake identifies as module-aware and preserving explicit user
@@ -1261,7 +1268,6 @@ function(gentest_attach_codegen target)
     set(_gentest_artifact_manifest "")
     set(_gentest_compile_context_ids "")
     set(_gentest_artifact_owner_sources "")
-    set(_gentest_tu_manifest_enabled FALSE)
     if(_gentest_mode STREQUAL "module_registration")
         _gentest_prepare_module_registration_mode(
             TARGET ${target}
@@ -1305,9 +1311,6 @@ function(gentest_attach_codegen target)
             OUT_ARTIFACT_MANIFEST _gentest_artifact_manifest
             OUT_COMPILE_CONTEXT_IDS _gentest_compile_context_ids
             OUT_ARTIFACT_OWNER_SOURCES _gentest_artifact_owner_sources)
-        if(NOT _gentest_has_module_sources)
-            set(_gentest_tu_manifest_enabled TRUE)
-        endif()
     endif()
 
     if(CMAKE_CONFIGURATION_TYPES AND NOT "${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}" STREQUAL "")
@@ -1330,7 +1333,7 @@ function(gentest_attach_codegen target)
     endif()
 
     set(_gentest_module_wrapper_outputs "")
-    if(_gentest_mode STREQUAL "tu")
+    if(_gentest_mode STREQUAL "module_mock_provider")
         list(LENGTH _gentest_wrapper_cpp _gentest_wrapper_count)
         if(_gentest_wrapper_count GREATER 0)
             math(EXPR _gentest_last_wrapper "${_gentest_wrapper_count} - 1")
@@ -1430,12 +1433,12 @@ function(gentest_attach_codegen target)
             list(GET _gentest_tus ${_gentest_idx} _gentest_src_abs)
             list(GET _gentest_tu_source_entries ${_gentest_idx} _gentest_src_entry)
             list(GET _gentest_module_names ${_gentest_idx} _gentest_module_name)
-            if(_gentest_mode STREQUAL "tu")
+            if(_gentest_mode STREQUAL "module_mock_provider")
                 list(GET _gentest_wrapper_cpp ${_gentest_idx} _gentest_wrap_cpp)
             endif()
 
             if(_gentest_module_name STREQUAL "__gentest_no_module__")
-                if(_gentest_mode STREQUAL "tu")
+                if(_gentest_mode STREQUAL "module_mock_provider")
                     list(APPEND _gentest_codegen_scan_inputs ${_gentest_wrap_cpp})
                 else()
                     list(APPEND _gentest_codegen_scan_inputs ${_gentest_src_abs})
@@ -1515,23 +1518,12 @@ function(gentest_attach_codegen target)
         endforeach()
     else()
         list(APPEND _command --tu-out-dir ${_gentest_output_dir})
-        if(_gentest_tu_manifest_enabled)
-            list(APPEND _command --artifact-manifest ${_gentest_artifact_manifest})
-        endif()
         foreach(_gentest_wrap_header IN LISTS _gentest_wrapper_headers)
             list(APPEND _command --tu-header-output ${_gentest_wrap_header})
         endforeach()
         foreach(_gentest_wrap_cpp IN LISTS _gentest_wrapper_cpp)
             list(APPEND _command --module-wrapper-output ${_gentest_wrap_cpp})
         endforeach()
-        if(_gentest_tu_manifest_enabled)
-            foreach(_gentest_owner_source IN LISTS _gentest_artifact_owner_sources)
-                list(APPEND _command --artifact-owner-source "${_gentest_owner_source}")
-            endforeach()
-            foreach(_gentest_context_id IN LISTS _gentest_compile_context_ids)
-                list(APPEND _command --compile-context-id "${_gentest_context_id}")
-            endforeach()
-        endif()
     endif()
     foreach(_gentest_mock_registry_domain_output IN LISTS _gentest_mock_registry_domain_outputs)
         list(APPEND _command --mock-domain-registry-output ${_gentest_mock_registry_domain_output})
@@ -1557,10 +1549,11 @@ function(gentest_attach_codegen target)
     _gentest_resolve_codegen_clang_scan_deps(_gentest_clang_scan_deps)
     _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}" "${_gentest_effective_scan_deps_mode}")
 
-    if(_gentest_mode STREQUAL "tu" OR _gentest_mode STREQUAL "header_declaration")
-        # Compatibility mode scans generated wrappers; additive mode scans the
-        # authored TUs and fallback headers under their predeclared registration
-        # slots. Both lists are already aligned with target-unique compdb entries.
+    if(_gentest_mode STREQUAL "module_mock_provider" OR _gentest_mode STREQUAL "header_declaration")
+        # Explicit module mock providers scan their generated provider units;
+        # additive mode scans authored TUs and fallback headers under their
+        # predeclared registration slots. Both lists are already aligned with
+        # target-unique compdb entries.
         list(APPEND _command ${_gentest_codegen_scan_inputs})
     else()
         list(APPEND _command ${_gentest_tus})
@@ -1638,9 +1631,6 @@ function(gentest_attach_codegen target)
             ${_gentest_mock_impl}
             ${_gentest_mock_registry_domain_outputs}
             ${_gentest_mock_impl_domain_outputs})
-        if(_gentest_tu_manifest_enabled)
-            list(APPEND _gentest_codegen_outputs ${_gentest_artifact_manifest})
-        endif()
         if(NOT "${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}" STREQUAL "")
             list(APPEND _gentest_codegen_outputs ${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT})
         endif()
@@ -1711,29 +1701,29 @@ function(gentest_attach_codegen target)
                 ${_gentest_codegen_tool_depends}
             COMMENT "Validating gentest_codegen artifact manifest for target ${target}")
         list(APPEND _gentest_codegen_target_depends "${_gentest_manifest_validation_stamp}")
-    elseif(_gentest_tu_manifest_enabled)
+    elseif(_gentest_mode STREQUAL "header_declaration")
         set(_gentest_manifest_validation_stamp "${_gentest_output_dir}/${_gentest_target_id}.artifact_manifest.validated")
         set(_gentest_manifest_source_kinds "")
-        foreach(_gentest_unused IN LISTS _gentest_codegen_scan_inputs)
-            list(APPEND _gentest_manifest_source_kinds "textual-wrapper")
+        foreach(_gentest_unused IN LISTS _gentest_textual_scan_sources)
+            list(APPEND _gentest_manifest_source_kinds "cxx-header-declaration-registration")
         endforeach()
         _gentest_make_artifact_manifest_validation_args(
             MANIFEST "${_gentest_artifact_manifest}"
             STAMP "${_gentest_manifest_validation_stamp}"
             INCLUDE_DIR "${_gentest_output_dir}"
             DEPFILE "${_gentest_depfile}"
-            TARGET_ATTACHMENT "replace-owner-source"
+            TARGET_ATTACHMENT "append-generated-source"
             ARTIFACT_ROLE "registration"
-            COMPILE_AS "cxx-textual-wrapper"
+            COMPILE_AS "cxx-header-declaration-registration"
             REQUIRES_MODULE_SCAN "OFF"
-            INCLUDES_OWNER_SOURCE "ON"
-            REPLACES_OWNER_SOURCE "ON"
-            SOURCES ${_gentest_codegen_scan_inputs}
+            INCLUDES_OWNER_SOURCE "OFF"
+            REPLACES_OWNER_SOURCE "OFF"
+            SOURCES ${_gentest_textual_scan_sources}
             SOURCE_KINDS ${_gentest_manifest_source_kinds}
-            REGISTRATION_OUTPUTS ${_gentest_codegen_scan_inputs}
-            HEADERS ${_gentest_wrapper_headers}
+            REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
             COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
-            OWNER_SOURCES ${_gentest_artifact_owner_sources}
+            SCAN_SLOT_KINDS ${_gentest_textual_scan_slot_kinds}
+            SOURCE_REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
             OUT_ARGS _gentest_manifest_validation_args)
         _gentest_add_artifact_manifest_validation_command(
             STAMP "${_gentest_manifest_validation_stamp}"
@@ -1742,7 +1732,7 @@ function(gentest_attach_codegen target)
             DEPENDS
                 ${_gentest_codegen_outputs}
                 ${_gentest_codegen_tool_depends}
-            COMMENT "Validating gentest_codegen textual artifact manifest for target ${target}")
+            COMMENT "Validating additive gentest artifact manifest for target ${target}")
         list(APPEND _gentest_codegen_target_depends "${_gentest_manifest_validation_stamp}")
     endif()
 
@@ -1773,8 +1763,8 @@ function(gentest_attach_codegen target)
     endif()
 
     # MODULE_REGISTRATION consumes the split inspect-mocks manifest directly;
-    # only legacy TU wrapper-mode explicit mock targets publish module wrappers.
-    if(_gentest_mode STREQUAL "tu" AND _gentest_attach_discovers_mocks AND _gentest_module_wrapper_outputs)
+    # only explicit named-module mock provider targets publish module wrappers.
+    if(_gentest_mode STREQUAL "module_mock_provider" AND _gentest_attach_discovers_mocks AND _gentest_module_wrapper_outputs)
         set(_gentest_explicit_mock_module_build_sources "")
         set(_gentest_explicit_mock_module_rel_sources "")
         list(LENGTH _gentest_wrapper_cpp _gentest_wrapper_count)

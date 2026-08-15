@@ -1,2 +1,3 @@
-[[using gentest: test("wrapped_main/main_case")]]
+#include "cases.hpp"
+
 void main_case() {}

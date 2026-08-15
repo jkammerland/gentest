@@ -1,99 +1,16 @@
-#include "gentest/attributes.h"
-#include "gentest/bench_util.h"
-#include "gentest/runner.h"
-
-#include <atomic>
-#include <cmath>
-#include <complex>
-#include <cstdlib>
-#include <memory>
-#include <mutex>
-#include <string>
-#include <vector>
+#include "cases.hpp"
 
 namespace benchmarks {
 
-namespace {
-inline void record_bench_issue(std::string_view label, std::string_view issue) {
-    std::string msg;
-    msg.reserve(label.size() + issue.size() + 3);
-    msg.append(label);
-    msg.append(": ");
-    msg.append(issue);
-    gentest::detail::record_bench_error(std::move(msg));
+void bench_struct_params(demo::Blob p) {
+    auto v = demo::work(p);
+    gentest::doNotOptimizeAway(v);
 }
 
-inline bool env_var_is_set(const char *name) {
-#if defined(_WIN32)
-    char       *value  = nullptr;
-    std::size_t length = 0;
-    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) {
-        free(value);
-        return false;
-    }
-    const bool is_set = value[0] != '\0';
-    free(value);
-    return is_set;
-#else
-    const char *value = std::getenv(name);
-    return value != nullptr && value[0] != '\0';
-#endif
-}
+} // namespace benchmarks
 
-template <typename T> struct BenchFixtureState {
-    static inline std::atomic<int>       setups{0};
-    static inline std::atomic<int>       teardowns{0};
-    static inline std::atomic<const T *> first{nullptr};
+namespace benchmarks {
 
-    static void on_setup(std::string_view label) {
-        if (setups.fetch_add(1, std::memory_order_relaxed) != 0) {
-            record_bench_issue(label, "setup called more than once");
-        }
-    }
-
-    static void on_teardown(std::string_view label) {
-        if (teardowns.fetch_add(1, std::memory_order_relaxed) != 0) {
-            record_bench_issue(label, "teardown called more than once");
-        }
-    }
-
-    static void on_call(std::string_view label, const T *self) {
-        const T *seen = first.load(std::memory_order_relaxed);
-        if (!seen) {
-            first.store(self, std::memory_order_relaxed);
-            seen = self;
-        }
-        if (seen != self) {
-            record_bench_issue(label, "fixture instance changed");
-        }
-        if (setups.load(std::memory_order_relaxed) != 1) {
-            record_bench_issue(label, "setup count != 1");
-        }
-        if (teardowns.load(std::memory_order_relaxed) != 0) {
-            record_bench_issue(label, "teardown ran before call");
-        }
-    }
-};
-} // namespace
-
-namespace spacing {
-struct DummyMutex {
-    void lock() noexcept {}
-    void unlock() noexcept {}
-};
-
-template <typename Mutex> void lock_guard_small() {
-    Mutex         m{};
-    std::uint64_t sink = 0;
-    for (int i = 0; i < 64; ++i) {
-        std::lock_guard<Mutex> lock(m);
-        sink += static_cast<std::uint64_t>(i);
-    }
-    gentest::doNotOptimizeAway(sink);
-}
-} // namespace spacing
-
-[[using gentest: bench("string/concat_small"), baseline, items_per_call(3)]]
 void bench_concat_small() {
     // Minimal work; harness repeats this function many times
     std::string a = "hello";
@@ -103,13 +20,19 @@ void bench_concat_small() {
     gentest::doNotOptimizeAway(s);
 }
 
-[[using gentest: bench("escaping/csv,comma")]]
+} // namespace benchmarks
+
+namespace benchmarks {
+
 void bench_csv_comma_name() {
     int value = 42;
     gentest::doNotOptimizeAway(value);
 }
 
-[[using gentest: bench("math/sqrt"), baseline]]
+} // namespace benchmarks
+
+namespace benchmarks {
+
 void bench_sqrt() {
     // Compute a sqrt to exercise math pipeline
     double x = 12345.6789;
@@ -118,7 +41,10 @@ void bench_sqrt() {
     gentest::doNotOptimizeAway(r);
 }
 
-[[using gentest: jitter("math/sin_jitter")]]
+} // namespace benchmarks
+
+namespace benchmarks {
+
 void jitter_sin() {
     double x = 1.2345;
     gentest::doNotOptimizeAway(x);
@@ -126,7 +52,10 @@ void jitter_sin() {
     gentest::doNotOptimizeAway(y);
 }
 
-[[using gentest: jitter("math/sin_approx"), baseline]]
+} // namespace benchmarks
+
+namespace benchmarks {
+
 void jitter_sin_approx() {
     double x = 0.5;
     gentest::doNotOptimizeAway(x);
@@ -136,7 +65,10 @@ void jitter_sin_approx() {
     gentest::doNotOptimizeAway(y);
 }
 
-[[using gentest: jitter("math/cos_jitter")]]
+} // namespace benchmarks
+
+namespace benchmarks {
+
 void jitter_cos() {
     double x = 1.2345;
     gentest::doNotOptimizeAway(x);
@@ -144,7 +76,10 @@ void jitter_cos() {
     gentest::doNotOptimizeAway(y);
 }
 
-[[using gentest: jitter("math/tan_jitter")]]
+} // namespace benchmarks
+
+namespace benchmarks {
+
 void jitter_tan() {
     double x = 0.5;
     gentest::doNotOptimizeAway(x);
@@ -152,7 +87,10 @@ void jitter_tan() {
     gentest::doNotOptimizeAway(y);
 }
 
-[[using gentest: jitter("math/tanh_jitter")]]
+} // namespace benchmarks
+
+namespace benchmarks {
+
 void jitter_tanh() {
     double x = 0.5;
     gentest::doNotOptimizeAway(x);
@@ -160,118 +98,52 @@ void jitter_tanh() {
     gentest::doNotOptimizeAway(y);
 }
 
-template <typename Mutex>
-// clang-format off
-[[using gentest: bench("spacing/lock_guard_small"), baseline]]
-[[using gentest: template(Mutex, benchmarks::spacing::DummyMutex, std::mutex)]]
-// clang-format on
-// Spacing regression: comment between attributes and declaration.
-void bench_lock_guard_small() {
-    spacing::lock_guard_small<Mutex>();
-}
+} // namespace benchmarks
 
-template <typename T>
-// clang-format off
-[[using gentest: jitter("spacing/jitter_template_params")]]
-[[using gentest: template(T, int, long)]]
-[[using gentest: parameters(v, 1, 2)]]
-// clang-format on
-// Spacing regression: comment between attributes and declaration.
-void jitter_template_params(int v) {
-    gentest::doNotOptimizeAway(v);
-    gentest::doNotOptimizeAway(sizeof(T));
-}
+namespace benchmarks {
 
-// Struct and complex parameterization smoke for benches
-namespace demo {
-struct Blob {
-    int a;
-    int b;
-};
-inline int work(const Blob &b) { return (b.a * 3) + (b.b * 5); }
-} // namespace demo
-
-[[using gentest: bench("struct/process"), baseline,
-  parameters(p, benchmarks::demo::Blob{1, 2}, benchmarks::demo::Blob{3, 4})]] void bench_struct_params(demo::Blob p) {
-    auto v = demo::work(p);
-    gentest::doNotOptimizeAway(v);
-}
-
-[[using gentest: bench("complex/mag"), baseline, parameters(z, std::complex<double>(1.0, 2.0), std::complex<double>(3.0, 4.0))]]
 void bench_complex(std::complex<double> z) {
     auto m = std::norm(z);
     gentest::doNotOptimizeAway(m);
 }
 
-struct [[using gentest: fixture(suite)]] NullBenchFixture {
-    static std::unique_ptr<NullBenchFixture> gentest_allocate() {
-        if (env_var_is_set("GENTEST_BENCH_NULL_FIXTURE"))
-            return {};
-        return std::make_unique<NullBenchFixture>();
-    }
-};
+} // namespace benchmarks
 
-struct [[using gentest: fixture(suite)]] NullJitterFixture {
-    static std::unique_ptr<NullJitterFixture> gentest_allocate() {
-        if (env_var_is_set("GENTEST_JITTER_NULL_FIXTURE"))
-            return {};
-        return std::make_unique<NullJitterFixture>();
-    }
-};
+namespace benchmarks {
 
-[[using gentest: bench("fixture/null"), baseline]]
 void bench_null(NullBenchFixture &) {}
 
-[[using gentest: jitter("fixture/jitter_null")]]
+} // namespace benchmarks
+
+namespace benchmarks {
+
 void jitter_null(NullJitterFixture &) {}
 
-struct LocalBenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
-    void setUp() override { BenchFixtureState<LocalBenchFixture>::on_setup("benchmarks/fixture/local"); }
-    void tearDown() override { BenchFixtureState<LocalBenchFixture>::on_teardown("benchmarks/fixture/local"); }
-};
+} // namespace benchmarks
 
-struct LocalJitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
-    void setUp() override { BenchFixtureState<LocalJitterFixture>::on_setup("benchmarks/fixture/local_jitter"); }
-    void tearDown() override { BenchFixtureState<LocalJitterFixture>::on_teardown("benchmarks/fixture/local_jitter"); }
-};
+namespace benchmarks {
 
-[[using gentest: bench("fixture/local")]]
-void bench_local(LocalBenchFixture &fx) {
-    BenchFixtureState<LocalBenchFixture>::on_call("benchmarks/fixture/local", &fx);
-}
+void bench_local(LocalBenchFixture &fx) { BenchFixtureState<LocalBenchFixture>::on_call("benchmarks/fixture/local", &fx); }
 
-[[using gentest: jitter("fixture/local_jitter")]]
-void jitter_local(LocalJitterFixture &fx) {
-    BenchFixtureState<LocalJitterFixture>::on_call("benchmarks/fixture/local_jitter", &fx);
-}
+} // namespace benchmarks
 
-struct [[using gentest: fixture(suite)]] SuiteBenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
-    void setUp() override { BenchFixtureState<SuiteBenchFixture>::on_setup("benchmarks/fixture/free_suite_global/suite"); }
-    void tearDown() override { BenchFixtureState<SuiteBenchFixture>::on_teardown("benchmarks/fixture/free_suite_global/suite"); }
-};
+namespace benchmarks {
 
-struct [[using gentest: fixture(global)]] GlobalBenchFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
-    void setUp() override { BenchFixtureState<GlobalBenchFixture>::on_setup("benchmarks/fixture/free_suite_global/global"); }
-    void tearDown() override { BenchFixtureState<GlobalBenchFixture>::on_teardown("benchmarks/fixture/free_suite_global/global"); }
-};
+void jitter_local(LocalJitterFixture &fx) { BenchFixtureState<LocalJitterFixture>::on_call("benchmarks/fixture/local_jitter", &fx); }
 
-struct [[using gentest: fixture(suite)]] SuiteJitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
-    void setUp() override { BenchFixtureState<SuiteJitterFixture>::on_setup("benchmarks/fixture/free_suite_global_jitter/suite"); }
-    void tearDown() override { BenchFixtureState<SuiteJitterFixture>::on_teardown("benchmarks/fixture/free_suite_global_jitter/suite"); }
-};
+} // namespace benchmarks
 
-struct [[using gentest: fixture(global)]] GlobalJitterFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
-    void setUp() override { BenchFixtureState<GlobalJitterFixture>::on_setup("benchmarks/fixture/free_suite_global_jitter/global"); }
-    void tearDown() override { BenchFixtureState<GlobalJitterFixture>::on_teardown("benchmarks/fixture/free_suite_global_jitter/global"); }
-};
+namespace benchmarks {
 
-[[using gentest: bench("fixture/free_suite_global")]]
 void bench_free_suite_global(SuiteBenchFixture &suite_fx, GlobalBenchFixture &global_fx) {
     BenchFixtureState<SuiteBenchFixture>::on_call("benchmarks/fixture/free_suite_global/suite", &suite_fx);
     BenchFixtureState<GlobalBenchFixture>::on_call("benchmarks/fixture/free_suite_global/global", &global_fx);
 }
 
-[[using gentest: jitter("fixture/free_suite_global_jitter")]]
+} // namespace benchmarks
+
+namespace benchmarks {
+
 void jitter_free_suite_global(SuiteJitterFixture &suite_fx, GlobalJitterFixture &global_fx) {
     BenchFixtureState<SuiteJitterFixture>::on_call("benchmarks/fixture/free_suite_global_jitter/suite", &suite_fx);
     BenchFixtureState<GlobalJitterFixture>::on_call("benchmarks/fixture/free_suite_global_jitter/global", &global_fx);

@@ -1,10 +1,10 @@
+#include "native_default_args_consumer.hpp"
+
 #include "gentest/assertions.h"
-#include "gentest/attributes.h"
 #include "public/native_default_args.hpp"
 
 using namespace gentest::asserts;
 
-[[using gentest: test("mock/native_default_args")]]
 void native_default_args() {
     fixture::validation::mocks::DefaultArgsServiceMock mock;
     gentest::expect(mock, &fixture::validation::DefaultArgsService::compute).times(1).with(5, 3).returns(8);

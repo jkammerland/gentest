@@ -32,7 +32,6 @@ target_compile_features(mock_unnamed_template_template PRIVATE cxx_std_20)
 target_include_directories(mock_unnamed_template_template PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mock_unnamed_template_template PRIVATE gentest_main)
 gentest_link_mocks(mock_unnamed_template_template PRIVATE mock_unnamed_template_template_mocks)
-set_property(TARGET mock_unnamed_template_template PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(mock_unnamed_template_template
     OUTPUT_DIR "${_gentest_generated_dir}")

@@ -42,6 +42,7 @@ gentest_textual_suites = [
     'name': 'gentest_downstream_textual',
     'id': 'downstream_textual',
     'source': 'tests/cases.cpp',
+    'declaration_headers': ['tests/cases.hpp'],
     'main': files('tests/main.cpp'),
     'source_includes': ['tests'],
     'mocks': ['gentest_downstream_textual_mocks'],

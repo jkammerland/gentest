@@ -5,7 +5,7 @@ import fixture.explicit_module_mocks;
 
 using namespace gentest::asserts;
 
-[[using gentest: test("explicit_mock_target/install_export_codegen_module_consumer")]]
+export [[using gentest: test("explicit_mock_target/install_export_codegen_module_consumer")]]
 void explicit_mock_target_install_export_codegen_module_consumer() {
     fixture::mocks::ServiceModuleMock alias_mock;
     gentest::expect(alias_mock, &fixture::ModuleService::compute).times(1).with(10).returns(30);

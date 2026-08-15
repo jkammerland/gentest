@@ -34,7 +34,8 @@ target_sources(multiline_directive_tests
 target_link_libraries(multiline_directive_tests PRIVATE gentest gentest_runtime)
 gentest_link_mocks(multiline_directive_tests PRIVATE multiline_mocks)
 target_compile_features(multiline_directive_tests PRIVATE cxx_std_20)
-set_property(TARGET multiline_directive_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(multiline_directive_tests
+    MODULE_REGISTRATION
+    FILE_SET multiline_cases
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

@@ -341,8 +341,7 @@ def _gentest_textual_codegen_impl(ctx):
     exec_tools = _gentest_exec_tools(ctx)
     codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps + ctx.attr.source_deps)
     public_include_roots = _gentest_public_include_roots(ctx.files._public_headers)
-    wrapper_cpp = ctx.actions.declare_file("{}/{}_defs.cpp".format(out_dir, target_id))
-    header_h = ctx.actions.declare_file("{}/tu_0000_{}_defs.gentest.h".format(out_dir, target_id))
+    anchor_cpp = ctx.actions.declare_file("{}/{}_anchor.cpp".format(out_dir, target_id))
     registry_h = ctx.actions.declare_file("{}/{}_mock_registry.hpp".format(out_dir, target_id))
     impl_h = ctx.actions.declare_file("{}/{}_mock_impl.hpp".format(out_dir, target_id))
     domain_registry_h = ctx.actions.declare_file("{}/{}_mock_registry__domain_0000_header.hpp".format(out_dir, target_id))
@@ -355,9 +354,7 @@ def _gentest_textual_codegen_impl(ctx):
     # checkout cwd: it makes generated source references portable execroot
     # paths instead of absolute host paths.
     args.add("--source-root", ".")
-    args.add("--tu-out-dir", wrapper_cpp.dirname)
-    args.add("--tu-header-output", header_h.path)
-    args.add("--textual-wrapper-output", wrapper_cpp.path)
+    args.add("--tu-out-dir", anchor_cpp.dirname)
     args.add("--mock-registry", registry_h.path)
     args.add("--mock-impl", impl_h.path)
     args.add("--mock-domain-registry-output", domain_registry_h.path)
@@ -376,8 +373,8 @@ def _gentest_textual_codegen_impl(ctx):
         codegen_support.framework_include_dirs,
     ))
 
-    generated_headers = [header_h, registry_h, impl_h, domain_registry_h, domain_impl_h]
-    codegen_outputs = [wrapper_cpp, public_header] + generated_headers
+    generated_headers = [registry_h, impl_h, domain_registry_h, domain_impl_h]
+    codegen_outputs = [public_header] + generated_headers
     _gentest_run_codegen(
         ctx,
         exec_tools,
@@ -386,11 +383,15 @@ def _gentest_textual_codegen_impl(ctx):
         args,
         "GentestTextualMocksCodegen",
     )
+    ctx.actions.write(
+        output = anchor_cpp,
+        content = "#include \"{}\"\n".format(public_header.basename),
+    )
 
     return [
-        DefaultInfo(files = depset(codegen_outputs + textual_inputs)),
+        DefaultInfo(files = depset([anchor_cpp] + codegen_outputs + textual_inputs)),
         OutputGroupInfo(
-            srcs = depset([wrapper_cpp]),
+            srcs = depset([anchor_cpp]),
             hdrs = depset([public_header] + generated_headers + textual_inputs),
             public_headers = depset([public_header]),
             artifact_manifests = depset([]),
@@ -402,7 +403,7 @@ def _gentest_textual_codegen_impl(ctx):
             # that same declared execroot, so make the workspace root an
             # explicit lookup root while keeping every consumed header in the
             # action input closure.
-            include_dirs = _gentest_unique(codegen_support.include_dirs + public_include_roots + [".", wrapper_cpp.dirname]),
+            include_dirs = _gentest_unique(codegen_support.include_dirs + public_include_roots + [".", anchor_cpp.dirname]),
             quote_include_dirs = codegen_support.quote_include_dirs,
             system_include_dirs = codegen_support.system_include_dirs,
             framework_include_dirs = codegen_support.framework_include_dirs,
@@ -447,8 +448,7 @@ def _gentest_textual_suite_codegen_impl(ctx):
     codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps + ctx.attr.source_deps)
     public_include_roots = _gentest_public_include_roots(ctx.files._public_headers)
     source_stem = _gentest_sanitize_identifier(_gentest_basename_stem(ctx.file.src.basename))
-    wrapper_cpp = ctx.actions.declare_file("{}/tu_0000_{}.gentest.cpp".format(out_dir, source_stem))
-    wrapper_h = ctx.actions.declare_file("{}/tu_0000_{}.gentest.h".format(out_dir, source_stem))
+    registration_cpp = ctx.actions.declare_file("{}/tu_0000_{}.header_registration.gentest.cpp".format(out_dir, source_stem))
     artifact_manifest = ctx.actions.declare_file("{}/{}.artifact_manifest.json".format(out_dir, ctx.attr.target_id))
 
     dep_include_dirs = (
@@ -476,11 +476,10 @@ def _gentest_textual_suite_codegen_impl(ctx):
 
     args = ctx.actions.args()
     args.add("--source-root", ".")
-    args.add("--tu-out-dir", wrapper_cpp.dirname)
-    args.add("--tu-header-output", wrapper_h.path)
-    args.add("--textual-wrapper-output", wrapper_cpp.path)
+    args.add("--tu-out-dir", registration_cpp.dirname)
+    args.add("--textual-registration-output", registration_cpp.path)
+    args.add("--scan-slot-kind", "authored-tu")
     args.add("--artifact-manifest", artifact_manifest.path)
-    args.add("--artifact-owner-source", ctx.file.src.path)
     args.add("--compile-context-id", "{}:{}".format(ctx.attr.target_id, ctx.file.src.path))
     args.add(ctx.file.src.path)
     _gentest_add_exec_tool_args(args, exec_tools)
@@ -498,16 +497,16 @@ def _gentest_textual_suite_codegen_impl(ctx):
         ctx,
         exec_tools,
         codegen_inputs,
-        [wrapper_cpp, wrapper_h, artifact_manifest],
+        [registration_cpp, artifact_manifest],
         args,
         "GentestTextualSuiteCodegen",
     )
 
     return [
-        DefaultInfo(files = depset([wrapper_cpp, wrapper_h, artifact_manifest])),
+        DefaultInfo(files = depset([registration_cpp, artifact_manifest])),
         OutputGroupInfo(
-            srcs = depset([wrapper_cpp]),
-            hdrs = depset([wrapper_h]),
+            srcs = depset([registration_cpp]),
+            hdrs = depset([]),
             artifact_manifests = depset([artifact_manifest]),
         ),
     ]
@@ -669,7 +668,7 @@ _gentest_module_mocks_codegen = rule(
 
 def _gentest_module_compile_db(
         public_module,
-        staged_source,
+        authored_source,
         module_mappings,
         include_dirs,
         quote_include_dirs,
@@ -680,7 +679,7 @@ def _gentest_module_compile_db(
         compiler_path):
     entries = []
     entries.append(_gentest_compile_db_entry(
-        staged_source.path,
+        authored_source.path,
         include_dirs,
         quote_include_dirs,
         system_include_dirs,
@@ -715,20 +714,11 @@ def _gentest_module_suite_codegen_impl(ctx):
     codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps + ctx.attr.source_deps)
     public_include_roots = _gentest_public_include_roots(ctx.files._public_headers + ctx.files._default_module_inputs)
     default_module_mappings = _gentest_default_module_mappings(ctx.files._default_module_inputs)
-    source_ext = _gentest_file_ext(ctx.file.src.basename)
-    if source_ext == "":
-        source_ext = ".cppm"
-    staged_source = ctx.actions.declare_file("{}/suite_0000{}".format(out_dir, source_ext))
-    registration_cpp = ctx.actions.declare_file(_gentest_module_registration_relpath(out_dir, "suite_0000{}".format(source_ext), 0))
-    wrapper_h = ctx.actions.declare_file("{}/tu_0000_suite_0000.gentest.h".format(out_dir))
+    source_stem = _gentest_sanitize_identifier(_gentest_basename_stem(ctx.file.src.basename))
+    registration_cpp = ctx.actions.declare_file(_gentest_module_registration_relpath(out_dir, ctx.file.src.basename, 0))
+    registration_h = ctx.actions.declare_file("{}/tu_0000_{}.gentest.h".format(out_dir, source_stem))
     artifact_manifest = ctx.actions.declare_file("{}/{}.artifact_manifest.json".format(out_dir, ctx.attr.target_id))
     compdb_json = ctx.actions.declare_file("{}/compile_commands.json".format(out_dir))
-    ctx.actions.expand_template(
-        template = ctx.file.src,
-        output = staged_source,
-        substitutions = {},
-    )
-
     dep_include_dirs = (
         list(ctx.attr.extra_include_dirs) +
         _gentest_file_include_dirs(ctx.files.source_hdrs) +
@@ -737,7 +727,7 @@ def _gentest_module_suite_codegen_impl(ctx):
     )
     module_mappings = list(default_module_mappings)
     codegen_inputs = (
-        [staged_source] +
+        [ctx.file.src] +
         list(ctx.files.source_hdrs) +
         list(ctx.files._default_module_inputs) +
         list(ctx.files._public_headers) +
@@ -772,7 +762,7 @@ def _gentest_module_suite_codegen_impl(ctx):
         output = compdb_json,
         content = _gentest_module_compile_db(
             public_module,
-            staged_source,
+            ctx.file.src,
             module_mappings,
             dep_include_dirs,
             dep_quote_include_dirs,
@@ -789,12 +779,12 @@ def _gentest_module_suite_codegen_impl(ctx):
     args.add("--compdb", compdb_json.dirname)
     args.add("--tu-out-dir", registration_cpp.dirname)
     args.add("--module-registration-output", registration_cpp.path)
-    args.add("--tu-header-output", wrapper_h.path)
+    args.add("--tu-header-output", registration_h.path)
     args.add("--artifact-manifest", artifact_manifest.path)
-    args.add("--compile-context-id", "{}:{}".format(ctx.attr.target_id, staged_source.path))
+    args.add("--compile-context-id", "{}:{}".format(ctx.attr.target_id, ctx.file.src.path))
     for module_mapping in module_mappings:
         args.add("--external-module-source", module_mapping)
-    args.add(staged_source.path)
+    args.add(ctx.file.src.path)
     _gentest_add_exec_tool_args(args, exec_tools)
     args.add("--")
     args.add_all(_gentest_driver_args(
@@ -810,17 +800,17 @@ def _gentest_module_suite_codegen_impl(ctx):
         ctx,
         exec_tools,
         codegen_inputs + [compdb_json],
-        [registration_cpp, wrapper_h, artifact_manifest],
+        [registration_cpp, registration_h, artifact_manifest],
         args,
         "GentestModuleSuiteCodegen",
     )
 
     return [
-        DefaultInfo(files = depset([registration_cpp, wrapper_h, artifact_manifest, staged_source, compdb_json])),
+        DefaultInfo(files = depset([registration_cpp, registration_h, artifact_manifest, compdb_json])),
         OutputGroupInfo(
             srcs = depset([registration_cpp]),
-            hdrs = depset([wrapper_h]),
-            module_interfaces = depset([staged_source]),
+            hdrs = depset([registration_h]),
+            module_interfaces = depset([]),
             artifact_manifests = depset([artifact_manifest]),
         ),
     ]
@@ -873,11 +863,13 @@ def _gentest_define_output_groups(name, target):
 
 def gentest_suite(name, codegen_host_clang = None):
     src = "tests/{}/cases.cpp".format(name)
+    source_hdrs = native.glob(["tests/{}/cases.hpp".format(name)], allow_empty = True)
     gen_name = "{}__codegen".format(name)
     out_dir = "gen/{}".format(name)
     _gentest_textual_suite_codegen(
         name = gen_name,
         src = src,
+        source_hdrs = source_hdrs,
         out_dir = out_dir,
         target_id = name,
         codegen_host_clang = codegen_host_clang,
@@ -887,14 +879,14 @@ def gentest_suite(name, codegen_host_clang = None):
     source_hdr_name = "{}__source_hdr".format(name)
     cc_library(
         name = source_hdr_name,
-        hdrs = [src],
-        includes = _gentest_header_include_dirs([src]),
+        hdrs = source_hdrs,
+        includes = _gentest_header_include_dirs(source_hdrs),
         visibility = ["//visibility:private"],
     )
 
     cc_test(
         name = "gentest_{}_bazel".format(name),
-        srcs = [_gentest_output_groups(gen_name)["srcs"], _gentest_output_groups(gen_name)["hdrs"]],
+        srcs = [src, _gentest_output_groups(gen_name)["srcs"]],
         copts = _gentest_compile_copts(),
         deps = [_GENTEST_MAIN_LABEL, ":{}".format(source_hdr_name)],
     )
@@ -985,12 +977,12 @@ def gentest_attach_codegen_textual(
 
     cc_library(
         name = source_hdr_name,
-        hdrs = [src] + source_hdrs,
-        includes = _gentest_unique(source_includes + _gentest_header_include_dirs([src] + source_hdrs)),
+        hdrs = source_hdrs,
+        includes = _gentest_unique(source_includes + _gentest_header_include_dirs(source_hdrs)),
         visibility = ["//visibility:private"],
     )
 
-    final_srcs = [_gentest_output_groups(gen_name)["srcs"], _gentest_output_groups(gen_name)["hdrs"]]
+    final_srcs = [src, _gentest_output_groups(gen_name)["srcs"]]
     if main:
         final_srcs.append(main)
 
@@ -1095,7 +1087,7 @@ def gentest_attach_codegen_modules(
     cc_test(
         name = name,
         srcs = [main, _gentest_output_groups(gen_name)["srcs"], _gentest_output_groups(gen_name)["hdrs"]],
-        module_interfaces = [_gentest_output_groups(gen_name)["module_interfaces"]],
+        module_interfaces = [src],
         copts = _gentest_module_compile_copts(defines, clang_args),
         includes = _gentest_unique([out_dir] + source_includes),
         linkopts = linkopts,

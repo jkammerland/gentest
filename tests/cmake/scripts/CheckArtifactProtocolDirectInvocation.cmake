@@ -21,43 +21,36 @@ file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_source_dir}" "${_generated_dir}")
 
 set(_owner_source "${_source_dir}/cases.cpp")
+set(_declaration_header "${_source_dir}/cases.hpp")
 set(_run_marker "${_work_dir}/direct_textual.ran")
 file(TO_CMAKE_PATH "${_run_marker}" _run_marker_cxx)
+file(WRITE "${_declaration_header}" [=[
+#pragma once
+
+#include "gentest/attributes.h"
+
+[[using gentest: test("protocol/direct_textual")]]
+void directTextualCase();
+]=])
 file(WRITE "${_owner_source}" [=[
 #include <fstream>
 
-#include "gentest/attributes.h"
+#include "cases.hpp"
 #include "gentest/runner.h"
 
 using namespace gentest::asserts;
 
-namespace {
-int localValue() { return 42; }
-} // namespace
-
-[[using gentest: test("protocol/direct_textual")]]
-static void directTextualCase() {
+void directTextualCase() {
     std::ofstream marker{"]=] "${_run_marker_cxx}" [=["};
     marker << "ran\n";
-    EXPECT_EQ(localValue(), 42);
+    EXPECT_EQ(6 * 7, 42);
 }
 ]=])
 
-set(_wrapper_source "${_generated_dir}/tu_0000_cases.gentest.cpp")
-set(_header "${_generated_dir}/tu_0000_cases.gentest.h")
+set(_registration_source "${_generated_dir}/tu_0000_cases.header_registration.gentest.cpp")
 set(_manifest "${_generated_dir}/direct_textual.artifact_manifest.json")
 set(_depfile "${_generated_dir}/direct_textual.d")
 set(_validation_stamp "${_generated_dir}/direct_textual.artifact_manifest.validated")
-file(TO_CMAKE_PATH "${_owner_source}" _owner_source_include)
-file(WRITE "${_wrapper_source}" [=[
-// This file is written by the buildsystem adapter before gentest_codegen runs.
-// NOLINTNEXTLINE(bugprone-suspicious-include)
-#include "]=] "${_owner_source_include}" [=["
-
-#if !defined(GENTEST_CODEGEN) && __has_include("tu_0000_cases.gentest.h")
-#include "tu_0000_cases.gentest.h"
-#endif
-]=])
 
 set(_clang_args)
 if(DEFINED TARGET_ARG AND NOT "${TARGET_ARG}" STREQUAL "")
@@ -77,26 +70,26 @@ list(APPEND _clang_args "${_codegen_std}" ${_public_include_args} "-I${_source_d
 gentest_check_run_or_fail(
   COMMAND "${PROG}"
     --tu-out-dir "${_generated_dir}"
-    --tu-header-output "${_header}"
-    --artifact-owner-source "${_owner_source}"
+    --textual-registration-output "${_registration_source}"
+    --scan-slot-kind authored-tu
     --artifact-manifest "${_manifest}"
     --compile-context-id "direct_textual:${_owner_source}"
     --depfile "${_depfile}"
-    "${_wrapper_source}"
+    "${_owner_source}"
     --
     ${_clang_args}
   STRIP_TRAILING_WHITESPACE)
 
-foreach(_expected_file IN ITEMS "${_header}" "${_manifest}" "${_depfile}")
+foreach(_expected_file IN ITEMS "${_registration_source}" "${_manifest}" "${_depfile}")
   if(NOT EXISTS "${_expected_file}")
     message(FATAL_ERROR "Expected direct protocol output '${_expected_file}'")
   endif()
 endforeach()
 
-file(READ "${_header}" _header_text)
-string(FIND "${_header_text}" "protocol/direct_textual" _case_name_pos)
+file(READ "${_registration_source}" _registration_text)
+string(FIND "${_registration_text}" "protocol/direct_textual" _case_name_pos)
 if(_case_name_pos EQUAL -1)
-  message(FATAL_ERROR "Generated direct textual header is missing the discovered case.\n${_header_text}")
+  message(FATAL_ERROR "Generated additive registration is missing the discovered case.\n${_registration_text}")
 endif()
 
 file(READ "${_manifest}" _manifest_json)
@@ -105,34 +98,34 @@ string(JSON _source_count LENGTH "${_manifest_json}" sources)
 string(JSON _artifact_count LENGTH "${_manifest_json}" artifacts)
 string(JSON _source_path GET "${_manifest_json}" sources 0 source)
 string(JSON _source_kind GET "${_manifest_json}" sources 0 kind)
-string(JSON _source_owner GET "${_manifest_json}" sources 0 owner_source)
-string(JSON _source_header GET "${_manifest_json}" sources 0 registration_header)
+string(JSON _source_scan GET "${_manifest_json}" sources 0 scan_source)
+string(JSON _source_slot_kind GET "${_manifest_json}" sources 0 scan_slot_kind)
+string(JSON _source_registration GET "${_manifest_json}" sources 0 registration_output)
 string(JSON _artifact_path GET "${_manifest_json}" artifacts 0 path)
 string(JSON _artifact_compile_as GET "${_manifest_json}" artifacts 0 compile_as)
 string(JSON _artifact_attachment GET "${_manifest_json}" artifacts 0 target_attachment)
 string(JSON _artifact_owner GET "${_manifest_json}" artifacts 0 owner_source)
 string(JSON _artifact_scan GET "${_manifest_json}" artifacts 0 requires_module_scan)
-string(JSON _artifact_includes_owner GET "${_manifest_json}" artifacts 0 includes_owner_source)
-string(JSON _artifact_replaces_owner GET "${_manifest_json}" artifacts 0 replaces_owner_source)
-string(JSON _artifact_header GET "${_manifest_json}" artifacts 0 generated_headers 0)
+string(JSON _artifact_includes_owner GET "${_manifest_json}" artifacts 0 includes_authored_source)
+string(JSON _artifact_replaces_owner GET "${_manifest_json}" artifacts 0 replaces_authored_source)
 string(JSON _artifact_depfile GET "${_manifest_json}" artifacts 0 depfile)
 
 foreach(_actual_expected IN ITEMS
     "_manifest_schema=gentest.artifact_manifest.v1"
     "_source_count=1"
     "_artifact_count=1"
-    "_source_path=${_wrapper_source}"
-    "_source_kind=textual-wrapper"
-    "_source_owner=${_owner_source}"
-    "_source_header=${_header}"
-    "_artifact_path=${_wrapper_source}"
-    "_artifact_compile_as=cxx-textual-wrapper"
-    "_artifact_attachment=replace-owner-source"
+    "_source_path=${_owner_source}"
+    "_source_kind=cxx-header-declaration-registration"
+    "_source_scan=${_owner_source}"
+    "_source_slot_kind=authored-tu"
+    "_source_registration=${_registration_source}"
+    "_artifact_path=${_registration_source}"
+    "_artifact_compile_as=cxx-header-declaration-registration"
+    "_artifact_attachment=append-generated-source"
     "_artifact_owner=${_owner_source}"
     "_artifact_scan=OFF"
-    "_artifact_includes_owner=ON"
-    "_artifact_replaces_owner=ON"
-    "_artifact_header=${_header}"
+    "_artifact_includes_owner=OFF"
+    "_artifact_replaces_owner=OFF"
     "_artifact_depfile=${_depfile}")
   string(REPLACE "=" ";" _pair "${_actual_expected}")
   list(GET _pair 0 _actual_var)
@@ -148,20 +141,19 @@ set(_validator_args
   "${PROG}" validate-artifact-manifest
   --manifest "${_manifest}"
   --stamp "${_validation_stamp}"
-  --expected-source "${_wrapper_source}"
-  --expected-source-kind textual-wrapper
-  --expected-registration-output "${_wrapper_source}"
-  --expected-header "${_header}"
+  --expected-source "${_owner_source}"
+  --expected-source-kind cxx-header-declaration-registration
+  --expected-registration-output "${_registration_source}"
+  --expected-source-registration-output "${_registration_source}"
   --expected-compile-context-id "direct_textual:${_owner_source}"
-  --expected-owner-source "${_owner_source}"
-  --expected-include-dir "${_generated_dir}"
+  --expected-scan-slot-kind authored-tu
   --expected-depfile "${_depfile}"
-  --expected-target-attachment replace-owner-source
+  --expected-target-attachment append-generated-source
   --expected-artifact-role registration
-  --expected-compile-as cxx-textual-wrapper
+  --expected-compile-as cxx-header-declaration-registration
   --expected-requires-module-scan OFF
-  --expected-includes-owner-source ON
-  --expected-replaces-owner-source ON)
+  --expected-includes-owner-source OFF
+  --expected-replaces-owner-source OFF)
 gentest_check_run_or_fail(
   COMMAND ${_validator_args}
   STRIP_TRAILING_WHITESPACE)
@@ -178,19 +170,20 @@ project(gentest_artifact_protocol_direct_consumer LANGUAGES CXX)
 
 set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
-add_subdirectory("@GENTEST_SOURCE_ROOT@" gentest-src EXCLUDE_FROM_ALL)
+add_subdirectory("__GENTEST_SOURCE_ROOT__" gentest-src EXCLUDE_FROM_ALL)
 
-add_executable(protocol_direct "@GENTEST_WRAPPER_SOURCE@")
-target_include_directories(protocol_direct PRIVATE "@GENTEST_GENERATED_DIR@")
+add_executable(protocol_direct "__GENTEST_OWNER_SOURCE__" "__GENTEST_REGISTRATION_SOURCE__")
+target_include_directories(protocol_direct PRIVATE "__GENTEST_SOURCE_DIR__")
 target_link_libraries(protocol_direct PRIVATE gentest::gentest_main)
 
 enable_testing()
 add_test(NAME protocol_direct COMMAND protocol_direct --run=protocol/direct_textual)
 ]=])
 file(READ "${_consumer_dir}/CMakeLists.txt" _consumer_cmake)
-string(REPLACE "@GENTEST_SOURCE_ROOT@" "${SOURCE_DIR}" _consumer_cmake "${_consumer_cmake}")
-string(REPLACE "@GENTEST_WRAPPER_SOURCE@" "${_wrapper_source}" _consumer_cmake "${_consumer_cmake}")
-string(REPLACE "@GENTEST_GENERATED_DIR@" "${_generated_dir}" _consumer_cmake "${_consumer_cmake}")
+string(REPLACE "__GENTEST_SOURCE_ROOT__" "${SOURCE_DIR}" _consumer_cmake "${_consumer_cmake}")
+string(REPLACE "__GENTEST_OWNER_SOURCE__" "${_owner_source}" _consumer_cmake "${_consumer_cmake}")
+string(REPLACE "__GENTEST_REGISTRATION_SOURCE__" "${_registration_source}" _consumer_cmake "${_consumer_cmake}")
+string(REPLACE "__GENTEST_SOURCE_DIR__" "${_source_dir}" _consumer_cmake "${_consumer_cmake}")
 file(WRITE "${_consumer_dir}/CMakeLists.txt" "${_consumer_cmake}")
 
 set(_consumer_configure_args
@@ -259,20 +252,19 @@ set(_bad_validator_args
   "${PROG}" validate-artifact-manifest
   --manifest "${_bad_manifest}"
   --stamp "${_bad_validation_stamp}"
-  --expected-source "${_wrapper_source}"
-  --expected-source-kind textual-wrapper
-  --expected-registration-output "${_wrapper_source}"
-  --expected-header "${_header}"
+  --expected-source "${_owner_source}"
+  --expected-source-kind cxx-header-declaration-registration
+  --expected-registration-output "${_registration_source}"
+  --expected-source-registration-output "${_registration_source}"
   --expected-compile-context-id "direct_textual:${_owner_source}"
-  --expected-owner-source "${_owner_source}"
-  --expected-include-dir "${_generated_dir}"
+  --expected-scan-slot-kind authored-tu
   --expected-depfile "${_depfile}"
-  --expected-target-attachment replace-owner-source
+  --expected-target-attachment append-generated-source
   --expected-artifact-role registration
-  --expected-compile-as cxx-textual-wrapper
+  --expected-compile-as cxx-header-declaration-registration
   --expected-requires-module-scan false
-  --expected-includes-owner-source true
-  --expected-replaces-owner-source 1)
+  --expected-includes-owner-source false
+  --expected-replaces-owner-source 0)
 execute_process(
   COMMAND ${_bad_validator_args}
   RESULT_VARIABLE _bad_schema_rc
@@ -294,5 +286,58 @@ if(_bad_schema_msg_pos EQUAL -1)
     "Artifact manifest validator emitted the wrong schema diagnostic.\n"
     "--- stdout ---\n${_bad_schema_out}\n--- stderr ---\n${_bad_schema_err}")
 endif()
+
+function(_gentest_expect_additive_manifest_rejected suffix manifest_json expected_diagnostic)
+  set(_bad_manifest_path "${_generated_dir}/direct_textual.${suffix}.artifact_manifest.json")
+  set(_bad_stamp_path "${_generated_dir}/direct_textual.${suffix}.artifact_manifest.validated")
+  file(WRITE "${_bad_manifest_path}" "${manifest_json}")
+  file(REMOVE "${_bad_stamp_path}")
+  execute_process(
+    COMMAND
+      "${PROG}" validate-artifact-manifest
+      --manifest "${_bad_manifest_path}"
+      --stamp "${_bad_stamp_path}"
+      --expected-source "${_owner_source}"
+      --expected-source-kind cxx-header-declaration-registration
+      --expected-registration-output "${_registration_source}"
+      --expected-source-registration-output "${_registration_source}"
+      --expected-compile-context-id "direct_textual:${_owner_source}"
+      --expected-scan-slot-kind authored-tu
+      --expected-depfile "${_depfile}"
+      --expected-target-attachment append-generated-source
+      --expected-artifact-role registration
+      --expected-compile-as cxx-header-declaration-registration
+      --expected-requires-module-scan false
+      --expected-includes-owner-source false
+      --expected-replaces-owner-source false
+    RESULT_VARIABLE _bad_rc
+    OUTPUT_VARIABLE _bad_out
+    ERROR_VARIABLE _bad_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE)
+  if(NOT _bad_rc EQUAL 1 OR EXISTS "${_bad_stamp_path}")
+    message(FATAL_ERROR
+      "Artifact manifest validator accepted invalid additive provenance '${suffix}'.\n"
+      "--- stdout ---\n${_bad_out}\n--- stderr ---\n${_bad_err}")
+  endif()
+  string(FIND "${_bad_out}\n${_bad_err}" "${expected_diagnostic}" _diagnostic_pos)
+  if(_diagnostic_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Artifact manifest validator emitted the wrong '${suffix}' diagnostic; expected '${expected_diagnostic}'.\n"
+      "--- stdout ---\n${_bad_out}\n--- stderr ---\n${_bad_err}")
+  endif()
+endfunction()
+
+string(JSON _bad_scan_source_json SET "${_manifest_json}" sources 0 scan_source "\"not-the-authored-source.cpp\"")
+_gentest_expect_additive_manifest_rejected(scan_source "${_bad_scan_source_json}" "sources[0].scan_source mismatch")
+
+string(JSON _bad_slot_kind_json SET "${_manifest_json}" sources 0 scan_slot_kind "\"invented-slot\"")
+_gentest_expect_additive_manifest_rejected(scan_slot_kind "${_bad_slot_kind_json}" "sources[0].scan_slot_kind mismatch")
+
+string(REPEAT "0" 64 _zero_fingerprint_hex)
+string(JSON _bad_fingerprint_json SET "${_manifest_json}" sources 0 compile_context_fingerprint
+  "\"sha256:${_zero_fingerprint_hex}\"")
+_gentest_expect_additive_manifest_rejected(
+  fingerprint "${_bad_fingerprint_json}" "artifacts[0].compile_context_fingerprint mismatch")
 
 message(STATUS "Direct artifact protocol invocation regression passed")

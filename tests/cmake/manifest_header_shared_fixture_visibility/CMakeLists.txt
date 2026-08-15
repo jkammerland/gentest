@@ -22,7 +22,6 @@ add_executable(mhsf_tests
 target_link_libraries(mhsf_tests PRIVATE gentest gentest_main)
 target_compile_features(mhsf_tests PRIVATE cxx_std_20)
 target_include_directories(mhsf_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-set_property(TARGET mhsf_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(mhsf_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

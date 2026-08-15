@@ -1,10 +1,10 @@
+#include "native_ambiguous_zero_arg_ctor_consumer.hpp"
+
 #include "gentest/assertions.h"
-#include "gentest/attributes.h"
 #include "public/native_ambiguous_zero_arg_ctor.hpp"
 
 using namespace gentest::asserts;
 
-[[using gentest: test("mock/native_ambiguous_zero_arg_ctor")]]
 void native_ambiguous_zero_arg_ctor() {
     fixture::validation::mocks::AmbiguousZeroArgCtorServiceMock mock{5};
 

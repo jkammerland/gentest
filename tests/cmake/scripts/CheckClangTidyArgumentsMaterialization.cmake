@@ -53,7 +53,17 @@ file(CHMOD "${_fake_cmake}" "${_fake_tidy}"
   PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 
 set(_generated_source "${_generated_dir}/tu_0000_cases.gentest.cpp")
-gentest_fixture_write_file("${_generated_source}" "#include \"../../../../tests/failing/cases.cpp\"\n")
+gentest_fixture_write_file("${_generated_source}" "// generated registration\n")
+
+set(_authored_source "${SOURCE_DIR}/tests/failing/cases.cpp")
+gentest_fixture_make_compdb_entry(
+  _authored_entry
+  DIRECTORY "${_build_dir}"
+  FILE "${_authored_source}"
+  ARGUMENTS
+    clang++
+    -c "${_authored_source}"
+    -o "${_build_dir}/tests/CMakeFiles/gentest_failing_tests.dir/failing/cases.cpp.o")
 
 gentest_fixture_make_compdb_entry(
   _generated_entry
@@ -64,7 +74,7 @@ gentest_fixture_make_compdb_entry(
     -I"${_generated_public_dir}"
     -c "${_generated_source}"
     -o "${_build_dir}/tests/CMakeFiles/gentest_textual_suite_mocks.dir/generated/mock_surface/tu_0000_cases.gentest.cpp.o")
-gentest_fixture_write_compdb("${_build_dir}/compile_commands.json" "${_generated_entry}")
+gentest_fixture_write_compdb("${_build_dir}/compile_commands.json" "${_authored_entry}" "${_generated_entry}")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
@@ -103,9 +113,13 @@ if(NOT EXISTS "${_tidy_log}")
 endif()
 
 file(READ "${_tidy_log}" _tidy_log_text)
-string(FIND "${_tidy_log_text}" "${SOURCE_DIR}/tests/failing/cases.cpp" _mapped_repo_source_pos)
-if(_mapped_repo_source_pos EQUAL -1)
+string(FIND "${_tidy_log_text}" "${SOURCE_DIR}/tests/failing/cases.cpp" _authored_repo_source_pos)
+if(_authored_repo_source_pos EQUAL -1)
   message(FATAL_ERROR
-    "check_clang_tidy.sh did not invoke clang-tidy on the remapped repo source after materializing the generated target.\n"
+    "check_clang_tidy.sh did not invoke clang-tidy on the direct authored compile command after materializing the generated target.\n"
     "Captured clang-tidy args:\n${_tidy_log_text}")
+endif()
+string(FIND "${_tidy_log_text}" "${_generated_source}" _generated_source_pos)
+if(NOT _generated_source_pos EQUAL -1)
+  message(FATAL_ERROR "check_clang_tidy.sh passed a generated registration source to clang-tidy.\n${_tidy_log_text}")
 endif()

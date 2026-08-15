@@ -39,14 +39,19 @@ add_executable(explicit_installed_module_consumer module_main.cpp)
 target_compile_features(explicit_installed_module_consumer PRIVATE cxx_std_20)
 target_link_libraries(explicit_installed_module_consumer PRIVATE fixture::explicit_module_exported_mocks)
 
-add_executable(explicit_installed_module_codegen_consumer module_cases.cppm)
+add_executable(explicit_installed_module_codegen_consumer)
+target_sources(explicit_installed_module_codegen_consumer
+    PRIVATE
+        FILE_SET installed_module_cases TYPE CXX_MODULES FILES
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_cases.cppm)
 target_compile_features(explicit_installed_module_codegen_consumer PRIVATE cxx_std_20)
 target_link_libraries(explicit_installed_module_codegen_consumer
     PRIVATE
         gentest::gentest_main
         fixture::explicit_module_exported_mocks)
-set_property(TARGET explicit_installed_module_codegen_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 gentest_attach_codegen(explicit_installed_module_codegen_consumer
+    MODULE_REGISTRATION
+    FILE_SET installed_module_cases
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/codegen_consumer")
 
 add_executable(explicit_installed_third_party_consumer third_party_main.cpp)

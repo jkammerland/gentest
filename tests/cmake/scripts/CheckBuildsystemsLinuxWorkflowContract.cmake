@@ -172,11 +172,11 @@ foreach(_expected IN ITEMS
     "meson_consumer_textual"
     "Meson named-module support is"
     "'--tu-out-dir'"
-    "'--textual-wrapper-output'"
+    "'--textual-registration-output'"
+    "'--scan-slot-kind'"
     "'--mock-public-header'"
     "'--depfile'"
     "'--artifact-manifest'"
-    "'--artifact-owner-source'"
     "'--compile-context-id'"
     "depfile:")
   string(FIND "${_meson_content}" "${_expected}" _expected_pos)
@@ -210,7 +210,8 @@ foreach(_expected IN ITEMS
     "module_registration_output_rel"
     "\"--module-registration-output\""
     "\"--artifact-manifest\""
-    "\"--artifact-owner-source\""
+    "\"--textual-registration-output\""
+    "\"--scan-slot-kind\""
     "\"--compile-context-id\""
     "registered_target_metadata()"
     "collect_mock_metadata_inputs")
@@ -301,7 +302,8 @@ foreach(_expected IN ITEMS
     "_gentest_module_registration_relpath"
     "\"--module-registration-output\""
     "\"--artifact-manifest\""
-    "\"--artifact-owner-source\""
+    "\"--textual-registration-output\""
+    "\"--scan-slot-kind\""
     "\"--compile-context-id\""
     "output_group = \"module_interfaces\""
     "output_group = \"artifact_manifests\"")

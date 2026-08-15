@@ -80,17 +80,6 @@ gentest_discover_tests(header_declaration_registration_tests TEST_PREFIX "additi
 get_target_property(_header_registration_sources header_declaration_registration_tests SOURCES)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/target_sources.txt" "${_header_registration_sources}\n")
 
-# Compare the next-major additive inventory with the previous-major internal
-# wrapper compatibility path over the same authored declarations.
-add_executable(header_declaration_wrapper_compat_tests
-    wrapper_compat_cases.cpp)
-target_link_libraries(header_declaration_wrapper_compat_tests PRIVATE gentest_main)
-target_compile_features(header_declaration_wrapper_compat_tests PRIVATE cxx_std_20)
-set_property(TARGET header_declaration_wrapper_compat_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
-gentest_attach_codegen(header_declaration_wrapper_compat_tests
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_wrapper_compat")
-gentest_discover_tests(header_declaration_wrapper_compat_tests TEST_PREFIX "compat::")
-
 foreach(_dual_variant IN ITEMS 1 2)
     set(_dual_target "header_declaration_dual_${_dual_variant}")
     add_executable(${_dual_target} dual_target.cpp dual_target.hpp)

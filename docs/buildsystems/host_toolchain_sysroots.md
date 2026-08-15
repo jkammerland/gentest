@@ -203,6 +203,12 @@ xmake f -c -y \
 xmake b my_tests
 ```
 
+The module suite attaches `tests/cases.cppm` directly and appends an ordinary
+generated importer registration. Module mock definitions are a temporary
+exception: their compatibility wrappers remain until codegen provides a
+non-transforming exported mock-provider protocol. Do not model those wrappers
+as the long-term suite registration contract.
+
 On macOS, if Homebrew LLVM or another non-default LLVM prefix is used for the
 module lane, also pass `--sdk=<llvm-prefix>` so Xmake does not fall back to the
 Apple compiler/toolchain path.

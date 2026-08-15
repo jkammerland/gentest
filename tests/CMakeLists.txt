@@ -40,6 +40,11 @@ add_test(
             $<TARGET_FILE:gentest_run_cases_api_tests>)
 set_property(TEST run_cases_list_json_utf8 APPEND PROPERTY LABELS "public-api;runner")
 
+add_test(
+    NAME codegen_tooling_scripts_contract
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_codegen_tooling_scripts.py)
+set_property(TEST codegen_tooling_scripts_contract APPEND PROPERTY LABELS "codegen;scripts")
+
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
 target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)
@@ -103,7 +108,7 @@ gentest_add_suite(async TARGET ${PROJECT_NAME}_async_tests NO_CTEST)
 gentest_add_suite(async_live_slow TARGET ${PROJECT_NAME}_async_live_slow_tests NO_CTEST)
 
 # Benchmark-only target: collect all suite translation units into one target so
-# gentest_codegen sees many wrapper sources in a single invocation (useful for
+# gentest_codegen sees many authored slots in a single invocation (useful for
 # profiling/benchmarking internal codegen parallelism).
 #
 # Note: This target is *not* meant to be compiled/linked as a single binary,
@@ -130,6 +135,15 @@ endforeach()
 add_library(gentest_codegen_parallel_bench_obj OBJECT EXCLUDE_FROM_ALL ${_gentest_codegen_parallel_bench_sources})
 
 target_link_libraries(gentest_codegen_parallel_bench_obj PRIVATE gentest_main)
+if(GENTEST_WITH_LIBASSERT)
+    if(TARGET libassert-lib)
+        target_link_libraries(gentest_codegen_parallel_bench_obj PRIVATE libassert-lib)
+    elseif(TARGET libassert::assert)
+        target_link_libraries(gentest_codegen_parallel_bench_obj PRIVATE libassert::assert)
+    else()
+        message(FATAL_ERROR "libassert not found for gentest_codegen_parallel_bench_obj")
+    endif()
+endif()
 gentest_link_mocks(gentest_codegen_parallel_bench_obj PRIVATE gentest_textual_suite_mocks)
 
 gentest_resolve_test_std(_gentest_parallel_bench_std_feature _gentest_parallel_bench_codegen_std_arg)
@@ -137,8 +151,6 @@ target_compile_features(gentest_codegen_parallel_bench_obj PRIVATE ${_gentest_pa
 target_include_directories(gentest_codegen_parallel_bench_obj PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR})
-
-set_property(TARGET gentest_codegen_parallel_bench_obj PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(gentest_codegen_parallel_bench_obj
     OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/codegen_parallel_bench
@@ -3415,7 +3427,7 @@ _gentest_add_cmake_helper_test(
 unset(_gentest_discover_tests_config)
 
 _gentest_add_cmake_helper_test(
-    gentest_tu_wrapper_source_props
+    gentest_textual_wrapper_compatibility_removed
     ${PROJECT_SOURCE_DIR}/tests/cmake/tu_wrapper_source_props
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTuWrapperSourceProps.cmake
     cmake)
@@ -4042,12 +4054,12 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_pcm_cache_isolation APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
-    gentest_module_auto_discovery
+    gentest_module_registration_required
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_autodiscovery
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleAutoDiscovery.cmake
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_module_auto_discovery APPEND PROPERTY LABELS "modules")
+set_property(TEST gentest_module_registration_required APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
     gentest_module_registration_manifest
@@ -4081,14 +4093,6 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_module_registration_mock_split APPEND PROPERTY LABELS "modules;codegen")
 
 _gentest_add_cmake_helper_test(
-    gentest_textual_wrapper_artifact_manifest
-    ${PROJECT_SOURCE_DIR}/tests/cmake/textual_wrapper_artifact_manifest
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTextualWrapperArtifactManifest.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_textual_wrapper_artifact_manifest APPEND PROPERTY LABELS "codegen")
-
-_gentest_add_cmake_helper_test(
     gentest_module_multiline_directives
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_multiline_directives
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleMultilineDirectiveFailure.cmake
@@ -4120,54 +4124,6 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
     -DNO_EXPLICIT_CODEGEN=ON)
 set_property(TEST gentest_module_cpp_source_in_tree_codegen APPEND PROPERTY LABELS "modules;codegen")
-
-_gentest_add_cmake_helper_test(
-    gentest_module_first_classic_order
-    ${PROJECT_SOURCE_DIR}/tests/cmake/module_first_classic_order
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFirstClassicOrder.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_module_first_classic_order APPEND PROPERTY LABELS "modules")
-
-_gentest_add_cmake_helper_test(
-    gentest_module_manual_include_whitespace
-    ${PROJECT_SOURCE_DIR}/tests/cmake/module_manual_include_whitespace
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleManualIncludeWhitespaceDuplicate.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_module_manual_include_whitespace APPEND PROPERTY LABELS "modules")
-
-_gentest_add_cmake_helper_test(
-    gentest_module_partial_manual_codegen_includes
-    ${PROJECT_SOURCE_DIR}/tests/cmake/module_partial_manual_codegen_includes
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModulePartialManualCodegenIncludes.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-    -DTSAN_BUILD=${_gentest_is_tsan_build})
-set_property(TEST gentest_module_partial_manual_codegen_includes APPEND PROPERTY LABELS "modules")
-
-if(GENTEST_ENABLE_TSAN_STRESS_TESTS)
-    _gentest_add_cmake_helper_test(
-        gentest_module_partial_manual_codegen_tsan_race_repro
-        ${PROJECT_SOURCE_DIR}/tests/cmake/module_partial_manual_codegen_includes
-        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModulePartialManualCodegenTsanRaceRepro.cmake
-        cmake
-        -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-        -DTSAN_BUILD=${_gentest_is_tsan_build}
-        -DREPRO_TIMEOUT_SEC=${GENTEST_TSAN_STRESS_TIMEOUT_SEC})
-    set_tests_properties(gentest_module_partial_manual_codegen_tsan_race_repro PROPERTIES LABELS "cmake;modules;stress;tsan")
-    math(EXPR _gentest_tsan_race_repro_test_timeout "${GENTEST_TSAN_STRESS_TIMEOUT_SEC} + 120")
-    set_tests_properties(gentest_module_partial_manual_codegen_tsan_race_repro PROPERTIES TIMEOUT "${_gentest_tsan_race_repro_test_timeout}")
-    unset(_gentest_tsan_race_repro_test_timeout)
-endif()
-
-_gentest_add_cmake_helper_test(
-    gentest_module_manual_partial_includes
-    ${PROJECT_SOURCE_DIR}/tests/cmake/module_manual_partial_includes
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleManualPartialIncludes.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_module_manual_partial_includes APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
     gentest_module_name_literal_false_match
@@ -4266,12 +4222,12 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_compile_command_macro_scan APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
-    gentest_codegen_wrapped_main_discovery
+    gentest_codegen_additive_main_discovery
     ${PROJECT_SOURCE_DIR}/tests/cmake/wrapped_main_discovery
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckWrappedMainDiscovery.cmake
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_codegen_wrapped_main_discovery APPEND PROPERTY LABELS "codegen")
+set_property(TEST gentest_codegen_additive_main_discovery APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_synthetic_compile_context
@@ -4282,12 +4238,12 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_synthetic_compile_context APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
-    gentest_codegen_manifest_header_shared_fixture_visibility
+    gentest_codegen_header_shared_fixture_visibility
     ${PROJECT_SOURCE_DIR}/tests/cmake/manifest_header_shared_fixture_visibility
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckManifestHeaderSharedFixtureVisibility.cmake
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_codegen_manifest_header_shared_fixture_visibility APPEND PROPERTY LABELS "codegen")
+set_property(TEST gentest_codegen_header_shared_fixture_visibility APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_external_include_module_resolution
@@ -4346,7 +4302,7 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 
 _gentest_add_cmake_helper_test(
-    gentest_plain_tu_wrapper_no_module_scan
+    gentest_plain_additive_no_module_scan
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPlainTuWrapperNoModuleScan.cmake
     codegen
@@ -4374,14 +4330,6 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_scan_include_clang_dir_append APPEND PROPERTY LABELS "codegen")
-
-_gentest_add_cmake_helper_test(
-    gentest_module_partition_registration_visibility
-    ${PROJECT_SOURCE_DIR}/tests/cmake/module_partition_registration_visibility
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModulePartitionRegistrationVisibility.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
-set_property(TEST gentest_module_partition_registration_visibility APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
     gentest_module_registration_without_import

@@ -122,7 +122,6 @@ endif()
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target
     header_declaration_registration_tests
-    header_declaration_wrapper_compat_tests
     header_declaration_dual_1
     header_declaration_dual_2
   WORKING_DIRECTORY "${_work_dir}"
@@ -182,20 +181,6 @@ gentest_check_run_or_fail(
   COMMAND "${_exe}" "--filter=*fixture_parity*" "--repeat=2" --shuffle --seed 107
   WORKING_DIRECTORY "${_build_dir}"
   STRIP_TRAILING_WHITESPACE)
-
-set(_compat_exe "${_build_dir}/header_declaration_wrapper_compat_tests")
-if(CMAKE_HOST_WIN32)
-  string(APPEND _compat_exe ".exe")
-endif()
-gentest_check_run_or_fail(
-  COMMAND "${_compat_exe}" --list-tests
-  WORKING_DIRECTORY "${_build_dir}"
-  STRIP_TRAILING_WHITESPACE
-  OUTPUT_VARIABLE _compat_list_output)
-if(NOT _compat_list_output STREQUAL _list_output)
-  message(FATAL_ERROR
-    "Additive and wrapper-compatibility --list inventories differ.\nAdditive:\n${_list_output}\nCompatibility:\n${_compat_list_output}")
-endif()
 
 # The scanner is always the host Clang tool, but the authored and additive
 # registration sources must remain valid when the target compiler is GCC.
@@ -295,29 +280,6 @@ foreach(_name IN ITEMS "rich/async" "rich/bench" "rich/jitter")
     message(FATAL_ERROR "CTest discovery missed '${_name}'.\n${_ctest_inventory}")
   endif()
 endforeach()
-
-string(JSON _ctest_count LENGTH "${_ctest_inventory}" tests)
-set(_additive_ctest_cases "")
-set(_compat_ctest_cases "")
-if(_ctest_count GREATER 0)
-  math(EXPR _ctest_last "${_ctest_count} - 1")
-  foreach(_ctest_idx RANGE 0 ${_ctest_last})
-    string(JSON _ctest_name GET "${_ctest_inventory}" tests ${_ctest_idx} name)
-    if(_ctest_name MATCHES "^additive::")
-      string(REGEX REPLACE "^additive::" "" _ctest_case "${_ctest_name}")
-      list(APPEND _additive_ctest_cases "${_ctest_case}")
-    elseif(_ctest_name MATCHES "^compat::")
-      string(REGEX REPLACE "^compat::" "" _ctest_case "${_ctest_name}")
-      list(APPEND _compat_ctest_cases "${_ctest_case}")
-    endif()
-  endforeach()
-endif()
-list(SORT _additive_ctest_cases)
-list(SORT _compat_ctest_cases)
-if(NOT _additive_ctest_cases STREQUAL _compat_ctest_cases)
-  message(FATAL_ERROR
-    "Additive and wrapper-compatibility CTest inventories differ.\nAdditive: ${_additive_ctest_cases}\nCompatibility: ${_compat_ctest_cases}")
-endif()
 
 foreach(_dual_variant IN ITEMS 1 2)
   set(_dual_exe "${_build_dir}/header_declaration_dual_${_dual_variant}")

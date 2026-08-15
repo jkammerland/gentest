@@ -19,7 +19,6 @@ add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 add_executable(member_operator_template_keyword cases.cpp)
 target_compile_features(member_operator_template_keyword PRIVATE cxx_std_20)
 target_link_libraries(member_operator_template_keyword PRIVATE gentest_main)
-set_property(TARGET member_operator_template_keyword PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(member_operator_template_keyword
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

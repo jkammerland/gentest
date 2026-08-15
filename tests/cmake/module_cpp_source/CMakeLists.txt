@@ -18,10 +18,13 @@ add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
 add_executable(cpp_source_module_tests)
 
-target_sources(cpp_source_module_tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/import_only.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/imported_cases.cpp)
+target_sources(cpp_source_module_tests
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/import_only.cpp
+    PRIVATE
+        FILE_SET cpp_source_cases TYPE CXX_MODULES FILES
+            ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/imported_cases.cpp)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp PROPERTIES
     CXX_SCAN_FOR_MODULES ON
     GENTEST_MODULE_NAME gentest.cpp_source_cases)
@@ -33,7 +36,8 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/imported_cases.cpp PROPE
 
 target_link_libraries(cpp_source_module_tests PRIVATE gentest gentest_main)
 target_compile_features(cpp_source_module_tests PRIVATE cxx_std_20)
-set_property(TARGET cpp_source_module_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(cpp_source_module_tests
+    MODULE_REGISTRATION
+    FILE_SET cpp_source_cases
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

@@ -21,6 +21,12 @@ The contract is still explicit 2-step codegen:
 1. add mocks
 2. attach suite codegen
 
+For textual suites, the `source` `.cpp` is compiled directly and must include a
+self-contained annotated declaration header. Pass that header through
+`headerfiles`; the helper appends `tu_0000_<stem>.header_registration.gentest.cpp`
+and never replaces or includes the authored implementation. Textual mocks use a
+header-only scan aggregate plus a generated public-header anchor.
+
 For module suites, `gentest_attach_codegen({ kind = "modules", ... })` requires
 an explicit `module_name`. Xmake keeps the authored `.cppm` in the module build
 and adds a generated ordinary importer registration source plus a
@@ -94,6 +100,7 @@ your_project/
     gentest.lua
   tests/
     main.cpp
+    cases.hpp
     cases.cpp
     cases.cppm
     header_mock_defs.hpp
@@ -114,6 +121,18 @@ add_requires("fmt")
 add_requires("gentest")
 
 includes(".gentest_support/gentest.lua")
+
+target("gentest_xrepo_textual")
+    set_kind("binary")
+    add_packages("fmt", "gentest")
+    gentest_attach_codegen({
+        name = "gentest_xrepo_textual",
+        kind = "textual",
+        source = "tests/cases.cpp",
+        headerfiles = {"tests/cases.hpp"},
+        main = "tests/main.cpp",
+        output_dir = path.join(current_gen_root(), "consumer_textual"),
+    })
 
 target("gentest_xrepo_public_modules")
     set_kind("moduleonly")
@@ -212,6 +231,8 @@ The downstream proof in
 - builds module public-module provider + module mocks + module consumer
 - verifies generated mock/codegen artifacts, including module registration
   sources and artifact manifests
+- verifies textual targets compile authored sources directly and append header
+  registrations
 - runs the consumer test/mock/bench/jitter surface
 
 ## Validated platforms
@@ -231,3 +252,6 @@ not yet separate non-CMake CI lanes.
   Xmake target public include/module settings are not inferred for codegen.
 - The current package shape is validated through the checked-in fixture-local
   xrepo repository, not a published external xrepo registry entry yet.
+- Named-module mock definitions still use the codegen compatibility module
+  wrappers. Removing those requires a non-transforming exported mock-provider
+  protocol; module suite sources themselves are already attached directly.

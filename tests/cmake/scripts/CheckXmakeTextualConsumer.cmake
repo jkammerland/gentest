@@ -268,12 +268,12 @@ endif()
 foreach(_expected_glob IN ITEMS
     "${_generated_glob_root}/consumer_textual_mocks/gentest_consumer_mocks.hpp"
     "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_defs_input.cpp"
-    "${_generated_glob_root}/consumer_textual_mocks/tu_0000_consumer_textual_mocks_defs.gentest.h"
+    "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_anchor.cpp"
     "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_mock_registry.hpp"
     "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_mock_impl.hpp"
     "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_mock_registry__domain_0000_header.hpp"
     "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_mock_impl__domain_0000_header.hpp"
-    "${_generated_glob_root}/consumer_textual/tu_0000_cases.gentest.h")
+    "${_generated_glob_root}/consumer_textual/tu_0000_cases.header_registration.gentest.cpp")
   file(GLOB _expected_matches LIST_DIRECTORIES FALSE "${_expected_glob}")
   list(LENGTH _expected_matches _expected_match_count)
   if(NOT _expected_match_count EQUAL 1)
@@ -284,6 +284,15 @@ foreach(_expected_glob IN ITEMS
       "stderr:\n${_build_err}")
   endif()
 endforeach()
+
+file(GLOB _anchor_matches LIST_DIRECTORIES FALSE
+  "${_generated_glob_root}/consumer_textual_mocks/consumer_textual_mocks_anchor.cpp")
+list(GET _anchor_matches 0 _anchor_source)
+file(READ "${_anchor_source}" _anchor_contents)
+if(NOT _anchor_contents MATCHES "#include \"gentest_consumer_mocks\\.hpp\"")
+  message(FATAL_ERROR
+    "The Xmake mock anchor must include its generated public header by a relocatable sibling path.\n${_anchor_contents}")
+endif()
 
 file(GLOB _public_header_matches LIST_DIRECTORIES FALSE
   "${_generated_glob_root}/consumer_textual_mocks/gentest_consumer_mocks.hpp")

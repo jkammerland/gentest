@@ -27,7 +27,8 @@ target_sources(same_line_directive_tests
 
 target_link_libraries(same_line_directive_tests PRIVATE gentest gentest_runtime)
 target_compile_features(same_line_directive_tests PRIVATE cxx_std_20)
-set_property(TARGET same_line_directive_tests PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(same_line_directive_tests
+    MODULE_REGISTRATION
+    FILE_SET same_line_cases
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")

@@ -11,4 +11,7 @@ target_include_directories(module_name_false_match_tests PRIVATE "${CMAKE_CURREN
 target_link_libraries(module_name_false_match_tests PRIVATE gentest::gentest gentest::gentest_main)
 target_sources(module_name_false_match_tests PRIVATE FILE_SET module_cases TYPE CXX_MODULES FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/conditional_false_match.ixx")
-gentest_attach_codegen(module_name_false_match_tests OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen")
+gentest_attach_codegen(module_name_false_match_tests
+  MODULE_REGISTRATION
+  FILE_SET module_cases
+  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen")

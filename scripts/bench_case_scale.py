@@ -121,7 +121,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(doctest_scale)
 
-add_executable(gentest_scale gentest_cases.cpp)
+add_executable(gentest_scale gentest_cases.cpp gentest_cases.hpp)
 target_link_libraries(gentest_scale PRIVATE gentest_main)
 target_compile_features(gentest_scale PRIVATE cxx_std_20)
 target_include_directories(gentest_scale PRIVATE "{root}/include")
@@ -147,6 +147,8 @@ target_compile_features(doctest_scale PRIVATE cxx_std_20)
     )
 
     gentest_lines = [
+        "#pragma once",
+        "",
         '#include "gentest/attributes.h"',
         '#include "gentest/runner.h"',
         "using namespace gentest::asserts;",
@@ -158,14 +160,15 @@ target_compile_features(doctest_scale PRIVATE cxx_std_20)
         gentest_lines.extend(
             [
                 f'[[using gentest: test("case/{idx:06d}")]]',
-                f"void case_{idx:06d}() {{",
+                f"inline void case_{idx:06d}() {{",
                 f"    EXPECT_EQ({idx}, {idx});",
                 "}",
                 "",
             ]
         )
     gentest_lines.append("} // namespace scale\n")
-    (source_dir / "gentest_cases.cpp").write_text("\n".join(gentest_lines), encoding="utf-8")
+    (source_dir / "gentest_cases.hpp").write_text("\n".join(gentest_lines), encoding="utf-8")
+    (source_dir / "gentest_cases.cpp").write_text('#include "gentest_cases.hpp"\n', encoding="utf-8")
 
     gtest_lines = [
         "#include <gtest/gtest.h>",
@@ -241,7 +244,12 @@ def clean_consumer_outputs(build_dir: Path, target: str) -> None:
 
     if target == "gentest_scale":
         generated_dir = build_dir / "gentest_generated"
-        for pattern in ("*.gentest.h", "*.artifact_manifest.json", "*.artifact_manifest.validated"):
+        for pattern in (
+            "*.gentest.h",
+            "*.header_registration.gentest.cpp",
+            "*.artifact_manifest.json",
+            "*.artifact_manifest.validated",
+        ):
             for path in generated_dir.glob(pattern):
                 path.unlink()
 

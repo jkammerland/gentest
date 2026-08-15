@@ -95,6 +95,8 @@ def write_doctest_support(source_dir: Path) -> None:
 
 def write_gentest_cases(path: Path, case_range: range, shard: int) -> None:
     lines = [
+        "#pragma once",
+        "",
         '#include "gentest/attributes.h"',
         '#include "gentest/runner.h"',
         "using namespace gentest::asserts;",
@@ -106,7 +108,7 @@ def write_gentest_cases(path: Path, case_range: range, shard: int) -> None:
         lines.extend(
             [
                 f'[[using gentest: test("case/{idx:06d}")]]',
-                f"void case_{idx:06d}() {{",
+                f"inline void case_{idx:06d}() {{",
                 f"    EXPECT_EQ({idx}, {idx});",
                 "}",
                 "",
@@ -160,9 +162,11 @@ def write_case_sources(source_dir: Path, ranges: list[range]) -> dict[str, list[
     sources: dict[str, list[str]] = {"gentest": [], "gtest": [], "doctest": []}
     for shard, case_range in enumerate(ranges):
         gentest_name = f"gentest_cases_{shard:03d}.cpp"
+        gentest_header_name = f"gentest_cases_{shard:03d}.hpp"
         gtest_name = f"gtest_cases_{shard:03d}.cpp"
         doctest_name = f"doctest_cases_{shard:03d}.cpp"
-        write_gentest_cases(source_dir / gentest_name, case_range, shard)
+        write_gentest_cases(source_dir / gentest_header_name, case_range, shard)
+        (source_dir / gentest_name).write_text(f'#include "{gentest_header_name}"\n', encoding="utf-8")
         write_gtest_cases(source_dir / gtest_name, case_range, shard)
         write_doctest_cases(source_dir / doctest_name, case_range, shard)
         sources["gentest"].append(gentest_name)
@@ -342,7 +346,12 @@ def clean_framework_outputs(build_dir: Path, framework: str, layout: str, active
     for generated_dir in generated_dirs:
         if not generated_dir.exists():
             continue
-        for pattern in ("*.gentest.h", "*.artifact_manifest.json", "*.artifact_manifest.validated"):
+        for pattern in (
+            "*.gentest.h",
+            "*.header_registration.gentest.cpp",
+            "*.artifact_manifest.json",
+            "*.artifact_manifest.validated",
+        ):
             for path in generated_dir.glob(pattern):
                 path.unlink()
 

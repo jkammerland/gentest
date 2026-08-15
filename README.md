@@ -5,7 +5,8 @@
 
 `gentest` is an attribute-driven C++ test runner plus a clang-tools-based code generator.
 
-Write tests with standard C++ attributes 
+Write tests with standard C++ attributes. Put ordinary textual test definitions
+in a header reached by one of the target's source files:
 
 ```cpp
 #include "gentest/test.h"
@@ -14,7 +15,7 @@ Write tests with standard C++ attributes
 using namespace gentest::asserts;
 
 [[gentest::test]]
-void basic() { 
+inline void basic() {
     EXPECT_TRUE(1 + 1 == 2); 
 }
 
@@ -77,8 +78,8 @@ Complete copy-paste projects live in [`examples/hello`](examples/hello) and
 # Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
 find_package(gentest CONFIG REQUIRED)
 
-# The test implementation stays an ordinary target source. Listing the header
-# is optional when cases.cpp reaches it, but is useful for IDE visibility.
+# Define tests in cases.hpp. cases.cpp is the ordinary target source that
+# includes that header; listing the header is also useful for IDE visibility.
 add_executable(my_tests cases.cpp cases.hpp)
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
@@ -97,33 +98,30 @@ gentest_discover_tests(my_tests)
 ```cpp
 #pragma once
 
-#include "gentest/attributes.h"
-
-[[using gentest: test("demo/addition")]]
-void addition();
-```
-
-`cases.cpp`:
-
-```cpp
-#include "cases.hpp"
 #include "gentest/test.h"
 
 using namespace gentest::asserts;
 
-void addition() {
+[[using gentest: test("demo/addition")]]
+inline void addition() {
     const auto value = 2 + 2;
     gentest::expect_true(value == 4);
     EXPECT_EQ(value, 4);
 }
 ```
 
-Ordinary textual codegen discovers annotations on header declarations, keeps
-every authored `.cpp` attached, and appends generated registration sources.
-Definitions may remain out of line. External-linkage inline header definitions
-also work. An annotation written only in `.cpp`, or on a `static` or
-anonymous-namespace function, is rejected because it has no stable
-header-reachable target-wide identity.
+`cases.cpp`:
+
+```cpp
+#include "cases.hpp"
+```
+
+Ordinary textual codegen discovers annotations in headers reached by the
+target, keeps every authored `.cpp` attached, and appends generated registration
+sources. Header-defined free functions use `inline` because both the authored
+source and a generated registration source include the header. An annotation
+written only in `.cpp`, or on a `static` or anonymous-namespace function, is
+rejected because it has no stable header-reachable target-wide identity.
 
 Configure and run the consumer project after installing gentest:
 
@@ -161,6 +159,8 @@ Run:
 `--list` prints the richer listing format (name plus metadata such as tags/owner when present).
 `--kind` restricts execution/filtering to `all|test|bench|jitter` (default `all`).
 Examples below use the concise `[[gentest::...]]` spelling for single attributes and `[[using gentest: ...]]` for multi-attribute lists.
+Unless a snippet is explicitly a named-module example, treat it as header
+contents; non-template free-function definitions are therefore `inline`.
 
 Naming:
 - Any gentest function-level attribute marks the declaration as a case.
@@ -191,7 +191,7 @@ using namespace gentest::asserts;
 namespace math {
 
 [[gentest::test]]
-void add() {
+inline void add() {
     EXPECT_EQ(1 + 1, 2);
     ASSERT_TRUE(2 + 2 == 4, "fatal: aborts the current test");
 }
@@ -212,7 +212,7 @@ using namespace gentest::asserts;
 #include <stdexcept>
 
 [[gentest::test("exceptions/macros")]]
-void macros() {
+inline void macros() {
     EXPECT_THROW(throw std::runtime_error("boom"), std::runtime_error);
     EXPECT_THROW(throw 123, int);
     EXPECT_NO_THROW((void)0);
@@ -241,7 +241,7 @@ void module_functions() {
 #include <string_view>
 
 [[gentest::test("exceptions/handled")]]
-void handled() {
+inline void handled() {
     try {
         might_throw();
         gentest::fail("expected might_throw() to throw");
@@ -271,7 +271,9 @@ To test these “death” paths, tag them and run them in their own process:
 
 ```cpp
 [[using gentest: test("death/fatal_path"), death]]
-void fatal_path();
+inline void fatal_path() {
+    gentest::require(false, "fatal path");
+}
 ```
 
 ```cmake
@@ -301,12 +303,12 @@ throws, it’s reported as XFAIL; if it passes, it’s reported as XPASS (failur
 using namespace gentest::asserts;
 
 [[gentest::test("outcomes/skip")]]
-void skip_example() {
+inline void skip_example() {
     gentest::skip("not supported on this configuration");
 }
 
 [[gentest::test("outcomes/xfail")]]
-void xfail_example() {
+inline void xfail_example() {
     gentest::xfail("BUG-123: known issue");
     EXPECT_EQ(1, 2, "expected to fail");
 }
@@ -333,7 +335,7 @@ using namespace gentest::asserts;
 #include <thread>
 
 [[gentest::test("concurrency/adopt_and_log")]]
-void adopt_and_log() {
+inline void adopt_and_log() {
     auto context = gentest::get_current_context();
 
     std::atomic<bool> reached{false};
@@ -364,13 +366,13 @@ Use named parameter axes to generate a Cartesian product of value sets:
 [[gentest::test("params/pairs")]]
 [[gentest::parameters(a, 1, 2)]]
 [[gentest::parameters(b, 10, 20)]]
-void pairs(int a, int b) {
+inline void pairs(int a, int b) {
     gentest::expect((a == 1 || a == 2) && (b == 10 || b == 20), "values from axes");
 }
 
 // “Row” style instead of a Cartesian product:
 [[using gentest: test("params/rows"), parameters_pack((a, b), (1, 10), (2, 20))]]
-void rows(int a, int b) {
+inline void rows(int a, int b) {
     gentest::expect((a == 1 && b == 10) || (a == 2 && b == 20), "row values");
 }
 ```
@@ -480,7 +482,7 @@ namespace local {
 struct LocalCounter : CounterBase {};
 
 [[gentest::test]]
-void one(LocalCounter& local_fx, GlobalCounter& global_fx) {
+inline void one(LocalCounter& local_fx, GlobalCounter& global_fx) {
     local_fx.touch();
     global_fx.touch();
 }
@@ -492,13 +494,13 @@ namespace shared {
 struct [[gentest::fixture(suite)]] SuiteCounter : SharedCounterBase<2> {};
 
 [[gentest::test]]
-void first(SuiteCounter& suite_fx, GlobalCounter& global_fx) {
+inline void first(SuiteCounter& suite_fx, GlobalCounter& global_fx) {
     suite_fx.touch();
     global_fx.touch();
 }
 
 [[gentest::test]]
-void second(SuiteCounter& suite_fx, GlobalCounter& global_fx) {
+inline void second(SuiteCounter& suite_fx, GlobalCounter& global_fx) {
     suite_fx.touch();
     global_fx.touch();
 }
@@ -541,28 +543,20 @@ using ClockMock = gentest::mock<Clock>;
 }
 ```
 
-Test declaration (`cases.hpp`):
+Tests (`cases.hpp`):
 
 ```cpp
 #pragma once
 
-#include "gentest/attributes.h"
-
-[[using gentest: test("mock/clock")]]
-void mock_clock();
-```
-
-Test implementation (`cases.cpp`):
-
-```cpp
-#include "cases.hpp"
-#include "gentest/attributes.h"
+#include "gentest/test.h"
 #include "public/clock_mocks.hpp"
+
 using namespace gentest::asserts;
 
-int read_now(const Clock* c) { return c->now(); }
+inline int read_now(const Clock* clock) { return clock->now(); }
 
-void mock_clock() {
+[[using gentest: test("mock/clock")]]
+inline void mock_clock() {
     mytests::mocks::ClockMock clock;
     gentest::expect(clock, &Clock::now).times(1).returns(123);
     EXPECT_EQ(read_now(&clock), 123);
@@ -717,7 +711,7 @@ struct Sink {
 };
 ```
 
-Test file (`cases.cpp`):
+Test header (`cases.hpp`):
 
 Assume `public/sink_mocks.hpp` is the generated header surface from an explicit mock target, for example one that publishes `demo::mocks::SinkMock` and `demo::mocks::TickerMock`.
 
@@ -732,7 +726,7 @@ void emit(SinkLike* s) {
 }
 
 [[gentest::test("mock/nonvirtual")]]
-void mock_nonvirtual() {
+inline void mock_nonvirtual() {
     demo::mocks::SinkMock sink;
     EXPECT_CALL(sink, write).times(1).with(7);
     emit(&sink);
@@ -778,14 +772,14 @@ Define microbenchmarks and jitter benchmarks (for timing variance):
 
 [[gentest::bench("bench/concat")]]
 [[gentest::items_per_call(2)]]
-void bench_concat() {
+inline void bench_concat() {
     std::string s = "hello";
     s += " world";
     gentest::doNotOptimizeAway(s);
 }
 
 [[gentest::jitter("bench/sin")]]
-void jitter_sin() {
+inline void jitter_sin() {
     volatile double x = 1.2345;
     gentest::doNotOptimizeAway(std::sin(x));
 }
@@ -848,6 +842,15 @@ The comparison matches bench/jitter rows by name, checks metrics such as
 or missing benchmarks, writes a Markdown summary, and exits non-zero only for
 regressions over the configured threshold unless `--fail-on-new` or
 `--fail-on-missing` is set.
+
+### Out-of-line definitions
+
+Header-defined `inline` cases are the recommended layout and are used
+throughout this README. A case can instead put its annotated external-linkage
+declaration in a header and its definition in an ordinary `.cpp` source linked
+into the same target. The declaration, fixture types, and parameter types must
+still be header-reachable so codegen can build the registration adapter. An
+annotation written only on the `.cpp` definition is not supported.
 
 ### Reporting (JUnit / Allure / GitHub annotations)
 

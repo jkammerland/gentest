@@ -862,7 +862,7 @@ function(_gentest_shutdown_bazel output_root)
 endfunction()
 
 _gentest_disk_cache_build("${_output_one}" _first_build_log)
-string(FIND "${_first_build_log}" "--textual-wrapper-output" _first_codegen_pos)
+string(FIND "${_first_build_log}" "--textual-registration-output" _first_codegen_pos)
 if(_first_codegen_pos EQUAL -1)
   message(FATAL_ERROR "Initial staged-tool build did not execute the textual codegen action.\n${_first_build_log}")
 endif()
@@ -909,7 +909,7 @@ _gentest_assert_codegen_cache_state("${_second_execution_log}" TRUE "second isol
 # A declared Clang resource closure change must invalidate the action cache.
 file(APPEND "${_tool_repo}/lib/clang/${_clang_resource_version}/include/stddef.h" "\n// staged Clang resource input changed\n")
 _gentest_disk_cache_build("${_output_three}" _changed_build_log)
-string(FIND "${_changed_build_log}" "--textual-wrapper-output" _changed_codegen_pos)
+string(FIND "${_changed_build_log}" "--textual-registration-output" _changed_codegen_pos)
 file(READ "${_output_three}/execution-log.json" _changed_execution_log)
 if(_changed_codegen_pos EQUAL -1)
   message(FATAL_ERROR
@@ -922,7 +922,7 @@ _gentest_assert_codegen_cache_state("${_changed_execution_log}" FALSE "declared-
 # key and rerun all codegen actions in a fresh output base.
 file(APPEND "${_tool_repo}/${_staged_cxx_header_relative}" "\n// staged C++ standard-library input changed\n")
 _gentest_disk_cache_build("${_output_four}" _changed_cxx_build_log)
-string(FIND "${_changed_cxx_build_log}" "--textual-wrapper-output" _changed_cxx_codegen_pos)
+string(FIND "${_changed_cxx_build_log}" "--textual-registration-output" _changed_cxx_codegen_pos)
 file(READ "${_output_four}/execution-log.json" _changed_cxx_execution_log)
 if(_changed_cxx_codegen_pos EQUAL -1)
   message(FATAL_ERROR
@@ -937,7 +937,7 @@ if(_exec_os STREQUAL "linux")
   # an unused marker file.
   file(APPEND "${_tool_repo}/${_staged_system_header_relative}" "\n// staged Linux system input changed\n")
   _gentest_disk_cache_build("${_output_five}" _changed_system_build_log)
-  string(FIND "${_changed_system_build_log}" "--textual-wrapper-output" _changed_system_codegen_pos)
+  string(FIND "${_changed_system_build_log}" "--textual-registration-output" _changed_system_codegen_pos)
   file(READ "${_output_five}/execution-log.json" _changed_system_execution_log)
   if(_changed_system_codegen_pos EQUAL -1)
     message(FATAL_ERROR

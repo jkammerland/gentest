@@ -45,6 +45,13 @@ if(_materialize_generated_targets_pos EQUAL -1)
     "scripts/check_clang_tidy.sh must materialize generated mock/codegen targets from the active compile database "
     "before invoking clang-tidy so configure-only CI builds still have the generated surfaces they include.")
 endif()
+foreach(_removed_wrapper_remap IN ITEMS "mapped_repo_rel" "include_re.search" "transformed_entry")
+  string(FIND "${_script_content}" "${_removed_wrapper_remap}" _removed_wrapper_remap_pos)
+  if(NOT _removed_wrapper_remap_pos EQUAL -1)
+    message(FATAL_ERROR
+      "scripts/check_clang_tidy.sh must use direct authored compile commands and must not retain wrapper remapping token '${_removed_wrapper_remap}'.")
+  endif()
+endforeach()
 string(REGEX MATCHALL "--line-filter=\"\\$\\{LINE_FILTER_JSON\\}\"" _line_filter_usages "${_script_content}")
 list(LENGTH _line_filter_usages _line_filter_usage_count)
 if(_line_filter_usage_count LESS 3)

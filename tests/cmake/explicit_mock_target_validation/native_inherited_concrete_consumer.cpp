@@ -1,10 +1,10 @@
+#include "native_inherited_concrete_consumer.hpp"
+
 #include "gentest/assertions.h"
-#include "gentest/attributes.h"
 #include "public/native_inherited_concrete.hpp"
 
 using namespace gentest::asserts;
 
-[[using gentest: test("mock/native_inherited_concrete")]]
 void native_inherited_concrete() {
     fixture::validation::mocks::InheritedConcreteServiceMock mock;
     fixture::validation::InheritedConcreteBase              *base = &mock;

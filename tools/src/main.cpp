@@ -740,9 +740,6 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
                 header_out.replace_extension(".h");
                 targets.push_back(std::move(header_out));
             }
-            if (idx < options.textual_wrapper_outputs.size() && !options.textual_wrapper_outputs[idx].empty()) {
-                targets.push_back(options.textual_wrapper_outputs[idx]);
-            }
             if (is_module_interface_source(std::filesystem::path(options.sources[idx]))) {
                 if (!options.module_registration_outputs.empty()) {
                     targets.push_back(options.module_registration_outputs[idx]);
@@ -823,40 +820,6 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
     return true;
 }
 
-[[nodiscard]] bool validate_artifact_owner_sources(const CollectorOptions &options, std::string &error) {
-    if (options.artifact_owner_sources.empty()) {
-        return true;
-    }
-    if (options.tu_output_dir.empty()) {
-        error = "--artifact-owner-source requires --tu-out-dir";
-        return false;
-    }
-    if (options.artifact_manifest_path.empty()) {
-        error = "--artifact-owner-source requires --artifact-manifest";
-        return false;
-    }
-    if (options.artifact_owner_sources.size() != options.sources.size()) {
-        error = fmt::format("expected {} --artifact-owner-source value(s) for {} input source(s), got {}", options.sources.size(),
-                            options.sources.size(), options.artifact_owner_sources.size());
-        return false;
-    }
-    return true;
-}
-
-[[nodiscard]] bool validate_textual_artifact_manifest_sources(const CollectorOptions &options, std::string &error) {
-    if (options.artifact_owner_sources.empty() || !options.module_registration_outputs.empty()) {
-        return true;
-    }
-    for (const auto &source : options.sources) {
-        if (options.module_interface_sources.contains(source)) {
-            error = fmt::format("textual artifact manifests cannot describe named module source '{}'; use --module-registration-output",
-                                source);
-            return false;
-        }
-    }
-    return true;
-}
-
 [[nodiscard]] bool validate_module_wrapper_outputs(const CollectorOptions &options, std::string &error) {
     if (options.tu_output_dir.empty() || options.module_interface_sources.empty() || !options.module_registration_outputs.empty()) {
         return true;
@@ -870,21 +833,6 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
             continue;
         }
         error = fmt::format("named module source '{}' requires an explicit --module-wrapper-output path in TU mode", options.sources[idx]);
-        return false;
-    }
-    return true;
-}
-
-[[nodiscard]] bool validate_textual_wrapper_outputs(const CollectorOptions &options, std::string &error) {
-    if (options.textual_wrapper_outputs.empty() || options.module_interface_sources.empty()) {
-        return true;
-    }
-
-    for (const auto &source : options.sources) {
-        if (!options.module_interface_sources.contains(source)) {
-            continue;
-        }
-        error = fmt::format("--textual-wrapper-output does not support named module source '{}'", source);
         return false;
     }
     return true;
@@ -918,6 +866,7 @@ struct ArtifactManifestValidationOptions {
     std::vector<std::string>                                            expected_registration_outputs;
     std::vector<std::string>                                            expected_headers;
     std::vector<std::string>                                            expected_compile_context_ids;
+    std::vector<std::string>                                            expected_scan_slot_kinds;
     std::vector<std::string>                                            expected_owner_sources;
     std::vector<std::string>                                            expected_source_registration_outputs;
     std::vector<std::string>                                            expected_modules;
@@ -1090,6 +1039,10 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
             if (!parse_list_option(options.expected_compile_context_ids, idx)) {
                 return false;
             }
+        } else if (arg == "--expected-scan-slot-kind") {
+            if (!parse_list_option(options.expected_scan_slot_kinds, idx)) {
+                return false;
+            }
         } else if (arg == "--expected-owner-source") {
             if (!parse_list_option(options.expected_owner_sources, idx)) {
                 return false;
@@ -1153,7 +1106,6 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
         return false;
     }
     for (const auto &[name, value] : {
-             std::pair{"--expected-include-dir", std::string_view{options.expected_include_dir}},
              std::pair{"--expected-depfile", std::string_view{options.expected_depfile}},
              std::pair{"--expected-target-attachment", std::string_view{options.expected_target_attachment}},
              std::pair{"--expected-artifact-role", std::string_view{options.expected_artifact_role}},
@@ -1163,6 +1115,10 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
             error = fmt::format("{} is required", name);
             return false;
         }
+    }
+    if (options.expected_compile_as != "cxx-header-declaration-registration" && options.expected_include_dir.empty()) {
+        error = "--expected-include-dir is required";
+        return false;
     }
     if (!options.expected_requires_module_scan.has_value()) {
         error = "--expected-requires-module-scan is required";
@@ -1261,6 +1217,12 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
     return false;
 }
 
+[[nodiscard]] bool is_sha256_fingerprint(std::string_view value) {
+    constexpr std::string_view prefix{"sha256:"};
+    return value.size() == prefix.size() + 64 && value.starts_with(prefix) &&
+           std::ranges::all_of(value.substr(prefix.size()), [](unsigned char ch) { return std::isxdigit(ch) != 0; });
+}
+
 [[nodiscard]] bool validate_source_manifest_entry(const llvm::json::Object &source, const ArtifactManifestValidationOptions &options,
                                                   std::size_t idx, std::string &error) {
     const std::string location    = fmt::format("sources[{}]", idx);
@@ -1276,6 +1238,26 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
     if (!context_id ||
         !expect_equal(fmt::format("{}.compile_context_id", location), options.expected_compile_context_ids[idx], *context_id, error)) {
         return false;
+    }
+    const bool additive_header_registration = options.expected_compile_as == "cxx-header-declaration-registration";
+    if (additive_header_registration) {
+        const auto scan_source = json_string_field(source, "scan_source", location, error);
+        if (!scan_source || !expect_equal(fmt::format("{}.scan_source", location), options.expected_sources[idx], *scan_source, error)) {
+            return false;
+        }
+        const auto scan_slot_kind = json_string_field(source, "scan_slot_kind", location, error);
+        if (!scan_slot_kind ||
+            !expect_equal(fmt::format("{}.scan_slot_kind", location), options.expected_scan_slot_kinds[idx], *scan_slot_kind, error)) {
+            return false;
+        }
+        const auto fingerprint = json_string_field(source, "compile_context_fingerprint", location, error);
+        if (!fingerprint) {
+            return false;
+        }
+        if (!is_sha256_fingerprint(*fingerprint)) {
+            error = fmt::format("gentest artifact manifest {}.compile_context_fingerprint must be a sha256 fingerprint", location);
+            return false;
+        }
     }
     if (!options.expected_owner_sources.empty()) {
         const auto owner_source = json_string_field(source, "owner_source", location, error);
@@ -1302,6 +1284,23 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
         }
     }
     return true;
+}
+
+[[nodiscard]] bool validate_additive_manifest_entry_pair(const llvm::json::Object &source, const llvm::json::Object &artifact,
+                                                         const ArtifactManifestValidationOptions &options, std::size_t idx,
+                                                         std::string &error) {
+    if (options.expected_compile_as != "cxx-header-declaration-registration") {
+        return true;
+    }
+    const std::string source_location    = fmt::format("sources[{}]", idx);
+    const std::string artifact_location  = fmt::format("artifacts[{}]", idx);
+    const auto        source_fingerprint = json_string_field(source, "compile_context_fingerprint", source_location, error);
+    if (!source_fingerprint) {
+        return false;
+    }
+    const auto artifact_fingerprint = json_string_field(artifact, "compile_context_fingerprint", artifact_location, error);
+    return artifact_fingerprint && expect_equal(fmt::format("{}.compile_context_fingerprint", artifact_location), *source_fingerprint,
+                                                *artifact_fingerprint, error);
 }
 
 [[nodiscard]] bool validate_artifact_manifest_entry(const llvm::json::Object &artifact, const ArtifactManifestValidationOptions &options,
@@ -1354,9 +1353,11 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
         !expect_equal(fmt::format("{}.requires_module_scan", location), expected_requires_module_scan, *requires_module_scan, error)) {
         return false;
     }
+    const bool additive_header_registration = options.expected_compile_as == "cxx-header-declaration-registration";
     if (options.expected_includes_owner_source.has_value()) {
         const bool expected_includes_owner_source = options.expected_includes_owner_source.value_or(false);
-        const auto includes_owner_source          = json_bool_field(artifact, "includes_owner_source", location, error);
+        const auto includes_owner_source =
+            json_bool_field(artifact, additive_header_registration ? "includes_authored_source" : "includes_owner_source", location, error);
         if (!includes_owner_source || !expect_equal(fmt::format("{}.includes_owner_source", location), expected_includes_owner_source,
                                                     *includes_owner_source, error)) {
             return false;
@@ -1364,22 +1365,25 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
     }
     if (options.expected_replaces_owner_source.has_value()) {
         const bool expected_replaces_owner_source = options.expected_replaces_owner_source.value_or(false);
-        const auto replaces_owner_source          = json_bool_field(artifact, "replaces_owner_source", location, error);
+        const auto replaces_owner_source =
+            json_bool_field(artifact, additive_header_registration ? "replaces_authored_source" : "replaces_owner_source", location, error);
         if (!replaces_owner_source || !expect_equal(fmt::format("{}.replaces_owner_source", location), expected_replaces_owner_source,
                                                     *replaces_owner_source, error)) {
             return false;
         }
     }
 
-    const auto generated_header = json_single_string_array_field(artifact, "generated_headers", location, error);
-    if (!generated_header ||
-        !expect_equal(fmt::format("{}.generated_headers[0]", location), options.expected_headers[idx], *generated_header, error)) {
-        return false;
-    }
-    const auto generated_include_dir = json_single_string_array_field(artifact, "generated_include_dirs", location, error);
-    if (!generated_include_dir ||
-        !expect_equal(fmt::format("{}.generated_include_dirs[0]", location), options.expected_include_dir, *generated_include_dir, error)) {
-        return false;
+    if (!additive_header_registration) {
+        const auto generated_header = json_single_string_array_field(artifact, "generated_headers", location, error);
+        if (!generated_header ||
+            !expect_equal(fmt::format("{}.generated_headers[0]", location), options.expected_headers[idx], *generated_header, error)) {
+            return false;
+        }
+        const auto generated_include_dir = json_single_string_array_field(artifact, "generated_include_dirs", location, error);
+        if (!generated_include_dir || !expect_equal(fmt::format("{}.generated_include_dirs[0]", location), options.expected_include_dir,
+                                                    *generated_include_dir, error)) {
+            return false;
+        }
     }
     const auto depfile = json_string_field(artifact, "depfile", location, error);
     if (!depfile || !expect_equal(fmt::format("{}.depfile", location), options.expected_depfile, *depfile, error)) {
@@ -1462,7 +1466,8 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
 [[nodiscard]] bool validate_module_manifest_entry_pair(const llvm::json::Object &source, const llvm::json::Object &artifact,
                                                        const ArtifactManifestValidationOptions &options, std::size_t idx,
                                                        const ArtifactManifestSourceScanContexts &source_scan_contexts, std::string &error) {
-    if (options.expected_source_kinds[idx] == "textual-wrapper") {
+    if (options.expected_source_kinds[idx] == "textual-wrapper" ||
+        options.expected_source_kinds[idx] == "cxx-header-declaration-registration") {
         return true;
     }
 
@@ -1560,13 +1565,20 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
              std::pair{std::string_view{"--expected-source-kind"}, std::span<const std::string>{options.expected_source_kinds}},
              std::pair{std::string_view{"--expected-registration-output"},
                        std::span<const std::string>{options.expected_registration_outputs}},
-             std::pair{std::string_view{"--expected-header"}, std::span<const std::string>{options.expected_headers}},
              std::pair{std::string_view{"--expected-compile-context-id"},
                        std::span<const std::string>{options.expected_compile_context_ids}},
          }) {
         if (!validate_expected_list_count(name, values, expected_count, error)) {
             return false;
         }
+    }
+    if (options.expected_compile_as != "cxx-header-declaration-registration" &&
+        !validate_expected_list_count("--expected-header", options.expected_headers, expected_count, error)) {
+        return false;
+    }
+    if (options.expected_compile_as == "cxx-header-declaration-registration" &&
+        !validate_expected_list_count("--expected-scan-slot-kind", options.expected_scan_slot_kinds, expected_count, error)) {
+        return false;
     }
     if (!options.expected_owner_sources.empty() &&
         !validate_expected_list_count("--expected-owner-source", options.expected_owner_sources, expected_count, error)) {
@@ -1652,6 +1664,9 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
             return false;
         }
         if (!validate_artifact_manifest_entry(*artifact, options, idx, error)) {
+            return false;
+        }
+        if (!validate_additive_manifest_entry_pair(*source, *artifact, options, idx, error)) {
             return false;
         }
         if (!validate_module_manifest_entry_pair(*source, *artifact, options, idx, source_scan_contexts, error)) {
@@ -3941,6 +3956,8 @@ struct ParsedArguments {
     bool                               removed_output_requested             = false;
     bool                               removed_template_requested           = false;
     bool                               removed_no_include_sources_requested = false;
+    bool                               removed_textual_wrapper_requested    = false;
+    bool                               removed_artifact_owner_requested     = false;
     bool                               invalid_arguments                    = false;
     std::vector<std::filesystem::path> inspect_include_dirs;
 };
@@ -3957,10 +3974,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> tu_header_output_option{
         "tu-header-output", llvm::cl::desc("Explicit output header path for a TU-mode input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
-    static llvm::cl::list<std::string> textual_wrapper_output_option{
-        "textual-wrapper-output",
-        llvm::cl::desc("Explicit output textual wrapper path for a TU-mode input source (repeat once per positional source)"),
-        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> textual_wrapper_output_option{"textual-wrapper-output",
+                                                                     llvm::cl::desc("Removed textual source-replacement output option"),
+                                                                     llvm::cl::ZeroOrMore, llvm::cl::cat(category), llvm::cl::Hidden};
     static llvm::cl::list<std::string> textual_registration_output_option{
         "textual-registration-output",
         llvm::cl::desc("Explicit additive header-declaration registration source path (repeat once per positional source)"),
@@ -3976,10 +3992,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<std::string>  artifact_manifest_option{"artifact-manifest",
                                                                 llvm::cl::desc("Path to a generated artifact manifest JSON file"),
                                                                 llvm::cl::init(""), llvm::cl::cat(category)};
-    static llvm::cl::list<std::string> artifact_owner_source_option{
-        "artifact-owner-source",
-        llvm::cl::desc("Original owner source for a TU-mode artifact-manifest input (repeat once per positional source)"),
-        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> artifact_owner_source_option{"artifact-owner-source",
+                                                                    llvm::cl::desc("Removed textual replacement-owner manifest option"),
+                                                                    llvm::cl::ZeroOrMore, llvm::cl::cat(category), llvm::cl::Hidden};
     static llvm::cl::list<std::string> compile_context_id_option{
         "compile-context-id",
         llvm::cl::desc("Build-system compile context identity for an input source (repeat once per positional source)"),
@@ -4102,7 +4117,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     }
     opts.sources.assign(source_option.begin(), source_option.end());
     opts.tu_output_headers.assign(tu_header_output_option.begin(), tu_header_output_option.end());
-    opts.textual_wrapper_outputs.assign(textual_wrapper_output_option.begin(), textual_wrapper_output_option.end());
     opts.textual_registration_outputs.assign(textual_registration_output_option.begin(), textual_registration_output_option.end());
     opts.module_wrapper_outputs.assign(module_wrapper_output_option.begin(), module_wrapper_output_option.end());
     opts.module_registration_outputs.assign(module_registration_output_option.begin(), module_registration_output_option.end());
@@ -4113,7 +4127,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     if (!artifact_manifest_option.getValue().empty()) {
         opts.artifact_manifest_path = std::filesystem::path{artifact_manifest_option.getValue()};
     }
-    opts.artifact_owner_sources.assign(artifact_owner_source_option.begin(), artifact_owner_source_option.end());
     opts.clang_args = std::move(clang_args);
     strip_shell_control_tail(opts.clang_args);
     opts.check_only  = check_option.getValue();
@@ -4248,7 +4261,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         .removed_template_requested = template_option.getNumOccurrences() != 0,
         .removed_no_include_sources_requested =
             no_include_sources_option.getValue() || (no_include_sources_env && *no_include_sources_env != "0"),
-        .invalid_arguments = invalid_arguments,
+        .removed_textual_wrapper_requested = textual_wrapper_output_option.getNumOccurrences() != 0,
+        .removed_artifact_owner_requested  = artifact_owner_source_option.getNumOccurrences() != 0,
+        .invalid_arguments                 = invalid_arguments,
         .inspect_include_dirs =
             [&]() {
                 std::vector<std::filesystem::path> paths;
@@ -4346,6 +4361,18 @@ int main(int argc, const char **argv) {
             "additive header-declaration registration keeps authored sources in normal compilation units\n");
         return 1;
     }
+    if (parsed_arguments.removed_textual_wrapper_requested) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --textual-wrapper-output was removed; use --textual-registration-output with header-reachable "
+            "declarations and compile the authored source directly\n");
+        return 1;
+    }
+    if (parsed_arguments.removed_artifact_owner_requested) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: --artifact-owner-source was removed with textual source replacement; additive registration keeps the "
+            "authored source attached directly\n");
+        return 1;
+    }
     diagnose_missing_mock_phase_manifest(parsed_arguments.mock_phase, options);
     if (parsed_arguments.inspect_source) {
         if (options.sources.size() != 1) {
@@ -4398,10 +4425,9 @@ int main(int argc, const char **argv) {
             gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input only emits mock outputs\n");
             return 1;
         }
-        if (!options.tu_output_headers.empty() || !options.textual_wrapper_outputs.empty() ||
-            !options.textual_registration_outputs.empty() || !options.module_wrapper_outputs.empty() ||
-            !options.module_registration_outputs.empty() || !options.scan_slot_kinds.empty() || !options.compile_context_ids.empty() ||
-            !options.artifact_owner_sources.empty() || !options.mock_registration_manifest_path.empty()) {
+        if (!options.tu_output_headers.empty() || !options.textual_registration_outputs.empty() ||
+            !options.module_wrapper_outputs.empty() || !options.module_registration_outputs.empty() || !options.scan_slot_kinds.empty() ||
+            !options.compile_context_ids.empty() || !options.mock_registration_manifest_path.empty()) {
             gentest::codegen::log_err_raw("gentest_codegen: --mock-manifest-input cannot be combined with source/TU planning options\n");
             return 1;
         }
@@ -4518,10 +4544,6 @@ int main(int argc, const char **argv) {
                                   options.sources.size(), options.sources.size(), options.tu_output_headers.size());
         return 1;
     }
-    if (!options.textual_wrapper_outputs.empty() && options.tu_output_dir.empty()) {
-        gentest::codegen::log_err_raw("gentest_codegen: --textual-wrapper-output requires --tu-out-dir\n");
-        return 1;
-    }
     if (!options.textual_registration_outputs.empty() && options.tu_output_dir.empty()) {
         gentest::codegen::log_err_raw("gentest_codegen: --textual-registration-output requires --tu-out-dir\n");
         return 1;
@@ -4532,21 +4554,9 @@ int main(int argc, const char **argv) {
         return 1;
     }
     if (!options.textual_registration_outputs.empty() &&
-        (!options.textual_wrapper_outputs.empty() || !options.module_wrapper_outputs.empty() ||
-         !options.module_registration_outputs.empty() || !options.tu_output_headers.empty())) {
+        (!options.module_wrapper_outputs.empty() || !options.module_registration_outputs.empty() || !options.tu_output_headers.empty())) {
         gentest::codegen::log_err_raw(
             "gentest_codegen: --textual-registration-output cannot be combined with wrapper, module, or registration-header outputs\n");
-        return 1;
-    }
-    if (!options.textual_wrapper_outputs.empty() && options.textual_wrapper_outputs.size() != options.sources.size()) {
-        gentest::codegen::log_err("gentest_codegen: expected {} --textual-wrapper-output value(s) for {} input source(s), got {}\n",
-                                  options.sources.size(), options.sources.size(), options.textual_wrapper_outputs.size());
-        return 1;
-    }
-    if (!options.textual_wrapper_outputs.empty() &&
-        (!options.module_wrapper_outputs.empty() || !options.module_registration_outputs.empty())) {
-        gentest::codegen::log_err_raw(
-            "gentest_codegen: --textual-wrapper-output cannot be combined with module wrapper/registration outputs\n");
         return 1;
     }
     if (!options.module_wrapper_outputs.empty() && options.tu_output_dir.empty()) {
@@ -4590,11 +4600,6 @@ int main(int argc, const char **argv) {
     std::string scan_slot_error;
     if (!validate_scan_slot_kinds(options, scan_slot_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", scan_slot_error);
-        return 1;
-    }
-    std::string artifact_owner_error;
-    if (!validate_artifact_owner_sources(options, artifact_owner_error)) {
-        gentest::codegen::log_err("gentest_codegen: {}\n", artifact_owner_error);
         return 1;
     }
     const std::string explicit_host_clang_path = parsed_arguments.explicit_host_clang_path.value_or(std::string{});
@@ -5422,8 +5427,9 @@ int main(int argc, const char **argv) {
                             scan_deps_results.has_value()) {
                             if (const auto scan_deps_it = scan_deps_results->find(normalize_compdb_lookup_path(candidate.string()));
                                 scan_deps_it != scan_deps_results->end()) {
-                                external_scan_deps_succeeded   = true;
-                                imported_modules               = scan_deps_it->second.named_module_deps;
+                                external_scan_deps_succeeded = true;
+                                imported_modules             = scan_deps_it->second.named_module_deps;
+                                std::erase(imported_modules, std::string(module_name));
                                 external_scan_deps_module_args = scan_deps_it->second.module_file_args;
                             } else if (options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
                                 note_external_scan_deps_failure(module_name, candidate,
@@ -5434,14 +5440,11 @@ int main(int argc, const char **argv) {
                             note_external_scan_deps_failure(module_name, candidate, external_scan_deps_error);
                             return nullptr;
                         }
-                    } else if (options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
-                        note_external_scan_deps_failure(module_name, candidate,
-                                                        "no compile command was available to retarget clang-scan-deps");
-                        return nullptr;
                     }
                 }
                 if (!external_scan_deps_succeeded) {
-                    if (used_scan_deps && options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
+                    if (used_scan_deps && !candidate_source_commands.empty() &&
+                        options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
                         note_external_scan_deps_failure(module_name, candidate, "clang-scan-deps did not provide module dependency data");
                         return nullptr;
                     }
@@ -5464,6 +5467,7 @@ int main(int argc, const char **argv) {
                 } else {
                     imported_modules.insert(imported_modules.end(), source_scanned_imports.begin(), source_scanned_imports.end());
                 }
+                std::erase(imported_modules, std::string(module_name));
                 std::ranges::sort(imported_modules);
                 const auto import_tail = std::ranges::unique(imported_modules);
                 imported_modules.erase(import_tail.begin(), import_tail.end());
@@ -6155,19 +6159,9 @@ int main(int argc, const char **argv) {
     final_options.module_interface_sources         = std::move(module_interface_sources);
     final_options.module_interface_names_by_source = std::move(module_interface_names_by_source);
     final_options.compile_context_fingerprints     = std::move(compile_context_fingerprints);
-    std::string textual_wrapper_error;
-    if (!validate_textual_wrapper_outputs(final_options, textual_wrapper_error)) {
-        gentest::codegen::log_err("gentest_codegen: {}\n", textual_wrapper_error);
-        return 1;
-    }
     std::string module_wrapper_error;
     if (!validate_module_wrapper_outputs(final_options, module_wrapper_error)) {
         gentest::codegen::log_err("gentest_codegen: {}\n", module_wrapper_error);
-        return 1;
-    }
-    std::string textual_artifact_manifest_error;
-    if (!validate_textual_artifact_manifest_sources(final_options, textual_artifact_manifest_error)) {
-        gentest::codegen::log_err("gentest_codegen: {}\n", textual_artifact_manifest_error);
         return 1;
     }
     std::string module_registration_error;

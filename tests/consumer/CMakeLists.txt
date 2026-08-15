@@ -55,6 +55,10 @@ if(GENTEST_CONSUMER_USE_MODULES)
             FILE_SET module_cases TYPE CXX_MODULES FILES
                 ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
     gentest_link_mocks(gentest_consumer PRIVATE gentest_consumer_explicit_mocks)
+    gentest_attach_codegen(gentest_consumer
+        MODULE_REGISTRATION
+        FILE_SET module_cases
+        OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen)
 else()
     gentest_add_mocks(gentest_consumer_explicit_mocks
         DEFS
@@ -63,11 +67,9 @@ else()
         HEADER_NAME gentest_consumer_mocks.hpp)
     target_sources(gentest_consumer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp)
     gentest_link_mocks(gentest_consumer PRIVATE gentest_consumer_explicit_mocks)
+    gentest_attach_codegen(gentest_consumer
+        OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen)
 endif()
-
-set_property(TARGET gentest_consumer PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
-gentest_attach_codegen(gentest_consumer
-    OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/gentest_codegen)
 
 get_target_property(_gentest_consumer_codegen_target gentest_consumer GENTEST_CODEGEN_DEP_TARGET)
 if(NOT _gentest_consumer_codegen_target OR _gentest_consumer_codegen_target MATCHES "-NOTFOUND$")

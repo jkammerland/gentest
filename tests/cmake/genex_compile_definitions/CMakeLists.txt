@@ -18,7 +18,7 @@ set(GENTEST_ENABLE_PUBLIC_MODULES OFF CACHE STRING "" FORCE)
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 include("${GENTEST_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFixtureCommon.cmake")
 
-add_executable(genex_compile_definitions)
+add_executable(genex_compile_definitions cases.cpp)
 target_link_libraries(genex_compile_definitions PRIVATE gentest::gentest_main)
 target_compile_features(genex_compile_definitions PRIVATE cxx_std_20)
 target_compile_definitions(genex_compile_definitions PRIVATE
@@ -29,7 +29,6 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/cases.cpp PROPERTIES
 
 set(_gentest_genex_codegen_clang_args -std=c++20 "-I${GENTEST_SOURCE_DIR}/include")
 gentest_append_public_dependency_include_args(_gentest_genex_codegen_clang_args "${CMAKE_BINARY_DIR}")
-set_property(TARGET genex_compile_definitions PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
 
 gentest_attach_codegen(genex_compile_definitions
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"

@@ -2,14 +2,6 @@
 #  -DSOURCE_DIR=<path to fixture project>
 #  -DBUILD_ROOT=<path to parent build dir>
 #  -DGENERATOR=<cmake generator name>
-# Optional:
-#  -DGENERATOR_PLATFORM=<platform>
-#  -DGENERATOR_TOOLSET=<toolset>
-#  -DTOOLCHAIN_FILE=<toolchain>
-#  -DMAKE_PROGRAM=<make/ninja path>
-#  -DC_COMPILER=<C compiler>
-#  -DCXX_COMPILER=<C++ compiler>
-#  -DBUILD_TYPE=<Debug/Release/...>
 
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckTuWrapperSourceProps.cmake: SOURCE_DIR not set")
@@ -21,13 +13,9 @@ if(NOT DEFINED GENERATOR)
   message(FATAL_ERROR "CheckTuWrapperSourceProps.cmake: GENERATOR not set")
 endif()
 
-include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
-
-set(_work_dir "${BUILD_ROOT}/tu_wrapper_source_props")
+set(_work_dir "${BUILD_ROOT}/textual_wrapper_compatibility_removed")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
-
-set(_build_dir "${_work_dir}/build")
 
 set(_cmake_gen_args -G "${GENERATOR}")
 if(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")
@@ -60,16 +48,32 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
-message(STATUS "Configure gentest_tu_wrapper_source_props fixture...")
-gentest_check_run_or_fail(
+execute_process(
   COMMAND
     "${CMAKE_COMMAND}"
     ${_cmake_gen_args}
     -S "${SOURCE_DIR}"
-    -B "${_build_dir}"
+    -B "${_work_dir}/build"
     ${_cmake_cache_args}
-  STRIP_TRAILING_WHITESPACE
   WORKING_DIRECTORY "${_work_dir}"
-)
+  RESULT_VARIABLE _configure_rc
+  OUTPUT_VARIABLE _configure_out
+  ERROR_VARIABLE _configure_err)
 
-message(STATUS "gentest_tu_wrapper_source_props fixture passed")
+if(_configure_rc EQUAL 0)
+  message(FATAL_ERROR "The removed textual-wrapper compatibility property unexpectedly configured successfully")
+endif()
+
+set(_configure_log "${_configure_out}\n${_configure_err}")
+foreach(_expected IN ITEMS
+    "GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY"
+    "removed"
+    "MODULE_REGISTRATION")
+  string(FIND "${_configure_log}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Compatibility-property failure did not contain '${_expected}'.\n${_configure_log}")
+  endif()
+endforeach()
+
+message(STATUS "Removed textual-wrapper compatibility property is rejected with migration guidance")

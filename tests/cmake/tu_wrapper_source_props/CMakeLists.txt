@@ -1,65 +1,10 @@
 cmake_minimum_required(VERSION 3.31)
-project(gentest_tu_wrapper_source_props LANGUAGES CXX)
+project(gentest_textual_wrapper_compatibility_removed LANGUAGES CXX)
 
-# Include the in-tree helper under test.
 include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/GentestCodegen.cmake")
 
-# Satisfy gentest_attach_codegen's host tool selection during configure.
-# This fixture validates configure-time source replacement + properties only.
 set(GENTEST_CODEGEN_EXECUTABLE "${CMAKE_COMMAND}")
 
-set(_wrapper_case_src "${CMAKE_CURRENT_BINARY_DIR}/case.cpp")
-file(COPY "${CMAKE_CURRENT_LIST_DIR}/case.cpp" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
-add_executable(demo "${CMAKE_CURRENT_LIST_DIR}/main.cpp" "${_wrapper_case_src}")
-set_source_files_properties("${_wrapper_case_src}" PROPERTIES
-    COMPILE_DEFINITIONS "DEMO_PROP=1"
-    COMPILE_OPTIONS "-Wno-unused-parameter"
-    INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}"
-    COMPILE_FLAGS "-Wno-unused-variable"
-)
-
-set_property(TARGET demo PROPERTY UNITY_BUILD ON)
+add_executable(demo main.cpp)
 set_property(TARGET demo PROPERTY GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY ON)
-
-gentest_attach_codegen(demo SOURCES "${_wrapper_case_src}")
-
-get_target_property(_sources demo SOURCES)
-set(_wrapper "")
-foreach(_src IN LISTS _sources)
-    if(_src MATCHES "\\.gentest\\.cpp$")
-        if(_wrapper STREQUAL "")
-            set(_wrapper "${_src}")
-        else()
-            message(FATAL_ERROR "Expected a single wrapper source, found multiple: '${_wrapper}' and '${_src}'")
-        endif()
-    endif()
-endforeach()
-
-if(_wrapper STREQUAL "")
-    message(FATAL_ERROR "Wrapper source not found in target SOURCES: '${_sources}'")
-endif()
-
-get_source_file_property(_defs "${_wrapper}" COMPILE_DEFINITIONS)
-if(NOT _defs STREQUAL "DEMO_PROP=1")
-    message(FATAL_ERROR "Wrapper COMPILE_DEFINITIONS mismatch. Expected 'DEMO_PROP=1', got '${_defs}'")
-endif()
-
-get_source_file_property(_opts "${_wrapper}" COMPILE_OPTIONS)
-if(NOT _opts STREQUAL "-Wno-unused-parameter")
-    message(FATAL_ERROR "Wrapper COMPILE_OPTIONS mismatch. Expected '-Wno-unused-parameter', got '${_opts}'")
-endif()
-
-get_source_file_property(_incs "${_wrapper}" INCLUDE_DIRECTORIES)
-if(NOT _incs STREQUAL "${CMAKE_CURRENT_BINARY_DIR}")
-    message(FATAL_ERROR "Wrapper INCLUDE_DIRECTORIES mismatch. Expected '${CMAKE_CURRENT_BINARY_DIR}', got '${_incs}'")
-endif()
-
-get_source_file_property(_flags "${_wrapper}" COMPILE_FLAGS)
-if(NOT _flags STREQUAL "-Wno-unused-variable")
-    message(FATAL_ERROR "Wrapper COMPILE_FLAGS mismatch. Expected '-Wno-unused-variable', got '${_flags}'")
-endif()
-
-get_source_file_property(_skip_unity "${_wrapper}" SKIP_UNITY_BUILD_INCLUSION)
-if(NOT _skip_unity STREQUAL "ON")
-    message(FATAL_ERROR "Wrapper SKIP_UNITY_BUILD_INCLUSION mismatch. Expected 'ON', got '${_skip_unity}'")
-endif()
+gentest_attach_codegen(demo)

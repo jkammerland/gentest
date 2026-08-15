@@ -46,59 +46,10 @@ Non-empty outputs include only the selected annotated headers and generated
 runtime support. They never include an authored `.cpp`. Definitions are
 resolved by ordinary linking.
 
-## Previous-major Textual Wrapper Compatibility
+## Removed Source-Including Modes
 
-The internal compatibility path uses wrapper mode so historical source-local tests, anonymous
-namespaces, `static` functions, and local fixture types stay visible to the
-generated registration header. New ordinary textual consumers do not use this
-protocol.
-
-A non-CMake adapter composes the existing protocol like this:
-
-1. Predeclare:
-   - `gen/tu_0000_cases.gentest.cpp`
-   - `gen/tu_0000_cases.gentest.h`
-   - `gen/my_tests.artifact_manifest.json`
-   - `gen/my_tests.gentest.d`
-2. Write the wrapper source before invoking codegen:
-
-   ```cpp
-   // gen/tu_0000_cases.gentest.cpp
-   // NOLINTNEXTLINE(bugprone-suspicious-include)
-   #include "../tests/cases.cpp"
-
-   #if !defined(GENTEST_CODEGEN) && __has_include("tu_0000_cases.gentest.h")
-   #include "tu_0000_cases.gentest.h"
-   #endif
-   ```
-
-3. Run codegen with the wrapper as the input source and the real test file as
-   the owner:
-
-   ```bash
-   gentest_codegen \
-     --tu-out-dir gen \
-     --tu-header-output gen/tu_0000_cases.gentest.h \
-     --artifact-owner-source tests/cases.cpp \
-     --artifact-manifest gen/my_tests.artifact_manifest.json \
-     --compile-context-id my_tests:tests/cases.cpp \
-     --depfile gen/my_tests.gentest.d \
-     gen/tu_0000_cases.gentest.cpp \
-     -- -std=c++20 -DGENTEST_CODEGEN=1 -I/path/to/gentest/include
-   ```
-
-4. Compile the wrapper source instead of the owner source. The manifest will
-   declare `compile_as: "cxx-textual-wrapper"`,
-   `target_attachment: "replace-owner-source"`,
-   `includes_owner_source: true`, and `replaces_owner_source: true`.
-
-Adapters may assert that the manifest contains the predeclared outputs and the
-expected schema. They should not use generated JSON to invent new outputs after
-their build graph has been finalized.
-
-## Removed Legacy Manifest Mode
-
-`gentest_codegen --output <file>` and
+`gentest_codegen --output <file>`, `--textual-wrapper-output`, and
+`--artifact-owner-source`, plus
 `gentest_attach_codegen(... OUTPUT <file>)` were removed in `2.0.0`. They now
 hard-fail with migration guidance instead of producing a single generated
 source that includes all inputs. `NO_INCLUDE_SOURCES`,

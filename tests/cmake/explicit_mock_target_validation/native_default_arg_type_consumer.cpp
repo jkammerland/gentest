@@ -1,10 +1,10 @@
+#include "native_default_arg_type_consumer.hpp"
+
 #include "gentest/assertions.h"
-#include "gentest/attributes.h"
 #include "public/native_default_arg_type.hpp"
 
 using namespace gentest::asserts;
 
-[[using gentest: test("mock/native_default_arg_type")]]
 void native_default_arg_type() {
     fixture::validation::mocks::TypeDefaultArgServiceMock mock;
 
