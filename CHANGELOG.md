@@ -34,6 +34,10 @@ Unstable inside. No backward compatibility.
   replacing authored sources with wrappers.
 - Named-module codegen always uses `clang-scan-deps`; the previous
   `OFF`/`ON`/`AUTO` policy and source-scan fallback are removed.
+- Codegen no longer hard-fails when `clang-scan-deps` is configured but
+  fails and the run contains no named modules. The scanner failure is now
+  reported as an info log and only becomes an error when named-module
+  dependency resolution is actually required.
 
 ### Removed
 

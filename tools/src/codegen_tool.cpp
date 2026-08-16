@@ -4983,12 +4983,6 @@ int run_codegen_tool(int argc, const char **argv) {
                 }
             }
         }
-
-        if (!used_scan_deps) {
-            gentest::codegen::log_err("gentest_codegen: failed to resolve named-module dependencies via clang-scan-deps: {}\n",
-                                      scan_deps_error.empty() ? std::string{"unknown error"} : scan_deps_error);
-            return 1;
-        }
     }
 
     if (!used_scan_deps) {
@@ -5055,10 +5049,20 @@ int run_codegen_tool(int argc, const char **argv) {
         std::ranges::any_of(imported_named_modules_by_source, [](const auto &imports) { return !imports.empty(); });
     if (!used_scan_deps &&
         (!named_module_sources.empty() || (source_scan_found_named_imports && !options.header_declaration_registration))) {
-        gentest::codegen::log_err_raw(
-            "gentest_codegen: named-module codegen requires clang-scan-deps; pass --clang-scan-deps <path> or configure the "
-            "build integration with the host LLVM scanner\n");
+        if (!scan_deps_error.empty()) {
+            gentest::codegen::log_err("gentest_codegen: failed to resolve named-module dependencies via clang-scan-deps: {}\n",
+                                      scan_deps_error);
+        } else {
+            gentest::codegen::log_err_raw(
+                "gentest_codegen: named-module codegen requires clang-scan-deps; pass --clang-scan-deps <path> or configure the "
+                "build integration with the host LLVM scanner\n");
+        }
         return 1;
+    }
+    if (!used_scan_deps && options.clang_scan_deps_executable.has_value() && !scan_deps_error.empty() && should_log_scan_deps_decisions()) {
+        gentest::codegen::log_err("gentest_codegen: info: skipping clang-scan-deps for named-module dependency discovery ({}); "
+                                  "no named modules in this run\n",
+                                  scan_deps_error);
     }
 
     for (auto &module_source : named_module_sources) {
