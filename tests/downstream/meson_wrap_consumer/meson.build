@@ -4,7 +4,6 @@ fs = import('fs')
 
 gentest_codegen_path = get_option('gentest_codegen_path')
 gentest_codegen_host_clang = get_option('gentest_codegen_host_clang')
-gentest_codegen_clang_scan_deps = get_option('gentest_codegen_clang_scan_deps')
 if gentest_codegen_path == '' or gentest_codegen_host_clang == ''
   error('gentest downstream Meson wrap consumer requires gentest_codegen_path and gentest_codegen_host_clang')
 endif
@@ -14,17 +13,13 @@ endif
 if not fs.is_absolute(gentest_codegen_host_clang)
   gentest_codegen_host_clang = join_paths(meson.project_source_root(), gentest_codegen_host_clang)
 endif
-if gentest_codegen_clang_scan_deps != '' and not fs.is_absolute(gentest_codegen_clang_scan_deps)
-  gentest_codegen_clang_scan_deps = join_paths(meson.project_source_root(), gentest_codegen_clang_scan_deps)
-endif
-
 gentest_sp = subproject(
   'gentest',
   default_options: [
     'build_self_tests=false',
     'codegen_path=' + gentest_codegen_path,
     'codegen_host_clang=' + gentest_codegen_host_clang,
-  ] + (gentest_codegen_clang_scan_deps != '' ? ['codegen_clang_scan_deps=' + gentest_codegen_clang_scan_deps] : []),
+  ],
 )
 
 gentest_textual_mocks = [

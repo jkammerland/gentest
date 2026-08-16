@@ -25,6 +25,11 @@ if(NOT _clang OR NOT _clangxx)
   gentest_skip_test("compile-command condition warning regression: clang/clang++ not found")
   return()
 endif()
+gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
+if(NOT _clang_scan_deps)
+  gentest_skip_test("compile-command condition warning regression: clang-scan-deps not found")
+  return()
+endif()
 
 set(_source "${_work_dir}/condition.cppm")
 set(_object "${_work_dir}/condition.o")
@@ -78,7 +83,8 @@ function(_gentest_assert_condition_check_succeeds compdb_dir label)
       "${PROG}"
       --check
       --compdb "${compdb_dir}"
-      --scan-deps-mode=OFF
+      --host-clang "${_clangxx}"
+      --clang-scan-deps "${_clang_scan_deps}"
       "${_source}"
     WORKING_DIRECTORY "${_work_dir}"
     RESULT_VARIABLE _rc

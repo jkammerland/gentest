@@ -1,5 +1,10 @@
 # Story: Preserve Explicit Scan-Deps Mode In Installed Public-Module Consumers
 
+> Historical note: this configurable policy was removed after module
+> registration became an explicit importer-only path. Named-module codegen now
+> requires `clang-scan-deps`; textual registration never invokes it. The
+> `OFF`/`ON`/`AUTO` surface and source-scan fallback are no longer supported.
+
 ## Goal
 
 Make installed and in-tree public-module consumer builds preserve the caller's

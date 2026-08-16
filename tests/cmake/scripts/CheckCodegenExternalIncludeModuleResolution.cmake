@@ -56,7 +56,7 @@ inline auto imported_marker() -> int { return 42; }
 } // namespace gentest
 ]=])
 
-function(_gentest_run_external_include_case case_name include_flag scan_mode expect_scan_deps)
+function(_gentest_run_external_include_case case_name include_flag)
   set(_case_dir "${_work_dir}/${case_name}")
   set(_generated_dir "${_case_dir}/generated")
   set(_consumer "${_case_dir}/consumer.cppm")
@@ -103,10 +103,6 @@ void resolves_public_module_import() {
     --module-wrapper-output "${_consumer_wrapper}"
     --tu-header-output "${_generated_dir}/consumer.gentest.h"
     "${_consumer}")
-  if(NOT "${scan_mode}" STREQUAL "AUTO")
-    list(APPEND _command "--scan-deps-mode=${scan_mode}")
-  endif()
-
   message(STATUS "Run gentest_codegen for ${case_name}...")
   gentest_check_run_or_fail(
     COMMAND
@@ -129,23 +125,17 @@ void resolves_public_module_import() {
     message(FATAL_ERROR "Expected generated header for ${case_name} to contain the imported-module test registration")
   endif()
 
-  if(expect_scan_deps)
-    string(FIND "${_output}" "using clang-scan-deps for named-module dependency discovery" _scan_deps_pos)
-    if(_scan_deps_pos EQUAL -1)
-      message(FATAL_ERROR
-        "Expected default scan-deps AUTO path to use clang-scan-deps for ${case_name}. Output:\n${_output}")
-    endif()
+  string(FIND "${_output}" "using clang-scan-deps for named-module dependency discovery" _scan_deps_pos)
+  if(_scan_deps_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected named-module codegen to use clang-scan-deps for ${case_name}. Output:\n${_output}")
   endif()
 endfunction()
 
 _gentest_run_external_include_case(
-  slash_auto
-  "/external:I${_work_dir}/external"
-  "AUTO"
-  TRUE)
+  slash
+  "/external:I${_work_dir}/external")
 
 _gentest_run_external_include_case(
-  dash_off
-  "-external:I${_work_dir}/external"
-  "OFF"
-  FALSE)
+  dash
+  "-external:I${_work_dir}/external")

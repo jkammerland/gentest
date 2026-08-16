@@ -74,7 +74,6 @@ using gentest::codegen::FixtureDeclCollector;
 using gentest::codegen::FixtureDeclInfo;
 using gentest::codegen::MockBackend;
 using gentest::codegen::MockUsageCollector;
-using gentest::codegen::ModuleDependencyScanMode;
 using gentest::codegen::register_mock_matchers;
 using gentest::codegen::resolve_free_fixtures;
 using gentest::codegen::SourceDeclMatcher;
@@ -867,7 +866,6 @@ struct ArtifactManifestValidationOptions {
     std::vector<std::string>                                            expected_headers;
     std::vector<std::string>                                            expected_compile_context_ids;
     std::vector<std::string>                                            expected_scan_slot_kinds;
-    std::vector<std::string>                                            expected_owner_sources;
     std::vector<std::string>                                            expected_source_registration_outputs;
     std::vector<std::string>                                            expected_modules;
     std::unordered_map<std::string, std::vector<std::filesystem::path>> expected_source_scan_include_dirs;
@@ -878,8 +876,8 @@ struct ArtifactManifestValidationOptions {
     std::string                                                         expected_artifact_role;
     std::string                                                         expected_compile_as;
     std::optional<bool>                                                 expected_requires_module_scan;
-    std::optional<bool>                                                 expected_includes_owner_source;
-    std::optional<bool>                                                 expected_replaces_owner_source;
+    std::optional<bool>                                                 expected_includes_authored_source;
+    std::optional<bool>                                                 expected_replaces_authored_source;
 };
 
 struct ArtifactManifestSourceScanContext {
@@ -1043,10 +1041,6 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
             if (!parse_list_option(options.expected_scan_slot_kinds, idx)) {
                 return false;
             }
-        } else if (arg == "--expected-owner-source") {
-            if (!parse_list_option(options.expected_owner_sources, idx)) {
-                return false;
-            }
         } else if (arg == "--expected-source-registration-output") {
             if (!parse_list_option(options.expected_source_registration_outputs, idx)) {
                 return false;
@@ -1087,12 +1081,12 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
             if (!parse_bool_option(options.expected_requires_module_scan, idx)) {
                 return false;
             }
-        } else if (arg == "--expected-includes-owner-source") {
-            if (!parse_bool_option(options.expected_includes_owner_source, idx)) {
+        } else if (arg == "--expected-includes-authored-source") {
+            if (!parse_bool_option(options.expected_includes_authored_source, idx)) {
                 return false;
             }
-        } else if (arg == "--expected-replaces-owner-source") {
-            if (!parse_bool_option(options.expected_replaces_owner_source, idx)) {
+        } else if (arg == "--expected-replaces-authored-source") {
+            if (!parse_bool_option(options.expected_replaces_authored_source, idx)) {
                 return false;
             }
         } else {
@@ -1259,23 +1253,6 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
             return false;
         }
     }
-    if (!options.expected_owner_sources.empty()) {
-        const auto owner_source = json_string_field(source, "owner_source", location, error);
-        if (!owner_source ||
-            !expect_equal(fmt::format("{}.owner_source", location), options.expected_owner_sources[idx], *owner_source, error)) {
-            return false;
-        }
-        const auto generated_wrapper = json_string_field(source, "generated_wrapper_source", location, error);
-        if (!generated_wrapper || !expect_equal(fmt::format("{}.generated_wrapper_source", location),
-                                                options.expected_registration_outputs[idx], *generated_wrapper, error)) {
-            return false;
-        }
-        const auto registration_header = json_string_field(source, "registration_header", location, error);
-        if (!registration_header ||
-            !expect_equal(fmt::format("{}.registration_header", location), options.expected_headers[idx], *registration_header, error)) {
-            return false;
-        }
-    }
     if (!options.expected_source_registration_outputs.empty()) {
         const auto registration_output = json_string_field(source, "registration_output", location, error);
         if (!registration_output || !expect_equal(fmt::format("{}.registration_output", location),
@@ -1319,18 +1296,9 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
         return false;
     }
 
-    const std::string expected_owner_source =
-        options.expected_owner_sources.empty() ? options.expected_sources[idx] : options.expected_owner_sources[idx];
     const auto owner_source = json_string_field(artifact, "owner_source", location, error);
-    if (!owner_source || !expect_equal(fmt::format("{}.owner_source", location), expected_owner_source, *owner_source, error)) {
+    if (!owner_source || !expect_equal(fmt::format("{}.owner_source", location), options.expected_sources[idx], *owner_source, error)) {
         return false;
-    }
-    if (!options.expected_owner_sources.empty()) {
-        const auto generated_wrapper = json_string_field(artifact, "generated_wrapper_source", location, error);
-        if (!generated_wrapper || !expect_equal(fmt::format("{}.generated_wrapper_source", location),
-                                                options.expected_registration_outputs[idx], *generated_wrapper, error)) {
-            return false;
-        }
     }
 
     const auto target_attachment = json_string_field(artifact, "target_attachment", location, error);
@@ -1354,21 +1322,19 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
         return false;
     }
     const bool additive_header_registration = options.expected_compile_as == "cxx-header-declaration-registration";
-    if (options.expected_includes_owner_source.has_value()) {
-        const bool expected_includes_owner_source = options.expected_includes_owner_source.value_or(false);
-        const auto includes_owner_source =
-            json_bool_field(artifact, additive_header_registration ? "includes_authored_source" : "includes_owner_source", location, error);
-        if (!includes_owner_source || !expect_equal(fmt::format("{}.includes_owner_source", location), expected_includes_owner_source,
-                                                    *includes_owner_source, error)) {
+    if (options.expected_includes_authored_source.has_value()) {
+        const bool expected_includes_authored_source = options.expected_includes_authored_source.value_or(false);
+        const auto includes_authored_source          = json_bool_field(artifact, "includes_authored_source", location, error);
+        if (!includes_authored_source || !expect_equal(fmt::format("{}.includes_authored_source", location),
+                                                       expected_includes_authored_source, *includes_authored_source, error)) {
             return false;
         }
     }
-    if (options.expected_replaces_owner_source.has_value()) {
-        const bool expected_replaces_owner_source = options.expected_replaces_owner_source.value_or(false);
-        const auto replaces_owner_source =
-            json_bool_field(artifact, additive_header_registration ? "replaces_authored_source" : "replaces_owner_source", location, error);
-        if (!replaces_owner_source || !expect_equal(fmt::format("{}.replaces_owner_source", location), expected_replaces_owner_source,
-                                                    *replaces_owner_source, error)) {
+    if (options.expected_replaces_authored_source.has_value()) {
+        const bool expected_replaces_authored_source = options.expected_replaces_authored_source.value_or(false);
+        const auto replaces_authored_source          = json_bool_field(artifact, "replaces_authored_source", location, error);
+        if (!replaces_authored_source || !expect_equal(fmt::format("{}.replaces_authored_source", location),
+                                                       expected_replaces_authored_source, *replaces_authored_source, error)) {
             return false;
         }
     }
@@ -1424,12 +1390,9 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
             commands = database->getCompileCommands(source);
         }
         if (commands.empty()) {
-            if (options.expected_source_kinds[idx] != "textual-wrapper") {
-                error = fmt::format("compilation database '{}' has no command for expected source '{}'",
-                                    options.compilation_database.string(), source);
-                return false;
-            }
-            continue;
+            error = fmt::format("compilation database '{}' has no command for expected source '{}'", options.compilation_database.string(),
+                                source);
+            return false;
         }
 
         for (auto &command : commands) {
@@ -1466,8 +1429,7 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
 [[nodiscard]] bool validate_module_manifest_entry_pair(const llvm::json::Object &source, const llvm::json::Object &artifact,
                                                        const ArtifactManifestValidationOptions &options, std::size_t idx,
                                                        const ArtifactManifestSourceScanContexts &source_scan_contexts, std::string &error) {
-    if (options.expected_source_kinds[idx] == "textual-wrapper" ||
-        options.expected_source_kinds[idx] == "cxx-header-declaration-registration") {
+    if (options.expected_source_kinds[idx] == "cxx-header-declaration-registration") {
         return true;
     }
 
@@ -1578,10 +1540,6 @@ using ArtifactManifestSourceScanContexts = std::unordered_map<std::string, Artif
     }
     if (options.expected_compile_as == "cxx-header-declaration-registration" &&
         !validate_expected_list_count("--expected-scan-slot-kind", options.expected_scan_slot_kinds, expected_count, error)) {
-        return false;
-    }
-    if (!options.expected_owner_sources.empty() &&
-        !validate_expected_list_count("--expected-owner-source", options.expected_owner_sources, expected_count, error)) {
         return false;
     }
     if (!options.expected_source_registration_outputs.empty() &&
@@ -1876,13 +1834,19 @@ bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_
     // CMake's experimental C++ modules support (and some GCC-based toolchains)
     // can inject GCC-only module/dependency scanning flags into compile commands.
     // Clang (which is embedded in our clang-tooling binary) rejects these.
-    const bool is_module_mapping_arg = arg.starts_with("-fmodule-mapper=") || arg.starts_with("-fdeps-format=") ||
-                                       arg.starts_with("-fdeps-file=") || arg.starts_with("-fdeps-target=") ||
-                                       arg.starts_with("-fmodule-file=") || arg.starts_with("-fprebuilt-module-path=") ||
-                                       (arg.starts_with("@") && arg.find(".modmap") != std::string_view::npos);
-    return arg == "-fmodules-ts" || arg == "-fmodule-header" || arg == "-fmodule-only" ||
+    const bool is_build_system_dependency_scan_arg = arg.starts_with("-fmodule-mapper=") || arg.starts_with("-fdeps-format=") ||
+                                                     arg.starts_with("-fdeps-file=") || arg.starts_with("-fdeps-target=");
+    const bool is_module_mapping_arg               = arg.starts_with("-fmodule-file=") || arg.starts_with("-fprebuilt-module-path=") ||
+                                                     (arg.starts_with("@") && arg.find(".modmap") != std::string_view::npos);
+    // CMake also emits MSVC cl.exe's proprietary BMI-emission flags ("/interface", spelled with a
+    // single dash in the exported compile_commands.json) for module compile commands. clang-cl does
+    // not understand them; it silently drops the flag but leaves "-ifcOutput"'s path argument as a
+    // stray positional source, which then collides with the existing single-file "/Fo" output flag.
+    // They control BMI/object emission we don't need for scanning, so strip them unconditionally.
+    const bool is_msvc_module_bmi_arg = arg == "-interface" || arg == "/interface";
+    return arg == "-fmodules-ts" || arg == "-fmodule-header" || arg == "-fmodule-only" || is_build_system_dependency_scan_arg ||
            (!preserve_module_mapping_args && is_module_mapping_arg) || arg == "-fconcepts-diagnostics-depth" ||
-           arg.starts_with("-fconcepts-diagnostics-depth=") ||
+           arg.starts_with("-fconcepts-diagnostics-depth=") || is_msvc_module_bmi_arg ||
            // -Werror (and variants) are useful for real builds but make codegen brittle, because
            // warnings (unknown attributes/options) would abort parsing.
            arg == "-Werror" || arg.starts_with("-Werror=") || arg == "-pedantic-errors";
@@ -2459,23 +2423,6 @@ std::string resolve_program_invocation_path(std::string_view program) {
     return std::string(program);
 }
 
-std::optional<ModuleDependencyScanMode> parse_module_dependency_scan_mode(std::string_view raw_value) {
-    const std::string value = gentest::codegen::scan::to_lower_ascii_copy(gentest::codegen::scan::trim_ascii_view(raw_value));
-    if (value.empty()) {
-        return std::nullopt;
-    }
-    if (value == "auto") {
-        return ModuleDependencyScanMode::Auto;
-    }
-    if (value == "off") {
-        return ModuleDependencyScanMode::Off;
-    }
-    if (value == "on") {
-        return ModuleDependencyScanMode::On;
-    }
-    return std::nullopt;
-}
-
 std::optional<MockBackend> parse_mock_backend(std::string_view raw_value) {
     const std::string value = gentest::codegen::scan::to_lower_ascii_copy(gentest::codegen::scan::trim_ascii_view(raw_value));
     if (value == "gentest") {
@@ -2488,15 +2435,6 @@ std::optional<MockBackend> parse_mock_backend(std::string_view raw_value) {
         return MockBackend::Trompeloeil;
     }
     return std::nullopt;
-}
-
-std::string_view module_dependency_scan_mode_name(ModuleDependencyScanMode mode) {
-    switch (mode) {
-    case ModuleDependencyScanMode::Auto: return "AUTO";
-    case ModuleDependencyScanMode::Off: return "OFF";
-    case ModuleDependencyScanMode::On: return "ON";
-    }
-    return "AUTO";
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -2976,14 +2914,52 @@ clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileC
         command.CommandLine.push_back(to);
     }
 
-    const auto removed_args = std::ranges::remove_if(command.CommandLine, [&](const std::string &arg) {
-        if (!(llvm::StringRef{arg}.starts_with("@") && llvm::StringRef{arg}.contains(".modmap"))) {
+    // CMake's Ninja C++20-modules dyndep pipeline emits "-fmodule-file=<name>=<path>" (and the
+    // equivalent two-token "-fmodule-file <name>=<path>" form) referencing synthetic BMI
+    // placeholder paths (e.g. "...@synth_<hash>.dir\<hash>.bmi") that only ninja's own dyndep step
+    // resolves at build time; they are never real files in isolation. Retargeting a compile
+    // command from one TU onto a different candidate source (as we do above) makes such a
+    // placeholder stale in the new context, and forwarding it verbatim leaves an unresolvable path
+    // that downstream tools (e.g. clang-scan-deps) mistake for an orphaned positional source. Drop
+    // these the same way unresolved ".modmap" response files are already dropped below.
+    auto is_stale_module_file_target = [&](std::string_view value) {
+        const auto eq = value.find('=');
+        if (eq == std::string_view::npos || eq == 0 || eq + 1 == value.size()) {
             return false;
         }
-        const std::string resolved = normalize_compdb_lookup_path(std::string_view(arg).substr(1), command.Directory);
+        const std::string resolved = normalize_compdb_lookup_path(value.substr(eq + 1), command.Directory);
         return !resolved.empty() && !std::filesystem::exists(resolved);
-    });
-    command.CommandLine.erase(removed_args.begin(), removed_args.end());
+    };
+
+    clang::tooling::CommandLineArguments filtered_command_line;
+    filtered_command_line.reserve(command.CommandLine.size());
+    for (std::size_t i = 0; i < command.CommandLine.size(); ++i) {
+        const auto &arg = command.CommandLine[i];
+        if (llvm::StringRef{arg}.starts_with("@") && llvm::StringRef{arg}.contains(".modmap")) {
+            const std::string resolved = normalize_compdb_lookup_path(std::string_view(arg).substr(1), command.Directory);
+            if (!resolved.empty() && !std::filesystem::exists(resolved)) {
+                continue;
+            }
+            filtered_command_line.push_back(arg);
+            continue;
+        }
+        if (arg == "-fmodule-file" || arg == "-fprebuilt-module-path") {
+            if (i + 1 < command.CommandLine.size() && is_stale_module_file_target(command.CommandLine[i + 1])) {
+                ++i;
+                continue;
+            }
+            filtered_command_line.push_back(arg);
+            continue;
+        }
+        if (llvm::StringRef{arg}.starts_with("-fmodule-file=") || llvm::StringRef{arg}.starts_with("-fprebuilt-module-path=")) {
+            const auto prefix_len = arg.find('=') + 1;
+            if (is_stale_module_file_target(std::string_view(arg).substr(prefix_len))) {
+                continue;
+            }
+        }
+        filtered_command_line.push_back(arg);
+    }
+    command.CommandLine = std::move(filtered_command_line);
     return command;
 }
 
@@ -3226,9 +3202,17 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             if (is_shell_control_token(arg)) {
                 break;
             }
-            if (!preserve_module_mapping_args &&
-                (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
-                 arg == "-fmodule-file" || arg == "-fprebuilt-module-path" || arg == "-fconcepts-diagnostics-depth")) {
+            if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
+                (!preserve_module_mapping_args && (arg == "-fmodule-file" || arg == "-fprebuilt-module-path")) ||
+                arg == "-fconcepts-diagnostics-depth") {
+                skip_next_arg = true;
+                continue;
+            }
+            // "-ifcOutput <path>" (MSVC cl.exe's BMI output flag, as spelled in compile_commands.json)
+            // takes its path as a separate argument; clang-cl doesn't recognize the flag and would
+            // otherwise treat the orphaned path as an extra positional source file. See the
+            // "-interface" stripping note in should_strip_compdb_arg for the failure this causes.
+            if (arg == "-ifcOutput" || arg == "/ifcOutput") {
                 skip_next_arg = true;
                 continue;
             }
@@ -3956,8 +3940,6 @@ struct ParsedArguments {
     bool                               removed_output_requested             = false;
     bool                               removed_template_requested           = false;
     bool                               removed_no_include_sources_requested = false;
-    bool                               removed_textual_wrapper_requested    = false;
-    bool                               removed_artifact_owner_requested     = false;
     bool                               invalid_arguments                    = false;
     std::vector<std::filesystem::path> inspect_include_dirs;
 };
@@ -3974,9 +3956,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::list<std::string> tu_header_output_option{
         "tu-header-output", llvm::cl::desc("Explicit output header path for a TU-mode input source (repeat once per positional source)"),
         llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
-    static llvm::cl::list<std::string> textual_wrapper_output_option{"textual-wrapper-output",
-                                                                     llvm::cl::desc("Removed textual source-replacement output option"),
-                                                                     llvm::cl::ZeroOrMore, llvm::cl::cat(category), llvm::cl::Hidden};
     static llvm::cl::list<std::string> textual_registration_output_option{
         "textual-registration-output",
         llvm::cl::desc("Explicit additive header-declaration registration source path (repeat once per positional source)"),
@@ -3992,9 +3971,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<std::string>  artifact_manifest_option{"artifact-manifest",
                                                                 llvm::cl::desc("Path to a generated artifact manifest JSON file"),
                                                                 llvm::cl::init(""), llvm::cl::cat(category)};
-    static llvm::cl::list<std::string> artifact_owner_source_option{"artifact-owner-source",
-                                                                    llvm::cl::desc("Removed textual replacement-owner manifest option"),
-                                                                    llvm::cl::ZeroOrMore, llvm::cl::cat(category), llvm::cl::Hidden};
     static llvm::cl::list<std::string> compile_context_id_option{
         "compile-context-id",
         llvm::cl::desc("Build-system compile context identity for an input source (repeat once per positional source)"),
@@ -4016,9 +3992,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         llvm::cl::init(false), llvm::cl::cat(category)};
     static llvm::cl::opt<bool>        quiet_clang_option{"quiet-clang", llvm::cl::desc("Suppress clang diagnostics"), llvm::cl::init(false),
                                                          llvm::cl::cat(category)};
-    static llvm::cl::opt<std::string> scan_deps_mode_option{"scan-deps-mode",
-                                                            llvm::cl::desc("Named-module dependency discovery mode: AUTO, ON, or OFF"),
-                                                            llvm::cl::init("AUTO"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> scan_deps_executable_option{
         "clang-scan-deps", llvm::cl::desc("Path to the clang-scan-deps executable used for named-module dependency discovery"),
         llvm::cl::init(""), llvm::cl::cat(category)};
@@ -4131,15 +4104,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     strip_shell_control_tail(opts.clang_args);
     opts.check_only  = check_option.getValue();
     opts.quiet_clang = quiet_clang_option.getValue();
-    if (const auto parsed_mode = parse_module_dependency_scan_mode(scan_deps_mode_option.getValue()); parsed_mode.has_value()) {
-        opts.module_dependency_scan_mode = *parsed_mode;
-    } else {
-        gentest::codegen::log_err("gentest_codegen: warning: ignoring invalid --scan-deps-mode='{}'; using AUTO\n",
-                                  scan_deps_mode_option.getValue());
-        opts.module_dependency_scan_mode = ModuleDependencyScanMode::Auto;
-    }
     if (scan_deps_executable_option.getNumOccurrences() != 0 && !scan_deps_executable_option.getValue().empty()) {
         opts.clang_scan_deps_executable = std::filesystem::path{scan_deps_executable_option.getValue()};
+    } else if (const auto scan_deps_env = get_env_value("GENTEST_CODEGEN_CLANG_SCAN_DEPS"); scan_deps_env && !scan_deps_env->empty()) {
+        opts.clang_scan_deps_executable = std::filesystem::path{*scan_deps_env};
     }
     for (const auto &raw_mapping : external_module_source_option) {
         const auto separator = raw_mapping.find('=');
@@ -4177,21 +4145,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
             } else {
                 opts.jobs = *parsed;
             }
-        }
-    }
-    if (scan_deps_mode_option.getNumOccurrences() == 0) {
-        if (const auto scan_deps_mode_env = get_env_value("GENTEST_CODEGEN_SCAN_DEPS_MODE"); scan_deps_mode_env) {
-            if (const auto parsed_mode = parse_module_dependency_scan_mode(*scan_deps_mode_env); parsed_mode.has_value()) {
-                opts.module_dependency_scan_mode = *parsed_mode;
-            } else {
-                gentest::codegen::log_err("gentest_codegen: warning: ignoring invalid GENTEST_CODEGEN_SCAN_DEPS_MODE='{}'\n",
-                                          *scan_deps_mode_env);
-            }
-        }
-    }
-    if (scan_deps_executable_option.getNumOccurrences() == 0) {
-        if (const auto scan_deps_env = get_env_value("GENTEST_CODEGEN_CLANG_SCAN_DEPS"); scan_deps_env && !scan_deps_env->empty()) {
-            opts.clang_scan_deps_executable = std::filesystem::path{*scan_deps_env};
         }
     }
     std::optional<std::string> explicit_host_clang_path;
@@ -4261,9 +4214,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         .removed_template_requested = template_option.getNumOccurrences() != 0,
         .removed_no_include_sources_requested =
             no_include_sources_option.getValue() || (no_include_sources_env && *no_include_sources_env != "0"),
-        .removed_textual_wrapper_requested = textual_wrapper_output_option.getNumOccurrences() != 0,
-        .removed_artifact_owner_requested  = artifact_owner_source_option.getNumOccurrences() != 0,
-        .invalid_arguments                 = invalid_arguments,
+        .invalid_arguments = invalid_arguments,
         .inspect_include_dirs =
             [&]() {
                 std::vector<std::filesystem::path> paths;
@@ -4359,18 +4310,6 @@ int main(int argc, const char **argv) {
         gentest::codegen::log_err_raw(
             "gentest_codegen: --no-include-sources/GENTEST_NO_INCLUDE_SOURCES was removed with legacy manifest mode in gentest 2.0.0; "
             "additive header-declaration registration keeps authored sources in normal compilation units\n");
-        return 1;
-    }
-    if (parsed_arguments.removed_textual_wrapper_requested) {
-        gentest::codegen::log_err_raw(
-            "gentest_codegen: --textual-wrapper-output was removed; use --textual-registration-output with header-reachable "
-            "declarations and compile the authored source directly\n");
-        return 1;
-    }
-    if (parsed_arguments.removed_artifact_owner_requested) {
-        gentest::codegen::log_err_raw(
-            "gentest_codegen: --artifact-owner-source was removed with textual source replacement; additive registration keeps the "
-            "authored source attached directly\n");
         return 1;
     }
     diagnose_missing_mock_phase_manifest(parsed_arguments.mock_phase, options);
@@ -4914,7 +4853,7 @@ int main(int argc, const char **argv) {
 
     bool        used_scan_deps = false;
     std::string scan_deps_error;
-    if (options.module_dependency_scan_mode != ModuleDependencyScanMode::Off) {
+    if (options.clang_scan_deps_executable.has_value() && !options.header_declaration_registration) {
         std::vector<ScanDepsPreparedCommand> prepared_scan_deps_commands;
         prepared_scan_deps_commands.reserve(options.sources.size());
 
@@ -5045,14 +4984,10 @@ int main(int argc, const char **argv) {
             }
         }
 
-        if (!used_scan_deps && options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
-            gentest::codegen::log_err("gentest_codegen: failed to resolve named-module dependencies via clang-scan-deps (mode=ON): {}\n",
+        if (!used_scan_deps) {
+            gentest::codegen::log_err("gentest_codegen: failed to resolve named-module dependencies via clang-scan-deps: {}\n",
                                       scan_deps_error.empty() ? std::string{"unknown error"} : scan_deps_error);
             return 1;
-        }
-        if (!used_scan_deps && options.module_dependency_scan_mode != ModuleDependencyScanMode::Off && should_log_scan_deps_decisions()) {
-            gentest::codegen::log_err("gentest_codegen: info: falling back to source-scan named-module discovery{}\n",
-                                      scan_deps_error.empty() ? std::string{} : fmt::format(" ({})", scan_deps_error));
         }
     }
 
@@ -5114,6 +5049,16 @@ int main(int argc, const char **argv) {
                 }
             }
         }
+    }
+
+    const bool source_scan_found_named_imports =
+        std::ranges::any_of(imported_named_modules_by_source, [](const auto &imports) { return !imports.empty(); });
+    if (!used_scan_deps &&
+        (!named_module_sources.empty() || (source_scan_found_named_imports && !options.header_declaration_registration))) {
+        gentest::codegen::log_err_raw(
+            "gentest_codegen: named-module codegen requires clang-scan-deps; pass --clang-scan-deps <path> or configure the "
+            "build integration with the host LLVM scanner\n");
+        return 1;
     }
 
     for (auto &module_source : named_module_sources) {
@@ -5314,9 +5259,8 @@ int main(int argc, const char **argv) {
                 return;
             }
             external_scan_deps_hard_failure = true;
-            gentest::codegen::log_err(
-                "gentest_codegen: failed to resolve external named module '{}' via clang-scan-deps in ON mode for '{}': {}\n", module_name,
-                candidate.string(), detail.empty() ? std::string_view{"unknown error"} : detail);
+            gentest::codegen::log_err("gentest_codegen: failed to resolve external named module '{}' via clang-scan-deps for '{}': {}\n",
+                                      module_name, candidate.string(), detail.empty() ? std::string_view{"unknown error"} : detail);
         };
 
         auto append_preserved_scan_deps_module_args = [&](std::span<const std::string> scan_deps_module_args,
@@ -5407,19 +5351,29 @@ int main(int argc, const char **argv) {
                     }
                 }
                 if (used_scan_deps) {
+                    std::optional<clang::tooling::CompileCommand> external_scan_command;
                     if (!candidate_source_commands.empty()) {
-                        auto adjusted_scan_deps_command =
-                            build_adjusted_command_line(candidate_source_commands.front().CommandLine, candidate.string(),
-                                                        resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args,
-                                                        compdb_dir, {}, explicit_host_clang_path, external_forced_compiler_path, true);
+                        external_scan_command = candidate_source_commands.front();
+                    } else if (!candidate_driver_commands.empty()) {
+                        external_scan_command =
+                            retarget_compile_command(candidate_driver_commands.front(), context.owner_key, candidate.string());
+                    }
+
+                    if (external_scan_command.has_value()) {
+                        external_command_line = external_scan_command->CommandLine;
+                        external_working_directory =
+                            external_scan_command->Directory.empty() ? compdb_dir : external_scan_command->Directory;
+                        const auto external_scan_deps_command_line = expand_compile_command_response_files(
+                            external_scan_command->CommandLine, external_scan_command->Directory, false);
+                        auto adjusted_scan_deps_command = build_adjusted_command_line(
+                            external_scan_deps_command_line, candidate.string(), resource_dir_for_compiler, default_compiler_path,
+                            default_sysroot, extra_args, compdb_dir, {}, explicit_host_clang_path, external_forced_compiler_path, true);
                         std::string external_scan_deps_error;
                         if (const auto scan_deps_results = run_clang_scan_deps(
                                 std::array<ScanDepsPreparedCommand, 1>{ScanDepsPreparedCommand{
                                     .source_file       = candidate.string(),
-                                    .output_file       = candidate_source_commands.front().Output,
-                                    .working_directory = candidate_source_commands.front().Directory.empty()
-                                                             ? compdb_dir
-                                                             : candidate_source_commands.front().Directory,
+                                    .output_file       = external_scan_command->Output,
+                                    .working_directory = external_working_directory,
                                     .command_line      = std::move(adjusted_scan_deps_command),
                                 }},
                                 options.clang_scan_deps_executable ? options.clang_scan_deps_executable->string() : std::string{},
@@ -5431,20 +5385,23 @@ int main(int argc, const char **argv) {
                                 imported_modules             = scan_deps_it->second.named_module_deps;
                                 std::erase(imported_modules, std::string(module_name));
                                 external_scan_deps_module_args = scan_deps_it->second.module_file_args;
-                            } else if (options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
+                            } else {
                                 note_external_scan_deps_failure(module_name, candidate,
                                                                 "clang-scan-deps produced no result for the external module source");
                                 return nullptr;
                             }
-                        } else if (options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
+                        } else {
                             note_external_scan_deps_failure(module_name, candidate, external_scan_deps_error);
                             return nullptr;
                         }
+                    } else {
+                        note_external_scan_deps_failure(module_name, candidate,
+                                                        "no compilation context is available for the external module source");
+                        return nullptr;
                     }
                 }
                 if (!external_scan_deps_succeeded) {
-                    if (used_scan_deps && !candidate_source_commands.empty() &&
-                        options.module_dependency_scan_mode == ModuleDependencyScanMode::On) {
+                    if (used_scan_deps) {
                         note_external_scan_deps_failure(module_name, candidate, "clang-scan-deps did not provide module dependency data");
                         return nullptr;
                     }

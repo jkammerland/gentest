@@ -14,7 +14,6 @@ Meson support is textual-only. The downstream contract is:
 - pass explicit host-tool paths:
   - `gentest_codegen_path`
   - `gentest_codegen_host_clang`
-  - optional `gentest_codegen_clang_scan_deps`
 - describe textual mocks and suites with Meson dictionaries
 - load the helper with `subdir('subprojects/gentest/meson/textual')`
 
@@ -164,8 +163,7 @@ workspace first.
 ```bash
 meson setup build/meson-downstream . \
   -Dgentest_codegen_path=/abs/path/to/gentest_codegen \
-  -Dgentest_codegen_host_clang=/opt/llvm/bin/clang++ \
-  -Dgentest_codegen_clang_scan_deps=/opt/llvm/bin/clang-scan-deps
+  -Dgentest_codegen_host_clang=/opt/llvm/bin/clang++
 
 meson compile -C build/meson-downstream
 meson test -C build/meson-downstream --print-errorlogs

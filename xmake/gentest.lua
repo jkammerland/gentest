@@ -1067,11 +1067,12 @@ local function fallback_compdb_paths(output_dir)
     return compdb_dir, path.join(compdb_dir, "compile_commands.json")
 end
 
-local function ensure_codegen(batchcmds, target)
+local function ensure_codegen(batchcmds, target, require_scan_deps)
     local cached = gentest_state["_resolved_codegen"]
     if cached and cached.path and os.isfile(cached.path) then
         local host_clang = resolve_codegen_host_clang(target)
-        return cached.path, cached.compdb_dir, host_clang, resolve_codegen_scan_deps(host_clang)
+        local scan_deps = require_scan_deps and resolve_codegen_scan_deps(host_clang) or nil
+        return cached.path, cached.compdb_dir, host_clang, scan_deps
     end
 
     local codegen, compdb_dir, cmake_build_dir = resolve_codegen()
@@ -1098,10 +1099,14 @@ local function ensure_codegen(batchcmds, target)
 
     gentest_state["_resolved_codegen"] = {path = codegen, compdb_dir = compdb_dir}
     local host_clang = resolve_codegen_host_clang(target)
-    return codegen, compdb_dir, host_clang, resolve_codegen_scan_deps(host_clang)
+    local scan_deps = require_scan_deps and resolve_codegen_scan_deps(host_clang) or nil
+    return codegen, compdb_dir, host_clang, scan_deps
 end
 
 local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+    if config.kind == "modules" and (not scan_deps or scan_deps == "") then
+        fail("gentest_add_mocks(kind='modules') requires clang-scan-deps in the configured host LLVM toolchain")
+    end
     local args = {
         "--source-root", project_root(),
         "--tu-out-dir", config.out_dir_abs,
@@ -1154,7 +1159,7 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
         table.insert(args, "--host-clang")
         table.insert(args, host_clang)
     end
-    if scan_deps and scan_deps ~= "" then
+    if config.kind == "modules" and scan_deps and scan_deps ~= "" then
         table.insert(args, "--clang-scan-deps")
         table.insert(args, scan_deps)
     end
@@ -1167,6 +1172,9 @@ local function run_mock_codegen(batchcmds, codegen, compdb_dir, host_clang, scan
 end
 
 local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
+    if config.kind == "modules" and (not scan_deps or scan_deps == "") then
+        fail("gentest_add_suite(kind='modules') requires clang-scan-deps in the configured host LLVM toolchain")
+    end
     local args = {
         "--source-root", project_root(),
         "--tu-out-dir", config.out_dir_abs,
@@ -1212,7 +1220,7 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
         table.insert(args, "--host-clang")
         table.insert(args, host_clang)
     end
-    if scan_deps and scan_deps ~= "" then
+    if config.kind == "modules" and scan_deps and scan_deps ~= "" then
         table.insert(args, "--clang-scan-deps")
         table.insert(args, scan_deps)
     end
@@ -1405,9 +1413,13 @@ function gentest_add_mocks(opts)
         add_deps(table.unpack(dep_targets))
     end
     on_config(function ()
+        local compdb_sources = {config.source_file}
+        if kind == "modules" then
+            compdb_sources = config.defs
+        end
         ensure_fallback_compdb(
             config.fallback_compdb_file,
-            {config.source_file},
+            compdb_sources,
             config.defines,
             incdirs(),
             config.clang_args,
@@ -1432,7 +1444,7 @@ function gentest_add_mocks(opts)
         if kind == "modules" then
             require_clang_module_toolchain(target, "gentest_add_mocks")
         end
-        local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
+        local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target, config.kind == "modules")
         config.extra_includes = collect_target_package_include_dirs(target)
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.deps)
@@ -1603,7 +1615,7 @@ function gentest_attach_codegen(opts)
         if kind == "modules" then
             require_clang_module_toolchain(target, "gentest_attach_codegen")
         end
-        local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target)
+        local codegen, compdb_dir, host_clang, scan_deps = ensure_codegen(batchcmds, target, config.kind == "modules")
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         local dep_metadata_include_dirs, dep_module_sources = collect_mock_metadata_inputs(config.deps)
         for _, include_dir in ipairs(dep_include_dirs) do

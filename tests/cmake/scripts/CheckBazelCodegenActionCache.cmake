@@ -100,6 +100,14 @@ if(NOT _clang_c OR NOT EXISTS "${_clang_c}")
   message(STATUS "GENTEST_SKIP_TEST: clang adjacent to ${_clang} not found")
   return()
 endif()
+find_program(_clang_scan_deps
+  NAMES clang-scan-deps-23 clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19 clang-scan-deps
+  PATHS "${_clang_bin_dir}"
+  NO_DEFAULT_PATH)
+if(NOT _clang_scan_deps)
+  message(STATUS "GENTEST_SKIP_TEST: clang-scan-deps adjacent to ${_clang} not found")
+  return()
+endif()
 execute_process(
   COMMAND "${_clang}" -print-resource-dir
   RESULT_VARIABLE _resource_dir_rc
@@ -216,6 +224,9 @@ file(CHMOD "${_tool_repo}/gentest_codegen"
 file(MAKE_DIRECTORY "${_tool_repo}/bin" "${_tool_repo}/lib/clang")
 file(COPY_FILE "${_clang}" "${_tool_repo}/bin/clang++")
 file(CHMOD "${_tool_repo}/bin/clang++"
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+file(COPY_FILE "${_clang_scan_deps}" "${_tool_repo}/bin/clang-scan-deps")
+file(CHMOD "${_tool_repo}/bin/clang-scan-deps"
   PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 if(APPLE)
   gentest_stage_apple_clang_runtime("${_clang}" "${_tool_repo}")
@@ -368,6 +379,7 @@ gentest_codegen_toolchain(
     exec_os = "@EXEC_OS@",
     codegen = ":gentest_codegen",
     clang = ":bin/clang++",
+    clang_scan_deps = ":bin/clang-scan-deps",
     runtime_files = [":clang_runtime_files", ":cxx_standard_library_files", ":system_include_files", ":macos_sdk_files"],
     cxx_standard_library_roots = [
         @CXX_STANDARD_LIBRARY_ROOT_LABELS@
@@ -759,9 +771,10 @@ foreach(_required_module_action_token IN ITEMS
     "GentestModuleMocksCodegen"
     "GentestModuleSuiteCodegen"
     "--host-clang"
-    "--scan-deps-mode=OFF"
+    "--clang-scan-deps"
     "gentest_codegen"
     "bin/clang++"
+    "bin/clang-scan-deps"
     "lib/clang/${_clang_resource_version}/include/stddef.h"
     "${_staged_cxx_header_relative}"
     "${_standard_discovery_flag}"

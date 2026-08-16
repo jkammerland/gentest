@@ -7,6 +7,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${SOURCE_DIR}/cmake/GentestPublicModules.cmake")
+include("${SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
 
 set(_work_dir "${BUILD_ROOT}/clang_scan_deps_program_resolution")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -107,6 +108,24 @@ if(NOT _scan_deps_bare_b STREQUAL "${_fake_scan_deps_b}")
     "Expected gentest_find_clang_scan_deps() to refresh bare clang-scan-deps resolution after PATH changed to '${_resolver_dir_b}', got '${_scan_deps_bare_b}'")
 endif()
 unset(CXX_COMPILER_CLANG_SCAN_DEPS)
+
+if(NOT CMAKE_HOST_WIN32)
+  set(CMAKE_EXECUTABLE_SUFFIX ".exe")
+  set(GENTEST_CODEGEN_HOST_CLANG "${_resolver_dir_a}/clang++")
+  unset(GENTEST_CODEGEN_CLANG_SCAN_DEPS)
+  unset(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS)
+  set(CMAKE_CXX_COMPILER "")
+  set(LLVM_TOOLS_BINARY_DIR "")
+  set(LLVM_VERSION_MAJOR "")
+  set(LLVM_PACKAGE_VERSION "")
+  set(ENV{PATH} "")
+  _gentest_resolve_codegen_clang_scan_deps(_cross_host_scan_deps)
+  if(NOT _cross_host_scan_deps STREQUAL "${_fake_scan_deps_a}")
+    message(FATAL_ERROR
+      "Expected Linux-host scanner discovery to ignore the Windows target executable suffix and resolve "
+      "'${_fake_scan_deps_a}', got '${_cross_host_scan_deps}'")
+  endif()
+endif()
 
 set(ENV{PATH} "${_old_path}")
 message(STATUS "clang-scan-deps program resolution regression passed")

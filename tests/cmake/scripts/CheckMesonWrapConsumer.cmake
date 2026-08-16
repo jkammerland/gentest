@@ -61,13 +61,6 @@ if(NOT _clang_cc)
   return()
 endif()
 
-find_program(_clang_scan_deps NAMES clang-scan-deps-23 clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19 clang-scan-deps
-  PATHS ${_gentest_clang_search_paths}
-  NO_DEFAULT_PATH)
-if(NOT _clang_scan_deps)
-  find_program(_clang_scan_deps NAMES clang-scan-deps-23 clang-scan-deps-22 clang-scan-deps-21 clang-scan-deps-20 clang-scan-deps-19 clang-scan-deps)
-endif()
-
 string(MD5 _scratch_hash "${BUILD_ROOT}")
 set(_scratch_base "")
 foreach(_candidate IN ITEMS "/tmp" "/dev/shm")
@@ -163,9 +156,6 @@ set(_setup_args
   setup "${_out_dir}" "${_scratch_root}/workspace" "--wipe"
   "-Dgentest_codegen_path=${_codegen}"
   "-Dgentest_codegen_host_clang=${_clang_cxx}")
-if(_clang_scan_deps)
-  list(APPEND _setup_args "-Dgentest_codegen_clang_scan_deps=${_clang_scan_deps}")
-endif()
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_meson_env} "${_meson}" ${_setup_args}
@@ -278,20 +268,6 @@ foreach(_expected_manifest_token IN ITEMS
   if(_manifest_token_pos EQUAL -1)
     message(FATAL_ERROR
       "Meson wrap consumer textual artifact manifest is missing '${_expected_manifest_token}'.\n"
-      "${_textual_manifest_json}")
-  endif()
-endforeach()
-
-foreach(_forbidden_manifest_token IN ITEMS
-    "textual-wrapper"
-    "cxx-textual-wrapper"
-    "replace-owner-source"
-    "includes_owner_source"
-    "replaces_owner_source")
-  string(FIND "${_textual_manifest_json}" "${_forbidden_manifest_token}" _forbidden_manifest_pos)
-  if(NOT _forbidden_manifest_pos EQUAL -1)
-    message(FATAL_ERROR
-      "Meson wrap consumer textual artifact manifest retains obsolete token '${_forbidden_manifest_token}'.\n"
       "${_textual_manifest_json}")
   endif()
 endforeach()

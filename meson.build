@@ -27,20 +27,10 @@ if codegen_host_clang_opt != '' and not fs.is_absolute(codegen_host_clang_opt)
 endif
 codegen_host_clang = codegen_host_clang_opt
 
-codegen_clang_scan_deps_opt = get_option('codegen_clang_scan_deps')
-if codegen_clang_scan_deps_opt != '' and not fs.is_absolute(codegen_clang_scan_deps_opt)
-  codegen_clang_scan_deps_opt = join_paths(meson.project_source_root(), codegen_clang_scan_deps_opt)
-endif
-codegen_clang_scan_deps = codegen_clang_scan_deps_opt
-
 codegen_tool_args = []
 if codegen_host_clang != ''
   codegen_tool_args += ['--host-clang', codegen_host_clang]
 endif
-if codegen_clang_scan_deps != ''
-  codegen_tool_args += ['--clang-scan-deps', codegen_clang_scan_deps]
-endif
-
 gentest_codegen = codegen
 gentest_codegen_tool_args = codegen_tool_args
 
@@ -165,8 +155,7 @@ meson.override_dependency('gentest', gentest_dep)
 # via `-Dcodegen_host_clang=...`. Meson remains textual-only here today.
 # Example:
 #   meson setup build/meson -Dcodegen_path=build/host-codegen/tools/gentest_codegen \
-#     -Dcodegen_host_clang=/opt/llvm/bin/clang++ \
-#     -Dcodegen_clang_scan_deps=/opt/llvm/bin/clang-scan-deps
+#     -Dcodegen_host_clang=/opt/llvm/bin/clang++
 #   meson compile -C build/meson
 
 clang_args = [

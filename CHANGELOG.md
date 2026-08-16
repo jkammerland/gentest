@@ -32,12 +32,16 @@ Unstable inside. No backward compatibility.
 - Ordinary textual targets retain their authored sources and exact compilation
   database entries. Codegen appends generated registration sources instead of
   replacing authored sources with wrappers.
+- Named-module codegen always uses `clang-scan-deps`; the previous
+  `OFF`/`ON`/`AUTO` policy and source-scan fallback are removed.
 
 ### Removed
 
 - Ordinary textual-wrapper source replacement, including
   `GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY`,
   `--textual-wrapper-output`, and `--artifact-owner-source`.
+- `GENTEST_CODEGEN_SCAN_DEPS_MODE`, `--scan-deps-mode`, and the
+  `GENTEST_CODEGEN_SCAN_DEPS_MODE` environment override.
 
 ### Fixed
 

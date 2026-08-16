@@ -18,8 +18,8 @@ function(_gentest_expect_schema_value label expected)
 endfunction()
 
 # The additive header-registration artifact (oneOf[0]) deliberately has no
-# generated registration header. Wrapper and module artifacts retain exactly
-# one generated header at oneOf[1] and oneOf[2].
+# generated registration header. Both module artifacts retain exactly one
+# generated header at oneOf[1] and oneOf[2].
 foreach(_artifact_index RANGE 1 2)
   foreach(_field IN ITEMS generated_include_dirs generated_headers)
     _gentest_expect_schema_value(

@@ -104,16 +104,14 @@ def _gentest_exec_tools(ctx):
         ).format(ctx.label, _GENTEST_CODEGEN_TOOLCHAIN_TYPE))
     return tools
 
-def _gentest_add_exec_tool_args(args, tools):
+def _gentest_add_exec_tool_args(args, tools, require_scan_deps = False):
     args.add("--host-clang")
     args.add(tools.clang_path)
-    if tools.clang_scan_deps:
+    if require_scan_deps:
+        if not tools.clang_scan_deps:
+            fail("named-module Gentest codegen requires clang_scan_deps in the registered exec toolchain")
         args.add("--clang-scan-deps")
         args.add(tools.clang_scan_deps.executable.path)
-    else:
-        # Do not let the generator discover clang-scan-deps through PATH. The
-        # source scanner is the deterministic fallback for this toolchain.
-        args.add("--scan-deps-mode=OFF")
 
 def _gentest_exec_driver_args(tools):
     if not tools.cxx_standard_library_root_paths:
@@ -129,9 +127,9 @@ def _gentest_exec_driver_args(tools):
         ]
     return ["-nostdinc++"] + cxx_roots
 
-def _gentest_run_codegen(ctx, tools, inputs, outputs, args, mnemonic):
+def _gentest_run_codegen(ctx, tools, inputs, outputs, args, mnemonic, requires_scan_deps = False):
     action_tools = [tools.codegen, tools.clang]
-    if tools.clang_scan_deps:
+    if requires_scan_deps:
         action_tools.append(tools.clang_scan_deps)
     execution_requirements = {}
     if tools.local_only:
@@ -587,7 +585,7 @@ def _gentest_module_mocks_codegen_impl(ctx):
         args.add("--external-module-source", module_mapping)
     for staged_output in staged_defs:
         args.add(staged_output.path)
-    _gentest_add_exec_tool_args(args, exec_tools)
+    _gentest_add_exec_tool_args(args, exec_tools, require_scan_deps = True)
     args.add("--")
     args.add_all(_gentest_driver_args(
         ctx.attr.defines + codegen_support.defines,
@@ -606,6 +604,7 @@ def _gentest_module_mocks_codegen_impl(ctx):
         codegen_outputs,
         args,
         "GentestModuleMocksCodegen",
+        requires_scan_deps = True,
     )
 
     module_mappings = []
@@ -785,7 +784,7 @@ def _gentest_module_suite_codegen_impl(ctx):
     for module_mapping in module_mappings:
         args.add("--external-module-source", module_mapping)
     args.add(ctx.file.src.path)
-    _gentest_add_exec_tool_args(args, exec_tools)
+    _gentest_add_exec_tool_args(args, exec_tools, require_scan_deps = True)
     args.add("--")
     args.add_all(_gentest_driver_args(
         ctx.attr.defines + dep_defines,
@@ -803,6 +802,7 @@ def _gentest_module_suite_codegen_impl(ctx):
         [registration_cpp, registration_h, artifact_manifest],
         args,
         "GentestModuleSuiteCodegen",
+        requires_scan_deps = True,
     )
 
     return [

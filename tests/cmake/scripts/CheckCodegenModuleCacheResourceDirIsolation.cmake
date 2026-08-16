@@ -16,6 +16,11 @@ if("${_clangxx}" STREQUAL "")
   gentest_skip_test("module cache resource-dir isolation regression: no clang++ compiler available")
   return()
 endif()
+gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
+if("${_clang_scan_deps}" STREQUAL "")
+  gentest_skip_test("module cache resource-dir isolation regression: clang-scan-deps not found")
+  return()
+endif()
 
 execute_process(
   COMMAND "${_clangxx}" -print-resource-dir
@@ -77,7 +82,9 @@ function(_gentest_run_codegen_with_resource_dir resource_dir)
     COMMAND "${CMAKE_COMMAND}" -E env
       "CXX=${_clangxx_norm}"
       "GENTEST_CODEGEN_RESOURCE_DIR=${resource_dir}"
-      "${PROG}" --check --compdb "${_work_dir}" --tu-out-dir "${_generated_dir}"
+      "${PROG}" --check --compdb "${_work_dir}"
+      --clang-scan-deps "${_clang_scan_deps}" --host-clang "${_clangxx_norm}"
+      --tu-out-dir "${_generated_dir}"
       --module-wrapper-output "${_wrapper_abs}"
       "${_suite_source_abs}"
     WORKING_DIRECTORY "${_work_dir}"

@@ -294,7 +294,7 @@ function(_gentest_prepare_tu_mode)
     set(one_value_args
         TARGET TARGET_ID OUTPUT_DIR
         OUT_OUTPUT_ROOT OUT_OUTPUT_DIR OUT_WRAPPER_CPP OUT_WRAPPER_HEADERS OUT_EXTRA_CPP
-        OUT_ARTIFACT_MANIFEST OUT_COMPILE_CONTEXT_IDS OUT_ARTIFACT_OWNER_SOURCES)
+        OUT_ARTIFACT_MANIFEST OUT_COMPILE_CONTEXT_IDS)
     set(multi_value_args TUS TU_SOURCE_ENTRIES MODULE_NAMES NEEDS_MODULE_SCAN)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -326,7 +326,6 @@ function(_gentest_prepare_tu_mode)
     set(_gentest_wrapper_headers "")
     set(_gentest_registration_cpp "")
     set(_gentest_compile_context_ids "")
-    set(_gentest_artifact_owner_sources "")
     list(LENGTH GENTEST_TUS _gentest_tu_count)
     math(EXPR _gentest_last_tu "${_gentest_tu_count} - 1")
     foreach(_gentest_idx RANGE 0 ${_gentest_last_tu})
@@ -355,7 +354,6 @@ function(_gentest_prepare_tu_mode)
             list(APPEND _gentest_registration_cpp "__gentest_no_registration__")
         endif()
         list(APPEND _gentest_compile_context_ids "${GENTEST_TARGET_ID}:${_tu}")
-        list(APPEND _gentest_artifact_owner_sources "${_tu}")
     endforeach()
 
     file(MAKE_DIRECTORY "${_gentest_output_root}")
@@ -460,7 +458,6 @@ ${_gentest_registration_guard_end}\
     set(${GENTEST_OUT_EXTRA_CPP} "${_gentest_extra_cpp}" PARENT_SCOPE)
     set(${GENTEST_OUT_ARTIFACT_MANIFEST} "${_gentest_output_dir}/${GENTEST_TARGET_ID}.artifact_manifest.json" PARENT_SCOPE)
     set(${GENTEST_OUT_COMPILE_CONTEXT_IDS} "${_gentest_compile_context_ids}" PARENT_SCOPE)
-    set(${GENTEST_OUT_ARTIFACT_OWNER_SOURCES} "${_gentest_artifact_owner_sources}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_prepare_header_declaration_mode)
@@ -620,9 +617,9 @@ endfunction()
 function(_gentest_make_artifact_manifest_validation_args)
     set(one_value_args
         MANIFEST STAMP INCLUDE_DIR DEPFILE TARGET_ATTACHMENT ARTIFACT_ROLE COMPILE_AS REQUIRES_MODULE_SCAN
-        INCLUDES_OWNER_SOURCE REPLACES_OWNER_SOURCE COMPDB OUT_ARGS)
+        INCLUDES_AUTHORED_SOURCE REPLACES_AUTHORED_SOURCE COMPDB OUT_ARGS)
     set(multi_value_args
-        SOURCES SOURCE_KINDS REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS OWNER_SOURCES SOURCE_REGISTRATION_OUTPUTS
+        SOURCES SOURCE_KINDS REGISTRATION_OUTPUTS HEADERS COMPILE_CONTEXT_IDS SOURCE_REGISTRATION_OUTPUTS
         SCAN_SLOT_KINDS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
@@ -639,11 +636,11 @@ function(_gentest_make_artifact_manifest_validation_args)
     if(GENTEST_COMPDB)
         list(APPEND _gentest_args --compdb "${GENTEST_COMPDB}")
     endif()
-    if(DEFINED GENTEST_INCLUDES_OWNER_SOURCE)
-        list(APPEND _gentest_args --expected-includes-owner-source "${GENTEST_INCLUDES_OWNER_SOURCE}")
+    if(DEFINED GENTEST_INCLUDES_AUTHORED_SOURCE)
+        list(APPEND _gentest_args --expected-includes-authored-source "${GENTEST_INCLUDES_AUTHORED_SOURCE}")
     endif()
-    if(DEFINED GENTEST_REPLACES_OWNER_SOURCE)
-        list(APPEND _gentest_args --expected-replaces-owner-source "${GENTEST_REPLACES_OWNER_SOURCE}")
+    if(DEFINED GENTEST_REPLACES_AUTHORED_SOURCE)
+        list(APPEND _gentest_args --expected-replaces-authored-source "${GENTEST_REPLACES_AUTHORED_SOURCE}")
     endif()
     _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source" ${GENTEST_SOURCES})
     _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source-kind" ${GENTEST_SOURCE_KINDS})
@@ -652,9 +649,6 @@ function(_gentest_make_artifact_manifest_validation_args)
     _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-compile-context-id" ${GENTEST_COMPILE_CONTEXT_IDS})
     if(GENTEST_SCAN_SLOT_KINDS)
         _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-scan-slot-kind" ${GENTEST_SCAN_SLOT_KINDS})
-    endif()
-    if(GENTEST_OWNER_SOURCES)
-        _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-owner-source" ${GENTEST_OWNER_SOURCES})
     endif()
     if(GENTEST_SOURCE_REGISTRATION_OUTPUTS)
         _gentest_append_artifact_manifest_validation_values(_gentest_args "--expected-source-registration-output"
@@ -1200,13 +1194,6 @@ function(gentest_attach_codegen target)
     if(GENTEST_MODULE_REGISTRATION)
         set(_gentest_mode "module_registration")
     endif()
-    get_target_property(_gentest_internal_wrapper_compat ${target} GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY)
-    if(_gentest_internal_wrapper_compat AND NOT _gentest_internal_wrapper_compat MATCHES "-NOTFOUND$")
-        message(FATAL_ERROR
-            "gentest_attach_codegen(${target}): GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY was removed. "
-            "Move ordinary annotations to header declarations, or use MODULE_REGISTRATION FILE_SET <name> for exported named-module cases.")
-    endif()
-
     set(_gentest_has_module_sources FALSE)
     foreach(_gentest_module_name IN LISTS _gentest_module_names)
         if(NOT _gentest_module_name STREQUAL "__gentest_no_module__")
@@ -1252,22 +1239,11 @@ function(gentest_attach_codegen target)
         endforeach()
     endif()
 
-    # Generated provider targets with no CMake module metadata cannot require
-    # module dependency discovery.  Avoid launching a separate
-    # clang-scan-deps process for those targets, while retaining AUTO for
-    # anything CMake identifies as module-aware and preserving explicit user
-    # overrides.
-    set(_gentest_effective_scan_deps_mode "${GENTEST_CODEGEN_SCAN_DEPS_MODE}")
-    if(_gentest_effective_scan_deps_mode STREQUAL "" AND NOT _gentest_target_module_context AND NOT _gentest_has_module_sources)
-        set(_gentest_effective_scan_deps_mode "OFF")
-    endif()
-
     set(_gentest_wrapper_cpp "")
     set(_gentest_wrapper_headers "")
     set(_gentest_extra_cpp "")
     set(_gentest_artifact_manifest "")
     set(_gentest_compile_context_ids "")
-    set(_gentest_artifact_owner_sources "")
     if(_gentest_mode STREQUAL "module_registration")
         _gentest_prepare_module_registration_mode(
             TARGET ${target}
@@ -1309,8 +1285,7 @@ function(gentest_attach_codegen target)
             OUT_WRAPPER_HEADERS _gentest_wrapper_headers
             OUT_EXTRA_CPP _gentest_extra_cpp
             OUT_ARTIFACT_MANIFEST _gentest_artifact_manifest
-            OUT_COMPILE_CONTEXT_IDS _gentest_compile_context_ids
-            OUT_ARTIFACT_OWNER_SOURCES _gentest_artifact_owner_sources)
+            OUT_COMPILE_CONTEXT_IDS _gentest_compile_context_ids)
     endif()
 
     if(CMAKE_CONFIGURATION_TYPES AND NOT "${GENTEST_MOCK_AGGREGATE_MODULE_OUTPUT}" STREQUAL "")
@@ -1546,8 +1521,19 @@ function(gentest_attach_codegen target)
     if(_gentest_attach_discovers_mocks AND NOT _gentest_mode STREQUAL "module_registration")
         list(APPEND _command --discover-mocks)
     endif()
-    _gentest_resolve_codegen_clang_scan_deps(_gentest_clang_scan_deps)
-    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}" "${_gentest_effective_scan_deps_mode}")
+    set(_gentest_clang_scan_deps "")
+    if(_gentest_mode STREQUAL "module_registration" OR _gentest_mode STREQUAL "module_mock_provider")
+        _gentest_resolve_codegen_clang_scan_deps(_gentest_clang_scan_deps)
+        if("${_gentest_clang_scan_deps}" STREQUAL "")
+            message(FATAL_ERROR
+                "gentest_attach_codegen(${target}): named-module codegen requires clang-scan-deps. "
+                "Install it with the host LLVM toolchain, or configure GENTEST_CODEGEN_CLANG_SCAN_DEPS with its path.")
+        endif()
+        if(EXISTS "${_gentest_clang_scan_deps}" AND NOT IS_DIRECTORY "${_gentest_clang_scan_deps}")
+            list(APPEND _gentest_codegen_tool_depends "${_gentest_clang_scan_deps}")
+        endif()
+    endif()
+    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}")
 
     if(_gentest_mode STREQUAL "module_mock_provider" OR _gentest_mode STREQUAL "header_declaration")
         # Explicit module mock providers scan their generated provider units;
@@ -1581,7 +1567,7 @@ function(gentest_attach_codegen target)
             list(APPEND _gentest_mock_inspect_command --quiet-clang)
         endif()
         _gentest_append_codegen_module_context_args(
-            _gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}" "${_gentest_effective_scan_deps_mode}")
+            _gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}")
         list(APPEND _gentest_mock_inspect_command ${_gentest_tus})
         list(APPEND _gentest_mock_inspect_command --)
         list(APPEND _gentest_mock_inspect_command ${_gentest_source_inspection_clang_args})
@@ -1716,8 +1702,8 @@ function(gentest_attach_codegen target)
             ARTIFACT_ROLE "registration"
             COMPILE_AS "cxx-header-declaration-registration"
             REQUIRES_MODULE_SCAN "OFF"
-            INCLUDES_OWNER_SOURCE "OFF"
-            REPLACES_OWNER_SOURCE "OFF"
+            INCLUDES_AUTHORED_SOURCE "OFF"
+            REPLACES_AUTHORED_SOURCE "OFF"
             SOURCES ${_gentest_textual_scan_sources}
             SOURCE_KINDS ${_gentest_manifest_source_kinds}
             REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}

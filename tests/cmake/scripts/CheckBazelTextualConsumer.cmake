@@ -471,7 +471,6 @@ endif()
 foreach(_required_action_token IN ITEMS
     "--source-root"
     "--host-clang"
-    "--scan-deps-mode=OFF"
     "no-remote"
     "no-sandbox"
     "gentest_codegen"
@@ -491,8 +490,7 @@ foreach(_forbidden_action_token IN ITEMS
     "${SOURCE_DIR}"
     "PATH="
     "GENTEST_CODEGEN_HOST_CLANG"
-    "--textual-wrapper-output"
-    "--artifact-owner-source")
+    "clang-scan-deps")
   string(FIND "${_aquery_out}" "${_forbidden_action_token}" _forbidden_action_pos)
   if(NOT _forbidden_action_pos EQUAL -1)
     message(FATAL_ERROR
