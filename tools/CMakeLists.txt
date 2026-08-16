@@ -46,6 +46,7 @@ foreach(_dir IN LISTS _gentest_llvm_libdirs)
 endforeach()
 
 add_executable(gentest_codegen
+    src/codegen_tool.cpp
     src/main.cpp
     src/parse_core.cpp
     src/parse.cpp
