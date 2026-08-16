@@ -2914,14 +2914,52 @@ clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileC
         command.CommandLine.push_back(to);
     }
 
-    const auto removed_args = std::ranges::remove_if(command.CommandLine, [&](const std::string &arg) {
-        if (!(llvm::StringRef{arg}.starts_with("@") && llvm::StringRef{arg}.contains(".modmap"))) {
+    // CMake's Ninja C++20-modules dyndep pipeline emits "-fmodule-file=<name>=<path>" (and the
+    // equivalent two-token "-fmodule-file <name>=<path>" form) referencing synthetic BMI
+    // placeholder paths (e.g. "...@synth_<hash>.dir\<hash>.bmi") that only ninja's own dyndep step
+    // resolves at build time; they are never real files in isolation. Retargeting a compile
+    // command from one TU onto a different candidate source (as we do above) makes such a
+    // placeholder stale in the new context, and forwarding it verbatim leaves an unresolvable path
+    // that downstream tools (e.g. clang-scan-deps) mistake for an orphaned positional source. Drop
+    // these the same way unresolved ".modmap" response files are already dropped below.
+    auto is_stale_module_file_target = [&](std::string_view value) {
+        const auto eq = value.find('=');
+        if (eq == std::string_view::npos || eq == 0 || eq + 1 == value.size()) {
             return false;
         }
-        const std::string resolved = normalize_compdb_lookup_path(std::string_view(arg).substr(1), command.Directory);
+        const std::string resolved = normalize_compdb_lookup_path(value.substr(eq + 1), command.Directory);
         return !resolved.empty() && !std::filesystem::exists(resolved);
-    });
-    command.CommandLine.erase(removed_args.begin(), removed_args.end());
+    };
+
+    clang::tooling::CommandLineArguments filtered_command_line;
+    filtered_command_line.reserve(command.CommandLine.size());
+    for (std::size_t i = 0; i < command.CommandLine.size(); ++i) {
+        const auto &arg = command.CommandLine[i];
+        if (llvm::StringRef{arg}.starts_with("@") && llvm::StringRef{arg}.contains(".modmap")) {
+            const std::string resolved = normalize_compdb_lookup_path(std::string_view(arg).substr(1), command.Directory);
+            if (!resolved.empty() && !std::filesystem::exists(resolved)) {
+                continue;
+            }
+            filtered_command_line.push_back(arg);
+            continue;
+        }
+        if (arg == "-fmodule-file" || arg == "-fprebuilt-module-path") {
+            if (i + 1 < command.CommandLine.size() && is_stale_module_file_target(command.CommandLine[i + 1])) {
+                ++i;
+                continue;
+            }
+            filtered_command_line.push_back(arg);
+            continue;
+        }
+        if (llvm::StringRef{arg}.starts_with("-fmodule-file=") || llvm::StringRef{arg}.starts_with("-fprebuilt-module-path=")) {
+            const auto prefix_len = arg.find('=') + 1;
+            if (is_stale_module_file_target(std::string_view(arg).substr(prefix_len))) {
+                continue;
+            }
+        }
+        filtered_command_line.push_back(arg);
+    }
+    command.CommandLine = std::move(filtered_command_line);
     return command;
 }
 
