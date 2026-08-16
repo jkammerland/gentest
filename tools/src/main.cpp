@@ -1838,9 +1838,15 @@ bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_
                                                      arg.starts_with("-fdeps-file=") || arg.starts_with("-fdeps-target=");
     const bool is_module_mapping_arg               = arg.starts_with("-fmodule-file=") || arg.starts_with("-fprebuilt-module-path=") ||
                                                      (arg.starts_with("@") && arg.find(".modmap") != std::string_view::npos);
+    // CMake also emits MSVC cl.exe's proprietary BMI-emission flags ("/interface", spelled with a
+    // single dash in the exported compile_commands.json) for module compile commands. clang-cl does
+    // not understand them; it silently drops the flag but leaves "-ifcOutput"'s path argument as a
+    // stray positional source, which then collides with the existing single-file "/Fo" output flag.
+    // They control BMI/object emission we don't need for scanning, so strip them unconditionally.
+    const bool is_msvc_module_bmi_arg = arg == "-interface" || arg == "/interface";
     return arg == "-fmodules-ts" || arg == "-fmodule-header" || arg == "-fmodule-only" || is_build_system_dependency_scan_arg ||
            (!preserve_module_mapping_args && is_module_mapping_arg) || arg == "-fconcepts-diagnostics-depth" ||
-           arg.starts_with("-fconcepts-diagnostics-depth=") ||
+           arg.starts_with("-fconcepts-diagnostics-depth=") || is_msvc_module_bmi_arg ||
            // -Werror (and variants) are useful for real builds but make codegen brittle, because
            // warnings (unknown attributes/options) would abort parsing.
            arg == "-Werror" || arg.starts_with("-Werror=") || arg == "-pedantic-errors";
@@ -3161,6 +3167,14 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
                 (!preserve_module_mapping_args && (arg == "-fmodule-file" || arg == "-fprebuilt-module-path")) ||
                 arg == "-fconcepts-diagnostics-depth") {
+                skip_next_arg = true;
+                continue;
+            }
+            // "-ifcOutput <path>" (MSVC cl.exe's BMI output flag, as spelled in compile_commands.json)
+            // takes its path as a separate argument; clang-cl doesn't recognize the flag and would
+            // otherwise treat the orphaned path as an extra positional source file. See the
+            // "-interface" stripping note in should_strip_compdb_arg for the failure this causes.
+            if (arg == "-ifcOutput" || arg == "/ifcOutput") {
                 skip_next_arg = true;
                 continue;
             }
