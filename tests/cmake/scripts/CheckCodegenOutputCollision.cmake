@@ -25,7 +25,8 @@ if(NOT DEFINED REQUIRED_SUBSTRING)
   set(REQUIRED_SUBSTRING "is already used by")
 endif()
 
-set(_work_dir "${BUILD_ROOT}/codegen_output_collision")
+get_filename_component(_fixture_name "${SOURCE_DIR}" NAME)
+set(_work_dir "${BUILD_ROOT}/${_fixture_name}")
 file(REMOVE_RECURSE "${_work_dir}")
 
 set(_cmd "${CMAKE_COMMAND}")
@@ -77,7 +78,7 @@ string(REGEX REPLACE "[ \t\r\n]+" " " _all_normalized "${_all_normalized}")
 string(REGEX REPLACE "[ \t\r\n]+" " " _expect_normalized "${_expect_normalized}")
 
 if(_rc EQUAL 0)
-  message(FATAL_ERROR "Expected configure to fail due to codegen OUTPUT collision, but exit code was 0. Output:\n${_all}")
+  message(FATAL_ERROR "Expected configure to fail, but exit code was 0. Output:\n${_all}")
 endif()
 
 string(FIND "${_all_normalized}" "${_expect_normalized}" _pos)

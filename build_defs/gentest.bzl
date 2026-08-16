@@ -460,6 +460,11 @@ def _gentest_textual_suite_codegen_impl(ctx):
     else:
         scan_slots = list(ctx.files.source_hdrs)
         scan_slot_kinds = ["fallback-header"] * len(scan_slots)
+    if not scan_slots:
+        fail(
+            ("{}: gentest_attach_codegen_textual requires at least one resolved scan slot; " +
+             "src is empty and source_hdrs resolved to no files").format(ctx.label),
+        )
     registration_cpps = [
         ctx.actions.declare_file(_gentest_textual_registration_relpath(out_dir, slot.basename, index))
         for index, slot in enumerate(scan_slots)

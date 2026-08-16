@@ -320,10 +320,7 @@ set(_bazel_repo_contents_cache "${_bazel_smoke_root}/repo-cache")
 file(MAKE_DIRECTORY "${_bazel_output_root}")
 file(MAKE_DIRECTORY "${_bazel_repo_contents_cache}")
 
-set(_gentest_bazel_build_args
-  --output_user_root=${_bazel_output_root}
-  build
-  --repo_contents_cache=${_bazel_repo_contents_cache}
+set(_gentest_bazel_build_flags
   --action_env=CCACHE_DISABLE
   --action_env=PATH
   --host_action_env=CCACHE_DISABLE
@@ -350,9 +347,15 @@ set(_gentest_bazel_build_args
   --repo_env=HOME
   --action_env=HOME
   --verbose_failures
-  --sandbox_debug
+  --sandbox_debug)
+set(_gentest_bazel_build_args
+  --output_user_root=${_bazel_output_root}
+  build
+  --repo_contents_cache=${_bazel_repo_contents_cache}
+  ${_gentest_bazel_build_flags}
   //:gentest_consumer_textual_mocks
-  //:gentest_consumer_textual_bazel)
+  //:gentest_consumer_textual_bazel
+  //:gentest_consumer_header_only_bazel)
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env
@@ -535,6 +538,101 @@ foreach(_expected IN ITEMS
   endif()
 endforeach()
 
+set(_bazel_header_only_registration
+  "${_bazel_bin_dir}/gen/gentest_consumer_header_only_bazel/tu_0000_header_only_cases.header_registration.gentest.cpp")
+if(NOT EXISTS "${_bazel_header_only_registration}")
+  message(FATAL_ERROR "Expected Bazel header-only registration is missing: ${_bazel_header_only_registration}")
+endif()
+file(READ "${_bazel_header_only_registration}" _bazel_header_only_registration_content)
+foreach(_forbidden_registration_path IN ITEMS "${SOURCE_DIR}" "repos/gentest" "cases.cpp")
+  string(FIND "${_bazel_header_only_registration_content}" "${_forbidden_registration_path}" _forbidden_registration_pos)
+  if(NOT _forbidden_registration_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Bazel header-only registration contains forbidden owner spelling '${_forbidden_registration_path}'.\n"
+      "${_bazel_header_only_registration_content}")
+  endif()
+endforeach()
+string(REGEX MATCH "#include[ \\t]+\"([A-Za-z]:)?/" _absolute_registration_include "${_bazel_header_only_registration_content}")
+if(NOT _absolute_registration_include STREQUAL "")
+  message(FATAL_ERROR "Bazel header-only registration contains an absolute include.\n${_bazel_header_only_registration_content}")
+endif()
+
+set(_bazel_header_only_manifest
+  "${_bazel_bin_dir}/gen/gentest_consumer_header_only_bazel/gentest_consumer_header_only_bazel.artifact_manifest.json")
+file(READ "${_bazel_header_only_manifest}" _bazel_header_only_manifest_json)
+foreach(_expected IN ITEMS
+    "\"kind\": \"cxx-header-declaration-registration\""
+    "\"role\": \"registration\""
+    "\"compile_as\": \"cxx-header-declaration-registration\""
+    "\"target_attachment\": \"append-generated-source\""
+    "\"includes_authored_source\": false"
+    "\"replaces_authored_source\": false"
+    "\"scan_slot_kind\": \"fallback-header\""
+    "\"requires_module_scan\": false"
+    "\"compile_context_id\": \"gentest_consumer_header_only_bazel:tests/consumer/header_only_cases.hpp\"")
+  string(FIND "${_bazel_header_only_manifest_json}" "${_expected}" _manifest_pos)
+  if(_manifest_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Bazel header-only artifact manifest is missing '${_expected}'.\n"
+      "${_bazel_header_only_manifest_json}")
+  endif()
+endforeach()
+
+set(_header_only_binary_base "${_bazel_bin_dir}/gentest_consumer_header_only_bazel")
+_gentest_resolve_bazel_binary_path("${_header_only_binary_base}" _header_only_binary)
+if(_header_only_binary STREQUAL "")
+  message(FATAL_ERROR "Expected Bazel header-only consumer binary not found: ${_header_only_binary_base}")
+endif()
+
+execute_process(
+  COMMAND "${_header_only_binary}" --list
+  WORKING_DIRECTORY "${SOURCE_DIR}"
+  RESULT_VARIABLE _header_only_list_rc
+  OUTPUT_VARIABLE _header_only_list_out
+  ERROR_VARIABLE _header_only_list_err)
+if(NOT _header_only_list_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Bazel header-only consumer listing failed.\n"
+    "stdout:\n${_header_only_list_out}\n"
+    "stderr:\n${_header_only_list_err}")
+endif()
+foreach(_expected IN ITEMS
+    "consumer/header_only/header_only_test"
+    "consumer/header_only/header_only_second")
+  string(FIND "${_header_only_list_out}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "The Bazel header-only consumer listing is missing '${_expected}'.\n"
+      "stdout:\n${_header_only_list_out}")
+  endif()
+endforeach()
+
+execute_process(
+  COMMAND "${_header_only_binary}" --run=consumer/header_only/header_only_test --kind=test
+  WORKING_DIRECTORY "${SOURCE_DIR}"
+  RESULT_VARIABLE _header_only_test_rc
+  OUTPUT_VARIABLE _header_only_test_out
+  ERROR_VARIABLE _header_only_test_err)
+if(NOT _header_only_test_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Bazel header-only consumer test case failed.\n"
+    "stdout:\n${_header_only_test_out}\n"
+    "stderr:\n${_header_only_test_err}")
+endif()
+
+execute_process(
+  COMMAND "${_header_only_binary}" --run=consumer/header_only/header_only_second --kind=test
+  WORKING_DIRECTORY "${SOURCE_DIR}"
+  RESULT_VARIABLE _header_only_second_rc
+  OUTPUT_VARIABLE _header_only_second_out
+  ERROR_VARIABLE _header_only_second_err)
+if(NOT _header_only_second_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Running the Bazel header-only consumer second case failed.\n"
+    "stdout:\n${_header_only_second_out}\n"
+    "stderr:\n${_header_only_second_err}")
+endif()
+
 execute_process(
   COMMAND "${_consumer_binary}" --list
   WORKING_DIRECTORY "${SOURCE_DIR}"
@@ -626,3 +724,57 @@ if(NOT _jitter_rc EQUAL 0)
     "stdout:\n${_jitter_out}\n"
     "stderr:\n${_jitter_err}")
 endif()
+
+# The negative fixture fails at load time on purpose, so it must not live in
+# the parent workspace's package tree (it would break `bazel //...` wildcards).
+# Stage it as its own workspace in the build tree, referencing the parent
+# source tree through local_path_override.
+set(_invalid_header_only_workspace "${_bazel_smoke_root}/invalid_header_only_workspace")
+file(MAKE_DIRECTORY "${_invalid_header_only_workspace}")
+file(COPY "${SOURCE_DIR}/tests/consumer/invalid_header_only/negative_build.bazel"
+  DESTINATION "${_invalid_header_only_workspace}")
+file(RENAME "${_invalid_header_only_workspace}/negative_build.bazel"
+  "${_invalid_header_only_workspace}/BUILD.bazel")
+file(WRITE "${_invalid_header_only_workspace}/MODULE.bazel"
+  "module(name = \"gentest_invalid_header_only_fixture\")\n"
+  "\n"
+  "bazel_dep(name = \"gentest\", version = \"1.0.0\")\n"
+  "\n"
+  "local_path_override(\n"
+  "    module_name = \"gentest\",\n"
+  "    path = \"${SOURCE_DIR}\",\n"
+  ")\n")
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env
+          "CCACHE_DISABLE=1"
+          "PATH=${_tool_path}"
+          "CC=${_clang_cc}"
+          "CXX=${_clang_cxx}"
+          "LLVM_BIN=${_clang_bin_dir}"
+          "LLVM_DIR=${_llvm_dir}"
+          "Clang_DIR=${_clang_dir}"
+          "GENTEST_BAZEL_LOCAL_CLANG=${_clang_cxx}"
+          "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}"
+          "HOME=$ENV{HOME}"
+           ${_bazel_command}
+           --output_user_root=${_bazel_output_root}
+           build
+           --repo_contents_cache=${_bazel_repo_contents_cache}
+           ${_gentest_bazel_build_flags}
+           //:bad
+   WORKING_DIRECTORY "${_invalid_header_only_workspace}"
+  RESULT_VARIABLE _invalid_header_only_rc
+  OUTPUT_VARIABLE _invalid_header_only_out
+  ERROR_VARIABLE _invalid_header_only_err)
+if(_invalid_header_only_rc EQUAL 0)
+  message(FATAL_ERROR "A textual target with neither src nor source_hdrs unexpectedly passed Bazel analysis.")
+endif()
+set(_invalid_header_only_log "${_invalid_header_only_out}\n${_invalid_header_only_err}")
+foreach(_required_diagnostic IN ITEMS
+    "requires src, source_hdrs, or both")
+  string(FIND "${_invalid_header_only_log}" "${_required_diagnostic}" _diagnostic_pos)
+  if(_diagnostic_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Missing-src/source_hdrs failure omitted '${_required_diagnostic}'.\n${_invalid_header_only_log}")
+  endif()
+endforeach()

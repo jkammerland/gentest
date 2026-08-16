@@ -116,6 +116,19 @@ target("gentest_xrepo_textual")
         clang_args = {"-DGENTEST_XREPO_TEXTUAL_CONSUMER_CODEGEN=1"},
     })
 
+target("gentest_xrepo_header_only")
+    set_kind("binary")
+    add_downstream_packages()
+    gentest_attach_codegen({
+        name = "gentest_xrepo_header_only",
+        kind = "textual",
+        headerfiles = {"tests/header_only_cases.hpp"},
+        main = "tests/main.cpp",
+        output_dir = path.join(current_gen_root(), fixture_output_leaf("consumer_header_only", "ho")),
+        defines = {"GENTEST_XREPO_HEADER_ONLY_DEFINE=1"},
+        clang_args = {"-DGENTEST_XREPO_HEADER_ONLY_CODEGEN=1"},
+    })
+
 target("gentest_xrepo_module_mocks")
     set_kind("static")
     add_downstream_packages()

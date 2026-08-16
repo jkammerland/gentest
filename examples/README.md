@@ -9,6 +9,7 @@ cmake --build build/examples/hello
 ctest --test-dir build/examples/hello --output-on-failure
 ```
 
-Use `examples/hello/` for include-based tests and `examples/hello_modules/` for `import gentest;` tests. The module example
-requires a gentest install configured with `-DGENTEST_ENABLE_PUBLIC_MODULES=ON`, a module-capable compiler, `clang-scan-deps`,
-and Ninja >= 1.11.
+Use `examples/hello_header_only/` for the ordinary case — a test target whose only source is a header — and
+`examples/hello/` for the split-header/source layout; use `examples/hello_modules/` for `import gentest;` tests. The module
+example requires a gentest install configured with `-DGENTEST_ENABLE_PUBLIC_MODULES=ON`, a module-capable compiler,
+`clang-scan-deps`, and Ninja >= 1.11.

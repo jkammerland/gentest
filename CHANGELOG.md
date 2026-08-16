@@ -16,6 +16,9 @@ Unstable inside. No backward compatibility.
 - Additive header-declaration registration for ordinary textual targets.
 - Unsupported module input diagnostics.
 - Module registration regression coverage.
+- Header-only test targets: an annotated header alone can form a test target,
+  and the generated registration sources become its translation units.
+  Supported by CMake, Bazel, Meson, and Xmake.
 
 ### Changed
 
@@ -38,6 +41,9 @@ Unstable inside. No backward compatibility.
   fails and the run contains no named modules. The scanner failure is now
   reported as an info log and only becomes an error when named-module
   dependency resolution is actually required.
+- Xmake textual codegen now shortens generated registration stems to a
+  24-character budget (16-character prefix plus an 8-character digest);
+  raw source basenames could previously exceed it.
 
 ### Removed
 

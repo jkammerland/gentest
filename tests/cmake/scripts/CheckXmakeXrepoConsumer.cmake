@@ -221,6 +221,7 @@ _gentest_run_or_fail(
 foreach(_target IN ITEMS
     gentest_xrepo_textual_mocks
     gentest_xrepo_textual
+    gentest_xrepo_header_only
     gentest_xrepo_module_mocks
     gentest_xrepo_module)
   _gentest_run_or_fail(
@@ -239,12 +240,14 @@ endforeach()
 set(_generated_glob_root "${_out_dir}/gen/*/*/*")
 set(_textual_mock_leaf "consumer_textual_mocks")
 set(_textual_leaf "consumer_textual")
+set(_header_only_leaf "consumer_header_only")
 set(_module_mock_leaf "consumer_module_mocks")
 set(_module_leaf "consumer_module")
 if(WIN32)
   set(_generated_glob_root "${_out_dir}/g/*/*/*")
   set(_textual_mock_leaf "tm")
   set(_textual_leaf "t")
+  set(_header_only_leaf "ho")
   set(_module_mock_leaf "mm")
   set(_module_leaf "m")
 endif()
@@ -285,6 +288,8 @@ foreach(_expected_glob IN ITEMS
     "${_generated_glob_root}/${_textual_mock_leaf}/xrepo_textual_mocks_mock_registry.hpp"
     "${_generated_glob_root}/${_textual_mock_leaf}/xrepo_textual_mocks_mock_impl.hpp"
     "${_generated_glob_root}/${_textual_leaf}/tu_0000_cases.header_registration.gentest.cpp"
+    "${_generated_glob_root}/${_header_only_leaf}/tu_0000_header_only_cases.header_registration.gentest.cpp"
+    "${_generated_glob_root}/${_header_only_leaf}/gentest_xrepo_header_only.artifact_manifest.json"
     "${_generated_glob_root}/${_module_mock_leaf}/downstream/xrepo/consumer_mocks.cppm"
     "${_generated_glob_root}/${_module_mock_leaf}/tu_0000_service_module.module.gentest.cppm"
     "${_generated_glob_root}/${_module_mock_leaf}/tu_0001_module_mock_defs.module.gentest.cppm"
@@ -349,6 +354,10 @@ _gentest_find_single_binary(_module_bin
   "${_out_dir}/**/gentest_xrepo_module"
   "${_out_dir}/**/gentest_xrepo_module.exe"
   "Xmake xrepo module consumer binary")
+_gentest_find_single_binary(_header_only_bin
+  "${_out_dir}/**/gentest_xrepo_header_only"
+  "${_out_dir}/**/gentest_xrepo_header_only.exe"
+  "Xmake xrepo header-only consumer binary")
 
 foreach(_case IN ITEMS
     "downstream/xrepo/test"
@@ -390,3 +399,18 @@ foreach(_binary IN ITEMS "${_textual_bin}" "${_module_bin}")
     endif()
   endforeach()
 endforeach()
+
+_gentest_run_or_fail(
+  LABEL "Run Xmake xrepo header-only case"
+  WORKING_DIRECTORY "${_workspace_dir}"
+  COMMAND "${_header_only_bin}" "--run=downstream/xrepo/header_only" "--kind=test")
+_gentest_run_or_fail(
+  LABEL "List Xmake xrepo header-only cases"
+  WORKING_DIRECTORY "${_workspace_dir}"
+  COMMAND "${_header_only_bin}" --list)
+string(FIND "${_gentest_last_stdout}" "downstream/xrepo/header_only" _header_only_list_pos)
+if(_header_only_list_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Listing for '${_header_only_bin}' is missing 'downstream/xrepo/header_only'.\n"
+    "stdout:\n${_gentest_last_stdout}")
+endif()

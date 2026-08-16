@@ -430,6 +430,7 @@ if(NOT _dual_compdb_count EQUAL 3)
 endif()
 
 file(READ "${_build_dir}/target_sources.txt" _target_sources)
+string(STRIP "${_target_sources}" _target_sources)
 foreach(_source IN ITEMS "cases_a.cpp" "cases_b.cpp" "cases_c.cpp" "cases_rich.cpp" "mock_cases.cpp")
   set(_source_occurrences ${_target_sources})
   list(FILTER _source_occurrences INCLUDE REGEX "(^|[/\\\\])${_source}$")
@@ -442,6 +443,7 @@ endforeach()
 # A header-only target owns no authored translation unit: every source attached
 # to it is a generated registration source, one per annotated header scan slot.
 file(READ "${_build_dir}/header_only_target_sources.txt" _header_only_target_sources)
+string(STRIP "${_header_only_target_sources}" _header_only_target_sources)
 set(_header_only_non_generated ${_header_only_target_sources})
 list(FILTER _header_only_non_generated EXCLUDE REGEX "\\.header_registration\\.gentest\\.cpp$")
 list(FILTER _header_only_non_generated EXCLUDE REGEX "\\.(h|hh|hpp|hxx|inl|ipp|tpp)$")
@@ -457,6 +459,39 @@ if(NOT _header_only_generated_count EQUAL 2)
   message(FATAL_ERROR
     "A header-only target must attach one registration source per annotated header.\n${_header_only_target_sources}")
 endif()
+
+# Header-only slots are fallback-header scan slots: their manifest entries must
+# say so and must not claim to include an authored source.
+foreach(_header_only_manifest_spec IN ITEMS
+    "generated_header_only;header_declaration_header_only_tests;2"
+    "generated_header_only_alias;header_declaration_header_only_alias_tests;1")
+  list(GET _header_only_manifest_spec 0 _header_only_manifest_dir)
+  list(GET _header_only_manifest_spec 1 _header_only_manifest_target)
+  list(GET _header_only_manifest_spec 2 _header_only_manifest_slot_count)
+  file(GLOB _header_only_manifests
+    "${_build_dir}/${_header_only_manifest_dir}/${_header_only_manifest_target}*.artifact_manifest.json")
+  list(LENGTH _header_only_manifests _header_only_manifest_count)
+  if(NOT _header_only_manifest_count EQUAL 1)
+    message(FATAL_ERROR
+      "Expected one artifact manifest for '${_header_only_manifest_target}', got ${_header_only_manifest_count}")
+  endif()
+  list(GET _header_only_manifests 0 _header_only_manifest)
+  file(READ "${_header_only_manifest}" _header_only_manifest_text)
+  string(JSON _header_only_source_count LENGTH "${_header_only_manifest_text}" sources)
+  if(NOT _header_only_source_count EQUAL ${_header_only_manifest_slot_count})
+    message(FATAL_ERROR
+      "Expected ${_header_only_manifest_slot_count} manifest entries for '${_header_only_manifest_target}'.\n${_header_only_manifest_text}")
+  endif()
+  math(EXPR _header_only_manifest_last "${_header_only_source_count} - 1")
+  foreach(_header_only_manifest_idx RANGE 0 ${_header_only_manifest_last})
+    string(JSON _header_only_slot_kind GET "${_header_only_manifest_text}" sources ${_header_only_manifest_idx} scan_slot_kind)
+    string(JSON _header_only_includes_authored GET "${_header_only_manifest_text}" artifacts ${_header_only_manifest_idx} includes_authored_source)
+    if(NOT _header_only_slot_kind STREQUAL "fallback-header" OR _header_only_includes_authored)
+      message(FATAL_ERROR
+        "Header-only manifest entry ${_header_only_manifest_idx} must be a fallback-header slot without authored sources.\n${_header_only_manifest_text}")
+    endif()
+  endforeach()
+endforeach()
 
 foreach(_header_only_target IN ITEMS
     header_declaration_header_only_tests
@@ -476,6 +511,11 @@ foreach(_header_only_target IN ITEMS
         "Header-only target '${_header_only_target}' must register '${_header_only_case}'.\n${_header_only_list}")
     endif()
   endforeach()
+  if(_header_only_target STREQUAL "header_declaration_header_only_tests")
+    set(_header_only_multi_list "${_header_only_list}")
+  else()
+    set(_header_only_alias_list "${_header_only_list}")
+  endif()
   gentest_check_run_or_fail(
     COMMAND "${_header_only_exe}" --no-color
     WORKING_DIRECTORY "${_build_dir}"
@@ -483,15 +523,14 @@ foreach(_header_only_target IN ITEMS
 endforeach()
 
 # The two-header target additionally owns the shared inline_cases.hpp case, and
-# the single-header alias target must not.
-gentest_check_run_or_fail(
-  COMMAND "${_build_dir}/header_declaration_header_only_tests" --list-tests
-  WORKING_DIRECTORY "${_build_dir}"
-  STRIP_TRAILING_WHITESPACE
-  OUTPUT_VARIABLE _header_only_multi_list)
+# the single-header alias target must not: scan slots are per-target, not global.
 if(NOT _header_only_multi_list MATCHES "header_declaration/inline")
   message(FATAL_ERROR
     "A header-only target must register cases from every listed header.\n${_header_only_multi_list}")
+endif()
+if(_header_only_alias_list MATCHES "header_declaration/inline")
+  message(FATAL_ERROR
+    "The single-header alias target must not own the shared inline_cases.hpp case.\n${_header_only_alias_list}")
 endif()
 
 # Worker-count and cache-hit changes must not affect output ownership or bytes.

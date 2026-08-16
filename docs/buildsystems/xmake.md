@@ -21,11 +21,13 @@ The contract is still explicit 2-step codegen:
 1. add mocks
 2. attach suite codegen
 
-For textual suites, the `source` `.cpp` is compiled directly and must include a
-self-contained annotated declaration header. Pass that header through
-`headerfiles`; the helper appends `tu_0000_<stem>.header_registration.gentest.cpp`
-and never replaces or includes the authored implementation. Textual mocks use a
-header-only scan aggregate plus a generated public-header anchor.
+For textual suites, pass the annotated header through `headerfiles`; the helper
+appends `tu_0000_<stem>.header_registration.gentest.cpp`, and a header-only
+target (no `source`) builds from exactly those generated registration sources.
+A suite with out-of-line definitions also passes `source`, which is compiled
+directly and must include the self-contained annotated declaration header; the
+helper never replaces or includes the authored implementation. Textual mocks use
+a header-only scan aggregate plus a generated public-header anchor.
 
 For module suites, `gentest_attach_codegen({ kind = "modules", ... })` requires
 an explicit `module_name` and a resolvable host `clang-scan-deps`. Xmake keeps
@@ -102,6 +104,7 @@ your_project/
     main.cpp
     cases.hpp
     cases.cpp
+    header_only_cases.hpp
     cases.cppm
     header_mock_defs.hpp
     module_mock_defs.cppm
@@ -132,6 +135,17 @@ target("gentest_xrepo_textual")
         headerfiles = {"tests/cases.hpp"},
         main = "tests/main.cpp",
         output_dir = path.join(current_gen_root(), "consumer_textual"),
+    })
+
+target("gentest_xrepo_header_only")
+    set_kind("binary")
+    add_packages("fmt", "gentest")
+    gentest_attach_codegen({
+        name = "gentest_xrepo_header_only",
+        kind = "textual",
+        headerfiles = {"tests/header_only_cases.hpp"},
+        main = "tests/main.cpp",
+        output_dir = path.join(current_gen_root(), "consumer_header_only"),
     })
 
 target("gentest_xrepo_public_modules")
@@ -231,7 +245,8 @@ The downstream proof in
 - builds module public-module provider + module mocks + module consumer
 - verifies generated mock/codegen artifacts, including module registration
   sources and artifact manifests
-- verifies textual targets compile authored sources directly and append header
+- verifies textual targets compile authored sources directly, header-only
+  targets build from generated registrations only, and both append header
   registrations
 - runs the consumer test/mock/bench/jitter surface
 

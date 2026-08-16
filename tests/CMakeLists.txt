@@ -3393,6 +3393,14 @@ _gentest_add_cmake_helper_test(
     -DREQUIRED_SUBSTRING=OUTPUT manifest/single-TU mode was removed)
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_no_scan_sources
+    ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_no_scan_sources
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenOutputCollision.cmake
+    cmake
+    -DREQUIRED_SUBSTRING=no C++ translation units, module units, or annotated headers found to scan)
+set_property(TEST gentest_codegen_no_scan_sources APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_codegen_genex_sources_rejected
     ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_genex_sources
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenOutputCollision.cmake

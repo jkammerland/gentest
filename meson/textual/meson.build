@@ -249,17 +249,20 @@ foreach suite_decl : gentest_textual_suites
     suite_scan_slot_kinds += ['authored-tu']
     suite_registration_cpps += ['tu_0000_@0@_cases.header_registration.gentest.cpp'.format(suite_id)]
   else
+    # Slot indices are zero-padded to four digits (the CMake naming contract)
+    # and widen naturally for larger suites.
     suite_header_index = 0
     foreach declaration_header_abs : suite_declaration_header_inputs
       suite_scan_inputs += [declaration_header_abs]
       suite_scan_slot_kinds += ['fallback-header']
-      suite_registration_cpps += ['tu_000@0@_@1@_@2@.header_registration.gentest.cpp'.format(
-        suite_header_index, suite_id, fs.stem(declaration_header_abs))]
+      suite_header_slot = suite_header_index.to_string()
+      if suite_header_slot.substring(0, 4) == suite_header_slot
+        suite_header_slot = ('0000' + suite_header_slot).substring(-4)
+      endif
+      suite_registration_cpps += ['tu_@0@_@1@_@2@.header_registration.gentest.cpp'.format(
+        suite_header_slot, suite_id, fs.stem(declaration_header_abs))]
       suite_header_index += 1
     endforeach
-    if suite_header_index > 10
-      error('gentest Meson suite "@0@" exceeds the 10 declaration headers the helper can name'.format(suite_name))
-    endif
   endif
 
   suite_codegen_command = [

@@ -6,7 +6,7 @@
 `gentest` is an attribute-driven C++ test runner plus a clang-tools-based code generator.
 
 Write tests with standard C++ attributes. Put ordinary textual test definitions
-in a header reached by one of the target's source files:
+in a header:
 
 ```cpp
 #include "gentest/test.h"
@@ -71,16 +71,16 @@ Contributor workflows, including lint, static analysis, coverage, and local CI-a
 
 ## Use in your project (CMake)
 
-Complete copy-paste projects live in [`examples/hello`](examples/hello) and
-[`examples/hello_modules`](examples/hello_modules).
+Complete copy-paste projects live in [`examples/hello_header_only`](examples/hello_header_only),
+[`examples/hello`](examples/hello), and [`examples/hello_modules`](examples/hello_modules).
 
 ```cmake
 # Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
 find_package(gentest CONFIG REQUIRED)
 
-# Define tests in cases.hpp. cases.cpp is the ordinary target source that
-# includes that header; listing the header is also useful for IDE visibility.
-add_executable(my_tests cases.cpp cases.hpp)
+# The annotated header is the whole test target; codegen appends the generated
+# registration sources.
+add_executable(my_tests cases.hpp)
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
 # Setup codegen dependency for your target
@@ -110,18 +110,13 @@ inline void addition() {
 }
 ```
 
-`cases.cpp`:
-
-```cpp
-#include "cases.hpp"
-```
-
-Ordinary textual codegen discovers annotations in headers reached by the
-target, keeps every authored `.cpp` attached, and appends generated registration
-sources. Header-defined free functions use `inline` because both the authored
-source and a generated registration source include the header. An annotation
-written only in `.cpp`, or on a `static` or anonymous-namespace function, is
-rejected because it has no stable header-reachable target-wide identity.
+Ordinary textual codegen discovers annotations in the target's headers and
+appends the generated registration sources, which are the target's compiled
+translation units. Header-defined cases use `inline` because the generated
+registration source and any other including translation unit share the header.
+An annotation written only in a `.cpp`, or on a `static` or anonymous-namespace
+function, is rejected because it has no stable header-reachable target-wide
+identity.
 
 Configure and run the consumer project after installing gentest:
 
@@ -525,7 +520,7 @@ gentest_add_mocks(clock_mocks
   OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
   HEADER_NAME public/clock_mocks.hpp)
 
-add_executable(clock_tests cases.cpp cases.hpp)
+add_executable(clock_tests cases.hpp)
 target_link_libraries(clock_tests PRIVATE gentest::gentest_main clock_mocks)
 gentest_attach_codegen(clock_tests)
 gentest_discover_tests(clock_tests)
@@ -845,12 +840,13 @@ regressions over the configured threshold unless `--fail-on-new` or
 
 ### Out-of-line definitions
 
-Header-defined `inline` cases are the recommended layout and are used
-throughout this README. A case can instead put its annotated external-linkage
-declaration in a header and its definition in an ordinary `.cpp` source linked
-into the same target. The declaration, fixture types, and parameter types must
-still be header-reachable so codegen can build the registration adapter. An
-annotation written only on the `.cpp` definition is not supported.
+The header-only layout above is the ordinary way to write a test. A target can
+instead keep an authored `.cpp` (`add_executable(my_tests cases.cpp cases.hpp)`):
+put the case's annotated external-linkage declaration in the header and its
+definition in the `.cpp`, which includes the header. The declaration, fixture
+types, and parameter types must still be header-reachable so codegen can build
+the registration adapter. An annotation written only on the `.cpp` definition
+is not supported.
 
 ### Reporting (JUnit / Allure / GitHub annotations)
 
