@@ -4106,8 +4106,7 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     opts.quiet_clang = quiet_clang_option.getValue();
     if (scan_deps_executable_option.getNumOccurrences() != 0 && !scan_deps_executable_option.getValue().empty()) {
         opts.clang_scan_deps_executable = std::filesystem::path{scan_deps_executable_option.getValue()};
-    } else if (const auto scan_deps_env = get_env_value("GENTEST_CODEGEN_CLANG_SCAN_DEPS");
-               scan_deps_env && !scan_deps_env->empty()) {
+    } else if (const auto scan_deps_env = get_env_value("GENTEST_CODEGEN_CLANG_SCAN_DEPS"); scan_deps_env && !scan_deps_env->empty()) {
         opts.clang_scan_deps_executable = std::filesystem::path{*scan_deps_env};
     }
     for (const auto &raw_mapping : external_module_source_option) {
