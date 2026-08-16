@@ -80,6 +80,29 @@ gentest_discover_tests(header_declaration_registration_tests TEST_PREFIX "additi
 get_target_property(_header_registration_sources header_declaration_registration_tests SOURCES)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/target_sources.txt" "${_header_registration_sources}\n")
 
+# A target may consist only of annotated headers: its generated registration
+# sources are then its translation units. Two headers prove distinct scan slots.
+add_executable(header_declaration_header_only_tests
+    header_only_cases.hpp
+    inline_cases.hpp)
+target_link_libraries(header_declaration_header_only_tests PRIVATE gentest_main)
+target_compile_features(header_declaration_header_only_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(header_declaration_header_only_tests
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_header_only")
+gentest_discover_tests(header_declaration_header_only_tests TEST_PREFIX "header_only::")
+
+get_target_property(_header_only_sources header_declaration_header_only_tests SOURCES)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/header_only_target_sources.txt" "${_header_only_sources}\n")
+
+# The same header may back a second target; each registers it independently and
+# TEST_PREFIX keeps the two CTest registrations distinct.
+add_executable(header_declaration_header_only_alias_tests header_only_cases.hpp)
+target_link_libraries(header_declaration_header_only_alias_tests PRIVATE gentest_main)
+target_compile_features(header_declaration_header_only_alias_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(header_declaration_header_only_alias_tests
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_header_only_alias")
+gentest_discover_tests(header_declaration_header_only_alias_tests TEST_PREFIX "header_only_alias::")
+
 foreach(_dual_variant IN ITEMS 1 2)
     set(_dual_target "header_declaration_dual_${_dual_variant}")
     add_executable(${_dual_target} dual_target.cpp dual_target.hpp)

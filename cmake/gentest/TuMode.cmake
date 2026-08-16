@@ -490,6 +490,10 @@ function(_gentest_prepare_header_declaration_mode)
     set(_gentest_registration_cpp "")
     set(_gentest_compile_context_ids "")
     list(LENGTH GENTEST_TUS _gentest_tu_count)
+    if(_gentest_tu_count EQUAL 0)
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${GENTEST_TARGET}): header-declaration registration requires at least one scan slot.")
+    endif()
     math(EXPR _gentest_last_tu "${_gentest_tu_count} - 1")
     foreach(_gentest_idx RANGE 0 ${_gentest_last_tu})
         list(GET GENTEST_TUS ${_gentest_idx} _gentest_tu)
@@ -1159,8 +1163,14 @@ function(gentest_attach_codegen target)
             "codegen. Pass concrete files via SOURCES=... instead. Offending entries: '${_gentest_skipped_genex_joined}'")
     endif()
 
-    if(NOT _gentest_tus)
-        message(FATAL_ERROR "gentest_attach_codegen(${target}): no C++ translation units or module units found to scan")
+    # Ordinary textual targets may consist only of annotated headers. Their
+    # generated registration sources are the target's translation units, so an
+    # authored .cpp is not required; every header simply becomes a fallback
+    # scan slot below. Named-module registration always owns an authored module
+    # interface unit and still requires one here.
+    if(NOT _gentest_tus AND (GENTEST_MODULE_REGISTRATION OR NOT _gentest_header_sources))
+        message(FATAL_ERROR
+            "gentest_attach_codegen(${target}): no C++ translation units, module units, or annotated headers found to scan")
     endif()
 
     # Do not infer wrapper module scanning from source text: target compile

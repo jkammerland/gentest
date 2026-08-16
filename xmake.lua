@@ -156,6 +156,17 @@ target("gentest_consumer_textual_xmake")
         clang_args = {"-DGENTEST_XMAKE_TEXTUAL_CONSUMER_CODEGEN=1"},
     })
 
+target("gentest_consumer_header_only_xmake")
+    set_kind("binary")
+    gentest_apply_windows_llvm_toolchain()
+    gentest_attach_codegen({
+        name = "gentest_consumer_header_only_xmake",
+        kind = "textual",
+        headerfiles = {"tests/consumer/header_only_cases.hpp"},
+        output_dir = path.join(current_gen_root(), "consumer_header_only"),
+        deps = {"gentest_main"},
+    })
+
 if enable_module_targets then
     target("gentest_consumer_module_mocks_xmake")
         set_kind("static")

@@ -124,6 +124,8 @@ gentest_check_run_or_fail(
     header_declaration_registration_tests
     header_declaration_dual_1
     header_declaration_dual_2
+    header_declaration_header_only_tests
+    header_declaration_header_only_alias_tests
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
@@ -436,6 +438,61 @@ foreach(_source IN ITEMS "cases_a.cpp" "cases_b.cpp" "cases_c.cpp" "cases_rich.c
     message(FATAL_ERROR "Authored target source '${_source}' must remain attached exactly once.\n${_target_sources}")
   endif()
 endforeach()
+
+# A header-only target owns no authored translation unit: every source attached
+# to it is a generated registration source, one per annotated header scan slot.
+file(READ "${_build_dir}/header_only_target_sources.txt" _header_only_target_sources)
+set(_header_only_non_generated ${_header_only_target_sources})
+list(FILTER _header_only_non_generated EXCLUDE REGEX "\\.header_registration\\.gentest\\.cpp$")
+list(FILTER _header_only_non_generated EXCLUDE REGEX "\\.(h|hh|hpp|hxx|inl|ipp|tpp)$")
+list(FILTER _header_only_non_generated EXCLUDE REGEX "^$")
+if(NOT _header_only_non_generated STREQUAL "")
+  message(FATAL_ERROR
+    "A header-only target must attach only generated registration sources.\n${_header_only_target_sources}")
+endif()
+set(_header_only_generated ${_header_only_target_sources})
+list(FILTER _header_only_generated INCLUDE REGEX "\\.header_registration\\.gentest\\.cpp$")
+list(LENGTH _header_only_generated _header_only_generated_count)
+if(NOT _header_only_generated_count EQUAL 2)
+  message(FATAL_ERROR
+    "A header-only target must attach one registration source per annotated header.\n${_header_only_target_sources}")
+endif()
+
+foreach(_header_only_target IN ITEMS
+    header_declaration_header_only_tests
+    header_declaration_header_only_alias_tests)
+  set(_header_only_exe "${_build_dir}/${_header_only_target}")
+  if(CMAKE_HOST_WIN32)
+    set(_header_only_exe "${_header_only_exe}.exe")
+  endif()
+  gentest_check_run_or_fail(
+    COMMAND "${_header_only_exe}" --list-tests
+    WORKING_DIRECTORY "${_build_dir}"
+    STRIP_TRAILING_WHITESPACE
+    OUTPUT_VARIABLE _header_only_list)
+  foreach(_header_only_case IN ITEMS "header_only/first" "header_only/second")
+    if(NOT _header_only_list MATCHES "${_header_only_case}")
+      message(FATAL_ERROR
+        "Header-only target '${_header_only_target}' must register '${_header_only_case}'.\n${_header_only_list}")
+    endif()
+  endforeach()
+  gentest_check_run_or_fail(
+    COMMAND "${_header_only_exe}" --no-color
+    WORKING_DIRECTORY "${_build_dir}"
+    STRIP_TRAILING_WHITESPACE)
+endforeach()
+
+# The two-header target additionally owns the shared inline_cases.hpp case, and
+# the single-header alias target must not.
+gentest_check_run_or_fail(
+  COMMAND "${_build_dir}/header_declaration_header_only_tests" --list-tests
+  WORKING_DIRECTORY "${_build_dir}"
+  STRIP_TRAILING_WHITESPACE
+  OUTPUT_VARIABLE _header_only_multi_list)
+if(NOT _header_only_multi_list MATCHES "header_declaration/inline")
+  message(FATAL_ERROR
+    "A header-only target must register cases from every listed header.\n${_header_only_multi_list}")
+endif()
 
 # Worker-count and cache-hit changes must not affect output ownership or bytes.
 _gentest_registration_digest("${_build_dir}" _jobs1_digest)

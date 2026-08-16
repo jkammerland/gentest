@@ -1208,13 +1208,17 @@ local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, sca
     else
         table.insert(args, "--artifact-manifest")
         table.insert(args, config.artifact_manifest)
-        table.insert(args, "--textual-registration-output")
-        table.insert(args, config.registration_output)
-        table.insert(args, "--scan-slot-kind")
-        table.insert(args, "authored-tu")
-        table.insert(args, "--compile-context-id")
-        table.insert(args, config.compile_context_id)
-        table.insert(args, config.source_file)
+        for index, scan_source in ipairs(config.scan_sources) do
+            table.insert(args, "--textual-registration-output")
+            table.insert(args, config.registration_outputs[index])
+            table.insert(args, "--scan-slot-kind")
+            table.insert(args, config.scan_slot_kinds[index])
+            table.insert(args, "--compile-context-id")
+            table.insert(args, config.target_id .. ":" .. scan_source)
+        end
+        for _, scan_source in ipairs(config.scan_sources) do
+            table.insert(args, scan_source)
+        end
     end
     if host_clang and host_clang ~= "" then
         table.insert(args, "--host-clang")
@@ -1489,15 +1493,40 @@ function gentest_attach_codegen(opts)
     gentest_apply_windows_llvm_toolchain()
 
     local target_name = require_opt(opts, "name", "gentest_attach_codegen")
-    local source = require_opt(opts, "source", "gentest_attach_codegen")
+    local source = opts.source
+    local headerfiles = opts.headerfiles or {}
+    if kind == "modules" then
+        source = require_opt(opts, "source", "gentest_attach_codegen(kind='modules')")
+    elseif (source == nil or source == "") and #headerfiles == 0 then
+        fail("gentest_attach_codegen requires `source`, `headerfiles`, or both")
+    end
     local main_source = opts.main
     local output_dir = require_opt(opts, "output_dir", "gentest_attach_codegen")
     local out_dir_abs = project_path(output_dir)
     local registration_cpp = nil
     local registration_h = nil
+    -- An authored `source` is the suite's single scan slot. Without one, each
+    -- header is scanned on its own and the generated registration sources are
+    -- the suite's translation units.
+    local scan_sources = {}
+    local scan_slot_kinds = {}
+    local registration_outputs = {}
+    local registration_cpps = {}
     if kind == "textual" then
-        local source_basename = path.basename(source):gsub("%.[^.]+$", "")
-        registration_cpp = path.join(output_dir, "tu_0000_" .. source_basename .. ".header_registration.gentest.cpp")
+        local slot_inputs = (source ~= nil and source ~= "") and {source} or headerfiles
+        local slot_kind = (source ~= nil and source ~= "") and "authored-tu" or "fallback-header"
+        for index, slot_input in ipairs(slot_inputs) do
+            local stem = shorten_generated_stem(basename_stem(slot_input))
+            local slot_cpp = path.join(output_dir, string.format(
+                "tu_%04d_%s.header_registration.gentest.cpp", index - 1, stem))
+            table.insert(scan_sources, project_path(slot_input))
+            table.insert(scan_slot_kinds, slot_kind)
+            table.insert(registration_outputs, project_path(slot_cpp))
+            table.insert(registration_cpps, slot_cpp)
+            if registration_cpp == nil then
+                registration_cpp = slot_cpp
+            end
+        end
     else
         registration_cpp = module_registration_output_rel(output_dir, source, 0)
         registration_h = module_header_output_rel(output_dir, source, 0)
@@ -1518,9 +1547,13 @@ function gentest_attach_codegen(opts)
         registration_output = project_path(registration_cpp),
         header_output = registration_h and project_path(registration_h) or nil,
         artifact_manifest = project_path(path.join(output_dir, sanitize_target_id(target_name) .. ".artifact_manifest.json")),
-        compile_context_id = sanitize_target_id(target_name) .. ":" .. project_path(source),
+        compile_context_id = source and (sanitize_target_id(target_name) .. ":" .. project_path(source)) or nil,
         depfile = project_path(registration_d),
-        source_file = project_path(source),
+        source_file = source and project_path(source) or nil,
+        scan_sources = scan_sources,
+        scan_slot_kinds = scan_slot_kinds,
+        registration_outputs = registration_outputs,
+        target_id = sanitize_target_id(target_name),
         extra_includes = extra_includes,
         dep_module_sources = {},
         deps = opts.deps or {},
@@ -1573,8 +1606,16 @@ function gentest_attach_codegen(opts)
             add_files(entry.output_rel, {public = true, always_added = true})
         end
     end
-    add_files(source, {public = kind == "modules", always_added = true})
-    add_files(registration_cpp, {always_added = true})
+    if source and source ~= "" then
+        add_files(source, {public = kind == "modules", always_added = true})
+    end
+    if kind == "textual" then
+        for _, slot_cpp in ipairs(registration_cpps) do
+            add_files(slot_cpp, {always_added = true})
+        end
+    else
+        add_files(registration_cpp, {always_added = true})
+    end
     if main_source then
         add_files(main_source, {always_added = true})
     end
@@ -1589,9 +1630,20 @@ function gentest_attach_codegen(opts)
         add_deps(table.unpack(dep_targets))
     end
     on_config(function ()
+        local compdb_sources = {}
+        if config.source_file then
+            table.insert(compdb_sources, config.source_file)
+        end
+        if config.registration_outputs and #config.registration_outputs > 0 then
+            for _, registration_output in ipairs(config.registration_outputs) do
+                table.insert(compdb_sources, registration_output)
+            end
+        elseif config.registration_output then
+            table.insert(compdb_sources, config.registration_output)
+        end
         ensure_fallback_compdb(
             config.fallback_compdb_file,
-            {config.source_file, config.registration_output},
+            compdb_sources,
             config.defines,
             incdirs(),
             config.clang_args,
