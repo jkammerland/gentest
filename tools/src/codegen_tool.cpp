@@ -1830,6 +1830,19 @@ class MatchFinderActionFactory final : public clang::tooling::FrontendActionFact
     bool                              skip_function_bodies_ = false;
 };
 
+// MSVC cl.exe's module mapping flags that take their value as a separate argument, as spelled in
+// CMake's exported compile_commands.json and .modmap files.
+bool is_msvc_module_mapping_value_flag(std::string_view arg) {
+    return arg == "-ifcOutput" || arg == "/ifcOutput" || arg == "-reference" || arg == "/reference" || arg == "-headerUnit:angle" ||
+           arg == "/headerUnit:angle" || arg == "-headerUnit:quote" || arg == "/headerUnit:quote";
+}
+
+// MSVC cl.exe's module mapping flags: the valueless BMI-emission flags plus the value-taking ones.
+bool is_msvc_module_mapping_flag(std::string_view arg) {
+    return is_msvc_module_mapping_value_flag(arg) || arg == "-interface" || arg == "/interface" || arg == "-internalPartition" ||
+           arg == "/internalPartition";
+}
+
 bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_args = false) {
     // CMake's experimental C++ modules support (and some GCC-based toolchains)
     // can inject GCC-only module/dependency scanning flags into compile commands.
@@ -1843,10 +1856,9 @@ bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_
     // not understand them; it silently drops the flag but leaves "-ifcOutput"'s path argument as a
     // stray positional source, which then collides with the existing single-file "/Fo" output flag.
     // They control BMI/object emission we don't need for scanning, so strip them unconditionally.
-    const bool is_msvc_module_bmi_arg = arg == "-interface" || arg == "/interface";
     return arg == "-fmodules-ts" || arg == "-fmodule-header" || arg == "-fmodule-only" || is_build_system_dependency_scan_arg ||
            (!preserve_module_mapping_args && is_module_mapping_arg) || arg == "-fconcepts-diagnostics-depth" ||
-           arg.starts_with("-fconcepts-diagnostics-depth=") || is_msvc_module_bmi_arg ||
+           arg.starts_with("-fconcepts-diagnostics-depth=") || is_msvc_module_mapping_flag(arg) ||
            // -Werror (and variants) are useful for real builds but make codegen brittle, because
            // warnings (unknown attributes/options) would abort parsing.
            arg == "-Werror" || arg.starts_with("-Werror=") || arg == "-pedantic-errors";
@@ -2998,7 +3010,7 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
             skip_value = false;
             continue;
         }
-        if (is_compile_output_option(argument)) {
+        if (is_compile_output_option(argument) || is_msvc_module_mapping_value_flag(argument)) {
             skip_value = true;
             continue;
         }
@@ -3208,12 +3220,29 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
                 skip_next_arg = true;
                 continue;
             }
-            // "-ifcOutput <path>" (MSVC cl.exe's BMI output flag, as spelled in compile_commands.json)
-            // takes its path as a separate argument; clang-cl doesn't recognize the flag and would
-            // otherwise treat the orphaned path as an extra positional source file. See the
-            // "-interface" stripping note in should_strip_compdb_arg for the failure this causes.
-            if (arg == "-ifcOutput" || arg == "/ifcOutput") {
-                skip_next_arg = true;
+            // MSVC cl.exe's module flags as spelled in CMake's exported compile_commands.json and
+            // .modmap files. "-ifcOutput", "-reference", and "-headerUnit:*" take their value as a
+            // separate argument. Clang never uses them: in GNU mode they are hard errors, and in MSVC
+            // driver mode an orphaned value (once its flag is stripped, or once LLVM's
+            // InterpolatingCompilationDatabase has dropped it while borrowing a command for a file
+            // absent from the database) becomes a stray positional source that fails with "no such
+            // file or directory". Only consume the next token as the value when it is not the
+            // following flag: CMake exports the modmap flags dash-spelled, so a '-' prefix always
+            // marks an option, and the slash spellings are rejected via
+            // is_msvc_module_mapping_flag. A bare '/' prefix must not be treated as an option, or
+            // an absolute POSIX value path leaks as a stray positional.
+            if (is_msvc_module_mapping_value_flag(arg)) {
+                if (i + 1 < sanitized_command_line.size()) {
+                    const auto &next = sanitized_command_line[i + 1];
+                    if (!next.empty() && next.front() != '-' && !is_msvc_module_mapping_flag(next)) {
+                        skip_next_arg = true;
+                    }
+                }
+                continue;
+            }
+            if (arg.starts_with("-ifcOutput=") || arg.starts_with("/ifcOutput:") || arg.starts_with("-reference=") ||
+                arg.starts_with("/reference:") || arg.starts_with("-headerUnit:angle=") || arg.starts_with("/headerUnit:angle:") ||
+                arg.starts_with("-headerUnit:quote=") || arg.starts_with("/headerUnit:quote:")) {
                 continue;
             }
             if (should_strip_compdb_arg(arg, preserve_module_mapping_args)) {
@@ -3258,6 +3287,53 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
     if (use_synthetic_fallback) {
         adjusted.emplace_back(file.str());
     }
+    // In MSVC driver mode the cl option parser treats any argument that begins
+    // with a recognized option prefix as an option. An absolute POSIX input
+    // path is therefore consumed as one: "/Users/..." matches "/U" (with a
+    // -Wslash-u-filename warning), "/Include/..." matches "/I" and
+    // "/Development/..." matches "/D" with no diagnostic at all, and the driver
+    // fails with "error: no input files". This only happens when a cl-style
+    // compile command is replayed on a POSIX host; on Windows the paths are
+    // "C:\..." and never collide. Move the input to the end behind "--" so the
+    // driver always treats it as a positional input.
+    //
+    // Relocating rather than inserting in place is what makes this work: the
+    // input is rarely the final argument. ClangTool's default adjusters append
+    // "-fsyntax-only" before this adjuster runs, and extra_module_args are
+    // appended above, so both would otherwise sit behind the separator and be
+    // demoted to input files themselves. Matching on the emitted argument
+    // rather than on `file` keeps the comparison working when the compile
+    // database spells the input relative to its directory.
+    if (std::ranges::find(sanitized_command_line, std::string("--driver-mode=cl")) != sanitized_command_line.end()) {
+        const auto normalized_file = normalize_compdb_lookup_path(file.str(), "");
+        const auto input_it        = std::ranges::find_if(adjusted, [&](const std::string &arg) {
+            return arg.starts_with("/") && normalize_compdb_lookup_path(arg, "") == normalized_file;
+        });
+        if (input_it != adjusted.end()) {
+            std::string input_path = std::move(*input_it);
+            adjusted.erase(input_it);
+            adjusted.emplace_back("--");
+            adjusted.emplace_back(std::move(input_path));
+        }
+    }
+    // Kept commented out rather than deleted: dumping the incoming and outgoing
+    // command lines side by side is how the MSVC driver-mode argument handling
+    // above gets diagnosed, and reconstructing it costs more than it saves.
+    // Uncomment to trace every adjustment.
+    //
+    // if (const auto dbg = get_env_value("GENTEST_CODEGEN_LOG_ADJUSTED_CMD"); dbg.has_value()) {
+    //     auto dump = [](const clang::tooling::CommandLineArguments &args) {
+    //         std::string s;
+    //         for (const auto &a : args) {
+    //             s += a + " | ";
+    //         }
+    //         return s;
+    //     };
+    //     const bool has_cl_mode =
+    //         std::ranges::find(sanitized_command_line, std::string("--driver-mode=cl")) != sanitized_command_line.end();
+    //     gentest::codegen::log_err("DBG-ADJ file=[{}] has_cl_mode={} in=[{}] out=[{}]\n", file.str(), has_cl_mode,
+    //                               dump(command_line), dump(adjusted));
+    // }
     return adjusted;
 }
 
@@ -3390,10 +3466,22 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
         command.emplace_back("-x");
         command.emplace_back("c++-module");
     }
-    command.emplace_back("--precompile");
-    command.emplace_back(source_file);
-    command.emplace_back("-o");
-    command.emplace_back(pcm_path.string());
+    const bool cl_driver_mode = std::ranges::find(adjusted_command_line, std::string("--driver-mode=cl")) != adjusted_command_line.end();
+    if (cl_driver_mode && source_file.starts_with("/")) {
+        // In cl driver mode an absolute POSIX source path is misparsed as an
+        // option (e.g. /Users/... as /U). Emit the output option before "--"
+        // so the source path is consumed as a positional input.
+        command.emplace_back("--precompile");
+        command.emplace_back("-o");
+        command.emplace_back(pcm_path.string());
+        command.emplace_back("--");
+        command.emplace_back(source_file);
+    } else {
+        command.emplace_back("--precompile");
+        command.emplace_back(source_file);
+        command.emplace_back("-o");
+        command.emplace_back(pcm_path.string());
+    }
     return command;
 }
 

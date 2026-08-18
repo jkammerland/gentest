@@ -56,6 +56,22 @@ Unstable inside. No backward compatibility.
 ### Fixed
 
 - Meson forwards fmt include directories.
+- Codegen strips MSVC `.modmap` module-mapping flags value-aware: a flag
+  that takes a separate value argument only consumes the next token when it
+  cannot be an option, so an orphaned `-ifcOutput` value (dropped when LLVM
+  borrows a compile command for a file absent from the database) can no
+  longer swallow the following `-reference` flag and fail the scan with
+  "no such file or directory".
+- Codegen guards absolute POSIX paths when a `cl`-style compile command is
+  used on a POSIX host: in MSVC driver mode an absolute path is misparsed by
+  the cl option parser as an option -- `/Users/...` as `/U`, and `/Include/...`
+  as `/I` with no diagnostic at all -- and the command fails with "no input
+  files". Codegen now moves the input file to the end of every MSVC-mode
+  command behind `--`, and reorders the external-module precompile tail
+  (`--precompile -o <pcm> -- <source>`), so the driver always treats the paths
+  as positional inputs. Relocating the input rather than inserting a separator
+  in place is what covers the parse command, whose input is followed by
+  `-fsyntax-only` and `-fmodule-file=` arguments.
 
 ### Documentation
 
