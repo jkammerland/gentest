@@ -1843,6 +1843,21 @@ bool is_msvc_module_mapping_flag(std::string_view arg) {
            arg == "/internalPartition";
 }
 
+// GNU-style module and dependency-scanning flags that build systems emit with their value as a
+// separate argument, but which clang's option table does not know in that spelling: the bare flag is
+// an unknown argument and its value is classified as an input. LLVM's
+// InterpolatingCompilationDatabase therefore drops the value when it borrows a command for a file
+// absent from the database, leaving the flag orphaned in front of the following flag.
+bool is_separate_value_module_flag(std::string_view arg) {
+    return arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" || arg == "-fmodule-file" ||
+           arg == "-fprebuilt-module-path" || arg == "-fconcepts-diagnostics-depth";
+}
+
+// True when a token can be a separate-value flag's value. In GNU driver mode '-' is the only option
+// prefix, so a token starting with it is the following flag rather than an orphaned flag's value.
+// Unlike the MSVC spellings, a leading '/' must be accepted: it starts an absolute POSIX path.
+bool can_be_separate_flag_value(std::string_view next) { return !next.empty() && next.front() != '-'; }
+
 bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_args = false) {
     // CMake's experimental C++ modules support (and some GCC-based toolchains)
     // can inject GCC-only module/dependency scanning flags into compile commands.
@@ -2620,15 +2635,24 @@ std::vector<std::string> collect_module_file_args_from_command_line(std::span<co
     bool                     consume_module_file          = false;
     bool                     consume_prebuilt_module_path = false;
     for (const auto &arg : command_line) {
+        // The pending flag's value may be gone: clang does not know the two-token spelling, so LLVM's
+        // InterpolatingCompilationDatabase classifies the value as an input and drops it when it
+        // borrows a command. Splicing the next token in regardless would fabricate a bogus
+        // "-fmodule-file=<following flag>" and forward it into every later parse command, so fall
+        // through and re-evaluate the token when it cannot be a value.
         if (consume_module_file) {
-            args.push_back(std::string("-fmodule-file=") + arg);
             consume_module_file = false;
-            continue;
+            if (can_be_separate_flag_value(arg)) {
+                args.push_back(std::string("-fmodule-file=") + arg);
+                continue;
+            }
         }
         if (consume_prebuilt_module_path) {
-            args.push_back(std::string("-fprebuilt-module-path=") + arg);
             consume_prebuilt_module_path = false;
-            continue;
+            if (can_be_separate_flag_value(arg)) {
+                args.push_back(std::string("-fprebuilt-module-path=") + arg);
+                continue;
+            }
         }
         if (arg == "-fmodule-file") {
             consume_module_file = true;
@@ -3214,10 +3238,19 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             if (is_shell_control_token(arg)) {
                 break;
             }
-            if (arg == "-fmodule-mapper" || arg == "-fdeps-format" || arg == "-fdeps-file" || arg == "-fdeps-target" ||
-                (!preserve_module_mapping_args && (arg == "-fmodule-file" || arg == "-fprebuilt-module-path")) ||
-                arg == "-fconcepts-diagnostics-depth") {
-                skip_next_arg = true;
+            // These flags take their value as a separate argument, and clang rejects every one of
+            // them in that spelling, so the value only ever reaches us as a stray positional. Consume
+            // it only when it can actually be the value: once LLVM's InterpolatingCompilationDatabase
+            // has dropped the value (it classifies it as an input) the flag is orphaned, and
+            // consuming unconditionally would swallow the following flag and leak its value as a
+            // positional source instead. A value never starts with '-'; a leading '/' is an ordinary
+            // absolute POSIX path and must still be consumed.
+            const bool is_preserved_module_mapping_flag =
+                preserve_module_mapping_args && (arg == "-fmodule-file" || arg == "-fprebuilt-module-path");
+            if (is_separate_value_module_flag(arg) && !is_preserved_module_mapping_flag) {
+                if (i + 1 < sanitized_command_line.size() && can_be_separate_flag_value(sanitized_command_line[i + 1])) {
+                    skip_next_arg = true;
+                }
                 continue;
             }
             // MSVC cl.exe's module flags as spelled in CMake's exported compile_commands.json and

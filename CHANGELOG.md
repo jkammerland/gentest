@@ -62,6 +62,15 @@ Unstable inside. No backward compatibility.
   borrows a compile command for a file absent from the database) can no
   longer swallow the following `-reference` flag and fail the scan with
   "no such file or directory".
+- Codegen applies the same value-aware consumption to the GNU-style module
+  and dependency-scanning flags that build systems spell with a separate
+  value argument (`-fmodule-file`, `-fprebuilt-module-path`, `-fmodule-mapper`,
+  `-fdeps-format`, `-fdeps-file`, `-fdeps-target`,
+  `-fconcepts-diagnostics-depth`). Clang's option table knows none of them in
+  that spelling, so LLVM drops their values when it borrows a compile command;
+  the orphaned flag no longer swallows the flag that follows it, and the
+  module-argument collector no longer splices a following flag into a bogus
+  `-fmodule-file=<flag>` and forwards it into later parse commands.
 - Codegen guards absolute POSIX paths when a `cl`-style compile command is
   used on a POSIX host: in MSVC driver mode an absolute path is misparsed by
   the cl option parser as an option -- `/Users/...` as `/U`, and `/Include/...`
