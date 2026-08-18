@@ -43,6 +43,13 @@ gentest_textual_suites = [
     'mocks': ['gentest_downstream_textual_mocks'],
     'test_name': 'meson_downstream_textual',
   },
+  {
+    'name': 'gentest_downstream_header_only',
+    'id': 'downstream_header_only',
+    'declaration_headers': ['tests/header_only_cases.hpp'],
+    'source_includes': ['tests'],
+    'test_name': 'meson_downstream_header_only',
+  },
 ]
 
 subdir('subprojects/gentest/meson/textual')

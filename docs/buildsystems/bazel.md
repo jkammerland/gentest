@@ -278,10 +278,13 @@ your_project/
     private_case_value.hpp
 ```
 
-For textual suites, `src` is compiled directly and exactly once. It must include
-a self-contained annotated declaration header listed in `source_hdrs`; codegen
-appends `tu_0000_<stem>.header_registration.gentest.cpp`. `source_hdrs` are
-declared action dependencies, not independently inferred scan slots.
+For textual suites, `source_hdrs` are the suite inputs and are declared action
+dependencies, not independently inferred scan slots. A header-only suite lists
+only `source_hdrs`; codegen appends
+`tu_0000_<stem>.header_registration.gentest.cpp`, which is the target's compiled
+source. A suite with out-of-line definitions additionally passes `src`, which is
+compiled directly and exactly once and must include the self-contained annotated
+declaration header listed in `source_hdrs`.
 
 For module suites, the authored `.cppm` is the `module_interfaces` input and the
 generated ordinary importer is appended to `srcs`; Bazel does not stage or copy

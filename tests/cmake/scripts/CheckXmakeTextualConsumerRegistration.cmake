@@ -215,6 +215,34 @@ foreach(_expected_source IN ITEMS
       "xmake target output:\n${_target_out}")
   endif()
 endforeach()
+
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
+          "${_xmake}" show ${_xmake_show_args} -t gentest_consumer_header_only_xmake
+  RESULT_VARIABLE _header_only_rc
+  OUTPUT_VARIABLE _header_only_out
+  ERROR_VARIABLE _header_only_err)
+if(NOT _header_only_rc EQUAL 0)
+  message(FATAL_ERROR
+    "xmake show -t gentest_consumer_header_only_xmake failed for clean textual registration check.\n"
+    "stdout:\n${_header_only_out}\n"
+    "stderr:\n${_header_only_err}")
+endif()
+string(REPLACE "\\" "/" _header_only_out_norm "${_header_only_out}")
+
+string(FIND "${_header_only_out_norm}" "tu_0000_header_only_cases.header_registration.gentest.cpp" _header_only_source_pos)
+if(_header_only_source_pos EQUAL -1)
+  message(FATAL_ERROR
+    "gentest_consumer_header_only_xmake should compile its generated registration source.\n"
+    "xmake target output:\n${_header_only_out}")
+endif()
+string(FIND "${_header_only_out_norm}" "cases.cpp" _header_only_authored_pos)
+if(NOT _header_only_authored_pos EQUAL -1)
+  message(FATAL_ERROR
+    "gentest_consumer_header_only_xmake must not compile an authored cases.cpp.\n"
+    "xmake target output:\n${_header_only_out}")
+endif()
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env}
           "${_xmake}" show ${_xmake_show_args} -t gentest_consumer_module_mocks_xmake

@@ -11,6 +11,8 @@ endif()
 
 set(_hello_cmake "${SOURCE_DIR}/examples/hello/CMakeLists.txt")
 set(_hello_cases "${SOURCE_DIR}/examples/hello/cases.cpp")
+set(_header_only_cmake "${SOURCE_DIR}/examples/hello_header_only/CMakeLists.txt")
+set(_header_only_cases "${SOURCE_DIR}/examples/hello_header_only/cases.hpp")
 set(_module_cmake "${SOURCE_DIR}/examples/hello_modules/CMakeLists.txt")
 set(_module_cases "${SOURCE_DIR}/examples/hello_modules/cases.cppm")
 set(_readme "${SOURCE_DIR}/README.md")
@@ -21,6 +23,8 @@ set(_modules_doc "${SOURCE_DIR}/docs/modules.md")
 foreach(_required IN ITEMS
     "${_hello_cmake}"
     "${_hello_cases}"
+    "${_header_only_cmake}"
+    "${_header_only_cases}"
     "${_module_cmake}"
     "${_module_cases}"
     "${_readme}"
@@ -57,6 +61,22 @@ endforeach()
 
 foreach(_token IN ITEMS
     "find_package(gentest CONFIG REQUIRED)"
+    "target_link_libraries(gentest_hello_header_only PRIVATE gentest::gentest_main)"
+    "gentest_attach_codegen(gentest_hello_header_only"
+    "gentest_discover_tests(gentest_hello_header_only)")
+  _assert_contains("${_header_only_cmake}" "${_token}" "header-only example CMake contract")
+endforeach()
+
+foreach(_token IN ITEMS
+    "#include \"gentest/test.h\""
+    "inline void"
+    "gentest::expect_true"
+    "EXPECT_EQ")
+  _assert_contains("${_header_only_cases}" "${_token}" "header-only example source contract")
+endforeach()
+
+foreach(_token IN ITEMS
+    "find_package(gentest CONFIG REQUIRED)"
     "CXX_MODULE_SETS"
     "FILE_SET module_cases TYPE CXX_MODULES"
     "gentest::gentest"
@@ -74,10 +94,20 @@ foreach(_token IN ITEMS
   _assert_contains("${_module_cases}" "${_token}" "module example source contract")
 endforeach()
 
+# Anchor tokens to the per-example link/path syntax so a substring of one
+# example's name (e.g. "examples/hello" inside "examples/hello_header_only")
+# cannot satisfy the assertion for another example.
 foreach(_token IN ITEMS
-    "examples/hello"
+    "examples/hello)"
+    "examples/hello_header_only"
     "examples/hello_modules")
   _assert_contains("${_readme}" "${_token}" "README examples contract")
+endforeach()
+
+foreach(_token IN ITEMS
+    "examples/hello/"
+    "examples/hello_header_only/"
+    "examples/hello_modules/")
   _assert_contains("${_examples_readme}" "${_token}" "examples README contract")
 endforeach()
 

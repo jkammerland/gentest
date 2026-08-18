@@ -1,0 +1,16 @@
+# Staged as the workspace root BUILD.bazel by CheckBazelTextualConsumer.cmake.
+# This fixture must stay out of the parent workspace's package tree: it fails
+# at load time on purpose, so an in-tree BUILD.bazel would break `bazel //...`
+# wildcards. The staged workspace references the parent tree through
+# local_path_override in a generated MODULE.bazel.
+#
+# A textual target with neither src nor source_hdrs must fail with a focused
+# diagnostic instead of a generic Starlark error.
+load(
+    '@gentest//bazel:defs.bzl',
+    'gentest_attach_codegen_textual',
+)
+
+gentest_attach_codegen_textual(
+    name = 'bad',
+)

@@ -58,7 +58,9 @@ foreach suite_decl : gentest_textual_suites
   if suite_decl.get('kind', 'textual') != 'textual'
     error('gentest Meson helper is textual-only; named modules are intentionally unsupported')
   endif
-  gentest_textual_support_seed_paths += [suite_decl['source']]
+  if suite_decl.get('source', '') != ''
+    gentest_textual_support_seed_paths += [suite_decl['source']]
+  endif
   gentest_textual_support_seed_paths += suite_decl.get('declaration_headers', [])
   gentest_textual_support_seed_paths += suite_decl.get('source_includes', [])
 endforeach
@@ -193,9 +195,9 @@ gentest_textual_suite_codegen_targets = {}
 foreach suite_decl : gentest_textual_suites
   suite_name = suite_decl['name']
   suite_id = suite_decl.get('id', suite_name)
-  suite_source = suite_decl['source']
+  suite_source = suite_decl.get('source', '')
   suite_source_abs = suite_source
-  if not fs.is_absolute(suite_source_abs)
+  if suite_source != '' and not fs.is_absolute(suite_source_abs)
     suite_source_abs = join_paths(meson.project_source_root(), suite_source_abs)
   endif
   suite_main = suite_decl.get('main', [])
@@ -208,6 +210,9 @@ foreach suite_decl : gentest_textual_suites
     endif
     suite_declaration_header_inputs += [declaration_header_abs]
   endforeach
+  if suite_source == '' and suite_declaration_header_inputs.length() == 0
+    error('gentest Meson suite "@0@" needs `source`, `declaration_headers`, or both'.format(suite_name))
+  endif
 
   suite_source_includes = suite_decl.get('source_includes', [])
   suite_clang_args = gentest_textual_base_clang_args + suite_decl.get('clang_args', [])
@@ -231,33 +236,85 @@ foreach suite_decl : gentest_textual_suites
     suite_mock_libraries += [gentest_textual_mock_targets[suite_mock_name]]
   endforeach
 
-  suite_registration_cpp = 'tu_0000_@0@_cases.header_registration.gentest.cpp'.format(suite_id)
+  # An authored `source` is scanned as the suite's single translation unit. A
+  # suite without one scans each declaration header on its own; the generated
+  # registration sources are then the suite's translation units.
   suite_depfile = '@0@.gentest.d'.format(suite_id)
   suite_manifest = '@0@.artifact_manifest.json'.format(suite_name)
+  suite_scan_inputs = []
+  suite_scan_slot_kinds = []
+  suite_registration_cpps = []
+  if suite_source != ''
+    suite_scan_inputs += [suite_source_abs]
+    suite_scan_slot_kinds += ['authored-tu']
+    suite_registration_cpps += ['tu_0000_@0@_cases.header_registration.gentest.cpp'.format(suite_id)]
+  else
+    # Slot indices are zero-padded to four digits (the CMake naming contract)
+    # and widen naturally for larger suites.
+    suite_header_index = 0
+    foreach declaration_header_abs : suite_declaration_header_inputs
+      suite_scan_inputs += [declaration_header_abs]
+      suite_scan_slot_kinds += ['fallback-header']
+      suite_header_slot = suite_header_index.to_string()
+      if suite_header_slot.substring(0, 4) == suite_header_slot
+        suite_header_slot = ('0000' + suite_header_slot).substring(-4)
+      endif
+      suite_registration_cpps += ['tu_@0@_@1@_@2@.header_registration.gentest.cpp'.format(
+        suite_header_slot, suite_id, fs.stem(declaration_header_abs))]
+      suite_header_index += 1
+    endforeach
+  endif
+
+  suite_codegen_command = [
+    gentest_codegen,
+    '--source-root', meson.project_source_root(),
+    '--tu-out-dir', meson.current_build_dir(),
+    '--depfile', join_paths(meson.current_build_dir(), suite_depfile),
+    '--artifact-manifest', join_paths(meson.current_build_dir(), suite_manifest),
+  ]
+  suite_slot_index = 0
+  foreach scan_input : suite_scan_inputs
+    suite_codegen_command += [
+      '--textual-registration-output',
+      join_paths(meson.current_build_dir(), suite_registration_cpps[suite_slot_index]),
+      '--scan-slot-kind', suite_scan_slot_kinds[suite_slot_index],
+      '--compile-context-id', '@0@:@1@'.format(suite_name, scan_input),
+    ]
+    suite_slot_index += 1
+  endforeach
+  suite_codegen_command += [gentest_codegen_tool_args]
+  # Scan slots occupy the leading `input:` positions so these @INPUTn@
+  # references resolve to them; support inputs follow for dependency tracking.
+  suite_slot_index = 0
+  foreach scan_input : suite_scan_inputs
+    suite_codegen_command += ['@INPUT' + suite_slot_index.to_string() + '@']
+    suite_slot_index += 1
+  endforeach
+  suite_codegen_command += ['--', suite_clang_args]
+
+  # Declaration headers are already scan slots for a header-only suite; list
+  # them again only when an authored source needs them tracked as inputs.
+  suite_extra_header_inputs = []
+  if suite_source != ''
+    suite_extra_header_inputs = suite_declaration_header_inputs
+  endif
 
   suite_codegen = custom_target(
     'gen_@0@'.format(suite_id),
-    output: [suite_registration_cpp, suite_manifest],
-    input: [suite_source_abs] + suite_declaration_header_inputs + suite_mock_codegen_inputs + gentest_textual_support_inputs,
-    command: [
-      gentest_codegen,
-      '--source-root', meson.project_source_root(),
-      '--tu-out-dir', meson.current_build_dir(),
-      '--textual-registration-output', join_paths(meson.current_build_dir(), suite_registration_cpp),
-      '--scan-slot-kind', 'authored-tu',
-      '--depfile', join_paths(meson.current_build_dir(), suite_depfile),
-      '--artifact-manifest', join_paths(meson.current_build_dir(), suite_manifest),
-      '--compile-context-id', '@0@:@1@'.format(suite_name, suite_source_abs),
-      gentest_codegen_tool_args,
-      '@INPUT0@',
-      '--',
-      suite_clang_args,
-    ],
+    output: suite_registration_cpps + [suite_manifest],
+    input: suite_scan_inputs + suite_extra_header_inputs + suite_mock_codegen_inputs + gentest_textual_support_inputs,
+    command: suite_codegen_command,
     depfile: suite_depfile,
     build_by_default: suite_decl.get('build_by_default', true)
   )
 
-  suite_sources = [suite_source_abs, suite_codegen[0]]
+  suite_sources = []
+  if suite_source != ''
+    suite_sources += [suite_source_abs]
+  endif
+  foreach suite_registration_index : range(suite_registration_cpps.length())
+    suite_sources += [suite_codegen[suite_registration_index]]
+  endforeach
   suite_sources += suite_main
   suite_target = executable(
     suite_name,

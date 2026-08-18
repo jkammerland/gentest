@@ -279,6 +279,88 @@ if(NOT _authored_include_pos EQUAL -1)
   message(FATAL_ERROR "Additive Meson registration must not include the authored cases.cpp.\n${_registration_source_content}")
 endif()
 
+# A suite without an authored .cpp scans each declaration header on its own;
+# the generated registration sources are then the suite's translation units.
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_meson_env} "${_meson}" compile -C "${_out_dir}" -v gentest_downstream_header_only
+  WORKING_DIRECTORY "${_scratch_root}/workspace"
+  RESULT_VARIABLE _header_only_build_rc
+  OUTPUT_VARIABLE _header_only_build_out
+  ERROR_VARIABLE _header_only_build_err)
+if(NOT _header_only_build_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Meson wrap consumer header-only compile failed.\n"
+    "stdout:\n${_header_only_build_out}\n"
+    "stderr:\n${_header_only_build_err}")
+endif()
+
+foreach(_expected_file IN ITEMS
+    "${_meson_textual_dir}/tu_0000_downstream_header_only_header_only_cases.header_registration.gentest.cpp"
+    "${_meson_textual_dir}/gentest_downstream_header_only.artifact_manifest.json")
+  if(NOT EXISTS "${_expected_file}")
+    message(FATAL_ERROR
+      "Meson wrap consumer header-only build did not produce expected artifact '${_expected_file}'.\n"
+      "stdout:\n${_header_only_build_out}\n"
+      "stderr:\n${_header_only_build_err}")
+  endif()
+endforeach()
+
+set(_header_only_manifest "${_meson_textual_dir}/gentest_downstream_header_only.artifact_manifest.json")
+file(READ "${_header_only_manifest}" _header_only_manifest_json)
+foreach(_expected_manifest_token IN ITEMS
+    "\"kind\": \"cxx-header-declaration-registration\""
+    "\"target_attachment\": \"append-generated-source\""
+    "\"includes_authored_source\": false"
+    "\"replaces_authored_source\": false"
+    "\"scan_slot_kind\": \"fallback-header\""
+    "\"requires_module_scan\": false")
+  string(FIND "${_header_only_manifest_json}" "${_expected_manifest_token}" _header_only_manifest_token_pos)
+  if(_header_only_manifest_token_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson wrap consumer header-only artifact manifest is missing '${_expected_manifest_token}'.\n"
+      "${_header_only_manifest_json}")
+  endif()
+endforeach()
+
+set(_header_only_bin "${_meson_textual_dir}/gentest_downstream_header_only")
+if(NOT EXISTS "${_header_only_bin}")
+  message(FATAL_ERROR "Expected built Meson header-only consumer binary was not found: ${_header_only_bin}")
+endif()
+
+execute_process(
+  COMMAND "${_header_only_bin}" --list
+  RESULT_VARIABLE _header_only_list_rc
+  OUTPUT_VARIABLE _header_only_list_out
+  ERROR_VARIABLE _header_only_list_err)
+if(NOT _header_only_list_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Meson header-only consumer listing failed.\n"
+    "stdout:\n${_header_only_list_out}\n"
+    "stderr:\n${_header_only_list_err}")
+endif()
+foreach(_expected IN ITEMS
+    "downstream/header_only/header_only_test"
+    "downstream/header_only/header_only_second")
+  string(FIND "${_header_only_list_out}" "${_expected}" _header_only_expected_pos)
+  if(_header_only_expected_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Meson header-only consumer listing is missing '${_expected}'.\n"
+      "stdout:\n${_header_only_list_out}")
+  endif()
+endforeach()
+
+execute_process(
+  COMMAND "${_header_only_bin}"
+  RESULT_VARIABLE _header_only_run_rc
+  OUTPUT_VARIABLE _header_only_run_out
+  ERROR_VARIABLE _header_only_run_err)
+if(NOT _header_only_run_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Meson header-only consumer run failed.\n"
+    "stdout:\n${_header_only_run_out}\n"
+    "stderr:\n${_header_only_run_err}")
+endif()
+
 set(_consumer_bin "${_meson_textual_dir}/gentest_downstream_textual")
 if(NOT EXISTS "${_consumer_bin}")
   message(FATAL_ERROR "Expected built Meson wrap consumer binary was not found: ${_consumer_bin}")

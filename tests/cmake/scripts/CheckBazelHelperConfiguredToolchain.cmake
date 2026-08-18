@@ -257,6 +257,46 @@ function Write-TextualArtifactManifest(
   Write-AsciiFile $Path $Manifest
 }
 
+function Write-HeaderOnlyArtifactManifest(
+  [string]$Path,
+  [string]$OwnerSource,
+  [string]$RegistrationSource,
+  [string]$CompileContext) {
+  $NormalizedRegistration = $RegistrationSource -replace '\\', '/'
+  $Manifest = @"
+{
+  "schema": "gentest.artifact_manifest.v1",
+  "sources": [
+    {
+      "source": "$OwnerSource",
+      "kind": "cxx-header-declaration-registration",
+      "scan_source": "$OwnerSource",
+      "scan_slot_kind": "fallback-header",
+      "registration_output": "$NormalizedRegistration",
+      "compile_context_id": "$CompileContext",
+      "compile_context_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "$NormalizedRegistration",
+      "role": "registration",
+      "compile_as": "cxx-header-declaration-registration",
+      "owner_source": "$OwnerSource",
+      "target_attachment": "append-generated-source",
+      "compile_context_id": "$CompileContext",
+      "compile_context_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "requires_module_scan": false,
+      "includes_authored_source": false,
+      "replaces_authored_source": false,
+      "depfile": ""
+    }
+  ]
+}
+"@
+  Write-AsciiFile $Path $Manifest
+}
+
 function New-Runner([string]$Path) {
   $Runner = @'
 @echo off
@@ -274,6 +314,21 @@ echo downstream/bazel/mock
 echo downstream/bazel/log_sink
 echo downstream/bazel/bench
 echo downstream/bazel/jitter
+:done
+exit /b 0
+'@
+  Write-AsciiFile $Path $Runner
+}
+
+function New-HeaderOnlyRunner([string]$Path) {
+  $Runner = @'
+@echo off
+if /I "%~1"=="--list" goto list
+if /I "%~1"=="--list-tests" goto list
+goto done
+:list
+echo consumer/header_only/header_only_test
+echo consumer/header_only/header_only_second
 :done
 exit /b 0
 '@
@@ -346,10 +401,17 @@ Assert-EnvEquals 'LLVM_DIR' $env:EXPECT_LLVM_DIR 5
 Assert-EnvEquals 'Clang_DIR' $env:EXPECT_CLANG_DIR 6
 Assert-EnvEquals 'GENTEST_BAZEL_LOCAL_CLANG' $env:EXPECT_CXX 7
 
+foreach ($Arg in $RemainingArgs) {
+  if ($Arg -eq '//:bad') {
+    [Console]::Error.WriteLine('ERROR: /BUILD.bazel:3:23: Error in fail: bad: gentest_attach_codegen_textual requires src, source_hdrs, or both')
+    exit 1
+  }
+}
+
 New-Item -ItemType Directory -Force -Path $BazelBin | Out-Null
 
 foreach ($Arg in $RemainingArgs) {
-  if (@('//:gentest_consumer_textual_bazel', '//:gentest_consumer_textual_mocks') -contains $Arg) {
+  if (@('//:gentest_consumer_textual_bazel', '//:gentest_consumer_textual_mocks', '//:gentest_consumer_header_only_bazel') -contains $Arg) {
     foreach ($File in @(
         'gen/gentest_consumer_textual_mocks/gentest_consumer_mocks.hpp',
         'gen/gentest_consumer_textual_mocks/gentest_consumer_textual_mocks_anchor.cpp',
@@ -368,6 +430,14 @@ foreach ($Arg in $RemainingArgs) {
       $TextualRegistrationPath `
       'gentest_consumer_textual_bazel:tests/consumer/cases.cpp'
     New-Runner (Join-Path $BazelBin 'gentest_consumer_textual_bazel.cmd')
+    $HeaderOnlyRegistrationPath = Join-Path $BazelBin 'gen/gentest_consumer_header_only_bazel/tu_0000_header_only_cases.header_registration.gentest.cpp'
+    Touch-File $HeaderOnlyRegistrationPath
+    Write-HeaderOnlyArtifactManifest `
+      (Join-Path $BazelBin 'gen/gentest_consumer_header_only_bazel/gentest_consumer_header_only_bazel.artifact_manifest.json') `
+      'tests/consumer/header_only_cases.hpp' `
+      $HeaderOnlyRegistrationPath `
+      'gentest_consumer_header_only_bazel:tests/consumer/header_only_cases.hpp'
+    New-HeaderOnlyRunner (Join-Path $BazelBin 'gentest_consumer_header_only_bazel.cmd')
     Touch-File (Join-Path $env:MARKER_DIR 'textual.ok')
   } elseif (@('//:gentest_consumer_module_bazel', '//:gentest_consumer_module_mocks') -contains $Arg) {
     foreach ($File in @(
@@ -518,6 +588,13 @@ if [ "${GENTEST_BAZEL_LOCAL_CLANG:-}" != "${EXPECT_CXX:-}" ]; then
   exit 8
 fi
 
+for arg in "$@"; do
+  if [ "$arg" = "//:bad" ]; then
+    echo "ERROR: /BUILD.bazel:3:23: Error in fail: bad: gentest_attach_codegen_textual requires src, source_hdrs, or both" >&2
+    exit 1
+  fi
+done
+
 mkdir -p "$bazel_bin"
 
 make_runner() {
@@ -631,9 +708,67 @@ write_textual_artifact_manifest() {
 EOF
 }
 
+write_header_only_artifact_manifest() {
+  manifest="$1"
+  owner_source="$2"
+  registration_source="$3"
+  compile_context="$4"
+  registration_path=$(printf '%s' "$registration_source" | tr '\\' '/')
+  mkdir -p "$(dirname "$manifest")"
+  cat > "$manifest" <<EOF
+{
+  "schema": "gentest.artifact_manifest.v1",
+  "sources": [
+    {
+      "source": "$owner_source",
+      "kind": "cxx-header-declaration-registration",
+      "scan_source": "$owner_source",
+      "scan_slot_kind": "fallback-header",
+      "registration_output": "$registration_path",
+      "compile_context_id": "$compile_context",
+      "compile_context_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "$registration_path",
+      "role": "registration",
+      "compile_as": "cxx-header-declaration-registration",
+      "owner_source": "$owner_source",
+      "target_attachment": "append-generated-source",
+      "compile_context_id": "$compile_context",
+      "compile_context_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "requires_module_scan": false,
+      "includes_authored_source": false,
+      "replaces_authored_source": false,
+      "depfile": ""
+    }
+  ]
+}
+EOF
+}
+
+make_header_only_runner() {
+  runner="$1"
+  cat > "$runner" <<'EOF'
+#!/bin/sh
+case "${1:-}" in
+  --list|--list-tests)
+    printf '%s\n' \
+      "consumer/header_only/header_only_test" \
+      "consumer/header_only/header_only_second"
+    ;;
+  *)
+    ;;
+esac
+exit 0
+EOF
+  chmod +x "$runner"
+}
+
 for arg in "$@"; do
   case "$arg" in
-    //:gentest_consumer_textual_bazel|//:gentest_consumer_textual_mocks)
+    //:gentest_consumer_textual_bazel|//:gentest_consumer_textual_mocks|//:gentest_consumer_header_only_bazel)
       mkdir -p "$bazel_bin/gen/gentest_consumer_textual_mocks"
       touch \
         "$bazel_bin/gen/gentest_consumer_textual_mocks/gentest_consumer_mocks.hpp" \
@@ -650,9 +785,18 @@ for arg in "$@"; do
         "tests/consumer/cases.cpp" \
         "$bazel_bin/gen/gentest_consumer_textual_bazel/tu_0000_cases.header_registration.gentest.cpp" \
         "gentest_consumer_textual_bazel:tests/consumer/cases.cpp"
-      make_runner "$bazel_bin/gentest_consumer_textual_bazel"
-      touch "${MARKER_DIR}/textual.ok"
-      ;;
+       make_runner "$bazel_bin/gentest_consumer_textual_bazel"
+       mkdir -p "$bazel_bin/gen/gentest_consumer_header_only_bazel"
+       touch \
+         "$bazel_bin/gen/gentest_consumer_header_only_bazel/tu_0000_header_only_cases.header_registration.gentest.cpp"
+       write_header_only_artifact_manifest \
+         "$bazel_bin/gen/gentest_consumer_header_only_bazel/gentest_consumer_header_only_bazel.artifact_manifest.json" \
+         "tests/consumer/header_only_cases.hpp" \
+         "$bazel_bin/gen/gentest_consumer_header_only_bazel/tu_0000_header_only_cases.header_registration.gentest.cpp" \
+         "gentest_consumer_header_only_bazel:tests/consumer/header_only_cases.hpp"
+       make_header_only_runner "$bazel_bin/gentest_consumer_header_only_bazel"
+       touch "${MARKER_DIR}/textual.ok"
+       ;;
     //:gentest_consumer_module_bazel|//:gentest_consumer_module_mocks)
       mkdir -p "$bazel_bin/gen/gentest_consumer_module_bazel"
       mkdir -p "$bazel_bin/gen/gentest_consumer_module_mocks"

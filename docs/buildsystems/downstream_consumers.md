@@ -56,7 +56,8 @@ Minimal files:
 - `MODULE.bazel`
 - `BUILD.bazel`
 - `tests/main.cpp`
-- `tests/cases.hpp`, `tests/cases.cpp`, and optionally `tests/cases.cppm`
+- `tests/cases.hpp` (the whole target), optionally `tests/cases.cpp` for
+  out-of-line definitions, and optionally `tests/cases.cppm`
 - private suite headers listed in `source_hdrs`, plus header libraries listed in
   `deps` when codegen parses their public/transitive headers
 - mock defs such as `tests/header_mock_defs.hpp` or `tests/module_mock_defs.cppm`
@@ -77,10 +78,11 @@ and sandbox the codegen action correctly. The automatic local-Clang fallback is
 non-Windows only; Windows users register a packaged exec toolchain including
 the required DLL/runtime closure.
 
-Ordinary suites keep annotations in the self-contained `cases.hpp`, include it
-from `cases.cpp`, compile that authored `.cpp` directly, and append a generated
-header-registration source. Exported module suites likewise compile their
-authored `.cppm` directly and append an ordinary importer registration.
+Ordinary suites keep annotations in the self-contained `cases.hpp`, which is the
+target's only source; codegen appends a generated header-registration source. A
+suite may instead keep an authored `cases.cpp` that includes the header; it is
+compiled directly and exactly once. Exported module suites likewise compile
+their authored `.cppm` directly and append an ordinary importer registration.
 
 ### Xmake / xrepo
 
@@ -96,7 +98,8 @@ Minimal assets:
 - project-local helper copy, usually:
   - `.gentest_support/gentest.lua`
 - `xmake.lua`
-- your `tests/cases.hpp`, `tests/cases.cpp`, and other test sources
+- your `tests/cases.hpp` (or `tests/cases.cpp` for out-of-line definitions) and
+  other test sources
 
 The checked-in downstream proof stages a real install prefix, copies
 `share/gentest/xmake/` into `.gentest_support`, then consumes the staged prefix
@@ -117,7 +120,7 @@ Minimal assets:
 - `meson.build`
 - `meson_options.txt`
 - `subprojects/gentest` or an equivalent wrap/subproject source
-- your textual `cases.hpp` declarations, `cases.cpp` implementation, and mock defs
+- your textual `cases.hpp` (or `cases.cpp` for out-of-line definitions) and mock defs
 
 The Meson downstream surface is a textual-only declarative helper: define
 `gentest_textual_mocks` / `gentest_textual_suites`, then load

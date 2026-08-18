@@ -283,6 +283,10 @@ def _gentest_module_header_relpath(out_dir, source_name, index):
     stem = _gentest_sanitize_identifier(_gentest_basename_stem(source_name))
     return "{}/tu_{}_{}.gentest.h".format(out_dir, _gentest_index4(index), stem)
 
+def _gentest_textual_registration_relpath(out_dir, source_name, index):
+    stem = _gentest_sanitize_identifier(_gentest_basename_stem(source_name))
+    return "{}/tu_{}_{}.header_registration.gentest.cpp".format(out_dir, _gentest_index4(index), stem)
+
 def _gentest_module_public_relpath(out_dir, module_name):
     return "{}/{}.cppm".format(out_dir, module_name.replace(".", "/").replace(":", "/"))
 
@@ -445,8 +449,26 @@ def _gentest_textual_suite_codegen_impl(ctx):
     exec_tools = _gentest_exec_tools(ctx)
     codegen_support = _gentest_codegen_support_info(ctx.attr._codegen_support_deps + ctx.attr.source_deps)
     public_include_roots = _gentest_public_include_roots(ctx.files._public_headers)
-    source_stem = _gentest_sanitize_identifier(_gentest_basename_stem(ctx.file.src.basename))
-    registration_cpp = ctx.actions.declare_file("{}/tu_0000_{}.header_registration.gentest.cpp".format(out_dir, source_stem))
+
+    # A suite may be authored as a single .cpp that includes its declaration
+    # headers, or as headers alone. Header-only suites scan each header as its
+    # own fallback slot; the generated registration sources are the suite's
+    # translation units, so no authored source is required.
+    if ctx.file.src:
+        scan_slots = [ctx.file.src]
+        scan_slot_kinds = ["authored-tu"]
+    else:
+        scan_slots = list(ctx.files.source_hdrs)
+        scan_slot_kinds = ["fallback-header"] * len(scan_slots)
+    if not scan_slots:
+        fail(
+            ("{}: gentest_attach_codegen_textual requires at least one resolved scan slot; " +
+             "src is empty and source_hdrs resolved to no files").format(ctx.label),
+        )
+    registration_cpps = [
+        ctx.actions.declare_file(_gentest_textual_registration_relpath(out_dir, slot.basename, index))
+        for index, slot in enumerate(scan_slots)
+    ]
     artifact_manifest = ctx.actions.declare_file("{}/{}.artifact_manifest.json".format(out_dir, ctx.attr.target_id))
 
     dep_include_dirs = (
@@ -455,10 +477,10 @@ def _gentest_textual_suite_codegen_impl(ctx):
         codegen_support.include_dirs +
         public_include_roots
     )
-    source_parent = ctx.file.src.dirname
-    if source_parent:
-        dep_include_dirs.append(source_parent)
-    codegen_inputs = [ctx.file.src] + list(ctx.files.source_hdrs) + list(ctx.files._public_headers) + codegen_support.headers
+    for slot in scan_slots:
+        if slot.dirname:
+            dep_include_dirs.append(slot.dirname)
+    codegen_inputs = scan_slots + list(ctx.files.source_hdrs) + list(ctx.files._public_headers) + codegen_support.headers
     dep_quote_include_dirs = list(codegen_support.quote_include_dirs)
     dep_system_include_dirs = list(codegen_support.system_include_dirs)
     dep_framework_include_dirs = list(codegen_support.framework_include_dirs)
@@ -474,12 +496,14 @@ def _gentest_textual_suite_codegen_impl(ctx):
 
     args = ctx.actions.args()
     args.add("--source-root", ".")
-    args.add("--tu-out-dir", registration_cpp.dirname)
-    args.add("--textual-registration-output", registration_cpp.path)
-    args.add("--scan-slot-kind", "authored-tu")
+    args.add("--tu-out-dir", registration_cpps[0].dirname)
+    for index, slot in enumerate(scan_slots):
+        args.add("--textual-registration-output", registration_cpps[index].path)
+        args.add("--scan-slot-kind", scan_slot_kinds[index])
+        args.add("--compile-context-id", "{}:{}".format(ctx.attr.target_id, slot.path))
     args.add("--artifact-manifest", artifact_manifest.path)
-    args.add("--compile-context-id", "{}:{}".format(ctx.attr.target_id, ctx.file.src.path))
-    args.add(ctx.file.src.path)
+    for slot in scan_slots:
+        args.add(slot.path)
     _gentest_add_exec_tool_args(args, exec_tools)
     args.add("--")
     args.add_all(_gentest_driver_args(
@@ -495,15 +519,15 @@ def _gentest_textual_suite_codegen_impl(ctx):
         ctx,
         exec_tools,
         codegen_inputs,
-        [registration_cpp, artifact_manifest],
+        registration_cpps + [artifact_manifest],
         args,
         "GentestTextualSuiteCodegen",
     )
 
     return [
-        DefaultInfo(files = depset([registration_cpp, artifact_manifest])),
+        DefaultInfo(files = depset(registration_cpps + [artifact_manifest])),
         OutputGroupInfo(
-            srcs = depset([registration_cpp]),
+            srcs = depset(registration_cpps),
             hdrs = depset([]),
             artifact_manifests = depset([artifact_manifest]),
         ),
@@ -512,7 +536,7 @@ def _gentest_textual_suite_codegen_impl(ctx):
 _gentest_textual_suite_codegen = rule(
     implementation = _gentest_textual_suite_codegen_impl,
     attrs = {
-        "src": attr.label(allow_single_file = True, mandatory = True),
+        "src": attr.label(allow_single_file = True),
         "source_hdrs": attr.label_list(allow_files = True),
         "source_deps": attr.label_list(providers = [CcInfo]),
         "mocks": attr.label_list(providers = [GentestGeneratedInfo]),
@@ -943,7 +967,7 @@ def _gentest_validate_source_hdrs(name, source_hdrs):
 
 def gentest_attach_codegen_textual(
         name,
-        src,
+        src = None,
         main = None,
         source_hdrs = [],
         mock_targets = [],
@@ -955,6 +979,8 @@ def gentest_attach_codegen_textual(
         source_includes = [],
         visibility = None):
     _gentest_validate_source_hdrs(name, source_hdrs)
+    if not src and not source_hdrs:
+        fail("{}: gentest_attach_codegen_textual requires src, source_hdrs, or both".format(name))
     gen_name = "{}__codegen".format(name)
     out_dir = "gen/{}".format(name)
     source_hdr_name = "{}__source_hdr".format(name)
@@ -982,7 +1008,9 @@ def gentest_attach_codegen_textual(
         visibility = ["//visibility:private"],
     )
 
-    final_srcs = [src, _gentest_output_groups(gen_name)["srcs"]]
+    final_srcs = [_gentest_output_groups(gen_name)["srcs"]]
+    if src:
+        final_srcs.insert(0, src)
     if main:
         final_srcs.append(main)
 
