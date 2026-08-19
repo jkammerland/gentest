@@ -3238,16 +3238,27 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             if (is_shell_control_token(arg)) {
                 break;
             }
-            // These flags take their value as a separate argument, and clang rejects every one of
-            // them in that spelling, so the value only ever reaches us as a stray positional. Consume
-            // it only when it can actually be the value: once LLVM's InterpolatingCompilationDatabase
-            // has dropped the value (it classifies it as an input) the flag is orphaned, and
-            // consuming unconditionally would swallow the following flag and leak its value as a
-            // positional source instead. A value never starts with '-'; a leading '/' is an ordinary
-            // absolute POSIX path and must still be consumed.
-            const bool is_preserved_module_mapping_flag =
-                preserve_module_mapping_args && (arg == "-fmodule-file" || arg == "-fprebuilt-module-path");
-            if (is_separate_value_module_flag(arg) && !is_preserved_module_mapping_flag) {
+            // None of these flags is a real separate-value clang option: the bare flag is an unknown
+            // argument and its value is classified as an input, so LLVM's
+            // InterpolatingCompilationDatabase drops the value when it borrows a command for a file
+            // absent from the database and leaves the flag orphaned. Consume the next token only when
+            // it can actually be the value, or the orphan swallows the following flag and leaks its
+            // value as a stray positional source. A value never starts with '-'; a leading '/' is an
+            // ordinary absolute POSIX path and must still be consumed.
+            if (preserve_module_mapping_args && (arg == "-fmodule-file" || arg == "-fprebuilt-module-path")) {
+                // Preserved for the dependency scan, but never in the two-token spelling: clang's
+                // option table does not know it, so clang-scan-deps fails the entire scan with
+                // "unknown argument: '-fmodule-file'" and then reports the value as a missing input.
+                // Emit the joined spelling the option table does accept. An orphaned flag carries no
+                // mapping at all, so drop it instead of forwarding a bare unknown argument.
+                if (i + 1 < sanitized_command_line.size() && can_be_separate_flag_value(sanitized_command_line[i + 1])) {
+                    adjusted.push_back(arg + "=" + sanitized_command_line[i + 1]);
+                    skip_next_arg = true;
+                }
+                continue;
+            }
+            // The remaining five are stripped in every path; clang has no use for them here.
+            if (is_separate_value_module_flag(arg)) {
                 if (i + 1 < sanitized_command_line.size() && can_be_separate_flag_value(sanitized_command_line[i + 1])) {
                     skip_next_arg = true;
                 }
