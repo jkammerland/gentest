@@ -71,6 +71,14 @@ Unstable inside. No backward compatibility.
   the orphaned flag no longer swallows the flag that follows it, and the
   module-argument collector no longer splices a following flag into a bogus
   `-fmodule-file=<flag>` and forwards it into later parse commands.
+- Codegen hands `clang-scan-deps` the joined spelling of the module-mapping
+  flags it preserves. CMake's Ninja dyndep pipeline emits
+  `-fmodule-file <name>=<path>` and `-fprebuilt-module-path <dir>` with the
+  value as a separate argument, which clang's option table does not accept, so
+  forwarding it verbatim failed the entire dependency scan with
+  "unknown argument: '-fmodule-file'" before any dependency was discovered. A
+  flag left orphaned by compile-command interpolation carries no mapping and is
+  now dropped rather than forwarded as a bare unknown argument.
 - Codegen guards absolute POSIX paths when a `cl`-style compile command is
   used on a POSIX host: in MSVC driver mode an absolute path is misparsed by
   the cl option parser as an option -- `/Users/...` as `/U`, and `/Include/...`

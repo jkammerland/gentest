@@ -4268,6 +4268,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_separate_module_flag_strip APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_scan_deps_joined_module_file
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenScanDepsJoinedModuleFile.cmake
+    modules
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_scan_deps_joined_module_file APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_public_module_detail_hidden
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPublicModuleDetailHidden.cmake
