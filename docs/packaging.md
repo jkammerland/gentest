@@ -34,10 +34,8 @@ signatures for both standalone SBOM assets, and the public key needed to verify
 them. The script verifies all checksums, signatures, CPS fields, SBOM coverage,
 and archive contents before it returns success.
 
-## License status
+## License
 
-The repository currently has no declared Gentest project license. Package
-metadata therefore uses SPDX `NOASSERTION`; this does not grant redistribution
-rights. Third-party license texts are complete and are installed separately.
-A repository owner must add an explicit project license before publishing a
-generally redistributable release.
+Gentest is distributed under the Boost Software License 1.0 (`BSL-1.0`). The
+project license and all bundled third-party license texts are installed in the
+release archive and represented in its package metadata.

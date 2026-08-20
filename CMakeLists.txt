@@ -4,7 +4,7 @@ project(gentest
     DESCRIPTION "C++20 testing framework with annotation-driven code generation"
     HOMEPAGE_URL "https://github.com/jkammerland/gentest"
     LANGUAGES C CXX)
-set(gentest_SPDX_LICENSE "NOASSERTION")
+set(gentest_SPDX_LICENSE "BSL-1.0")
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -196,6 +196,9 @@ if(${PROJECT_NAME}_INSTALL)
             "${PROJECT_SOURCE_DIR}/third_party/licenses/NOTICE.txt"
         DESTINATION "share/doc/${PROJECT_NAME}"
         COMPONENT Development)
+    install(FILES "${PROJECT_SOURCE_DIR}/LICENSE"
+        DESTINATION "share/licenses/${PROJECT_NAME}"
+        COMPONENT Development)
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/docs/"
         DESTINATION "share/doc/${PROJECT_NAME}/docs"
         COMPONENT Development
@@ -230,6 +233,7 @@ if(${PROJECT_NAME}_INSTALL)
         PACKAGE_DESCRIPTION "${PROJECT_DESCRIPTION}"
         PACKAGE_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}"
         PACKAGE_LICENSE "${gentest_SPDX_LICENSE}"
+        LICENSE_FILE "${PROJECT_SOURCE_DIR}/LICENSE"
         GENERATORS TGZ ZIP
         COMPONENTS Development
         DEFAULT_COMPONENTS Development

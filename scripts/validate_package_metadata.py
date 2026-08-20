@@ -38,8 +38,8 @@ def validate_cps(path: Path, version: str) -> None:
         raise SystemExit(f"missing CPS components {sorted(expected - set(components))} in {path}")
     if cps.get("default_components") != ["gentest"]:
         raise SystemExit(f"unexpected CPS default components in {path}")
-    if cps.get("license") != "NOASSERTION":
-        raise SystemExit(f"CPS must record the project's undeclared license as NOASSERTION in {path}")
+    if cps.get("license") != "BSL-1.0":
+        raise SystemExit(f"CPS must record the project license as BSL-1.0 in {path}")
     requires = cps.get("requires", {})
     if not isinstance(requires, dict) or "fmt" not in requires:
         raise SystemExit(f"CPS metadata does not declare its fmt dependency in {path}")
@@ -64,8 +64,8 @@ def collect_strings(value: Any) -> list[str]:
 def validate_sbom(path: Path, expected_names: set[str]) -> None:
     sbom = load_object(path)
     strings = set(collect_strings(sbom))
-    if "NOASSERTION" not in strings:
-        raise SystemExit(f"SBOM {path} must record the project's undeclared license as NOASSERTION")
+    if "BSL-1.0" not in strings:
+        raise SystemExit(f"SBOM {path} must record the project license as BSL-1.0")
     missing = {name for name in expected_names if not any(name in value for value in strings)}
     if missing:
         raise SystemExit(f"SBOM {path} does not describe {sorted(missing)}")

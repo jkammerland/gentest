@@ -31,7 +31,7 @@ class PackageMetadataValidatorTests(unittest.TestCase):
                         "gentest_runtime": {},
                     },
                     "default_components": ["gentest"],
-                    "license": "NOASSERTION",
+                    "license": "BSL-1.0",
                     "requires": {"fmt": {}},
                 }
             ),
@@ -41,7 +41,7 @@ class PackageMetadataValidatorTests(unittest.TestCase):
             json.dumps(
                 {
                     "specVersion": "SPDX-3.0.1",
-                    "dataLicense": "NOASSERTION",
+                    "dataLicense": "BSL-1.0",
                     "elements": ["gentest", "gentest_main", "gentest_runtime"],
                 }
             ),
@@ -51,7 +51,7 @@ class PackageMetadataValidatorTests(unittest.TestCase):
             json.dumps(
                 {
                     "specVersion": "SPDX-3.0.1",
-                    "dataLicense": "NOASSERTION",
+                    "dataLicense": "BSL-1.0",
                     "elements": ["gentest_codegen" if include_codegen else "other_tool"],
                 }
             ),
