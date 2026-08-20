@@ -23,7 +23,7 @@ jobs:
     permissions:
       contents: write
     env:
-      EXPECTED_GPG_FINGERPRINT: 7A9DA5E43CC1A9ECB9745CBE3A209DA2768BE08D
+      EXPECTED_GPG_FINGERPRINT: ${{ vars.GPG_FINGERPRINT }}
     steps:
       - name: Checkout signed tag
         uses: actions/checkout@v6
@@ -69,6 +69,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${GPG_PRIVATE_KEY}"
+          test -n "${EXPECTED_GPG_FINGERPRINT}"
           printf '%s' "${GPG_PRIVATE_KEY}" | gpg --batch --import
           actual_fingerprint="$(gpg --batch --with-colons --list-secret-keys \
             | awk -F: '$1 == "fpr" { print $10; exit }')"

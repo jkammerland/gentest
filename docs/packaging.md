@@ -28,6 +28,23 @@ export GENTEST_REQUIRE_PACKAGE_SIGNING=ON
 scripts/package_release.sh
 ```
 
+Configure the GitHub `release` environment from the Unix account that owns the
+GPG secret key. The helper accepts one or more GitHub repository URLs and does
+not write an exported private key to disk:
+
+```sh
+scripts/setup_github_release_environment.sh \
+  --key 0123456789ABCDEF0123456789ABCDEF01234567 \
+  --prompt-passphrase \
+  https://github.com/jkammerland/gentest \
+  https://github.com/jkammerland/cbor_tags
+```
+
+It creates the environment, stores `GPG_FINGERPRINT` as an environment
+variable, and stores `GPG_PRIVATE_KEY` plus an optional `GPG_PASSPHRASE` as
+environment secrets. Run it as the Unix user whose GnuPG keyring contains the
+release key.
+
 `GPG_PASSPHRASE_FILE` may point to a protected passphrase file. Signed builds
 produce detached signatures for both archives, ASCII-armored detached
 signatures for both standalone SBOM assets, and the public key needed to verify
