@@ -26,7 +26,7 @@ jobs:
       EXPECTED_GPG_FINGERPRINT: ${{ vars.GPG_FINGERPRINT }}
     steps:
       - name: Checkout signed tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
           ref: ${{ inputs.tag }}
@@ -88,6 +88,8 @@ jobs:
           [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           git verify-tag "${RELEASE_TAG}"
           test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "${RELEASE_TAG}")"
+          echo "RELEASE_TAG_OBJECT=$(git rev-parse "refs/tags/${RELEASE_TAG}")" >> "$GITHUB_ENV"
+          echo "RELEASE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           project_version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -n 1)"
           test "${RELEASE_TAG}" = "v${project_version}"
           git merge-base --is-ancestor "${RELEASE_TAG}" origin/master
@@ -101,7 +103,7 @@ jobs:
         run: scripts/package_release.sh "${RUNNER_TEMP}/gentest-release"
 
       - name: Preserve verified artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gentest-${{ inputs.tag }}-signed-release
           path: ${{ runner.temp }}/gentest-release/*
@@ -113,11 +115,20 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euxo pipefail
+          remote_refs="$(git ls-remote origin \
+            "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}")"
+          remote_tag_object="$(awk -v ref="refs/tags/${RELEASE_TAG}" \
+            '$2 == ref { print $1; exit }' <<< "${remote_refs}")"
+          remote_commit="$(awk -v ref="refs/tags/${RELEASE_TAG}^{}" \
+            '$2 == ref { print $1; exit }' <<< "${remote_refs}")"
+          test "${remote_tag_object}" = "${RELEASE_TAG_OBJECT}"
+          test "${remote_commit}" = "${RELEASE_COMMIT}"
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             echo "Release ${RELEASE_TAG} already exists; refusing to replace it" >&2
             exit 1
           fi
           gh release create "${RELEASE_TAG}" "${RUNNER_TEMP}/gentest-release/"* \
             --verify-tag \
+            --target "${RELEASE_COMMIT}" \
             --title "Gentest ${RELEASE_TAG}" \
             --generate-notes

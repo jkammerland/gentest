@@ -36,6 +36,21 @@ foreach(_workflow_file IN LISTS _workflow_files)
   endif()
 endforeach()
 
+file(READ "${SOURCE_DIR}/.github/workflows/release.yml" _release_workflow)
+foreach(_release_contract IN ITEMS
+    "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+    "git ls-remote origin"
+    "remote_tag_object"
+    "RELEASE_TAG_OBJECT"
+    "remote_commit"
+    "RELEASE_COMMIT")
+  string(FIND "${_release_workflow}" "${_release_contract}" _release_contract_index)
+  if(_release_contract_index EQUAL -1)
+    message(FATAL_ERROR "release workflow is missing hardening contract: ${_release_contract}")
+  endif()
+endforeach()
+
 file(READ "${SOURCE_DIR}/.github/workflows/lint.yml" _lint_workflow)
 foreach(_llvm22_contract IN ITEMS "llvm-toolchain-noble-22" "clang-format-22" "CLANG_FORMAT_BIN=clang-format-22")
   string(FIND "${_lint_workflow}" "${_llvm22_contract}" _llvm22_contract_index)

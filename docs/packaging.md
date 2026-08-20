@@ -45,6 +45,10 @@ variable, and stores `GPG_PRIVATE_KEY` plus an optional `GPG_PASSPHRASE` as
 environment secrets. Run it as the Unix user whose GnuPG keyring contains the
 release key.
 
+The helper configures credentials only. In the repository's **Settings →
+Environments → release**, require a reviewer, disable administrator bypass, and
+limit deployments to the protected `master` branch before publishing a release.
+
 `GPG_PASSPHRASE_FILE` may point to a protected passphrase file. Signed builds
 produce detached signatures for both archives, ASCII-armored detached
 signatures for both standalone SBOM assets, and the public key needed to verify
