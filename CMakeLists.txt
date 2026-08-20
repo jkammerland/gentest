@@ -122,7 +122,7 @@ add_subdirectory(src)
 
 if(${PROJECT_NAME}_INSTALL)
     set(_gentest_target_install_package_root "${PROJECT_SOURCE_DIR}/third_party/target_install_package")
-    find_package(target_install_package 7.0.8 EXACT CONFIG REQUIRED
+    find_package(target_install_package 7.1.0 EXACT CONFIG REQUIRED
         PATHS "${_gentest_target_install_package_root}"
         NO_DEFAULT_PATH)
     set(_gentest_fmt_public_dependency "fmt ${GENTEST_FMT_VERSION} EXACT CONFIG REQUIRED")
