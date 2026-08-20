@@ -208,6 +208,19 @@ if ! "${assume_yes}"; then
   [[ "${answer}" =~ ^[Yy]$ ]] || die "cancelled"
 fi
 
+if [[ -n "${passphrase}" ]]; then
+  private_key="$({ printf '%s\n' "${passphrase}"; } |
+    gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+      --armor --export-secret-keys "${fingerprint}")"
+else
+  private_key="$(gpg --batch --armor --export-secret-keys "${fingerprint}")"
+fi
+if [[ "${private_key}" != *"-----BEGIN PGP PRIVATE KEY BLOCK-----"* ||
+      "${private_key}" != *"-----END PGP PRIVATE KEY BLOCK-----"* ]]; then
+  unset private_key passphrase
+  die "GPG did not export an armored private key; check the selected key and passphrase (no GitHub settings were changed)"
+fi
+
 for repo in "${repos[@]}"; do
   echo "Configuring ${repo}..."
   gh api --method PUT "repos/${repo}/environments/${environment_name}" >/dev/null
@@ -215,7 +228,7 @@ for repo in "${repos[@]}"; do
     --repo "${repo}" \
     --env "${environment_name}" \
     --body "${fingerprint}"
-  gpg --batch --armor --export-secret-keys "${fingerprint}" |
+  printf '%s\n' "${private_key}" |
     gh secret set GPG_PRIVATE_KEY \
       --repo "${repo}" \
       --env "${environment_name}"
@@ -231,5 +244,5 @@ for repo in "${repos[@]}"; do
   gh secret list --repo "${repo}" --env "${environment_name}" | awk '$1 ~ /^GPG_/ { print "  secret:   " $1 }'
 done
 
-unset passphrase
+unset private_key passphrase
 echo "Release environment setup complete."

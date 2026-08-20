@@ -68,7 +68,12 @@ class ReleaseEnvironmentSetupTests(unittest.TestCase):
                 if [[ " $* " == *" --list-secret-keys "* ]]; then
                   printf 'sec:-:255:22:DEADBEEF:0:0:::::::\nfpr:::::::::%s:\n' "$MOCK_FINGERPRINT"
                 elif [[ " $* " == *" --export-secret-keys "* ]]; then
-                  printf '%s' 'PRIVATE-KEY-MATERIAL'
+                  if [[ "${MOCK_EMPTY_EXPORT:-false}" != "true" ]]; then
+                    printf '%s\n' \
+                      '-----BEGIN PGP PRIVATE KEY BLOCK-----' \
+                      'PRIVATE-KEY-MATERIAL' \
+                      '-----END PGP PRIVATE KEY BLOCK-----'
+                  fi
                 else
                   printf 'unexpected gpg invocation: %s\n' "$*" >&2
                   exit 91
@@ -154,6 +159,23 @@ class ReleaseEnvironmentSetupTests(unittest.TestCase):
             self.assertIn("secret set GPG_PRIVATE_KEY", calls)
             self.assertIn("secret set GPG_PASSPHRASE", calls)
             self.assertNotIn("correct horse battery staple", calls)
+
+    def test_empty_gpg_export_fails_before_github_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = self.make_environment(root)
+            env["MOCK_EMPTY_EXPORT"] = "true"
+            result = self.run_script(
+                env,
+                "--key",
+                FINGERPRINT,
+                "--no-passphrase",
+                "--yes",
+                "jkammerland/gentest",
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("did not export an armored private key", result.stderr)
+            self.assertFalse((root / "calls.log").exists())
 
 
 if __name__ == "__main__":
