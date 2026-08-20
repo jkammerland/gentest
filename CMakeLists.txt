@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.31)
-project(gentest VERSION 1.0.0 LANGUAGES C CXX)
+project(gentest
+    VERSION 1.0.0
+    DESCRIPTION "C++20 testing framework with annotation-driven code generation"
+    HOMEPAGE_URL "https://github.com/jkammerland/gentest"
+    LANGUAGES C CXX)
+set(gentest_SPDX_LICENSE "NOASSERTION")
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -30,6 +35,11 @@ include(GentestPublicModules)
 
 option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
 option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" OFF)
+option(GENTEST_ENABLE_CPS "Install experimental Common Package Specification metadata (requires CMake 4.3+)" OFF)
+option(GENTEST_ENABLE_SBOM "Install experimental SPDX 3.0.1 SBOM metadata (requires CMake 4.3+)" OFF)
+option(GENTEST_REQUIRE_PACKAGE_SIGNING "Fail package configuration unless a GPG signing key is provided" OFF)
+set(GENTEST_GPG_SIGNING_KEY "" CACHE STRING "GPG fingerprint or key ID used to sign release packages")
+set(GENTEST_GPG_PASSPHRASE_FILE "" CACHE FILEPATH "Optional file containing the GPG signing-key passphrase")
 option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" OFF)
 option(GENTEST_USE_BOOST_UUID "Use Boost.UUID for UUID generation in generated runtime" OFF)
 set(GENTEST_ENABLE_PUBLIC_MODULES "OFF" CACHE STRING "Enable gentest's public C++ module interfaces (AUTO, ON, or OFF)")
@@ -37,6 +47,24 @@ set_property(CACHE GENTEST_ENABLE_PUBLIC_MODULES PROPERTY STRINGS AUTO ON OFF)
 
 gentest_ensure_fmt()
 gentest_require_std_stop_token()
+
+if(GENTEST_ENABLE_CPS)
+    if(CMAKE_VERSION VERSION_LESS 4.3)
+        message(FATAL_ERROR "GENTEST_ENABLE_CPS=ON requires CMake 4.3 or newer")
+    endif()
+    if(NOT DEFINED CMAKE_EXPERIMENTAL_EXPORT_PACKAGE_DEPENDENCIES
+       OR CMAKE_EXPERIMENTAL_EXPORT_PACKAGE_DEPENDENCIES STREQUAL "")
+        message(FATAL_ERROR
+            "GENTEST_ENABLE_CPS=ON requires CMAKE_EXPERIMENTAL_EXPORT_PACKAGE_DEPENDENCIES to use this CMake version's activation value")
+    endif()
+
+    _gentest_resolve_fmt_target(_gentest_cps_fmt_target)
+    set_property(TARGET "${_gentest_cps_fmt_target}" PROPERTY EXPORT_FIND_PACKAGE_NAME fmt)
+    set(GENTEST_FMT_LINK_TARGET fmt::fmt)
+    unset(_gentest_cps_fmt_target)
+else()
+    set(GENTEST_FMT_LINK_TARGET gentest::fmt_dependency)
+endif()
 
 if(NOT GENTEST_ENABLE_PUBLIC_MODULES MATCHES "^(AUTO|ON|OFF)$")
     message(FATAL_ERROR "GENTEST_ENABLE_PUBLIC_MODULES must be AUTO, ON, or OFF")
@@ -94,35 +122,122 @@ add_subdirectory(src)
 
 if(${PROJECT_NAME}_INSTALL)
     set(_gentest_target_install_package_root "${PROJECT_SOURCE_DIR}/third_party/target_install_package")
-    find_package(target_install_package 6.1.7 EXACT CONFIG REQUIRED
+    find_package(target_install_package 7.0.8 EXACT CONFIG REQUIRED
         PATHS "${_gentest_target_install_package_root}"
         NO_DEFAULT_PATH)
     set(_gentest_fmt_public_dependency "fmt ${GENTEST_FMT_VERSION} EXACT CONFIG REQUIRED")
 
+    set(_gentest_package_metadata_args)
+    if(GENTEST_ENABLE_CPS)
+        list(APPEND _gentest_package_metadata_args
+            CPS
+            CPS_PACKAGE_NAME "${PROJECT_NAME}"
+            CPS_DESTINATION "share/cps/${PROJECT_NAME}"
+            CPS_VERSION "${PROJECT_VERSION}"
+            CPS_COMPAT_VERSION "${PROJECT_VERSION_MAJOR}.0.0"
+            CPS_VERSION_SCHEMA "simple"
+            CPS_DEFAULT_TARGETS "${PROJECT_NAME}"
+            CPS_LICENSE "${gentest_SPDX_LICENSE}"
+            CPS_DEFAULT_LICENSE "${gentest_SPDX_LICENSE}"
+            CPS_DESCRIPTION "${PROJECT_DESCRIPTION}"
+            CPS_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
+    endif()
+    if(GENTEST_ENABLE_SBOM)
+        if(CMAKE_VERSION VERSION_LESS 4.3)
+            message(FATAL_ERROR "GENTEST_ENABLE_SBOM=ON requires CMake 4.3 or newer")
+        endif()
+        list(APPEND _gentest_package_metadata_args
+            SBOM
+            SBOM_NAME "${PROJECT_NAME}"
+            SBOM_DESTINATION "share/sbom/${PROJECT_NAME}"
+            SBOM_VERSION "${PROJECT_VERSION}"
+            SBOM_LICENSE "${gentest_SPDX_LICENSE}"
+            SBOM_DESCRIPTION "${PROJECT_DESCRIPTION}"
+            SBOM_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
+    endif()
+
     # Export a single 'gentest' package that contains both the interface target and the runtime library.
     target_install_package(gentest_runtime
         EXPORT_NAME ${PROJECT_NAME}
-        PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}")
+        PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}"
+        ${_gentest_package_metadata_args})
     target_install_package(gentest_main
         EXPORT_NAME ${PROJECT_NAME}
-        PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}")
+        PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}"
+        ${_gentest_package_metadata_args})
     target_install_package(${PROJECT_NAME}
         EXPORT_NAME ${PROJECT_NAME}
         INCLUDE_ON_FIND_PACKAGE
             "${PROJECT_SOURCE_DIR}/cmake/GentestFmtDependency.cmake"
             "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
-        PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}")
+        PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}"
+        ${_gentest_package_metadata_args})
+
+    if(GENTEST_ENABLE_SBOM AND TARGET gentest_codegen)
+        install(SBOM gentest-tools
+            EXPORT gentest-tools
+            NO_PROJECT_METADATA
+            DESTINATION "share/sbom/${PROJECT_NAME}"
+            VERSION "${PROJECT_VERSION}"
+            LICENSE "${gentest_SPDX_LICENSE}"
+            DESCRIPTION "Gentest annotation scanner and code generator"
+            HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
+    endif()
 
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/gentest/"
         DESTINATION "share/cmake/gentest/gentest"
         COMPONENT Development
         FILES_MATCHING PATTERN "*.cmake")
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/xmake/"
-        DESTINATION "share/gentest/xmake")
-    set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
-    set(CPACK_PACKAGE_VENDOR "${PROJECT_NAME}")
-    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-    include(CPack)
+        DESTINATION "share/gentest/xmake"
+        COMPONENT Development)
+    install(FILES
+            "${PROJECT_SOURCE_DIR}/README.md"
+            "${PROJECT_SOURCE_DIR}/third_party/licenses/NOTICE.txt"
+        DESTINATION "share/doc/${PROJECT_NAME}"
+        COMPONENT Development)
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/docs/"
+        DESTINATION "share/doc/${PROJECT_NAME}/docs"
+        COMPONENT Development
+        FILES_MATCHING
+        PATTERN "*.md"
+        PATTERN "stories" EXCLUDE)
+    install(DIRECTORY "${PROJECT_SOURCE_DIR}/third_party/licenses/"
+        DESTINATION "share/licenses/${PROJECT_NAME}/third_party"
+        COMPONENT Development
+        FILES_MATCHING PATTERN "*.txt")
+
+    set(_gentest_cpack_signing_args)
+    if(GENTEST_GPG_SIGNING_KEY)
+        list(APPEND _gentest_cpack_signing_args
+            GPG_SIGNING_KEY "${GENTEST_GPG_SIGNING_KEY}"
+            SIGNING_METHOD detached)
+        if(GENTEST_GPG_PASSPHRASE_FILE)
+            list(APPEND _gentest_cpack_signing_args
+                GPG_PASSPHRASE_FILE "${GENTEST_GPG_PASSPHRASE_FILE}")
+        endif()
+    elseif(DEFINED ENV{GPG_SIGNING_KEY} AND NOT "$ENV{GPG_SIGNING_KEY}" STREQUAL "")
+        list(APPEND _gentest_cpack_signing_args SIGNING_METHOD detached)
+    elseif(GENTEST_REQUIRE_PACKAGE_SIGNING)
+        message(FATAL_ERROR
+            "GENTEST_REQUIRE_PACKAGE_SIGNING=ON requires GENTEST_GPG_SIGNING_KEY or the GPG_SIGNING_KEY environment variable")
+    endif()
+
+    export_cpack(
+        PACKAGE_NAME "${PROJECT_NAME}"
+        PACKAGE_VERSION "${PROJECT_VERSION}"
+        PACKAGE_VENDOR "jkammerland"
+        PACKAGE_DESCRIPTION "${PROJECT_DESCRIPTION}"
+        PACKAGE_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}"
+        PACKAGE_LICENSE "${gentest_SPDX_LICENSE}"
+        GENERATORS TGZ ZIP
+        COMPONENTS Development
+        DEFAULT_COMPONENTS Development
+        GENERATE_CHECKSUMS ON
+        ${_gentest_cpack_signing_args}
+        ADDITIONAL_CPACK_VARS
+            CPACK_ARCHIVE_COMPONENT_INSTALL OFF
+            CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
 else()
     message(STATUS "Enable install of ${PROJECT_NAME} with -D${PROJECT_NAME}_INSTALL=ON")
 endif()

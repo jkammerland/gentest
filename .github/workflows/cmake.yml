@@ -1059,7 +1059,9 @@ jobs:
             libclang-20-dev \
             libclang-cpp20-dev \
             llvm-20-dev
-          python3 -m pip install --break-system-packages --upgrade cmake ninja
+          # The release-package preset pins CMake 4.3 experimental CPS/SBOM
+          # activation UUIDs, so keep this lane on the matching CMake release.
+          python3 -m pip install --break-system-packages cmake==4.3.1 ninja
           python3 - <<'PY' >> "$GITHUB_PATH"
           import sysconfig
           print(sysconfig.get_path("scripts"))

@@ -12,6 +12,7 @@ License files included in this directory:
 - termcolor-BSD.txt
 - boost-software-license-1.0.txt
 - wcwidth-Markus-Kuhn.txt
+- target_install_package-MIT.txt
 
 Mapping:
 - Most files under third_party/include/indicators are from indicators and are MIT-licensed.

@@ -1,5 +1,8 @@
 # gentest
 
+Release archives, signing, CPS, and SBOM generation are documented in
+[docs/packaging.md](docs/packaging.md).
+
 [![lint](https://github.com/jkammerland/gentest/actions/workflows/lint.yml/badge.svg)](https://github.com/jkammerland/gentest/actions/workflows/lint.yml)
 [![coverage](https://github.com/jkammerland/gentest/actions/workflows/coverage.yml/badge.svg)](https://github.com/jkammerland/gentest/actions/workflows/coverage.yml)
 

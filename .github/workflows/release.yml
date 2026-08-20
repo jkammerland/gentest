@@ -1,0 +1,122 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing signed release tag (for example v1.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  signed-release:
+    name: Signed Linux developer package
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
+    env:
+      EXPECTED_GPG_FINGERPRINT: 7A9DA5E43CC1A9ECB9745CBE3A209DA2768BE08D
+    steps:
+      - name: Checkout signed tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+
+      - name: Install build dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl git gnupg libcurl4-openssl-dev \
+            libffi-dev libfmt-dev libunwind-dev libxml2-dev libzstd-dev \
+            ninja-build pkg-config python3 python3-pip tar unzip zip zlib1g-dev
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+          printf '%s\n' \
+            'Types: deb' \
+            'URIs: https://apt.llvm.org/noble/' \
+            'Suites: llvm-toolchain-noble-20' \
+            'Components: main' \
+            'Signed-By: /etc/apt/trusted.gpg.d/apt.llvm.org.asc' \
+            | sudo tee /etc/apt/sources.list.d/apt-llvm-20.sources >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-20 clang-tools-20 libclang-20-dev libclang-cpp20-dev llvm-20-dev
+          python3 -m pip install --break-system-packages cmake==4.3.1 ninja
+          python3 - <<'PY' >> "$GITHUB_PATH"
+          import sysconfig
+          print(sysconfig.get_path("scripts"))
+          PY
+          echo "/usr/lib/llvm-20/bin" >> "$GITHUB_PATH"
+          echo "LLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm" >> "$GITHUB_ENV"
+          echo "Clang_DIR=/usr/lib/llvm-20/lib/cmake/clang" >> "$GITHUB_ENV"
+          echo "CC=clang-20" >> "$GITHUB_ENV"
+          echo "CXX=clang++-20" >> "$GITHUB_ENV"
+
+      - name: Import and verify release key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          test -n "${GPG_PRIVATE_KEY}"
+          printf '%s' "${GPG_PRIVATE_KEY}" | gpg --batch --import
+          actual_fingerprint="$(gpg --batch --with-colons --list-secret-keys \
+            | awk -F: '$1 == "fpr" { print $10; exit }')"
+          test "${actual_fingerprint}" = "${EXPECTED_GPG_FINGERPRINT}"
+          passphrase_file="${RUNNER_TEMP}/gentest-gpg-passphrase"
+          umask 077
+          printf '%s' "${GPG_PASSPHRASE}" > "${passphrase_file}"
+          echo "GPG_SIGNING_KEY=${actual_fingerprint}" >> "$GITHUB_ENV"
+          echo "GPG_PASSPHRASE_FILE=${passphrase_file}" >> "$GITHUB_ENV"
+
+      - name: Verify tag identity and signature
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euxo pipefail
+          [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git verify-tag "${RELEASE_TAG}"
+          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "${RELEASE_TAG}")"
+          project_version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -n 1)"
+          test "${RELEASE_TAG}" = "v${project_version}"
+          git merge-base --is-ancestor "${RELEASE_TAG}" origin/master
+
+      - name: Setup vcpkg
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Build, test, package, and verify signatures
+        env:
+          GENTEST_REQUIRE_PACKAGE_SIGNING: ON
+        run: scripts/package_release.sh "${RUNNER_TEMP}/gentest-release"
+
+      - name: Preserve verified artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: gentest-${{ inputs.tag }}-signed-release
+          path: ${{ runner.temp }}/gentest-release/*
+          if-no-files-found: error
+
+      - name: Publish tag release without replacement
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euxo pipefail
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists; refusing to replace it" >&2
+            exit 1
+          fi
+          gh release create "${RELEASE_TAG}" "${RUNNER_TEMP}/gentest-release/"* \
+            --verify-tag \
+            --title "Gentest ${RELEASE_TAG}" \
+            --generate-notes

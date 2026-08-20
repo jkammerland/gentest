@@ -289,6 +289,7 @@ endif()
 
 # Provide generator with project version for --help output in generated code
 target_compile_definitions(gentest_codegen PRIVATE GENTEST_VERSION_STR="${PROJECT_VERSION}")
+set_property(TARGET gentest_codegen PROPERTY SPDX_LICENSE "${gentest_SPDX_LICENSE}")
 
 # Toggle for template attribute validation (default ON)
 option(GENTEST_ENABLE_TEMPLATE_VALIDATION "Enable template attribute validation in generator" ON)
@@ -298,7 +299,9 @@ endif()
 
 if(${PROJECT_NAME}_INSTALL)
     install(TARGETS gentest_codegen
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+        EXPORT gentest-tools
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT Development)
 endif()
 
 unset(_gentest_llvm_support)

@@ -140,3 +140,23 @@ if(NOT _build_testing_value STREQUAL "ON")
   message(FATAL_ERROR
     "Configure preset '${_package_configure_preset}' must set cacheVariables.gentest_BUILD_TESTING=ON so packaging workflows keep the repo test tree enabled explicitly")
 endif()
+
+foreach(_metadata_toggle IN ITEMS GENTEST_ENABLE_CPS GENTEST_ENABLE_SBOM)
+  _get_json_string(_metadata_value OPTIONAL
+    PATH configurePresets ${_configure_preset_index} cacheVariables ${_metadata_toggle})
+  if(NOT _metadata_value STREQUAL "ON")
+    message(FATAL_ERROR
+      "Configure preset '${_package_configure_preset}' must set ${_metadata_toggle}=ON")
+  endif()
+endforeach()
+
+foreach(_activation IN ITEMS
+    CMAKE_EXPERIMENTAL_EXPORT_PACKAGE_DEPENDENCIES
+    CMAKE_EXPERIMENTAL_GENERATE_SBOM)
+  _get_json_string(_activation_value OPTIONAL
+    PATH configurePresets ${_configure_preset_index} cacheVariables ${_activation})
+  if(_activation_value STREQUAL "" OR _activation_value MATCHES "^(ON|OFF|TRUE|FALSE)$")
+    message(FATAL_ERROR
+      "Configure preset '${_package_configure_preset}' must pin the non-boolean CMake 4.3 activation value for ${_activation}")
+  endif()
+endforeach()

@@ -7,7 +7,8 @@ set(_workflow_files
   "${SOURCE_DIR}/.github/workflows/coverage.yml"
   "${SOURCE_DIR}/.github/workflows/lint.yml"
   "${SOURCE_DIR}/.github/workflows/buildsystems_linux.yml"
-  "${SOURCE_DIR}/.github/workflows/cross_qemu.yml")
+  "${SOURCE_DIR}/.github/workflows/cross_qemu.yml"
+  "${SOURCE_DIR}/.github/workflows/release.yml")
 
 foreach(_workflow_file IN LISTS _workflow_files)
   if(NOT EXISTS "${_workflow_file}")
