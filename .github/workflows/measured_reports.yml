@@ -19,7 +19,43 @@ env:
   Clang_DIR: /usr/lib64/cmake/clang
 
 jobs:
+  plan:
+    name: Measured reports • plan
+    runs-on: ubuntu-24.04
+    outputs:
+      run_measured: ${{ steps.plan.outputs.run_measured }}
+    steps:
+      - name: Checkout planner and history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute CI plan
+        id: plan
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_REF: ${{ github.ref }}
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          ci_plan_script="${RUNNER_TEMP}/ci_plan.py"
+          if ! git show "${CI_BASE_SHA}:scripts/ci_plan.py" > "${ci_plan_script}" || ! python3 "${ci_plan_script}" \
+            --event "${CI_EVENT_NAME}" \
+            --ref "${CI_REF}" \
+            --base "${CI_BASE_SHA}" \
+            --head "${CI_HEAD_SHA}" \
+            --github-output "${GITHUB_OUTPUT}"
+          then
+            echo "CI planner failed; enabling measured reports." >&2
+            echo "run_measured=true" >> "${GITHUB_OUTPUT}"
+          elif ! grep -q '^run_measured=' "${GITHUB_OUTPUT}"; then
+            echo "Base-revision CI planner predates the measured lane; enabling it." >&2
+            echo "run_measured=true" >> "${GITHUB_OUTPUT}"
+          fi
+
   compare:
+    needs: plan
+    if: ${{ needs.plan.outputs.run_measured == 'true' }}
     name: Fedora 43 • measured reports
     runs-on: ubuntu-24.04
     container: fedora:43

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -32,18 +33,35 @@ class PathClassificationTests(unittest.TestCase):
             expected(),
         )
 
-    def test_core_changes_enable_every_lane(self) -> None:
+    def test_measured_core_changes_enable_every_lane(self) -> None:
         paths = [
             "include/gentest/runner.h",
             "src/runner_impl.cpp",
             "tools/src/main.cpp",
             "cmake/GentestCodegen.cmake",
             "CMakeLists.txt",
-            "tests/async/cases.cpp",
         ]
         for path in paths:
             with self.subTest(path=path):
                 self.assertEqual(ci_plan.classify_paths([path]), ci_plan.all_enabled())
+
+    def test_unrelated_core_changes_skip_measured_reports(self) -> None:
+        standard_lanes = tuple(lane for lane in ci_plan.LANES if lane != "measured")
+        for path in ["tests/async/cases.cpp", "examples/runner_api.cpp"]:
+            with self.subTest(path=path):
+                self.assertEqual(ci_plan.classify_paths([path]), expected(*standard_lanes))
+
+    def test_measured_report_inputs_run_measured_lane(self) -> None:
+        cases = {
+            "scripts/compare_measured_reports.py": expected("measured"),
+            "scripts/ci_measured_report_compare.sh": expected("measured"),
+            "tests/benchmarks/cases.cpp": ci_plan.all_enabled(),
+            "tests/regressions/measured_report_coverage.cpp": ci_plan.all_enabled(),
+            "tools/CMakeLists.txt": ci_plan.all_enabled(),
+        }
+        for path, expected_plan in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(ci_plan.classify_paths([path]), expected_plan)
 
     def test_lint_configuration_runs_lint(self) -> None:
         self.assertEqual(
@@ -191,6 +209,44 @@ class WorkflowContractTests(unittest.TestCase):
                 self.assertIn('if [ "${CI_EVENT_NAME}" = "pull_request" ]; then', contents)
                 self.assertIn('git show "${CI_BASE_SHA}:scripts/ci_plan.py" > "${ci_plan_script}"', contents)
                 self.assertIn('if [ -z "${ci_plan_script}" ] || ! python3 "${ci_plan_script}"', contents)
+
+    def test_cmake_pull_requests_use_compatibility_profiles(self) -> None:
+        contents = (ROOT / ".github" / "workflows" / "cmake.yml").read_text(encoding="utf-8")
+        self.assertIn("GENTEST_HELPER_BUILD_PARALLEL_LEVEL: 1", contents)
+        bash_profiles = contents.count("--label-regex '^ci-compat$'")
+        powershell_profiles = contents.count('@("--label-regex", "^ci-compat$")')
+        self.assertGreaterEqual(bash_profiles + powershell_profiles, 3)
+        self.assertIn('matrix.ci_exhaustive', contents)
+        self.assertIn('package_workflow=package-pr', contents)
+
+    def test_package_pr_preset_is_focused_and_parallel(self) -> None:
+        presets = json.loads((ROOT / "CMakePresets.json").read_text(encoding="utf-8"))
+        test_presets = {preset["name"]: preset for preset in presets["testPresets"]}
+        workflow_presets = {preset["name"]: preset for preset in presets["workflowPresets"]}
+
+        parallel_base = test_presets["test-local-parallel-base"]
+        self.assertEqual(parallel_base["execution"]["jobs"], 4)
+        self.assertEqual(parallel_base["environment"]["GENTEST_HELPER_BUILD_PARALLEL_LEVEL"], "1")
+        self.assertEqual(test_presets["release-package-pr"]["filter"]["include"]["label"], "^package$")
+
+        package_pr_steps = workflow_presets["package-pr"]["steps"]
+        self.assertEqual([step["type"] for step in package_pr_steps], ["configure", "build", "test", "package"])
+        self.assertEqual(package_pr_steps[2]["name"], "release-package-pr")
+
+    def test_compatibility_labels_and_xmake_locks_are_declared(self) -> None:
+        tests_cmake = (ROOT / "tests" / "CMakeLists.txt").read_text(encoding="utf-8")
+        suite_helper = (ROOT / "cmake" / "GentestTests.cmake").read_text(encoding="utf-8")
+        self.assertIn('default-suite;ci-compat', suite_helper)
+        self.assertIn('set(_gentest_ci_compat_tests', tests_cmake)
+        self.assertEqual(tests_cmake.count('PROPERTY RESOURCE_LOCK "xmake"'), 4)
+
+    def test_measured_reports_are_path_scoped(self) -> None:
+        contents = (ROOT / ".github" / "workflows" / "measured_reports.yml").read_text(encoding="utf-8")
+        self.assertIn("name: Measured reports • plan", contents)
+        self.assertIn("run_measured: ${{ steps.plan.outputs.run_measured }}", contents)
+        self.assertIn('git show "${CI_BASE_SHA}:scripts/ci_plan.py"', contents)
+        self.assertIn("Base-revision CI planner predates the measured lane", contents)
+        self.assertIn("needs.plan.outputs.run_measured == 'true'", contents)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ concurrency:
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
+  GENTEST_HELPER_BUILD_PARALLEL_LEVEL: 1
 
 jobs:
   plan:
@@ -188,7 +189,12 @@ jobs:
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure -R '^(gentest_bazel_bzlmod_consumer)$'
 
       - name: Test
-        run: ctest --preset=${{ matrix.build-type }} --output-on-failure --parallel 4 -E '^(gentest_bazel_bzlmod_consumer)$'
+        run: |
+          ctest_args=(--preset=${{ matrix.build-type }} --output-on-failure --parallel 4 -E '^(gentest_bazel_bzlmod_consumer)$')
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            ctest_args+=(--label-regex '^ci-compat$')
+          fi
+          ctest "${ctest_args[@]}"
 
   windows:
     needs: plan
@@ -301,7 +307,12 @@ jobs:
 
       - name: Test
         shell: pwsh
-        run: ctest --preset=${{ matrix.preset }} --output-on-failure --parallel 4 -E '^(gentest_bazel_helpers_use_configured_toolchain)$'
+        run: |
+          $ctestArgs = @("--preset=${{ matrix.preset }}", "--output-on-failure", "--parallel", "4", "-E", "^(gentest_bazel_helpers_use_configured_toolchain)$")
+          if ($env:GITHUB_EVENT_NAME -eq "pull_request") {
+            $ctestArgs += @("--label-regex", "^ci-compat$")
+          }
+          ctest @ctestArgs
 
       - name: Configure/Build/Test (MSVC)
         if: matrix.preset == 'debug-system'
@@ -321,7 +332,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build $msvcBuildDir
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ctest --test-dir $msvcBuildDir --output-on-failure --parallel 4
+          $ctestArgs = @("--test-dir", $msvcBuildDir, "--output-on-failure", "--parallel", "4")
+          if ($env:GITHUB_EVENT_NAME -eq "pull_request") {
+            $ctestArgs += @("--label-regex", "^ci-compat$")
+          }
+          ctest @ctestArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   linux:
@@ -465,6 +480,7 @@ jobs:
             llvm_dir: /usr/lib/llvm-22/lib/cmake/llvm
             clang_dir: /usr/lib/llvm-22/lib/cmake/clang
             build_type: debug
+            ci_exhaustive: true
           - name: Ubuntu 24.04 • LLVM 22
             container: ubuntu:24.04
             pkg_manager: apt
@@ -961,7 +977,11 @@ jobs:
           LANG: C.UTF-8
         run: |
           set -euxo pipefail
-          ctest --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }}
+          ctest_args=(--preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }})
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "${{ matrix.ci_exhaustive }}" != "true" ]; then
+            ctest_args+=(--label-regex '^ci-compat$')
+          fi
+          ctest "${ctest_args[@]}"
 
   package-workflow:
     needs: plan
@@ -1064,4 +1084,8 @@ jobs:
       - name: Run package workflow
         run: |
           set -euxo pipefail
-          cmake --workflow --preset=package
+          package_workflow=package
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            package_workflow=package-pr
+          fi
+          cmake --workflow --preset="${package_workflow}"

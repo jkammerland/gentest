@@ -16,7 +16,7 @@ target_compile_features(gentest_format_value_tests PRIVATE cxx_std_20)
 target_link_libraries(gentest_format_value_tests PRIVATE gentest::gentest)
 add_dependencies(gentest_test_suites gentest_format_value_tests)
 add_test(NAME format_value COMMAND $<TARGET_FILE:gentest_format_value_tests>)
-set_property(TEST format_value APPEND PROPERTY LABELS "public-api")
+set_property(TEST format_value APPEND PROPERTY LABELS "public-api;ci-compat")
 
 add_executable(gentest_narrow_sync_surface_api_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/narrow_sync_surface_api.cpp)
@@ -24,7 +24,7 @@ target_compile_features(gentest_narrow_sync_surface_api_tests PRIVATE cxx_std_20
 target_link_libraries(gentest_narrow_sync_surface_api_tests PRIVATE gentest::gentest)
 add_dependencies(gentest_test_suites gentest_narrow_sync_surface_api_tests)
 add_test(NAME narrow_sync_surface_api COMMAND $<TARGET_FILE:gentest_narrow_sync_surface_api_tests>)
-set_property(TEST narrow_sync_surface_api APPEND PROPERTY LABELS "public-api;headers")
+set_property(TEST narrow_sync_surface_api APPEND PROPERTY LABELS "public-api;headers;ci-compat")
 
 add_executable(gentest_run_cases_api_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/run_cases_api.cpp)
@@ -32,18 +32,18 @@ target_compile_features(gentest_run_cases_api_tests PRIVATE cxx_std_20)
 target_link_libraries(gentest_run_cases_api_tests PRIVATE gentest::gentest)
 add_dependencies(gentest_test_suites gentest_run_cases_api_tests)
 add_test(NAME run_cases_api COMMAND $<TARGET_FILE:gentest_run_cases_api_tests>)
-set_property(TEST run_cases_api APPEND PROPERTY LABELS "public-api;runner")
+set_property(TEST run_cases_api APPEND PROPERTY LABELS "public-api;runner;ci-compat")
 
 add_test(
     NAME run_cases_list_json_utf8
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_run_cases_list_json_utf8.py
             $<TARGET_FILE:gentest_run_cases_api_tests>)
-set_property(TEST run_cases_list_json_utf8 APPEND PROPERTY LABELS "public-api;runner")
+set_property(TEST run_cases_list_json_utf8 APPEND PROPERTY LABELS "public-api;runner;ci-compat")
 
 add_test(
     NAME codegen_tooling_scripts_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_codegen_tooling_scripts.py)
-set_property(TEST codegen_tooling_scripts_contract APPEND PROPERTY LABELS "codegen;scripts")
+set_property(TEST codegen_tooling_scripts_contract APPEND PROPERTY LABELS "codegen;scripts;ci-compat")
 
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
@@ -51,7 +51,7 @@ target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)
 target_link_libraries(gentest_runner_api_example PRIVATE gentest::gentest)
 add_dependencies(gentest_test_suites gentest_runner_api_example)
 add_test(NAME runner_api_example COMMAND $<TARGET_FILE:gentest_runner_api_example>)
-set_property(TEST runner_api_example APPEND PROPERTY LABELS "public-api;runner")
+set_property(TEST runner_api_example APPEND PROPERTY LABELS "public-api;runner;ci-compat")
 
 gentest_resolve_test_std(_gentest_test_std_feature _gentest_codegen_std_flag)
 unset(_gentest_test_std_feature)
@@ -4477,6 +4477,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckXmakeTextualConsumerRegistration.cmake
     cmake)
 set_property(TEST gentest_xmake_textual_consumer_registration APPEND PROPERTY LABELS "xmake")
+set_property(TEST gentest_xmake_textual_consumer_registration PROPERTY RESOURCE_LOCK "xmake")
 
 _gentest_add_cmake_helper_test(
     gentest_xmake_textual_consumer
@@ -4484,6 +4485,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckXmakeTextualConsumer.cmake
     cmake)
 set_property(TEST gentest_xmake_textual_consumer APPEND PROPERTY LABELS "xmake")
+set_property(TEST gentest_xmake_textual_consumer PROPERTY RESOURCE_LOCK "xmake")
 
 _gentest_add_cmake_helper_test(
     gentest_xmake_module_consumer
@@ -4491,6 +4493,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckXmakeModuleConsumer.cmake
     cmake)
 set_property(TEST gentest_xmake_module_consumer APPEND PROPERTY LABELS "xmake" "modules")
+set_property(TEST gentest_xmake_module_consumer PROPERTY RESOURCE_LOCK "xmake")
 
 _gentest_add_cmake_helper_test(
     gentest_xmake_xrepo_consumer
@@ -4498,6 +4501,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckXmakeXrepoConsumer.cmake
     cmake)
 set_property(TEST gentest_xmake_xrepo_consumer APPEND PROPERTY LABELS "xmake")
+set_property(TEST gentest_xmake_xrepo_consumer PROPERTY RESOURCE_LOCK "xmake")
 
 _gentest_add_cmake_helper_test(
     gentest_bazel_textual_consumer
@@ -4847,6 +4851,30 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
     unset(_gentest_package_test_compiler_args)
     unset(_gentest_package_test_module_compiler_args)
 endif()
+
+# Compatibility lanes deliberately exercise a compact cross-platform contract.
+# The exhaustive Linux lane and post-merge/manual matrices still run every
+# test, including the complete nested build-helper matrix.
+set(_gentest_ci_compat_tests
+    gentest_codegen_check_valid
+    gentest_header_declaration_registration
+    gentest_explicit_mock_target_surface
+    gentest_module_registration_manifest
+    gentest_public_module_surface
+    gentest_runtime_shared_context_exports
+    gentest_codegen_msvc_modmap_external_module
+    gentest_codegen_separate_module_flag_strip
+    gentest_codegen_scan_deps_joined_module_file)
+if(WIN32)
+    list(APPEND _gentest_ci_compat_tests gentest_codegen_mock_cross_root_include_windows)
+endif()
+foreach(_gentest_ci_compat_test IN LISTS _gentest_ci_compat_tests)
+    if(TEST ${_gentest_ci_compat_test})
+        set_property(TEST ${_gentest_ci_compat_test} APPEND PROPERTY LABELS "ci-compat")
+    endif()
+endforeach()
+unset(_gentest_ci_compat_test)
+unset(_gentest_ci_compat_tests)
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
 #

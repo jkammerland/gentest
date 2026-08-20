@@ -889,6 +889,17 @@
       }
     },
     {
+      "name": "test-local-parallel-base",
+      "hidden": true,
+      "inherits": "test-base",
+      "execution": {
+        "jobs": 4
+      },
+      "environment": {
+        "GENTEST_HELPER_BUILD_PARALLEL_LEVEL": "1"
+      }
+    },
+    {
       "name": "libassert-noexc",
       "inherits": "test-base",
       "configurePreset": "libassert-noexc",
@@ -911,35 +922,35 @@
     },
     {
       "name": "debug-system",
-      "inherits": "test-base",
+      "inherits": "test-local-parallel-base",
       "configurePreset": "debug-system",
       "displayName": "Debug Tests (system LLVM/Clang)",
       "description": "Run all tests in debug mode using the system LLVM/Clang toolchain"
     },
     {
       "name": "debug-system-cxx20",
-      "inherits": "test-base",
+      "inherits": "test-local-parallel-base",
       "configurePreset": "debug-system-cxx20",
       "displayName": "Debug Tests (system LLVM/Clang, C++20 tests)",
       "description": "Run all tests in debug mode using the system toolchain with test executables built as C++20"
     },
     {
       "name": "debug-system-cxx23",
-      "inherits": "test-base",
+      "inherits": "test-local-parallel-base",
       "configurePreset": "debug-system-cxx23",
       "displayName": "Debug Tests (system LLVM/Clang, C++23 tests)",
       "description": "Run all tests in debug mode using the system toolchain with test executables built as C++23"
     },
     {
       "name": "debug-system-ccache",
-      "inherits": "test-base",
+      "inherits": "test-local-parallel-base",
       "configurePreset": "debug-system-ccache",
       "displayName": "Debug Tests (system LLVM/Clang, ccache)",
       "description": "Run all tests in debug mode using the system toolchain with ccache as the compiler launcher"
     },
     {
       "name": "debug-system-allure",
-      "inherits": "test-base",
+      "inherits": "test-local-parallel-base",
       "configurePreset": "debug-system-allure",
       "displayName": "Debug Tests (system LLVM/Clang, Allure)",
       "description": "Run all tests including Allure writer tests (may fail by design)"
@@ -1011,10 +1022,22 @@
     },
     {
       "name": "release-package",
-      "inherits": "test-base",
+      "inherits": "test-local-parallel-base",
       "configurePreset": "release-package",
       "displayName": "Release Package Tests",
       "description": "Run tests in the install-enabled release configuration used by packaging workflows"
+    },
+    {
+      "name": "release-package-pr",
+      "inherits": "test-local-parallel-base",
+      "configurePreset": "release-package",
+      "displayName": "Release Package PR Tests",
+      "description": "Run package and installed-consumer tests for pull-request packaging validation",
+      "filter": {
+        "include": {
+          "label": "^package$"
+        }
+      }
     },
     {
       "name": "release-ccache",
@@ -1493,6 +1516,29 @@
         {
           "type": "test",
           "name": "release-package"
+        },
+        {
+          "type": "package",
+          "name": "release"
+        }
+      ]
+    },
+    {
+      "name": "package-pr",
+      "displayName": "Package Pull Request Workflow",
+      "description": "Build and package from scratch while limiting tests to package and installed-consumer contracts",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "release-package"
+        },
+        {
+          "type": "build",
+          "name": "release-package"
+        },
+        {
+          "type": "test",
+          "name": "release-package-pr"
         },
         {
           "type": "package",
