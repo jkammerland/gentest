@@ -19,6 +19,7 @@ LANES = (
     "bazel",
     "meson",
     "xmake",
+    "measured",
 )
 
 BUILDSYSTEM_LANES = frozenset({"bazel", "meson", "xmake"})
@@ -118,6 +119,27 @@ DOC_NAMES = frozenset(
 )
 DOC_SUFFIXES = frozenset({".adoc", ".md", ".rst"})
 
+MEASURED_PREFIXES = (
+    "cmake/",
+    "include/gentest/",
+    "src/",
+    "tests/benchmarks/",
+    "tools/src/",
+)
+
+MEASURED_PATHS = frozenset(
+    {
+        "CMakeLists.txt",
+        "CMakePresets.json",
+        "scripts/ci_measured_report_compare.sh",
+        "scripts/compare_measured_reports.py",
+        "tests/CMakeLists.txt",
+        "tests/cmake/scripts/CheckMeasuredReportCompareScript.cmake",
+        "tests/regressions/measured_report_coverage.cpp",
+        "tools/CMakeLists.txt",
+    }
+)
+
 DEPENDENCY_NAMES = frozenset(
     {
         "Cargo.lock",
@@ -192,6 +214,10 @@ def _is_doc_path(path: str) -> bool:
     )
 
 
+def _is_measured_path(path: str) -> bool:
+    return path in MEASURED_PATHS or path.startswith(MEASURED_PREFIXES)
+
+
 def _specific_lanes(path: str) -> frozenset[str] | None:
     if path in LINT_PATHS:
         return frozenset({"lint"})
@@ -233,9 +259,14 @@ def classify_paths(paths: Iterable[str]) -> dict[str, bool]:
             continue
 
         if _is_core_path(path):
-            return all_enabled()
+            enabled.update(set(LANES) - {"measured"})
+            if _is_measured_path(path):
+                enabled.add("measured")
+            continue
 
         lanes = _specific_lanes(path)
+        if lanes is None and _is_measured_path(path):
+            lanes = frozenset({"measured"})
         if lanes is None:
             return all_enabled()
         enabled.update(lanes)
