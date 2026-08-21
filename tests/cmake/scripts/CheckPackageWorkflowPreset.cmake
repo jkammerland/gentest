@@ -140,3 +140,40 @@ if(NOT _build_testing_value STREQUAL "ON")
   message(FATAL_ERROR
     "Configure preset '${_package_configure_preset}' must set cacheVariables.gentest_BUILD_TESTING=ON so packaging workflows keep the repo test tree enabled explicitly")
 endif()
+
+foreach(_metadata_toggle IN ITEMS GENTEST_ENABLE_CPS GENTEST_ENABLE_SBOM)
+  _get_json_string(_metadata_value OPTIONAL
+    PATH configurePresets ${_configure_preset_index} cacheVariables ${_metadata_toggle})
+  if(NOT _metadata_value STREQUAL "ON")
+    message(FATAL_ERROR
+      "Configure preset '${_package_configure_preset}' must set ${_metadata_toggle}=ON")
+  endif()
+endforeach()
+
+foreach(_activation IN ITEMS
+    CMAKE_EXPERIMENTAL_EXPORT_PACKAGE_DEPENDENCIES
+    CMAKE_EXPERIMENTAL_GENERATE_SBOM)
+  _get_json_string(_activation_value OPTIONAL
+    PATH configurePresets ${_configure_preset_index} cacheVariables ${_activation})
+  if(_activation_value STREQUAL "" OR _activation_value MATCHES "^(ON|OFF|TRUE|FALSE)$")
+    message(FATAL_ERROR
+      "Configure preset '${_package_configure_preset}' must pin the non-boolean CMake 4.3 activation value for ${_activation}")
+  endif()
+endforeach()
+
+foreach(_workflow_name IN ITEMS cmake release)
+  set(_workflow_file "${SOURCE_DIR}/.github/workflows/${_workflow_name}.yml")
+  file(READ "${_workflow_file}" _workflow_content)
+  foreach(_packaging_tool_contract IN ITEMS
+      "cmake==4.3.4"
+      "name: Restore pinned packaging CMake"
+      "packaging_cmake_bin"
+      "cmake.CMAKE_BIN_DIR"
+      "cmake version 4.3.4")
+    string(FIND "${_workflow_content}" "${_packaging_tool_contract}" _contract_index)
+    if(_contract_index EQUAL -1)
+      message(FATAL_ERROR
+        "Workflow ${_workflow_file} is missing packaging tool contract: ${_packaging_tool_contract}")
+    endif()
+  endforeach()
+endforeach()

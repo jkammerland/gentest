@@ -5,7 +5,7 @@ get_property(
   PROPERTY "list_file_include_guard_cmake_INITIALIZED"
   SET)
 if(_LFG_INITIALIZED)
-  list_file_include_guard(VERSION 6.1.7)
+  list_file_include_guard(VERSION 7.1.0)
 else()
   if(COMMAND project_log)
     project_log(VERBOSE "including <${CMAKE_CURRENT_FUNCTION_LIST_FILE}>, without list_file_include_guard")
@@ -73,50 +73,63 @@ endif()
 #     [ENABLE_COMPONENT_INSTALL]
 #     [ARCHIVE_FORMAT <format>]
 #     [NO_DEFAULT_GENERATORS]
-#     [GPG_SIGNING_KEY <key_id_or_email>]
+#     [GPG_SIGNING_KEY <fingerprint_or_key_id>]
 #     [GPG_PASSPHRASE_FILE <path>]
 #     [SIGNING_METHOD <detached|embedded|both>]
 #     [GPG_KEYSERVER <keyserver_url>]
 #     [GENERATE_CHECKSUMS]
+#     [CHECKSUMS <algorithm1> <algorithm2> ...]
 #     [CONTAINER_NAME <name>]
 #     [CONTAINER_TAG <tag>]
+#     [CONTAINER_RUNTIME <podman|docker>]
+#     [CONTAINER_ENTRYPOINT </path/in/rootfs>]
+#     [CONTAINER_ARCHIVE_FORMAT <oci-archive|docker-archive>]
+#     [CONTAINER_COMPONENTS <component1> <component2> ...]
+#     [CONTAINER_ROOTFS_OVERLAYS <dir1> <dir2> ...]
 #     [ADDITIONAL_CPACK_VARS <var1> <value1> <var2> <value2> ...]
 #   )
 #
 # Parameters:
-#   PACKAGE_NAME            - Name of the package (default: ${PROJECT_NAME})
-#   PACKAGE_VERSION         - Version of the package (default: ${PROJECT_VERSION})
+#   PACKAGE_NAME            - Name of the package (default: ${PROJECT_NAME} where export_cpack is called)
+#   PACKAGE_VERSION         - Version of the package (default: ${PROJECT_VERSION} where export_cpack is called)
 #   PACKAGE_VENDOR          - Vendor/organization name (default: derived from PROJECT_HOMEPAGE_URL)
 #   PACKAGE_CONTACT         - Contact information (default: derived from maintainer info)
 #   PACKAGE_DESCRIPTION     - Package description (default: ${PROJECT_DESCRIPTION})
 #   PACKAGE_HOMEPAGE_URL    - Project homepage URL (default: ${PROJECT_HOMEPAGE_URL})
 #   PACKAGE_LICENSE         - Package license identifier for package metadata such as RPM License: (default: Unknown)
-#   LICENSE_FILE            - Path to packaged license text/resource file (default: auto-detected)
+#   LICENSE_FILE            - Path to CPack's license resource file; relative paths use the calling source directory (default: auto-detected there)
 #   GENERATORS              - Explicit list of CPack generators to use (TGZ, DEB, RPM, CONTAINER, etc.)
 #   COMPONENTS              - Explicit list of components to package (default: auto-detected)
 #   COMPONENT_GROUPS        - Enable component grouping (default: auto-detected from prefixes)
-#   DEFAULT_COMPONENTS      - Components installed by default (default: Runtime)
+#   DEFAULT_COMPONENTS      - Components selected by default in installers that honor CPack DISABLED metadata.
+#                             Defaults to detected runtime-payload components, or Development when no runtime payload exists.
 #   ENABLE_COMPONENT_INSTALL - Force component-based installation
 #   ARCHIVE_FORMAT          - Format for archive generators (TGZ, ZIP, etc.)
 #   NO_DEFAULT_GENERATORS   - Don't set default generators based on platform
+#   CHECKSUMS               - Package checksum algorithms. Supports MD5, SHA1, SHA2, and SHA3 variants accepted by CMake.
+#   GENERATE_CHECKSUMS      - Compatibility alias: ON selects SHA256 and SHA512; OFF selects none. Cannot be combined with CHECKSUMS.
 #   CONTAINER_NAME          - Name for container image when using CONTAINER generator (default: lowercase package name)
 #   CONTAINER_TAG           - Tag for container image when using CONTAINER generator (default: package version)
+#   CONTAINER_RUNTIME       - Explicit runtime command for container build/save (default: podman)
+#   CONTAINER_ENTRYPOINT    - Entrypoint path inside the container rootfs. If omitted, exactly one executable must be discoverable.
+#   CONTAINER_ARCHIVE_FORMAT - Archive format for saved image (default: oci-archive for podman, docker-archive for docker)
+#   CONTAINER_COMPONENTS    - Components merged into the container rootfs (default: DEFAULT_COMPONENTS)
+#   CONTAINER_ROOTFS_OVERLAYS - Directories whose contents are merged into the rootfs after components
 #   ADDITIONAL_CPACK_VARS   - Additional CPack variables as key-value pairs
 #                             Can override any auto-detected settings including architecture
 #
 # Behavior:
 #   - Automatically detects components from previous target_install_package calls
-#   - Auto-detects logical component groups from naming patterns (e.g., Core_Runtime → Core group)
+#   - Registers runtime components only for targets with runtime payloads
 #   - Sets platform-appropriate default generators (TGZ/ZIP on all, DEB/RPM on Linux, WIX on Windows)
-#   - Configures component dependencies and descriptions automatically
+#   - Records CPack component metadata and maps component dependencies to DEB Depends/RPM Requires when component packaging is enabled
 #   - Handles both single-component and multi-component packages
 #   - Integrates with existing CMake project metadata
 #
 # Auto-detected components and their typical usage:
-#   - Runtime/PREFIX: Shared libraries, executables needed at runtime (when COMPONENT is PREFIX)
-#   - Development/PREFIX_Development: Headers, static libraries, CMake config files
-#   - Logical Groups: Auto-created from prefixes (e.g., Core + Core_Development → Core group)
-#   - Component Dependencies: *_Development automatically depends on corresponding runtime component
+#   - Runtime or named COMPONENT values: shared libraries, modules, and executables needed at runtime
+#   - Development: Headers, static/import libraries, namelinks, CMake config files, and CPS metadata by default
+#   - Component dependencies: Development records dependencies on runtime components registered for the same export
 #
 # Examples:
 #   # Basic usage with auto-detection (CPack is automatically included)
@@ -152,8 +165,38 @@ endif()
 #     GENERATORS "TGZ;CONTAINER"   # CONTAINER generates FROM-scratch container
 #     CONTAINER_NAME "myapp"        # Defaults to lowercase package name
 #     CONTAINER_TAG "latest"        # Defaults to package version
+#     CONTAINER_RUNTIME "podman"    # Explicit runtime; defaults to podman
 #   )
 # ~~~
+function(_tip_find_export_cpack_resource_file file_name out_var)
+  set(_tip_resource_candidates "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/${file_name}" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/${file_name}")
+  foreach(_tip_resource_candidate IN LISTS _tip_resource_candidates)
+    if(EXISTS "${_tip_resource_candidate}")
+      set(${out_var}
+          "${_tip_resource_candidate}"
+          PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+
+  project_log(FATAL_ERROR "Package resource '${file_name}' not found. Checked: ${_tip_resource_candidates}")
+endfunction()
+
+function(_tip_finalize_registered_exports_for_cpack)
+  if(NOT COMMAND _auto_finalize_single_export)
+    return()
+  endif()
+
+  get_property(_tip_registered_exports GLOBAL PROPERTY "_CMAKE_PACKAGE_REGISTERED_EXPORTS")
+  foreach(_tip_export_name IN LISTS _tip_registered_exports)
+    get_property(_tip_export_finalized GLOBAL PROPERTY "_CMAKE_PACKAGE_EXPORT_${_tip_export_name}_FINALIZED")
+    if(NOT _tip_export_finalized)
+      project_log(DEBUG "Finalizing export '${_tip_export_name}' before CPack configuration")
+      _auto_finalize_single_export("${_tip_export_name}")
+    endif()
+  endforeach()
+endfunction()
+
 function(export_cpack)
   # Check if export_cpack has already been called (not deferred execution)
   get_property(cpack_config_stored GLOBAL PROPERTY "_TIP_CPACK_CONFIG_STORED")
@@ -173,8 +216,22 @@ function(export_cpack)
     endif()
   endif()
 
-  # Store arguments for deferred configuration
-  set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_ARGS" "${ARGN}")
+  # Store arguments for deferred configuration. Preserve semicolon-valued arguments so list-valued CPack variables remain one value.
+  set(_tip_cpack_config_args "")
+  if(ARGC GREATER 0)
+    math(EXPR _tip_cpack_last_arg "${ARGC} - 1")
+    foreach(_tip_cpack_arg_index RANGE 0 ${_tip_cpack_last_arg})
+      set(_tip_cpack_arg "${ARGV${_tip_cpack_arg_index}}")
+      string(REPLACE ";" "\\;" _tip_cpack_arg "${_tip_cpack_arg}")
+      list(APPEND _tip_cpack_config_args "${_tip_cpack_arg}")
+    endforeach()
+  endif()
+  set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_ARGS" "${_tip_cpack_config_args}")
+  set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_SOURCE_DIR" "${CMAKE_CURRENT_SOURCE_DIR}")
+  set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_NAME" "${PROJECT_NAME}")
+  set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_VERSION" "${PROJECT_VERSION}")
+  set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_DESCRIPTION" "${PROJECT_DESCRIPTION}")
+  set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_HOMEPAGE_URL" "${PROJECT_HOMEPAGE_URL}")
   set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_STORED" TRUE)
 
   # Schedule deferred CPack configuration after package finalization
@@ -197,6 +254,47 @@ function(_tip_store_cpack_var var_name var_value)
   endif()
 endfunction()
 
+function(_tip_mark_user_cpack_var var_name)
+  get_property(user_vars GLOBAL PROPERTY "_TIP_CPACK_USER_VARS")
+  if(NOT var_name IN_LIST user_vars)
+    list(APPEND user_vars "${var_name}")
+    set_property(GLOBAL PROPERTY "_TIP_CPACK_USER_VARS" "${user_vars}")
+  endif()
+endfunction()
+
+function(_tip_cpack_var_is_user_set OUT_VAR var_name)
+  get_property(user_vars GLOBAL PROPERTY "_TIP_CPACK_USER_VARS")
+  if(var_name IN_LIST user_vars)
+    set(${OUT_VAR}
+        TRUE
+        PARENT_SCOPE)
+  else()
+    set(${OUT_VAR}
+        FALSE
+        PARENT_SCOPE)
+  endif()
+endfunction()
+
+function(_tip_cpack_var_is_stored OUT_VAR var_name)
+  get_property(all_vars GLOBAL PROPERTY "_TIP_CPACK_ALL_VARS")
+  if(var_name IN_LIST all_vars)
+    set(${OUT_VAR}
+        TRUE
+        PARENT_SCOPE)
+  else()
+    set(${OUT_VAR}
+        FALSE
+        PARENT_SCOPE)
+  endif()
+endfunction()
+
+function(_tip_read_cpack_var var_name OUT_VAR)
+  get_property(current_value GLOBAL PROPERTY "_TIP_CPACK_VAR_${var_name}")
+  set(${OUT_VAR}
+      "${current_value}"
+      PARENT_SCOPE)
+endfunction()
+
 function(_tip_append_cpack_list_var_unique var_name)
   get_property(current_value GLOBAL PROPERTY "_TIP_CPACK_VAR_${var_name}")
   set(updated_value "${current_value}")
@@ -211,12 +309,361 @@ function(_tip_append_cpack_list_var_unique var_name)
   _tip_store_cpack_var("${var_name}" "${updated_value}")
 endfunction()
 
-# Helper function to determine if component groups should be auto-enabled Auto-enable when we detect logical component prefixes (e.g., Core/Core_Development or Core_Runtime/Core_Development)
+function(_tip_append_cpack_comma_var_unique var_name)
+  get_property(current_value GLOBAL PROPERTY "_TIP_CPACK_VAR_${var_name}")
+  string(REPLACE "," ";" current_items "${current_value}")
+
+  set(updated_items "")
+  foreach(item IN LISTS current_items)
+    string(STRIP "${item}" item)
+    if(item AND NOT item IN_LIST updated_items)
+      list(APPEND updated_items "${item}")
+    endif()
+  endforeach()
+
+  foreach(item ${ARGN})
+    string(STRIP "${item}" item)
+    if(item AND NOT item IN_LIST updated_items)
+      list(APPEND updated_items "${item}")
+    endif()
+  endforeach()
+
+  list(JOIN updated_items ", " updated_value)
+  _tip_store_cpack_var("${var_name}" "${updated_value}")
+endfunction()
+
+function(_tip_cpack_component_dependency_property_name OUT_VAR COMPONENT_NAME)
+  string(SHA256 _tip_component_hash "${COMPONENT_NAME}")
+  set(${OUT_VAR}
+      "_TIP_CPACK_COMPONENT_DEPENDENCY_${_tip_component_hash}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_get_cpack_component_dependencies COMPONENT_NAME OUT_VAR)
+  _tip_cpack_component_dependency_property_name(_tip_component_dependency_property "${COMPONENT_NAME}")
+  get_property(_tip_component_dependencies GLOBAL PROPERTY "${_tip_component_dependency_property}")
+  set(${OUT_VAR}
+      "${_tip_component_dependencies}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_component_list_has_cpack_dependencies OUT_VAR)
+  set(_tip_has_dependencies FALSE)
+  foreach(_tip_component IN LISTS ARGN)
+    _tip_get_cpack_component_dependencies("${_tip_component}" _tip_component_dependencies)
+    if(_tip_component_dependencies)
+      set(_tip_has_dependencies TRUE)
+      break()
+    endif()
+  endforeach()
+
+  set(${OUT_VAR}
+      "${_tip_has_dependencies}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_component_list_has_stored_cpack_dependencies OUT_VAR)
+  set(_tip_has_dependencies FALSE)
+  foreach(_tip_component IN LISTS ARGN)
+    string(TOUPPER "${_tip_component}" _tip_component_upper)
+    _tip_read_cpack_var("CPACK_COMPONENT_${_tip_component_upper}_DEPENDS" _tip_component_dependencies)
+    if(_tip_component_dependencies)
+      set(_tip_has_dependencies TRUE)
+      break()
+    endif()
+  endforeach()
+
+  set(${OUT_VAR}
+      "${_tip_has_dependencies}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_read_cpack_component_var COMPONENT_NAME SUFFIX OUT_VAR)
+  string(TOUPPER "${COMPONENT_NAME}" _tip_component_upper)
+  foreach(_tip_var IN ITEMS "CPACK_COMPONENT_${COMPONENT_NAME}_${SUFFIX}" "CPACK_COMPONENT_${_tip_component_upper}_${SUFFIX}")
+    _tip_cpack_var_is_stored(_tip_has_var "${_tip_var}")
+    if(_tip_has_var)
+      _tip_read_cpack_var("${_tip_var}" _tip_value)
+      set(${OUT_VAR}
+          "${_tip_value}"
+          PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+
+  set(${OUT_VAR}
+      ""
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_get_cpack_package_unit COMPONENT_NAME OUT_VAR)
+  _tip_read_cpack_var(CPACK_COMPONENTS_GROUPING _tip_components_grouping)
+  if(_tip_components_grouping STREQUAL "IGNORE")
+    set(${OUT_VAR}
+        "${COMPONENT_NAME}"
+        PARENT_SCOPE)
+    return()
+  endif()
+
+  _tip_read_cpack_component_var("${COMPONENT_NAME}" GROUP _tip_component_group)
+  if(_tip_component_group)
+    set(${OUT_VAR}
+        "${_tip_component_group}"
+        PARENT_SCOPE)
+  else()
+    set(${OUT_VAR}
+        "${COMPONENT_NAME}"
+        PARENT_SCOPE)
+  endif()
+endfunction()
+
+function(_tip_cpack_component_depends_var PACKAGE_UNIT OUT_VAR OUT_USER_SET)
+  string(TOUPPER "${PACKAGE_UNIT}" _tip_package_unit_upper)
+  set(_tip_exact_var "CPACK_COMPONENT_${PACKAGE_UNIT}_DEPENDS")
+  set(_tip_upper_var "CPACK_COMPONENT_${_tip_package_unit_upper}_DEPENDS")
+
+  _tip_cpack_var_is_user_set(_tip_exact_is_user_set "${_tip_exact_var}")
+  _tip_cpack_var_is_user_set(_tip_upper_is_user_set "${_tip_upper_var}")
+  if(_tip_exact_is_user_set)
+    set(${OUT_VAR}
+        "${_tip_exact_var}"
+        PARENT_SCOPE)
+    set(${OUT_USER_SET}
+        TRUE
+        PARENT_SCOPE)
+    return()
+  elseif(_tip_upper_is_user_set)
+    set(${OUT_VAR}
+        "${_tip_upper_var}"
+        PARENT_SCOPE)
+    set(${OUT_USER_SET}
+        TRUE
+        PARENT_SCOPE)
+    return()
+  endif()
+
+  _tip_cpack_var_is_stored(_tip_has_exact_var "${_tip_exact_var}")
+  if(_tip_has_exact_var)
+    set(${OUT_VAR}
+        "${_tip_exact_var}"
+        PARENT_SCOPE)
+  else()
+    set(${OUT_VAR}
+        "${_tip_upper_var}"
+        PARENT_SCOPE)
+  endif()
+  set(${OUT_USER_SET}
+      FALSE
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_get_rpm_component_package_name COMPONENT_NAME PACKAGE_NAME OUT_VAR)
+  string(TOUPPER "${COMPONENT_NAME}" _tip_component_upper)
+
+  _tip_cpack_var_is_stored(_tip_has_rpm_package_name CPACK_RPM_PACKAGE_NAME)
+  if(_tip_has_rpm_package_name)
+    _tip_read_cpack_var(CPACK_RPM_PACKAGE_NAME _tip_rpm_package_name)
+  else()
+    string(TOLOWER "${PACKAGE_NAME}" _tip_rpm_package_name)
+  endif()
+
+  _tip_read_cpack_var(CPACK_RPM_MAIN_COMPONENT _tip_rpm_main_component)
+  string(TOUPPER "${_tip_rpm_main_component}" _tip_rpm_main_component_upper)
+  if(_tip_rpm_main_component AND _tip_rpm_main_component_upper STREQUAL _tip_component_upper)
+    set(_tip_component_package_name "${_tip_rpm_package_name}")
+  else()
+    set(_tip_component_package_name "${_tip_rpm_package_name}-${COMPONENT_NAME}")
+    foreach(_tip_package_name_var IN ITEMS "CPACK_RPM_${COMPONENT_NAME}_PACKAGE_NAME" "CPACK_RPM_${_tip_component_upper}_PACKAGE_NAME")
+      _tip_cpack_var_is_stored(_tip_has_package_name "${_tip_package_name_var}")
+      if(_tip_has_package_name)
+        _tip_read_cpack_var("${_tip_package_name_var}" _tip_component_package_name)
+        break()
+      endif()
+    endforeach()
+  endif()
+
+  set(${OUT_VAR}
+      "${_tip_component_package_name}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_get_rpm_component_requires_var PACKAGE_UNIT OUT_VAR OUT_USER_SET)
+  string(TOUPPER "${PACKAGE_UNIT}" _tip_package_unit_upper)
+  set(_tip_exact_var "CPACK_RPM_${PACKAGE_UNIT}_PACKAGE_REQUIRES")
+  set(_tip_upper_var "CPACK_RPM_${_tip_package_unit_upper}_PACKAGE_REQUIRES")
+
+  _tip_cpack_var_is_user_set(_tip_exact_is_user_set "${_tip_exact_var}")
+  _tip_cpack_var_is_user_set(_tip_upper_is_user_set "${_tip_upper_var}")
+  if(_tip_exact_is_user_set)
+    set(${OUT_VAR}
+        "${_tip_exact_var}"
+        PARENT_SCOPE)
+    set(${OUT_USER_SET}
+        TRUE
+        PARENT_SCOPE)
+    return()
+  elseif(_tip_upper_is_user_set)
+    set(${OUT_VAR}
+        "${_tip_upper_var}"
+        PARENT_SCOPE)
+    set(${OUT_USER_SET}
+        TRUE
+        PARENT_SCOPE)
+    return()
+  endif()
+
+  _tip_cpack_var_is_stored(_tip_has_exact_var "${_tip_exact_var}")
+  if(_tip_has_exact_var)
+    set(${OUT_VAR}
+        "${_tip_exact_var}"
+        PARENT_SCOPE)
+  else()
+    set(${OUT_VAR}
+        "${_tip_upper_var}"
+        PARENT_SCOPE)
+  endif()
+  set(${OUT_USER_SET}
+      FALSE
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_get_rpm_same_package_dependency PACKAGE_NAME OUT_VAR)
+  _tip_read_cpack_var(CPACK_RPM_PACKAGE_VERSION _tip_rpm_version)
+  if(NOT _tip_rpm_version)
+    _tip_read_cpack_var(CPACK_PACKAGE_VERSION _tip_rpm_version)
+  endif()
+  string(REPLACE "-" "_" _tip_rpm_version "${_tip_rpm_version}")
+
+  _tip_read_cpack_var(CPACK_RPM_PACKAGE_RELEASE _tip_rpm_release)
+  if(NOT _tip_rpm_release)
+    set(_tip_rpm_release "1")
+  endif()
+  _tip_read_cpack_var(CPACK_RPM_PACKAGE_RELEASE_DIST _tip_rpm_release_dist)
+  if(_tip_rpm_release_dist)
+    string(APPEND _tip_rpm_release "%{?dist}")
+  endif()
+
+  _tip_read_cpack_var(CPACK_RPM_PACKAGE_EPOCH _tip_rpm_epoch)
+  if(_tip_rpm_epoch)
+    set(_tip_rpm_evr "${_tip_rpm_epoch}:${_tip_rpm_version}-${_tip_rpm_release}")
+  else()
+    set(_tip_rpm_evr "${_tip_rpm_version}-${_tip_rpm_release}")
+  endif()
+
+  set(${OUT_VAR}
+      "${PACKAGE_NAME} = ${_tip_rpm_evr}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_configure_native_component_dependencies component_list package_name enable_deb enable_rpm)
+  _tip_component_list_has_stored_cpack_dependencies(_tip_has_component_dependencies ${component_list})
+  if(NOT _tip_has_component_dependencies)
+    return()
+  endif()
+
+  _tip_read_cpack_var(CPACK_COMPONENTS_GROUPING _tip_components_grouping)
+  if(_tip_components_grouping STREQUAL "ALL_COMPONENTS_IN_ONE")
+    return()
+  endif()
+
+  set(_tip_package_units_with_dependencies "")
+  foreach(_tip_component IN LISTS component_list)
+    string(TOUPPER "${_tip_component}" _tip_component_upper)
+    _tip_read_cpack_var("CPACK_COMPONENT_${_tip_component_upper}_DEPENDS" _tip_component_dependencies)
+    if(NOT _tip_component_dependencies)
+      continue()
+    endif()
+
+    _tip_get_cpack_package_unit("${_tip_component}" _tip_package_unit)
+    foreach(_tip_dependency IN LISTS _tip_component_dependencies)
+      if(NOT _tip_dependency IN_LIST component_list)
+        continue()
+      endif()
+
+      _tip_get_cpack_package_unit("${_tip_dependency}" _tip_dependency_package_unit)
+      if(_tip_dependency_package_unit STREQUAL _tip_package_unit)
+        continue()
+      endif()
+
+      string(SHA256 _tip_package_unit_hash "${_tip_package_unit}")
+      set(_tip_package_unit_deps_var "_tip_native_package_unit_deps_${_tip_package_unit_hash}")
+      set(_tip_package_unit_deps ${${_tip_package_unit_deps_var}})
+      if(NOT _tip_dependency_package_unit IN_LIST _tip_package_unit_deps)
+        list(APPEND _tip_package_unit_deps "${_tip_dependency_package_unit}")
+        set(${_tip_package_unit_deps_var} "${_tip_package_unit_deps}")
+      endif()
+      if(NOT _tip_package_unit IN_LIST _tip_package_units_with_dependencies)
+        list(APPEND _tip_package_units_with_dependencies "${_tip_package_unit}")
+      endif()
+    endforeach()
+  endforeach()
+
+  if(NOT _tip_package_units_with_dependencies)
+    return()
+  endif()
+
+  _tip_read_cpack_var(CPACK_DEB_COMPONENT_INSTALL _tip_deb_component_install)
+  if(enable_deb AND _tip_deb_component_install)
+    _tip_cpack_var_is_user_set(_tip_user_set_deb_component_depends CPACK_DEBIAN_ENABLE_COMPONENT_DEPENDS)
+    if(NOT _tip_user_set_deb_component_depends)
+      _tip_store_cpack_var(CPACK_DEBIAN_ENABLE_COMPONENT_DEPENDS ON)
+    endif()
+
+    foreach(_tip_package_unit IN LISTS _tip_package_units_with_dependencies)
+      string(SHA256 _tip_package_unit_hash "${_tip_package_unit}")
+      set(_tip_package_unit_deps_var "_tip_native_package_unit_deps_${_tip_package_unit_hash}")
+      set(_tip_package_unit_deps ${${_tip_package_unit_deps_var}})
+      list(REMOVE_DUPLICATES _tip_package_unit_deps)
+
+      _tip_cpack_component_depends_var("${_tip_package_unit}" _tip_component_depends_var _tip_component_depends_user_set)
+      if(NOT _tip_component_depends_user_set)
+        _tip_store_cpack_var("${_tip_component_depends_var}" "${_tip_package_unit_deps}")
+      endif()
+    endforeach()
+  endif()
+
+  _tip_read_cpack_var(CPACK_RPM_COMPONENT_INSTALL _tip_rpm_component_install)
+  if(NOT enable_rpm OR NOT _tip_rpm_component_install)
+    return()
+  endif()
+
+  foreach(_tip_package_unit IN LISTS _tip_package_units_with_dependencies)
+    string(SHA256 _tip_package_unit_hash "${_tip_package_unit}")
+    set(_tip_package_unit_deps_var "_tip_native_package_unit_deps_${_tip_package_unit_hash}")
+    set(_tip_package_unit_deps ${${_tip_package_unit_deps_var}})
+    set(_tip_rpm_requires "")
+    foreach(_tip_dependency_package_unit IN LISTS _tip_package_unit_deps)
+      _tip_get_rpm_component_package_name("${_tip_dependency_package_unit}" "${package_name}" _tip_dependency_package_name)
+      _tip_get_rpm_same_package_dependency("${_tip_dependency_package_name}" _tip_dependency_expression)
+      list(APPEND _tip_rpm_requires "${_tip_dependency_expression}")
+    endforeach()
+
+    if(_tip_rpm_requires)
+      _tip_get_rpm_component_requires_var("${_tip_package_unit}" _tip_requires_var _tip_requires_user_set)
+      if(_tip_requires_user_set)
+        project_log(DEBUG "Skipping generated RPM package Requires for '${_tip_package_unit}' because ${_tip_requires_var} was set by the user")
+      else()
+        _tip_cpack_var_is_stored(_tip_has_upper_requires "${_tip_requires_var}")
+        if(NOT _tip_has_upper_requires)
+          _tip_cpack_var_is_stored(_tip_has_global_requires CPACK_RPM_PACKAGE_REQUIRES)
+          if(_tip_has_global_requires)
+            _tip_read_cpack_var(CPACK_RPM_PACKAGE_REQUIRES _tip_global_requires)
+            _tip_store_cpack_var("${_tip_requires_var}" "${_tip_global_requires}")
+          endif()
+        endif()
+
+        _tip_append_cpack_comma_var_unique("${_tip_requires_var}" ${_tip_rpm_requires})
+        project_log(DEBUG "Set RPM package Requires for package unit '${_tip_package_unit}': ${_tip_rpm_requires}")
+      endif()
+    endif()
+  endforeach()
+endfunction()
+
+# Helper function to determine if component groups should be auto-enabled for legacy split SDK component names.
 function(_should_auto_enable_component_groups component_list)
   foreach(component ${component_list})
-    # NEW SCHEME: Check if component follows COMPONENT_Development pattern
+    # Legacy compatibility: explicit COMPONENT_Development names can still be grouped when supplied directly to export_cpack().
     if(component MATCHES "^(.+)_Development$")
-      # Found at least one new-style development component - enable grouping
       set(_ENABLE_GROUPS
           TRUE
           PARENT_SCOPE)
@@ -237,7 +684,7 @@ function(_configure_logical_component_groups component_list)
   # Parse components to extract logical groups and categorize components
   foreach(component ${component_list})
     if(component MATCHES "^(.+)_Development$")
-      # NEW SCHEME: Component follows COMPONENT_Development pattern
+      # Legacy split SDK component pattern.
       set(group_name "${CMAKE_MATCH_1}")
       set(component_type "Development")
 
@@ -263,7 +710,7 @@ function(_configure_logical_component_groups component_list)
       # Traditional standalone Development component
       list(APPEND development_components "${component}")
     else()
-      # NEW SCHEME: Component without _Development suffix is runtime component Only add to runtime if there's a corresponding _Development component
+      # Legacy split SDK runtime component. Only add to runtime if there is a matching explicit _Development component.
       if("${component}_Development" IN_LIST component_list)
         list(APPEND runtime_components "${component}")
         if(NOT component IN_LIST logical_groups)
@@ -286,16 +733,16 @@ function(_configure_logical_component_groups component_list)
   # Configure component group assignments and dependencies
   foreach(component ${component_list})
     string(TOUPPER "${component}" component_upper)
+    set(dependencies "")
 
     if(component MATCHES "^(.+)_Development$")
-      # NEW SCHEME: COMPONENT_Development pattern
+      # Legacy split SDK component pattern.
       set(group_name "${CMAKE_MATCH_1}")
       string(TOUPPER "${group_name}" group_upper)
 
       _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_GROUP "${group_upper}")
 
-      # Set up dependencies: Development components depend on Runtime components within same group PLUS the global Runtime component if it exists and is different
-      set(dependencies "")
+      # Legacy dependency setup: split development components depend on their runtime component and global Runtime when present.
       if("${group_name}" IN_LIST component_list)
         list(APPEND dependencies "${group_name}")
       endif()
@@ -303,25 +750,41 @@ function(_configure_logical_component_groups component_list)
       if("Runtime" IN_LIST component_list AND NOT group_name STREQUAL "Runtime")
         list(APPEND dependencies "Runtime")
       endif()
-      if(dependencies)
-        _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DEPENDS "${dependencies}")
-        project_log(DEBUG "Set dependency: ${component} depends on ${dependencies}")
-      endif()
     elseif("${component}_Development" IN_LIST component_list)
-      # NEW SCHEME: Runtime component (has corresponding _Development component)
+      # Legacy split SDK runtime component.
       string(TOUPPER "${component}" group_upper)
       _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_GROUP "${group_upper}")
       # Custom runtime components should depend on global Runtime if it exists and is different
       if("Runtime" IN_LIST component_list AND NOT component STREQUAL "Runtime")
-        _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DEPENDS "Runtime")
-        project_log(DEBUG "Set dependency: ${component} depends on Runtime")
+        list(APPEND dependencies "Runtime")
       endif()
     else()
       # Traditional component - set up classic Runtime/Development dependency
       if(component STREQUAL "Development" AND "Runtime" IN_LIST component_list)
-        _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DEPENDS "Runtime")
-        project_log(DEBUG "Set traditional dependency: Development depends on Runtime")
+        list(APPEND dependencies "Runtime")
       endif()
+    endif()
+
+    _tip_get_cpack_component_dependencies("${component}" _tip_export_component_dependencies)
+    if(_tip_export_component_dependencies)
+      list(APPEND dependencies ${_tip_export_component_dependencies})
+    endif()
+    if(dependencies)
+      list(REMOVE_ITEM dependencies "${component}")
+      list(REMOVE_DUPLICATES dependencies)
+      set(_tip_filtered_dependencies "")
+      foreach(_tip_dependency IN LISTS dependencies)
+        if(_tip_dependency IN_LIST component_list)
+          list(APPEND _tip_filtered_dependencies "${_tip_dependency}")
+        else()
+          project_log(DEBUG "Skipping dependency '${_tip_dependency}' for component '${component}' because it is not in CPACK_COMPONENTS_ALL")
+        endif()
+      endforeach()
+      set(dependencies ${_tip_filtered_dependencies})
+    endif()
+    if(dependencies)
+      _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DEPENDS "${dependencies}")
+      project_log(DEBUG "Set dependency: ${component} depends on ${dependencies}")
     endif()
   endforeach()
 
@@ -388,9 +851,109 @@ function(_execute_deferred_cpack_config)
   if(NOT args)
     return()
   endif()
+  _tip_finalize_registered_exports_for_cpack()
+  get_property(_tip_cpack_config_source_dir GLOBAL PROPERTY "_TIP_CPACK_CONFIG_SOURCE_DIR")
+  if(NOT _tip_cpack_config_source_dir)
+    set(_tip_cpack_config_source_dir "${CMAKE_CURRENT_SOURCE_DIR}")
+  endif()
+  get_property(_tip_cpack_config_project_name GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_NAME")
+  get_property(_tip_cpack_config_project_version GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_VERSION")
+  get_property(_tip_cpack_config_project_description GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_DESCRIPTION")
+  get_property(_tip_cpack_config_project_homepage_url GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_HOMEPAGE_URL")
+
+  set(_tip_cpack_keyword_names
+      PACKAGE_NAME
+      PACKAGE_VERSION
+      PACKAGE_VENDOR
+      PACKAGE_CONTACT
+      PACKAGE_DESCRIPTION
+      PACKAGE_HOMEPAGE_URL
+      PACKAGE_LICENSE
+      LICENSE_FILE
+      GENERATORS
+      COMPONENTS
+      COMPONENT_GROUPS
+      DEFAULT_COMPONENTS
+      ENABLE_COMPONENT_INSTALL
+      ARCHIVE_FORMAT
+      NO_DEFAULT_GENERATORS
+      GPG_SIGNING_KEY
+      GPG_PASSPHRASE_FILE
+      SIGNING_METHOD
+      GPG_KEYSERVER
+      GENERATE_CHECKSUMS
+      CHECKSUMS
+      CONTAINER_NAME
+      CONTAINER_TAG
+      CONTAINER_RUNTIME
+      CONTAINER_ENTRYPOINT
+      CONTAINER_ARCHIVE_FORMAT
+      CONTAINER_COMPONENTS
+      CONTAINER_ROOTFS_OVERLAYS
+      ADDITIONAL_CPACK_VARS)
+
+  set(_tip_cpack_parse_args "")
+  set(_tip_additional_cpack_vars "")
+  set(_tip_additional_cpack_vars_seen FALSE)
+  list(LENGTH args _tip_cpack_arg_count)
+  set(_tip_cpack_arg_index 0)
+  while(_tip_cpack_arg_index LESS _tip_cpack_arg_count)
+    list(GET args ${_tip_cpack_arg_index} _tip_cpack_arg)
+
+    if(_tip_cpack_arg STREQUAL "GENERATE_CHECKSUMS")
+      math(EXPR _tip_cpack_next_index "${_tip_cpack_arg_index} + 1")
+      if(_tip_cpack_next_index LESS _tip_cpack_arg_count)
+        list(GET args ${_tip_cpack_next_index} _tip_cpack_next_arg)
+        string(TOUPPER "${_tip_cpack_next_arg}" _tip_cpack_next_arg_upper)
+        if(_tip_cpack_next_arg_upper MATCHES "^(ON|TRUE|YES|1)$")
+          list(APPEND _tip_cpack_parse_args GENERATE_CHECKSUMS ON)
+          math(EXPR _tip_cpack_arg_index "${_tip_cpack_arg_index} + 2")
+          continue()
+        elseif(_tip_cpack_next_arg_upper MATCHES "^(OFF|FALSE|NO|0)$")
+          list(APPEND _tip_cpack_parse_args GENERATE_CHECKSUMS OFF)
+          math(EXPR _tip_cpack_arg_index "${_tip_cpack_arg_index} + 2")
+          continue()
+        elseif(NOT _tip_cpack_next_arg IN_LIST _tip_cpack_keyword_names)
+          project_log(FATAL_ERROR "GENERATE_CHECKSUMS must be ON or OFF when a value is provided, got: ${_tip_cpack_next_arg}")
+        endif()
+      endif()
+
+      list(APPEND _tip_cpack_parse_args GENERATE_CHECKSUMS ON)
+    elseif(_tip_cpack_arg STREQUAL "ADDITIONAL_CPACK_VARS")
+      set(_tip_additional_cpack_vars_seen TRUE)
+      math(EXPR _tip_cpack_arg_index "${_tip_cpack_arg_index} + 1")
+      while(_tip_cpack_arg_index LESS _tip_cpack_arg_count)
+        list(GET args ${_tip_cpack_arg_index} _tip_cpack_additional_arg)
+        if(_tip_cpack_additional_arg IN_LIST _tip_cpack_keyword_names)
+          break()
+        endif()
+
+        string(REPLACE ";" "\\;" _tip_cpack_additional_arg "${_tip_cpack_additional_arg}")
+        list(APPEND _tip_additional_cpack_vars "${_tip_cpack_additional_arg}")
+        math(EXPR _tip_cpack_arg_index "${_tip_cpack_arg_index} + 1")
+      endwhile()
+      continue()
+    else()
+      list(APPEND _tip_cpack_parse_args "${_tip_cpack_arg}")
+    endif()
+
+    math(EXPR _tip_cpack_arg_index "${_tip_cpack_arg_index} + 1")
+  endwhile()
 
   # Now parse and process the stored arguments
-  set(options COMPONENT_GROUPS ENABLE_COMPONENT_INSTALL NO_DEFAULT_GENERATORS GENERATE_CHECKSUMS)
+  set(_tip_checksums_explicit FALSE)
+  set(_tip_legacy_checksums_explicit FALSE)
+  if("CHECKSUMS" IN_LIST _tip_cpack_parse_args)
+    set(_tip_checksums_explicit TRUE)
+  endif()
+  if("GENERATE_CHECKSUMS" IN_LIST _tip_cpack_parse_args)
+    set(_tip_legacy_checksums_explicit TRUE)
+  endif()
+  if(_tip_checksums_explicit AND _tip_legacy_checksums_explicit)
+    project_log(FATAL_ERROR "CHECKSUMS and GENERATE_CHECKSUMS cannot be used together. Use CHECKSUMS for an explicit algorithm list.")
+  endif()
+
+  set(options COMPONENT_GROUPS ENABLE_COMPONENT_INSTALL NO_DEFAULT_GENERATORS)
   set(oneValueArgs
       PACKAGE_NAME
       PACKAGE_VERSION
@@ -405,32 +968,68 @@ function(_execute_deferred_cpack_config)
       GPG_PASSPHRASE_FILE
       SIGNING_METHOD
       GPG_KEYSERVER
+      GENERATE_CHECKSUMS
       CONTAINER_NAME
-      CONTAINER_TAG)
-  set(multiValueArgs GENERATORS COMPONENTS DEFAULT_COMPONENTS ADDITIONAL_CPACK_VARS)
-  cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${args})
+      CONTAINER_TAG
+      CONTAINER_RUNTIME
+      CONTAINER_ENTRYPOINT
+      CONTAINER_ARCHIVE_FORMAT)
+  set(multiValueArgs GENERATORS COMPONENTS DEFAULT_COMPONENTS CHECKSUMS CONTAINER_COMPONENTS CONTAINER_ROOTFS_OVERLAYS)
+  cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${_tip_cpack_parse_args})
+  if(_tip_additional_cpack_vars_seen)
+    set(ARG_ADDITIONAL_CPACK_VARS "${_tip_additional_cpack_vars}")
+  endif()
+  if(ARG_UNPARSED_ARGUMENTS)
+    project_log(FATAL_ERROR "Unknown arguments for export_cpack(): ${ARG_UNPARSED_ARGUMENTS}")
+  endif()
+
+  set(_tip_supported_checksum_algorithms
+      MD5
+      SHA1
+      SHA224
+      SHA256
+      SHA384
+      SHA512
+      SHA3_224
+      SHA3_256
+      SHA3_384
+      SHA3_512)
+  set(_tip_explicit_checksum_algorithms "")
+  foreach(_tip_checksum_algorithm IN LISTS ARG_CHECKSUMS)
+    string(TOUPPER "${_tip_checksum_algorithm}" _tip_checksum_algorithm)
+    if(NOT _tip_checksum_algorithm IN_LIST _tip_supported_checksum_algorithms)
+      project_log(FATAL_ERROR "Unsupported CHECKSUMS algorithm '${_tip_checksum_algorithm}'. Supported values: ${_tip_supported_checksum_algorithms}")
+    endif()
+    list(APPEND _tip_explicit_checksum_algorithms "${_tip_checksum_algorithm}")
+  endforeach()
+  list(REMOVE_DUPLICATES _tip_explicit_checksum_algorithms)
+  set(_tip_components_explicit FALSE)
+  set(_tip_components_keyword "COMPONENTS")
+  if(_tip_components_keyword IN_LIST _tip_cpack_parse_args)
+    set(_tip_components_explicit TRUE)
+  endif()
 
   # Set default package metadata from project properties
   if(NOT ARG_PACKAGE_NAME)
-    set(ARG_PACKAGE_NAME "${PROJECT_NAME}")
+    set(ARG_PACKAGE_NAME "${_tip_cpack_config_project_name}")
   endif()
 
   if(NOT ARG_PACKAGE_VERSION)
-    set(ARG_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(ARG_PACKAGE_VERSION "${_tip_cpack_config_project_version}")
     if(NOT ARG_PACKAGE_VERSION)
       set(ARG_PACKAGE_VERSION "1.0.0")
     endif()
   endif()
 
   if(NOT ARG_PACKAGE_DESCRIPTION)
-    set(ARG_PACKAGE_DESCRIPTION "${PROJECT_DESCRIPTION}")
+    set(ARG_PACKAGE_DESCRIPTION "${_tip_cpack_config_project_description}")
     if(NOT ARG_PACKAGE_DESCRIPTION)
       set(ARG_PACKAGE_DESCRIPTION "Package created with target_install_package")
     endif()
   endif()
 
   if(NOT ARG_PACKAGE_HOMEPAGE_URL)
-    set(ARG_PACKAGE_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
+    set(ARG_PACKAGE_HOMEPAGE_URL "${_tip_cpack_config_project_homepage_url}")
   endif()
 
   if(NOT ARG_PACKAGE_VENDOR)
@@ -446,11 +1045,20 @@ function(_execute_deferred_cpack_config)
     set(ARG_PACKAGE_CONTACT "maintainer@${ARG_PACKAGE_VENDOR}")
   endif()
 
-  # Auto-detect license file if not specified
-  if(NOT ARG_LICENSE_FILE)
+  # Resolve license files from the directory that called export_cpack(), not the deferred top-level directory.
+  if(ARG_LICENSE_FILE)
+    cmake_path(
+      ABSOLUTE_PATH
+      ARG_LICENSE_FILE
+      BASE_DIRECTORY
+      "${_tip_cpack_config_source_dir}"
+      NORMALIZE
+      OUTPUT_VARIABLE
+      ARG_LICENSE_FILE)
+  else()
     foreach(license_name LICENSE LICENSE.txt LICENSE.md COPYING COPYING.txt)
-      if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${license_name}")
-        set(ARG_LICENSE_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${license_name}")
+      if(EXISTS "${_tip_cpack_config_source_dir}/${license_name}")
+        set(ARG_LICENSE_FILE "${_tip_cpack_config_source_dir}/${license_name}")
         break()
       endif()
     endforeach()
@@ -468,9 +1076,27 @@ function(_execute_deferred_cpack_config)
   endif()
 
   # Set default components
+  set(_tip_default_components_explicit TRUE)
   if(NOT ARG_DEFAULT_COMPONENTS)
-    set(ARG_DEFAULT_COMPONENTS "Runtime")
+    set(_tip_default_components_explicit FALSE)
+    set(ARG_DEFAULT_COMPONENTS "")
+    get_property(_tip_detected_runtime_components GLOBAL PROPERTY "_TIP_DETECTED_RUNTIME_COMPONENTS")
+    foreach(_tip_default_component_candidate IN LISTS _tip_detected_runtime_components)
+      if(_tip_default_component_candidate IN_LIST ARG_COMPONENTS)
+        list(APPEND ARG_DEFAULT_COMPONENTS "${_tip_default_component_candidate}")
+      endif()
+    endforeach()
+    if(NOT ARG_DEFAULT_COMPONENTS AND "Development" IN_LIST ARG_COMPONENTS)
+      set(ARG_DEFAULT_COMPONENTS "Development")
+    elseif(NOT ARG_DEFAULT_COMPONENTS)
+      set(ARG_DEFAULT_COMPONENTS ${ARG_COMPONENTS})
+    endif()
   endif()
+  foreach(_tip_default_component IN LISTS ARG_DEFAULT_COMPONENTS)
+    if(NOT _tip_default_component IN_LIST ARG_COMPONENTS)
+      project_log(FATAL_ERROR "DEFAULT_COMPONENTS contains unknown component '${_tip_default_component}'. Known components: ${ARG_COMPONENTS}")
+    endif()
+  endforeach()
 
   # Auto-detect generators based on platform if not specified
   if(NOT ARG_GENERATORS AND NOT ARG_NO_DEFAULT_GENERATORS)
@@ -487,6 +1113,34 @@ function(_execute_deferred_cpack_config)
       list(APPEND ARG_GENERATORS "DEB" "RPM")
     elseif(APPLE)
       list(APPEND ARG_GENERATORS "DragNDrop")
+    endif()
+  endif()
+
+  set(_tip_signing_key_for_validation "${ARG_GPG_SIGNING_KEY}")
+  if(NOT _tip_signing_key_for_validation AND DEFINED ENV{GPG_SIGNING_KEY})
+    set(_tip_signing_key_for_validation "$ENV{GPG_SIGNING_KEY}")
+  endif()
+
+  set(_tip_generators_upper "")
+  set(_tip_has_deb_generator FALSE)
+  set(_tip_has_rpm_generator FALSE)
+  set(_tip_has_non_rpm_generator FALSE)
+  foreach(_tip_generator IN LISTS ARG_GENERATORS)
+    string(TOUPPER "${_tip_generator}" _tip_generator_upper)
+    list(APPEND _tip_generators_upper "${_tip_generator_upper}")
+    if(_tip_generator_upper STREQUAL "DEB")
+      set(_tip_has_deb_generator TRUE)
+      set(_tip_has_non_rpm_generator TRUE)
+    elseif(_tip_generator_upper STREQUAL "RPM")
+      set(_tip_has_rpm_generator TRUE)
+    else()
+      set(_tip_has_non_rpm_generator TRUE)
+    endif()
+  endforeach()
+
+  if(_tip_signing_key_for_validation AND ARG_SIGNING_METHOD STREQUAL "embedded")
+    if(NOT _tip_has_rpm_generator OR _tip_has_non_rpm_generator)
+      project_log(FATAL_ERROR "SIGNING_METHOD 'embedded' only supports RPM generators. Use SIGNING_METHOD 'both' for mixed RPM and detached signatures.")
     endif()
   endif()
 
@@ -553,29 +1207,102 @@ function(_execute_deferred_cpack_config)
     list(APPEND ARG_GENERATORS "External")
 
     # Configure External generator for container building
-    _tip_store_cpack_var(CPACK_EXTERNAL_PACKAGE_SCRIPT "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/external_container_package.cmake")
+    _tip_find_export_cpack_resource_file("external_container_package.cmake" _tip_external_container_package_script)
+    _tip_store_cpack_var(CPACK_EXTERNAL_PACKAGE_SCRIPT "${_tip_external_container_package_script}")
     _tip_store_cpack_var(CPACK_EXTERNAL_ENABLE_STAGING ON)
     _tip_store_cpack_var(CPACK_EXTERNAL_USER_ENABLE_MINIMAL_CONTAINER ON)
 
     # Set container name (default to lowercase package name)
     if(ARG_CONTAINER_NAME)
       set(container_name "${ARG_CONTAINER_NAME}")
-      _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_NAME "${container_name}")
     else()
       string(TOLOWER "${ARG_PACKAGE_NAME}" container_name)
-      _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_NAME "${container_name}")
     endif()
+    if(NOT container_name MATCHES "^[a-z0-9]+([._:-]?[a-z0-9]+)*(/[a-z0-9]+([._-]?[a-z0-9]+)*)*$")
+      project_log(FATAL_ERROR "CONTAINER_NAME must be a lowercase container image name without whitespace, got: ${container_name}")
+    endif()
+    string(FIND "${container_name}" ":" _tip_container_name_colon_index)
+    if(NOT _tip_container_name_colon_index EQUAL -1)
+      string(FIND "${container_name}" "/" _tip_container_name_slash_index)
+      if(_tip_container_name_slash_index EQUAL -1 OR _tip_container_name_colon_index GREATER _tip_container_name_slash_index)
+        project_log(FATAL_ERROR "CONTAINER_NAME must not include a tag. Use CONTAINER_TAG instead: ${container_name}")
+      endif()
+    endif()
+    _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_NAME "${container_name}")
 
     # Set container tag (default to package version)
     if(ARG_CONTAINER_TAG)
       set(container_tag "${ARG_CONTAINER_TAG}")
-      _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_TAG "${container_tag}")
     else()
       set(container_tag "${ARG_PACKAGE_VERSION}")
-      _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_TAG "${container_tag}")
+    endif()
+    string(LENGTH "${container_tag}" container_tag_length)
+    if(container_tag_length GREATER 128 OR NOT container_tag MATCHES "^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+      project_log(FATAL_ERROR "CONTAINER_TAG must match Docker/Podman tag syntax, got: ${container_tag}")
+    endif()
+    _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_TAG "${container_tag}")
+
+    if(ARG_CONTAINER_RUNTIME)
+      set(container_runtime "${ARG_CONTAINER_RUNTIME}")
+    else()
+      set(container_runtime "podman")
+    endif()
+    if(NOT container_runtime STREQUAL "podman" AND NOT container_runtime STREQUAL "docker")
+      project_log(FATAL_ERROR "CONTAINER_RUNTIME must be either 'podman' or 'docker', got: ${container_runtime}")
+    endif()
+    _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_RUNTIME "${container_runtime}")
+
+    if(ARG_CONTAINER_ENTRYPOINT)
+      _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_ENTRYPOINT "${ARG_CONTAINER_ENTRYPOINT}")
     endif()
 
-    project_log(VERBOSE "Container generation configured: ${container_name}:${container_tag}")
+    if(ARG_CONTAINER_ARCHIVE_FORMAT)
+      set(container_archive_format "${ARG_CONTAINER_ARCHIVE_FORMAT}")
+    elseif(container_runtime STREQUAL "podman")
+      set(container_archive_format "oci-archive")
+    else()
+      set(container_archive_format "docker-archive")
+    endif()
+    if(NOT container_archive_format STREQUAL "oci-archive" AND NOT container_archive_format STREQUAL "docker-archive")
+      project_log(FATAL_ERROR "CONTAINER_ARCHIVE_FORMAT must be 'oci-archive' or 'docker-archive', got: ${container_archive_format}")
+    endif()
+    if(container_runtime STREQUAL "docker" AND NOT container_archive_format STREQUAL "docker-archive")
+      project_log(FATAL_ERROR "Docker runtime only supports CONTAINER_ARCHIVE_FORMAT docker-archive")
+    endif()
+    _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_ARCHIVE_FORMAT "${container_archive_format}")
+
+    if(ARG_CONTAINER_COMPONENTS)
+      set(container_components ${ARG_CONTAINER_COMPONENTS})
+    else()
+      set(container_components ${ARG_DEFAULT_COMPONENTS})
+    endif()
+    if(NOT container_components)
+      project_log(FATAL_ERROR "CONTAINER_COMPONENTS resolved to an empty list. Set CONTAINER_COMPONENTS or DEFAULT_COMPONENTS explicitly.")
+    endif()
+    foreach(container_component IN LISTS container_components)
+      if(NOT container_component IN_LIST ARG_COMPONENTS)
+        project_log(FATAL_ERROR "CONTAINER_COMPONENTS contains unknown component '${container_component}'. Known components: ${ARG_COMPONENTS}")
+      endif()
+    endforeach()
+    _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_COMPONENTS "${container_components}")
+
+    if(ARG_CONTAINER_ROOTFS_OVERLAYS)
+      set(container_rootfs_overlays "")
+      foreach(container_rootfs_overlay IN LISTS ARG_CONTAINER_ROOTFS_OVERLAYS)
+        cmake_path(
+          ABSOLUTE_PATH
+          container_rootfs_overlay
+          BASE_DIRECTORY
+          "${_tip_cpack_config_source_dir}"
+          NORMALIZE
+          OUTPUT_VARIABLE
+          container_rootfs_overlay_abs)
+        list(APPEND container_rootfs_overlays "${container_rootfs_overlay_abs}")
+      endforeach()
+      _tip_store_cpack_var(CPACK_EXTERNAL_USER_CONTAINER_ROOTFS_OVERLAYS "${container_rootfs_overlays}")
+    endif()
+
+    project_log(VERBOSE "Container generation configured: ${container_name}:${container_tag} using ${container_runtime}; components: ${container_components}")
   endif()
 
   # Set generators
@@ -588,9 +1315,11 @@ function(_execute_deferred_cpack_config)
   if(ARG_COMPONENTS)
     _tip_store_cpack_var(CPACK_COMPONENTS_ALL "${ARG_COMPONENTS}")
 
-    # Enable component installation if more than one component or explicitly requested
+    # Enable component installation if more than one component, explicit components were requested, or explicitly requested.
     list(LENGTH ARG_COMPONENTS component_count)
-    if(component_count GREATER 1 OR ARG_ENABLE_COMPONENT_INSTALL)
+    if(component_count GREATER 1
+       OR ARG_ENABLE_COMPONENT_INSTALL
+       OR _tip_components_explicit)
       _tip_store_cpack_var(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
       _tip_store_cpack_var(CPACK_DEB_COMPONENT_INSTALL ON)
       _tip_store_cpack_var(CPACK_RPM_COMPONENT_INSTALL ON)
@@ -599,31 +1328,44 @@ function(_execute_deferred_cpack_config)
       endif()
     endif()
 
-    # Set default components
+    # Mark non-default components as unselected by default for installers that honor CPack component metadata.
     if(ARG_DEFAULT_COMPONENTS)
-      _tip_store_cpack_var(CPACK_COMPONENTS_DEFAULT "${ARG_DEFAULT_COMPONENTS}")
+      foreach(component ${ARG_COMPONENTS})
+        string(TOUPPER ${component} component_upper)
+        if(component IN_LIST ARG_DEFAULT_COMPONENTS)
+          _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DISABLED FALSE)
+        else()
+          _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DISABLED TRUE)
+        endif()
+      endforeach()
     endif()
 
     # Configure component grouping (auto-detect logical groups from component naming)
     _should_auto_enable_component_groups("${ARG_COMPONENTS}")
-    if(ARG_COMPONENT_GROUPS OR _ENABLE_GROUPS)
-      _tip_store_cpack_var(CPACK_COMPONENTS_GROUPING "ONE_PER_GROUP")
+    _tip_component_list_has_cpack_dependencies(_tip_has_export_component_dependencies ${ARG_COMPONENTS})
+    if(ARG_COMPONENT_GROUPS
+       OR _ENABLE_GROUPS
+       OR _tip_has_export_component_dependencies)
+      if(ARG_COMPONENT_GROUPS OR _ENABLE_GROUPS)
+        _tip_store_cpack_var(CPACK_COMPONENTS_GROUPING "ONE_PER_GROUP")
+      endif()
 
       # Auto-detect logical groups from component naming patterns
       _configure_logical_component_groups("${ARG_COMPONENTS}")
     endif()
 
-    # Set component descriptions (enhanced for prefix patterns)
+    # Set component descriptions.
+    get_property(_tip_detected_components GLOBAL PROPERTY "_TIP_DETECTED_COMPONENTS")
     foreach(component ${ARG_COMPONENTS})
       string(TOUPPER ${component} component_upper)
 
       if(component MATCHES "^(.+)_Development$")
-        # NEW SCHEME: COMPONENT_Development pattern
+        # Legacy split SDK component pattern.
         set(group_name "${CMAKE_MATCH_1}")
         _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DESCRIPTION "${group_name} headers, static libraries, and development files")
         _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DISPLAY_NAME "${group_name} Development")
       elseif("${component}_Development" IN_LIST ARG_COMPONENTS)
-        # NEW SCHEME: Runtime component (has corresponding _Development component)
+        # Legacy split SDK runtime component.
         _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DESCRIPTION "${component} runtime libraries and executables")
         _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DISPLAY_NAME "${component} Runtime")
       elseif(component STREQUAL "Runtime")
@@ -638,6 +1380,9 @@ function(_execute_deferred_cpack_config)
       elseif(component STREQUAL "Documentation")
         _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DESCRIPTION "Documentation and examples")
         _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DISPLAY_NAME "Documentation")
+      elseif(component IN_LIST _tip_detected_components)
+        _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DESCRIPTION "${component} runtime libraries and executables")
+        _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DISPLAY_NAME "${component} Runtime")
       else()
         _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DESCRIPTION "${component} component")
         _tip_store_cpack_var(CPACK_COMPONENT_${component_upper}_DISPLAY_NAME "${component}")
@@ -694,7 +1439,7 @@ function(_execute_deferred_cpack_config)
     if(ARG_PACKAGE_LICENSE)
       _tip_store_cpack_var(CPACK_RPM_PACKAGE_LICENSE "${ARG_PACKAGE_LICENSE}")
     elseif(ARG_LICENSE_FILE)
-      project_log(VERBOSE "PACKAGE_LICENSE not set; RPM License metadata will remain 'Unknown' while LICENSE_FILE is used for packaged license text")
+      project_log(VERBOSE "PACKAGE_LICENSE not set; RPM License metadata will remain 'Unknown' while LICENSE_FILE is used as CPack's license resource")
     endif()
 
     _tip_store_cpack_var(CPACK_RPM_PACKAGE_ARCHITECTURE "${_TIP_RPM_PACKAGE_ARCHITECTURE}")
@@ -705,13 +1450,16 @@ function(_execute_deferred_cpack_config)
   endif()
 
   # Set additional variables if provided
-  if(ARG_ADDITIONAL_CPACK_VARS)
+  if(_tip_additional_cpack_vars_seen)
     list(LENGTH ARG_ADDITIONAL_CPACK_VARS vars_length)
     math(EXPR pairs_count "${vars_length} / 2")
     math(EXPR remainder "${vars_length} % 2")
 
+    if(vars_length EQUAL 0)
+      project_log(FATAL_ERROR "ADDITIONAL_CPACK_VARS must contain key/value pairs, got no arguments.")
+    endif()
     if(NOT remainder EQUAL 0)
-      project_log(WARNING "ADDITIONAL_CPACK_VARS must contain an even number of elements (key-value pairs)")
+      project_log(FATAL_ERROR "ADDITIONAL_CPACK_VARS must contain key/value pairs, got an odd number of arguments.")
     else()
       math(EXPR max_index "${pairs_count} - 1")
       foreach(i RANGE ${max_index})
@@ -720,11 +1468,16 @@ function(_execute_deferred_cpack_config)
         list(GET ARG_ADDITIONAL_CPACK_VARS ${key_index} var_name)
         list(GET ARG_ADDITIONAL_CPACK_VARS ${value_index} var_value)
         _tip_store_cpack_var("${var_name}" "${var_value}")
+        _tip_mark_user_cpack_var("${var_name}")
       endforeach()
     endif()
   endif()
 
-  if("RPM" IN_LIST ARG_GENERATORS)
+  if(ARG_COMPONENTS)
+    _tip_configure_native_component_dependencies("${ARG_COMPONENTS}" "${ARG_PACKAGE_NAME}" "${_tip_has_deb_generator}" "${_tip_has_rpm_generator}")
+  endif()
+
+  if(_tip_has_rpm_generator)
     set(_tip_rpm_excluded_dirs "")
     foreach(relative_dir "" "${CMAKE_INSTALL_BINDIR}" "${CMAKE_INSTALL_INCLUDEDIR}" "${CMAKE_INSTALL_LIBDIR}" "${CMAKE_INSTALL_DATADIR}")
       if(relative_dir)
@@ -744,23 +1497,62 @@ function(_execute_deferred_cpack_config)
   endif()
 
   # Configure GPG signing if requested (must be before variable application)
-  _configure_gpg_signing(
-    SIGNING_KEY
-    "${ARG_GPG_SIGNING_KEY}"
-    PASSPHRASE_FILE
-    "${ARG_GPG_PASSPHRASE_FILE}"
-    SIGNING_METHOD
-    "${ARG_SIGNING_METHOD}"
-    KEYSERVER
-    "${ARG_GPG_KEYSERVER}"
-    GENERATE_CHECKSUMS
-    ${ARG_GENERATE_CHECKSUMS}
-    PACKAGE_NAME
-    "${ARG_PACKAGE_NAME}"
-    PACKAGE_VERSION
-    "${ARG_PACKAGE_VERSION}"
-    PACKAGE_CONTACT
-    "${ARG_PACKAGE_CONTACT}")
+  set(_tip_gpg_requires_rpmsign FALSE)
+  if(ARG_SIGNING_METHOD STREQUAL "embedded")
+    set(_tip_gpg_requires_rpmsign TRUE)
+  elseif(ARG_SIGNING_METHOD STREQUAL "both" AND _tip_has_rpm_generator)
+    set(_tip_gpg_requires_rpmsign TRUE)
+  endif()
+
+  set(_tip_effective_signing_key "${ARG_GPG_SIGNING_KEY}")
+  if("${_tip_effective_signing_key}" STREQUAL "" AND DEFINED ENV{GPG_SIGNING_KEY})
+    set(_tip_effective_signing_key "$ENV{GPG_SIGNING_KEY}")
+  endif()
+
+  if(_tip_checksums_explicit)
+    set(_tip_checksum_algorithms ${_tip_explicit_checksum_algorithms})
+  elseif(_tip_legacy_checksums_explicit)
+    if(ARG_GENERATE_CHECKSUMS)
+      set(_tip_checksum_algorithms SHA256 SHA512)
+    else()
+      set(_tip_checksum_algorithms "")
+    endif()
+  elseif(NOT "${_tip_effective_signing_key}" STREQUAL "")
+    set(_tip_checksum_algorithms SHA256 SHA512)
+  else()
+    set(_tip_checksum_algorithms "")
+  endif()
+
+  set(_tip_post_build_checksum_algorithms ${_tip_checksum_algorithms})
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.2")
+    if(_tip_checksum_algorithms)
+      _tip_store_cpack_var(CPACK_PACKAGE_CHECKSUM "${_tip_checksum_algorithms}")
+    endif()
+    set(_tip_post_build_checksum_algorithms "")
+  endif()
+
+  set(_tip_gpg_signing_args
+      SIGNING_KEY
+      "${ARG_GPG_SIGNING_KEY}"
+      PASSPHRASE_FILE
+      "${ARG_GPG_PASSPHRASE_FILE}"
+      SIGNING_METHOD
+      "${ARG_SIGNING_METHOD}"
+      KEYSERVER
+      "${ARG_GPG_KEYSERVER}"
+      PACKAGE_NAME
+      "${ARG_PACKAGE_NAME}"
+      PACKAGE_VERSION
+      "${ARG_PACKAGE_VERSION}"
+      PACKAGE_CONTACT
+      "${ARG_PACKAGE_CONTACT}")
+  if(_tip_post_build_checksum_algorithms)
+    list(APPEND _tip_gpg_signing_args CHECKSUMS ${_tip_post_build_checksum_algorithms})
+  endif()
+  if(_tip_gpg_requires_rpmsign)
+    list(APPEND _tip_gpg_signing_args REQUIRE_RPMSIGN)
+  endif()
+  _configure_gpg_signing(${_tip_gpg_signing_args})
 
   # Set all CPack variables from GLOBAL properties just before including CPack This avoids cache persistence between CMake runs
   get_property(all_cpack_vars GLOBAL PROPERTY "_TIP_CPACK_ALL_VARS")
@@ -810,7 +1602,7 @@ endfunction(_execute_deferred_cpack_config)
 # Internal function to configure GPG signing for packages
 # ~~~
 function(_configure_gpg_signing)
-  set(options GENERATE_CHECKSUMS)
+  set(options REQUIRE_RPMSIGN)
   set(oneValueArgs
       SIGNING_KEY
       PASSPHRASE_FILE
@@ -819,12 +1611,10 @@ function(_configure_gpg_signing)
       PACKAGE_NAME
       PACKAGE_VERSION
       PACKAGE_CONTACT)
-  set(multiValueArgs)
+  set(multiValueArgs CHECKSUMS)
   cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
-
-  # Skip if no signing key provided
-  if(NOT ARG_SIGNING_KEY)
-    return()
+  if(ARG_UNPARSED_ARGUMENTS)
+    project_log(FATAL_ERROR "Unknown arguments for GPG signing configuration: ${ARG_UNPARSED_ARGUMENTS}")
   endif()
 
   # Set defaults with environment variable fallbacks
@@ -836,48 +1626,100 @@ function(_configure_gpg_signing)
     set(ARG_PASSPHRASE_FILE "$ENV{GPG_PASSPHRASE_FILE}")
   endif()
 
+  if(ARG_SIGNING_METHOD
+     AND NOT ARG_SIGNING_METHOD STREQUAL "detached"
+     AND NOT ARG_SIGNING_METHOD STREQUAL "embedded"
+     AND NOT ARG_SIGNING_METHOD STREQUAL "both")
+    project_log(FATAL_ERROR "SIGNING_METHOD must be one of 'detached', 'embedded', or 'both', got: ${ARG_SIGNING_METHOD}")
+  endif()
+
+  if(ARG_SIGNING_METHOD AND NOT ARG_SIGNING_KEY)
+    project_log(FATAL_ERROR "SIGNING_METHOD '${ARG_SIGNING_METHOD}' requires GPG_SIGNING_KEY or the GPG_SIGNING_KEY environment variable.")
+  endif()
+
+  if(NOT ARG_SIGNING_KEY AND NOT ARG_CHECKSUMS)
+    return()
+  endif()
+
   if(NOT ARG_SIGNING_METHOD)
-    set(ARG_SIGNING_METHOD "detached")
+    if(ARG_SIGNING_KEY)
+      set(ARG_SIGNING_METHOD "detached")
+    else()
+      set(ARG_SIGNING_METHOD "none")
+    endif()
+  endif()
+
+  if(NOT ARG_SIGNING_METHOD STREQUAL "detached"
+     AND NOT ARG_SIGNING_METHOD STREQUAL "embedded"
+     AND NOT ARG_SIGNING_METHOD STREQUAL "both"
+     AND NOT ARG_SIGNING_METHOD STREQUAL "none")
+    project_log(FATAL_ERROR "SIGNING_METHOD must be one of 'detached', 'embedded', or 'both', got: ${ARG_SIGNING_METHOD}")
   endif()
 
   if(NOT ARG_KEYSERVER)
     set(ARG_KEYSERVER "keyserver.ubuntu.com")
   endif()
 
-  # Enable checksums and verification scripts by default if signing is enabled
-  if(NOT DEFINED ARG_GENERATE_CHECKSUMS)
-    set(ARG_GENERATE_CHECKSUMS ON)
+  # Find GPG executable
+  if(ARG_SIGNING_KEY)
+    find_program(
+      GPG_EXECUTABLE
+      NAMES gpg2 gpg
+      DOC "GNU Privacy Guard")
+    if(NOT GPG_EXECUTABLE)
+      project_log(FATAL_ERROR "GPG executable not found. Install GPG to enable package signing.")
+    endif()
+  else()
+    set(GPG_EXECUTABLE "")
   endif()
 
-  # Find GPG executable
-  find_program(
-    GPG_EXECUTABLE
-    NAMES gpg2 gpg
-    DOC "GNU Privacy Guard")
-  if(NOT GPG_EXECUTABLE)
-    project_log(FATAL_ERROR "GPG executable not found. Install GPG to enable package signing.")
+  if(ARG_SIGNING_KEY AND ARG_REQUIRE_RPMSIGN)
+    find_program(
+      RPMSIGN_EXECUTABLE
+      NAMES rpmsign
+      DOC "RPM signing tool")
+    if(NOT RPMSIGN_EXECUTABLE)
+      project_log(FATAL_ERROR "rpmsign executable not found. Install rpm-sign to enable embedded RPM signing.")
+    endif()
+  else()
+    set(RPMSIGN_EXECUTABLE "")
+  endif()
+
+  if(ARG_SIGNING_KEY
+     AND ARG_PASSPHRASE_FILE
+     AND ARG_REQUIRE_RPMSIGN)
+    project_log(WARNING "GPG_PASSPHRASE_FILE is used for detached signatures only; embedded RPM signing uses rpmsign and the configured GPG agent.")
   endif()
 
   # Validate signing key exists
-  execute_process(
-    COMMAND ${GPG_EXECUTABLE} --list-secret-keys "${ARG_SIGNING_KEY}"
-    RESULT_VARIABLE gpg_result
-    OUTPUT_QUIET ERROR_QUIET)
+  if(ARG_SIGNING_KEY)
+    execute_process(
+      COMMAND ${GPG_EXECUTABLE} --list-secret-keys "${ARG_SIGNING_KEY}"
+      RESULT_VARIABLE gpg_result
+      OUTPUT_QUIET ERROR_QUIET)
 
-  if(NOT gpg_result EQUAL 0)
-    project_log(FATAL_ERROR "GPG signing key '${ARG_SIGNING_KEY}' not found in keyring or no private key available.")
+    if(NOT gpg_result EQUAL 0)
+      project_log(FATAL_ERROR "GPG signing key '${ARG_SIGNING_KEY}' not found in keyring or no private key available.")
+    endif()
   endif()
 
   # Generate signing script
-  configure_file("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/sign_packages.cmake.in" "${CMAKE_BINARY_DIR}/sign_packages.cmake" @ONLY)
+  _tip_find_export_cpack_resource_file("sign_packages.cmake.in" _tip_sign_packages_template)
+  configure_file("${_tip_sign_packages_template}" "${CMAKE_BINARY_DIR}/sign_packages.cmake" @ONLY)
 
   # Set CPack post-build script
   _tip_store_cpack_var(CPACK_POST_BUILD_SCRIPTS "${CMAKE_BINARY_DIR}/sign_packages.cmake")
 
-  project_log(STATUS "GPG package signing configured:")
-  project_log(STATUS "  Signing key: ${ARG_SIGNING_KEY}")
-  project_log(STATUS "  Signing method: ${ARG_SIGNING_METHOD}")
-  project_log(STATUS "  Generate checksums: ${ARG_GENERATE_CHECKSUMS}")
-  project_log(STATUS "  Post-build script: ${CMAKE_BINARY_DIR}/sign_packages.cmake")
+  if(ARG_SIGNING_KEY)
+    project_log(STATUS "GPG package signing configured:")
+    project_log(STATUS "  Signing key: ${ARG_SIGNING_KEY}")
+    project_log(STATUS "  Signing method: ${ARG_SIGNING_METHOD}")
+    project_log(STATUS "  Post-build checksums: ${ARG_CHECKSUMS}")
+    project_log(STATUS "  Post-build script: ${CMAKE_BINARY_DIR}/sign_packages.cmake")
+  else()
+    project_log(STATUS "CPack checksum generation configured:")
+    project_log(STATUS "  Post-build checksums: ${ARG_CHECKSUMS}")
+    project_log(STATUS "  Post-build script: ${CMAKE_BINARY_DIR}/sign_packages.cmake")
+  endif()
 
 endfunction(_configure_gpg_signing)

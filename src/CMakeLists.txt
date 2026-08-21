@@ -36,6 +36,9 @@ add_library(gentest_runtime ${_gentest_runtime_libtype}
 add_library(gentest_main STATIC
     ${PROJECT_SOURCE_DIR}/src/gentest_main.cpp)
 
+set_property(TARGET ${PROJECT_NAME} gentest_runtime gentest_main
+    PROPERTY SPDX_LICENSE "${gentest_SPDX_LICENSE}")
+
 target_link_libraries(gentest_main
     PUBLIC
         ${PROJECT_NAME}
@@ -56,7 +59,7 @@ endif()
 
 target_link_libraries(gentest_runtime
     PUBLIC
-        gentest::fmt_dependency)
+        ${GENTEST_FMT_LINK_TARGET})
 
 if(GENTEST_USE_BOOST_JSON)
     # Enable the runtime Allure JSON writer implementation.
@@ -129,15 +132,29 @@ endif()
 
 if(${PROJECT_NAME}_INSTALL AND GENTEST_PUBLIC_MODULES_ENABLED)
     install(FILES ${_gentest_module_interfaces}
-        DESTINATION include/${PROJECT_NAME})
+        DESTINATION include/${PROJECT_NAME}
+        COMPONENT Development)
 endif()
 
-target_compile_options(${PROJECT_NAME}
-    PUBLIC
-        $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-Wno-unknown-attributes;-Wno-attributes>
-        $<$<COMPILE_LANG_AND_ID:CXX,AppleClang>:-Wno-unknown-attributes;-Wno-attributes>
-        $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-attributes>
-        $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/wd5030>)
+if(GENTEST_ENABLE_CPS)
+    # CPS intentionally supports only configuration-dependent generator
+    # expressions. Release archives are host/toolchain-specific, so resolve
+    # the annotation warning flag while producing the package.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "^(Clang|AppleClang)$")
+        target_compile_options(${PROJECT_NAME} PUBLIC -Wno-unknown-attributes -Wno-attributes)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(${PROJECT_NAME} PUBLIC -Wno-attributes)
+    elseif(MSVC)
+        target_compile_options(${PROJECT_NAME} PUBLIC /wd5030)
+    endif()
+else()
+    target_compile_options(${PROJECT_NAME}
+        PUBLIC
+            $<$<COMPILE_LANG_AND_ID:CXX,Clang>:-Wno-unknown-attributes;-Wno-attributes>
+            $<$<COMPILE_LANG_AND_ID:CXX,AppleClang>:-Wno-unknown-attributes;-Wno-attributes>
+            $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-attributes>
+            $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/wd5030>)
+endif()
 
 if(GENTEST_PUBLIC_MODULES_ENABLED AND WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     if(NOT DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT

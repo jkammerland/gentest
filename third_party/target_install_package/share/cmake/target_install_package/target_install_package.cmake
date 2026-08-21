@@ -5,7 +5,7 @@ get_property(
   PROPERTY "list_file_include_guard_cmake_INITIALIZED"
   SET)
 if(_LFG_INITIALIZED)
-  list_file_include_guard(VERSION 6.1.7)
+  list_file_include_guard(VERSION 7.1.0)
 else()
   message(VERBOSE "including <${CMAKE_CURRENT_FUNCTION_LIST_FILE}>, without list_file_include_guard")
 
@@ -52,20 +52,57 @@ endif()
 #     ALIAS_NAME <alias_name>
 #     VERSION <version>
 #     COMPATIBILITY <compatibility>
+#     ARCH_INDEPENDENT
 #     EXPORT_NAME <export_name>
 #     CONFIG_TEMPLATE <template_path>
 #     INCLUDE_DESTINATION <include_dest>
 #     MODULE_DESTINATION <module_dest>
+#     SOURCE_DESTINATION <source_dest>
 #     CMAKE_CONFIG_DESTINATION <config_dest>
 #     COMPONENT <component>
 #     DEBUG_POSTFIX <postfix>
 #     ADDITIONAL_FILES <files...>
 #     ADDITIONAL_FILES_DESTINATION <dest>
+#     ADDITIONAL_FILES_COMPONENTS <components...>
 #     ADDITIONAL_TARGETS <targets...>
 #     PUBLIC_DEPENDENCIES <deps...>
 #     INCLUDE_ON_FIND_PACKAGE <files...>
 #     COMPONENT_DEPENDENCIES <component> <deps...> [<component> <deps...>]...
+#     CPS
+#     CPS_PACKAGE_NAME <package_name>
+#     CPS_PROJECT <project_name>
+#     CPS_NO_PROJECT_METADATA
+#     CPS_APPENDIX <appendix_name>
+#     CPS_DESTINATION <destination>
+#     CPS_LOWER_CASE_FILE
+#     CPS_VERSION <version>
+#     CPS_COMPAT_VERSION <version>
+#     CPS_VERSION_SCHEMA <schema>
+#     CPS_DEFAULT_TARGETS <targets...>
+#     CPS_DEFAULT_CONFIGURATIONS <configs...>
+#     CPS_LICENSE <license>
+#     CPS_DEFAULT_LICENSE <license>
+#     CPS_DESCRIPTION <description>
+#     CPS_HOMEPAGE_URL <url>
+#     CPS_PERMISSIONS <permissions...>
+#     CPS_CONFIGURATIONS <configs...>
+#     CPS_CXX_MODULES_DIRECTORY <directory>
+#     CPS_COMPONENT <component>
+#     CPS_EXCLUDE_FROM_ALL
+#     SBOM
+#     SBOM_NAME <sbom_name>
+#     SBOM_PROJECT <project_name>
+#     SBOM_NO_PROJECT_METADATA
+#     SBOM_DESTINATION <destination>
+#     SBOM_VERSION <version>
+#     SBOM_LICENSE <license>
+#     SBOM_DESCRIPTION <description>
+#     SBOM_HOMEPAGE_URL <url>
+#     SBOM_PACKAGE_URL <url>
+#     SBOM_FORMAT <format>
 #     DISABLE_RPATH)
+#
+#   SBOM requires CMAKE_EXPERIMENTAL_GENERATE_SBOM.
 #
 # Parameters:
 #   TARGET_NAME                  - Name of the target to install.
@@ -73,27 +110,43 @@ endif()
 #   ALIAS_NAME                   - Custom alias name for the exported target (default: `${TARGET_NAME}`).
 #   VERSION                      - Version of the package (default: `${PROJECT_VERSION}`).
 #   COMPATIBILITY                - Version compatibility mode (default: "SameMajorVersion").
+#   ARCH_INDEPENDENT             - Disable architecture suitability checks in the generated package version file.
 #   EXPORT_NAME                  - Name of the CMake export file (default: `${TARGET_NAME}`).
 #   CONFIG_TEMPLATE              - Optional path to a CMake config template.
 #                                  Source of truth for resolution order:
 #                                  docs/template_resolution.md#source-of-truth
 #   INCLUDE_DESTINATION          - Destination for installed headers (default: `${CMAKE_INSTALL_INCLUDEDIR}`).
 #   MODULE_DESTINATION           - Destination for C++20 modules (default: `${CMAKE_INSTALL_INCLUDEDIR}`).
+#   SOURCE_DESTINATION           - Destination for CMake 4.4 SOURCES file sets (default: `${CMAKE_INSTALL_DATADIR}/${EXPORT_NAME}/src`).
 #   CMAKE_CONFIG_DESTINATION     - Destination for CMake config files (default: `${CMAKE_INSTALL_DATADIR}/cmake/${EXPORT_NAME}`).
-#   COMPONENT                    - Component prefix for installation. Creates `${COMPONENT}` for runtime and `${COMPONENT}_Development` for development files.
+#   COMPONENT                    - Optional runtime component name. Development files stay in the shared `Development` component.
 #                                  If omitted, uses default "Runtime" and "Development" components.
 #   DEBUG_POSTFIX                - Debug postfix for library names (default: "d").
 #   ADDITIONAL_FILES             - Additional files to install, relative to source dir.
 #   ADDITIONAL_FILES_DESTINATION - Destination for additional files (default: install prefix root).
+#   ADDITIONAL_FILES_COMPONENTS  - Optional install components for additional files. If omitted, files use the development component.
 #   ADDITIONAL_TARGETS           - Additional targets to include in the same export set.
 #   PUBLIC_DEPENDENCIES          - Package global dependencies (always loaded regardless of components).
 #   INCLUDE_ON_FIND_PACKAGE     - Additional CMake files to include when package is found.
 #   COMPONENT_DEPENDENCIES       - Component-specific dependencies (pairs: component name, dependencies).
+#   CPS                          - Generate Common Package Specification metadata for the whole export with CMake 4.3+.
+#   CPS_*                        - Options forwarded to install(PACKAGE_INFO ...). CPS version metadata defaults from VERSION unless CPS_PROJECT inherits it.
+#                                  If CPS_DEFAULT_TARGETS is omitted, only static, shared, and interface library aliases are default CPS targets.
+#                                  This wrapper rejects executables and CMake MODULE_LIBRARY targets for CPS exports.
+#   SBOM                         - Generate a software bill of materials for the whole export with CMake 4.3+ experimental install(SBOM).
+#   SBOM_*                       - Options used to configure install(SBOM ...). SBOM_NAME defaults to EXPORT_NAME. SBOM project metadata is resolved at
+#                                  target_install_package() call time and emitted explicitly with CMake project inheritance disabled.
+#                                  All SBOM calls for the same export must use the same metadata inheritance mode.
+#                                  SBOM version metadata defaults from explicit SBOM_VERSION, then explicit wrapper VERSION, then selected
+#                                  call-time project VERSION. Wrapper effective VERSION fallback only applies when SBOM_PROJECT was not explicit.
+#                                  CMAKE_EXPERIMENTAL_GENERATE_SBOM must be set to this CMake version's non-boolean activation value.
+#                                  Exports sharing one SBOM_NAME are aggregated with CMake 4.4+ and must use identical metadata.
 #   DISABLE_RPATH                - Disable automatic RPATH configuration for Unix/Linux/macOS (default: OFF).
 #
 # Behavior:
 #   - Installs headers, libraries, and config files for the target.
 #   - Handles both legacy PUBLIC_HEADER and modern FILE_SET installation.
+#   - Installs public and interface SOURCES file sets with CMake 4.4+.
 #   - Supports C++20 modules (CMake 3.28+).
 #   - Generates CMake config files with version and dependency handling.
 #   - Supports multi-config builds with automatic debug postfix handling.
@@ -104,10 +157,10 @@ endif()
 #   # Basic installation
 #   target_install_package(my_library)
 #
-#   # Custom version and component prefix
+#   # Custom version and runtime component
 #   target_install_package(my_library
 #     VERSION 1.2.3
-#     COMPONENT "Core")  # Creates Core and Core_Development components
+#     COMPONENT "Core")  # Creates Core runtime files and installs SDK files in Development
 #
 #   # Multi-config with default debug postfix "d", e.g if debug then -> my_libraryd.so
 #   target_install_package(my_library
@@ -118,7 +171,8 @@ endif()
 #     ADDITIONAL_FILES
 #     "docs/readme.md"
 #     "docs/license.txt"
-#     ADDITIONAL_FILES_DESTINATION "doc")
+#     ADDITIONAL_FILES_DESTINATION "doc"
+#     ADDITIONAL_FILES_COMPONENTS Development)
 #
 #   # Custom alias name for exported target
 #   # Consumer will use cbor::tags instead of cbor_tags::cbor_tags
@@ -146,6 +200,20 @@ function(target_install_package TARGET_NAME)
   # The actual finalization happens at the end of the configuration (CMAKE_SOURCE_DIR)
   # ~~~
 endfunction(target_install_package)
+
+function(_tip_find_target_install_package_resource_file file_name out_var)
+  set(_tip_resource_candidates "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/${file_name}" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/${file_name}")
+  foreach(_tip_resource_candidate IN LISTS _tip_resource_candidates)
+    if(EXISTS "${_tip_resource_candidate}")
+      set(${out_var}
+          "${_tip_resource_candidate}"
+          PARENT_SCOPE)
+      return()
+    endif()
+  endforeach()
+
+  project_log(FATAL_ERROR "Package resource '${file_name}' not found. Checked: ${_tip_resource_candidates}")
+endfunction()
 
 function(_tip_resolve_absolute_paths RESULT_VAR BASE_DIR)
   set(_tip_resolved_paths "")
@@ -183,6 +251,261 @@ function(_tip_store_export_property EXPORT_PROPERTY_PREFIX EXPORT_NAME PROPERTY_
   endif()
 endfunction()
 
+function(_tip_append_export_property_unique EXPORT_PROPERTY_PREFIX PROPERTY_SUFFIX)
+  set(_tip_values ${ARGN})
+  list(LENGTH _tip_values _tip_values_count)
+  if(_tip_values_count EQUAL 0)
+    return()
+  endif()
+
+  get_property(_tip_existing GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_${PROPERTY_SUFFIX}")
+  set(_tip_updated ${_tip_existing} ${_tip_values})
+  list(REMOVE_DUPLICATES _tip_updated)
+  set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_${PROPERTY_SUFFIX}" "${_tip_updated}")
+endfunction()
+
+function(_tip_derive_cps_compat_version OUT_VAR VERSION COMPATIBILITY VERSION_SCHEMA)
+  set(_tip_compat_version "")
+
+  if(NOT "${VERSION_SCHEMA}" STREQUAL "" AND NOT "${VERSION_SCHEMA}" STREQUAL "simple")
+    set(${OUT_VAR}
+        ""
+        PARENT_SCOPE)
+    return()
+  endif()
+
+  if("${COMPATIBILITY}" STREQUAL "ExactVersion"
+     OR "${COMPATIBILITY}" STREQUAL "SamePatchVersion"
+     OR "${COMPATIBILITY}" STREQUAL "SameFullVersion")
+    set(${OUT_VAR}
+        ""
+        PARENT_SCOPE)
+    return()
+  endif()
+
+  if("${COMPATIBILITY}" STREQUAL "AnyNewerVersion")
+    set(_tip_compat_version "0.0.0")
+  elseif("${VERSION}" MATCHES "^([0-9]+)(\\.([0-9]+))?(\\.([0-9]+))?.*$")
+    set(_tip_major "${CMAKE_MATCH_1}")
+    set(_tip_minor "${CMAKE_MATCH_3}")
+    if(_tip_minor STREQUAL "")
+      set(_tip_minor "0")
+    endif()
+
+    if("${COMPATIBILITY}" STREQUAL "SameMajorVersion")
+      set(_tip_compat_version "${_tip_major}.0.0")
+    elseif("${COMPATIBILITY}" STREQUAL "SameMinorVersion")
+      set(_tip_compat_version "${_tip_major}.${_tip_minor}.0")
+    elseif("${COMPATIBILITY}" STREQUAL "SemanticVersion")
+      if(_tip_major EQUAL 0)
+        set(_tip_compat_version "0.${_tip_minor}.0")
+      else()
+        set(_tip_compat_version "${_tip_major}.0.0")
+      endif()
+    endif()
+  endif()
+
+  set(${OUT_VAR}
+      "${_tip_compat_version}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_is_cmake_boolean_literal OUT_VAR VALUE)
+  string(TOUPPER "${VALUE}" _tip_upper_value)
+
+  if("${_tip_upper_value}" MATCHES "^(0|1|ON|OFF|YES|NO|TRUE|FALSE|Y|N|IGNORE|NOTFOUND)$" OR "${_tip_upper_value}" MATCHES ".*-NOTFOUND$")
+    set(${OUT_VAR}
+        TRUE
+        PARENT_SCOPE)
+  else()
+    set(${OUT_VAR}
+        FALSE
+        PARENT_SCOPE)
+  endif()
+endfunction()
+
+function(_tip_validate_sbom_activation EXPORT_NAME)
+  if(CMAKE_VERSION VERSION_LESS "4.3")
+    project_log(FATAL_ERROR "SBOM metadata requires CMake 4.3 or newer because it uses install(SBOM).")
+  endif()
+
+  if(NOT DEFINED CMAKE_EXPERIMENTAL_GENERATE_SBOM OR "${CMAKE_EXPERIMENTAL_GENERATE_SBOM}" STREQUAL "")
+    project_log(FATAL_ERROR "SBOM metadata for export '${EXPORT_NAME}' requires CMAKE_EXPERIMENTAL_GENERATE_SBOM to be set to the activation value for this CMake version.")
+  endif()
+
+  _tip_is_cmake_boolean_literal(_tip_sbom_activation_is_boolean "${CMAKE_EXPERIMENTAL_GENERATE_SBOM}")
+  if(_tip_sbom_activation_is_boolean)
+    project_log(FATAL_ERROR "SBOM metadata for export '${EXPORT_NAME}' requires CMAKE_EXPERIMENTAL_GENERATE_SBOM " "to be set to the activation value for this CMake version, not a boolean toggle "
+                "such as '${CMAKE_EXPERIMENTAL_GENERATE_SBOM}'.")
+  endif()
+endfunction()
+
+function(_tip_resolve_sbom_export_metadata EXPORT_NAME OUT_PREFIX)
+  set(_tip_export_property_prefix "_CMAKE_PACKAGE_EXPORT_${EXPORT_NAME}")
+  foreach(
+    _tip_property IN
+    ITEMS VERSION
+          VERSION_EXPLICIT
+          SBOM_NAME
+          SBOM_PROJECT
+          SBOM_DESTINATION
+          SBOM_VERSION
+          SBOM_VERSION_EXPLICIT
+          SBOM_INHERITED_VERSION
+          SBOM_LICENSE
+          SBOM_INHERITED_LICENSE
+          SBOM_DESCRIPTION
+          SBOM_INHERITED_DESCRIPTION
+          SBOM_HOMEPAGE_URL
+          SBOM_INHERITED_HOMEPAGE_URL
+          SBOM_PACKAGE_URL
+          SBOM_FORMAT
+          SBOM_METADATA_MODE
+          SBOM_EXPERIMENTAL_VALUE)
+    get_property(_tip_${_tip_property} GLOBAL PROPERTY "${_tip_export_property_prefix}_${_tip_property}")
+  endforeach()
+
+  if("${_tip_SBOM_NAME}" STREQUAL "")
+    set(_tip_SBOM_NAME "${EXPORT_NAME}")
+  endif()
+
+  set(_tip_effective_version "")
+  if(_tip_SBOM_VERSION_EXPLICIT)
+    set(_tip_effective_version "${_tip_SBOM_VERSION}")
+  elseif(_tip_VERSION_EXPLICIT)
+    set(_tip_effective_version "${_tip_VERSION}")
+  elseif(NOT "${_tip_SBOM_INHERITED_VERSION}" STREQUAL "")
+    set(_tip_effective_version "${_tip_SBOM_INHERITED_VERSION}")
+  elseif("${_tip_SBOM_PROJECT}" STREQUAL "")
+    set(_tip_effective_version "${_tip_VERSION}")
+  endif()
+
+  set(_tip_effective_license "${_tip_SBOM_LICENSE}")
+  if("${_tip_effective_license}" STREQUAL "")
+    set(_tip_effective_license "${_tip_SBOM_INHERITED_LICENSE}")
+  endif()
+
+  set(_tip_effective_description "${_tip_SBOM_DESCRIPTION}")
+  if("${_tip_effective_description}" STREQUAL "")
+    set(_tip_effective_description "${_tip_SBOM_INHERITED_DESCRIPTION}")
+  endif()
+
+  set(_tip_effective_homepage_url "${_tip_SBOM_HOMEPAGE_URL}")
+  if("${_tip_effective_homepage_url}" STREQUAL "")
+    set(_tip_effective_homepage_url "${_tip_SBOM_INHERITED_HOMEPAGE_URL}")
+  endif()
+
+  set(${OUT_PREFIX}_NAME
+      "${_tip_SBOM_NAME}"
+      PARENT_SCOPE)
+  set(${OUT_PREFIX}_DESTINATION
+      "${_tip_SBOM_DESTINATION}"
+      PARENT_SCOPE)
+  set(${OUT_PREFIX}_VERSION
+      "${_tip_effective_version}"
+      PARENT_SCOPE)
+  set(${OUT_PREFIX}_LICENSE
+      "${_tip_effective_license}"
+      PARENT_SCOPE)
+  set(${OUT_PREFIX}_DESCRIPTION
+      "${_tip_effective_description}"
+      PARENT_SCOPE)
+  set(${OUT_PREFIX}_HOMEPAGE_URL
+      "${_tip_effective_homepage_url}"
+      PARENT_SCOPE)
+  set(${OUT_PREFIX}_PACKAGE_URL
+      "${_tip_SBOM_PACKAGE_URL}"
+      PARENT_SCOPE)
+  set(${OUT_PREFIX}_FORMAT
+      "${_tip_SBOM_FORMAT}"
+      PARENT_SCOPE)
+  set(${OUT_PREFIX}_METADATA_MODE
+      "${_tip_SBOM_METADATA_MODE}"
+      PARENT_SCOPE)
+  set(${OUT_PREFIX}_EXPERIMENTAL_VALUE
+      "${_tip_SBOM_EXPERIMENTAL_VALUE}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_finalize_all_sboms)
+  get_property(_tip_sboms_finalized GLOBAL PROPERTY "_TIP_SBOMS_FINALIZED")
+  if(_tip_sboms_finalized)
+    return()
+  endif()
+
+  get_property(_tip_sbom_group_hashes GLOBAL PROPERTY "_TIP_SBOM_GROUP_HASHES")
+  foreach(_tip_sbom_group_hash IN LISTS _tip_sbom_group_hashes)
+    get_property(_tip_sbom_name GLOBAL PROPERTY "_TIP_SBOM_GROUP_${_tip_sbom_group_hash}_NAME")
+    get_property(_tip_sbom_exports GLOBAL PROPERTY "_TIP_SBOM_GROUP_${_tip_sbom_group_hash}_EXPORTS")
+    list(REMOVE_DUPLICATES _tip_sbom_exports)
+
+    foreach(_tip_sbom_export IN LISTS _tip_sbom_exports)
+      get_property(_tip_export_finalized GLOBAL PROPERTY "_CMAKE_PACKAGE_EXPORT_${_tip_sbom_export}_FINALIZED")
+      if(NOT _tip_export_finalized)
+        finalize_package(EXPORT_NAME "${_tip_sbom_export}")
+      endif()
+    endforeach()
+
+    list(GET _tip_sbom_exports 0 _tip_reference_export)
+    _tip_resolve_sbom_export_metadata("${_tip_reference_export}" _tip_reference)
+
+    foreach(_tip_sbom_export IN LISTS _tip_sbom_exports)
+      _tip_resolve_sbom_export_metadata("${_tip_sbom_export}" _tip_candidate)
+      foreach(
+        _tip_field IN
+        ITEMS NAME
+              DESTINATION
+              VERSION
+              LICENSE
+              DESCRIPTION
+              HOMEPAGE_URL
+              PACKAGE_URL
+              FORMAT
+              METADATA_MODE
+              EXPERIMENTAL_VALUE)
+        if(NOT "${_tip_candidate_${_tip_field}}" STREQUAL "${_tip_reference_${_tip_field}}")
+          string(REPLACE "_" " " _tip_field_description "${_tip_field}")
+          string(TOLOWER "${_tip_field_description}" _tip_field_description)
+          project_log(
+            FATAL_ERROR
+            "Conflicting SBOM ${_tip_field_description} for SBOM '${_tip_sbom_name}' across exports '${_tip_reference_export}' and '${_tip_sbom_export}': '${_tip_reference_${_tip_field}}' vs '${_tip_candidate_${_tip_field}}'."
+          )
+        endif()
+      endforeach()
+    endforeach()
+
+    set(CMAKE_EXPERIMENTAL_GENERATE_SBOM "${_tip_reference_EXPERIMENTAL_VALUE}")
+    _tip_validate_sbom_activation("${_tip_reference_export}")
+
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.4")
+      set(_tip_sbom_args SBOM "${_tip_sbom_name}" EXPORTS ${_tip_sbom_exports})
+    else()
+      list(GET _tip_sbom_exports 0 _tip_sbom_export)
+      set(_tip_sbom_args SBOM "${_tip_sbom_name}" EXPORT "${_tip_sbom_export}")
+    endif()
+    list(APPEND _tip_sbom_args NO_PROJECT_METADATA)
+
+    foreach(
+      _tip_field IN
+      ITEMS DESTINATION
+            VERSION
+            LICENSE
+            DESCRIPTION
+            HOMEPAGE_URL
+            PACKAGE_URL
+            FORMAT)
+      if(NOT "${_tip_reference_${_tip_field}}" STREQUAL "")
+        list(APPEND _tip_sbom_args "${_tip_field}" "${_tip_reference_${_tip_field}}")
+      endif()
+    endforeach()
+
+    install(${_tip_sbom_args})
+    project_log(STATUS "SBOM '${_tip_sbom_name}' is ready for exports: [${_tip_sbom_exports}]")
+  endforeach()
+
+  set_property(GLOBAL PROPERTY "_TIP_SBOMS_FINALIZED" TRUE)
+endfunction()
+
 function(_tip_component_dependency_property_name OUT_VAR EXPORT_PROPERTY_PREFIX COMPONENT_NAME)
   string(SHA256 _tip_component_hash "${COMPONENT_NAME}")
   set(${OUT_VAR}
@@ -190,12 +513,65 @@ function(_tip_component_dependency_property_name OUT_VAR EXPORT_PROPERTY_PREFIX 
       PARENT_SCOPE)
 endfunction()
 
+function(_tip_cpack_component_dependency_property_name OUT_VAR COMPONENT_NAME)
+  string(SHA256 _tip_component_hash "${COMPONENT_NAME}")
+  set(${OUT_VAR}
+      "_TIP_CPACK_COMPONENT_DEPENDENCY_${_tip_component_hash}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_append_cpack_component_dependencies COMPONENT_NAME)
+  set(_tip_dependencies ${ARGN})
+  if(NOT _tip_dependencies)
+    return()
+  endif()
+
+  list(REMOVE_ITEM _tip_dependencies "${COMPONENT_NAME}")
+  list(REMOVE_DUPLICATES _tip_dependencies)
+  if(NOT _tip_dependencies)
+    return()
+  endif()
+
+  _tip_cpack_component_dependency_property_name(_tip_component_dependency_property "${COMPONENT_NAME}")
+  get_property(_tip_existing_dependencies GLOBAL PROPERTY "${_tip_component_dependency_property}")
+  set(_tip_updated_dependencies ${_tip_existing_dependencies} ${_tip_dependencies})
+  list(REMOVE_ITEM _tip_updated_dependencies "${COMPONENT_NAME}")
+  list(REMOVE_DUPLICATES _tip_updated_dependencies)
+  set_property(GLOBAL PROPERTY "${_tip_component_dependency_property}" "${_tip_updated_dependencies}")
+endfunction()
+
+function(_tip_find_package_expression_without_required OUT_VAR DEPENDENCY_EXPRESSION)
+  separate_arguments(_tip_dependency_args UNIX_COMMAND "${DEPENDENCY_EXPRESSION}")
+  set(_tip_optional_dependency_args "")
+
+  foreach(_tip_dependency_arg IN LISTS _tip_dependency_args)
+    string(TOUPPER "${_tip_dependency_arg}" _tip_dependency_arg_upper)
+    if(_tip_dependency_arg_upper STREQUAL "REQUIRED")
+      continue()
+    endif()
+    list(APPEND _tip_optional_dependency_args "${_tip_dependency_arg}")
+  endforeach()
+
+  string(JOIN " " _tip_optional_dependency_expression ${_tip_optional_dependency_args})
+  set(${OUT_VAR}
+      "${_tip_optional_dependency_expression}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_find_package_expression_package_name OUT_VAR DEPENDENCY_EXPRESSION)
+  separate_arguments(_tip_dependency_args UNIX_COMMAND "${DEPENDENCY_EXPRESSION}")
+  list(GET _tip_dependency_args 0 _tip_dependency_package_name)
+  set(${OUT_VAR}
+      "${_tip_dependency_package_name}"
+      PARENT_SCOPE)
+endfunction()
+
 # ~~~
 # Prepare a CMake installation target for packaging.
 #
 # This function validates and prepares installation rules for a target, storing
-# the configuration for later finalization. Since v6.1.7, finalization happens
-# automatically at the end of configuration using cmake_language(DEFER CALL).
+# the configuration for later finalization. Finalization happens automatically
+# at the end of configuration using cmake_language(DEFER CALL).
 #
 # Use this function when you have multiple targets that should be part of the same
 # export with aggregated dependencies. Call this for each target, then optionally
@@ -207,10 +583,12 @@ endfunction()
 #     ALIAS_NAME <alias_name>
 #     VERSION <version>
 #     COMPATIBILITY <compatibility>
+#     ARCH_INDEPENDENT
 #     EXPORT_NAME <export_name>
 #     CONFIG_TEMPLATE <template_path>
 #     INCLUDE_DESTINATION <include_dest>
 #     MODULE_DESTINATION <module_dest>
+#     SOURCE_DESTINATION <source_dest>
 #     CMAKE_CONFIG_DESTINATION <config_dest>
 #     COMPONENT <component>
 #     DEBUG_POSTFIX <postfix>
@@ -219,7 +597,41 @@ endfunction()
 #     ADDITIONAL_TARGETS <targets...>
 #     PUBLIC_DEPENDENCIES <deps...>
 #     INCLUDE_ON_FIND_PACKAGE <files...>
-#     COMPONENT_DEPENDENCIES <component> <deps...> [<component> <deps...>]...)
+#     COMPONENT_DEPENDENCIES <component> <deps...> [<component> <deps...>]...
+#     CPS
+#     CPS_PACKAGE_NAME <package_name>
+#     CPS_PROJECT <project_name>
+#     CPS_NO_PROJECT_METADATA
+#     CPS_APPENDIX <appendix_name>
+#     CPS_DESTINATION <destination>
+#     CPS_LOWER_CASE_FILE
+#     CPS_VERSION <version>
+#     CPS_COMPAT_VERSION <version>
+#     CPS_VERSION_SCHEMA <schema>
+#     CPS_DEFAULT_TARGETS <targets...>
+#     CPS_DEFAULT_CONFIGURATIONS <configs...>
+#     CPS_LICENSE <license>
+#     CPS_DEFAULT_LICENSE <license>
+#     CPS_DESCRIPTION <description>
+#     CPS_HOMEPAGE_URL <url>
+#     CPS_PERMISSIONS <permissions...>
+#     CPS_CONFIGURATIONS <configs...>
+#     CPS_CXX_MODULES_DIRECTORY <directory>
+#     CPS_COMPONENT <component>
+#     CPS_EXCLUDE_FROM_ALL
+#     SBOM
+#     SBOM_NAME <sbom_name>
+#     SBOM_PROJECT <project_name>
+#     SBOM_NO_PROJECT_METADATA
+#     SBOM_DESTINATION <destination>
+#     SBOM_VERSION <version>
+#     SBOM_LICENSE <license>
+#     SBOM_DESCRIPTION <description>
+#     SBOM_HOMEPAGE_URL <url>
+#     SBOM_PACKAGE_URL <url>
+#     SBOM_FORMAT <format>)
+#
+# SBOM requires CMAKE_EXPERIMENTAL_GENERATE_SBOM.
 #
 # See target_install_package() for parameter descriptions.
 # CONFIG_TEMPLATE resolution source of truth:
@@ -228,15 +640,20 @@ endfunction()
 function(target_prepare_package TARGET_NAME)
   # Check for deprecated parameters BEFORE parsing
   if("RUNTIME_COMPONENT" IN_LIST ARGN OR "DEVELOPMENT_COMPONENT" IN_LIST ARGN)
-    message(
-      FATAL_ERROR
-        "RUNTIME_COMPONENT and DEVELOPMENT_COMPONENT parameters are deprecated. "
-        "Use COMPONENT instead - it will automatically create '{COMPONENT}' for runtime files and '{COMPONENT}_Development' for development files. "
-        "This provides cleaner, more consistent component naming.")
+    message(FATAL_ERROR "RUNTIME_COMPONENT and DEVELOPMENT_COMPONENT parameters are deprecated. "
+                        "Use COMPONENT instead to name runtime files. Development files are installed in the shared Development component.")
   endif()
 
   # Parse function arguments
-  set(options DISABLE_RPATH)
+  set(options
+      DISABLE_RPATH
+      ARCH_INDEPENDENT
+      CPS
+      CPS_NO_PROJECT_METADATA
+      CPS_LOWER_CASE_FILE
+      CPS_EXCLUDE_FROM_ALL
+      SBOM
+      SBOM_NO_PROJECT_METADATA)
   set(oneValueArgs
       NAMESPACE
       ALIAS_NAME
@@ -246,13 +663,50 @@ function(target_prepare_package TARGET_NAME)
       CONFIG_TEMPLATE
       INCLUDE_DESTINATION
       MODULE_DESTINATION
+      SOURCE_DESTINATION
       CMAKE_CONFIG_DESTINATION
       COMPONENT
       DEBUG_POSTFIX
       ADDITIONAL_FILES_DESTINATION
-      LAYOUT)
-  set(multiValueArgs ADDITIONAL_FILES ADDITIONAL_TARGETS PUBLIC_DEPENDENCIES INCLUDE_ON_FIND_PACKAGE PUBLIC_CMAKE_FILES COMPONENT_DEPENDENCIES)
+      LAYOUT
+      CPS_PACKAGE_NAME
+      CPS_PROJECT
+      CPS_APPENDIX
+      CPS_DESTINATION
+      CPS_VERSION
+      CPS_COMPAT_VERSION
+      CPS_VERSION_SCHEMA
+      CPS_LICENSE
+      CPS_DEFAULT_LICENSE
+      CPS_DESCRIPTION
+      CPS_HOMEPAGE_URL
+      CPS_CXX_MODULES_DIRECTORY
+      CPS_COMPONENT
+      SBOM_NAME
+      SBOM_PROJECT
+      SBOM_DESTINATION
+      SBOM_VERSION
+      SBOM_LICENSE
+      SBOM_DESCRIPTION
+      SBOM_HOMEPAGE_URL
+      SBOM_PACKAGE_URL
+      SBOM_FORMAT)
+  set(multiValueArgs
+      ADDITIONAL_FILES
+      ADDITIONAL_FILES_COMPONENTS
+      ADDITIONAL_TARGETS
+      PUBLIC_DEPENDENCIES
+      INCLUDE_ON_FIND_PACKAGE
+      PUBLIC_CMAKE_FILES
+      COMPONENT_DEPENDENCIES
+      CPS_DEFAULT_TARGETS
+      CPS_DEFAULT_CONFIGURATIONS
+      CPS_PERMISSIONS
+      CPS_CONFIGURATIONS)
   cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+  if(ARG_UNPARSED_ARGUMENTS)
+    project_log(FATAL_ERROR "Unknown arguments for target_install_package('${TARGET_NAME}'): ${ARG_UNPARSED_ARGUMENTS}")
+  endif()
 
   # Store DISABLE_RPATH as a target property for later use
   if(ARG_DISABLE_RPATH)
@@ -298,6 +752,19 @@ function(target_prepare_package TARGET_NAME)
   set_target_properties(${TARGET_NAME} PROPERTIES TARGET_INSTALL_PACKAGE_LAYOUT "${_tip_layout}")
   project_log(DEBUG "  Install layout for '${TARGET_NAME}': ${_tip_layout}")
 
+  set(_tip_version_explicit FALSE)
+  if(NOT "${ARG_VERSION}" STREQUAL "")
+    set(_tip_version_explicit TRUE)
+  endif()
+  set(_tip_cps_version_explicit FALSE)
+  if(NOT "${ARG_CPS_VERSION}" STREQUAL "")
+    set(_tip_cps_version_explicit TRUE)
+  endif()
+  set(_tip_sbom_version_explicit FALSE)
+  if(NOT "${ARG_SBOM_VERSION}" STREQUAL "")
+    set(_tip_sbom_version_explicit TRUE)
+  endif()
+
   # Handle VERSION specially since it has PROJECT_VERSION fallback logic
   if(NOT ARG_VERSION)
     if(PROJECT_VERSION)
@@ -315,10 +782,25 @@ function(target_prepare_package TARGET_NAME)
     project_log(DEBUG "  Export name not provided, using target name: ${ARG_EXPORT_NAME}")
   endif()
 
-  # ALIAS_NAME defaults to target name
+  set(_tip_alias_name_explicit FALSE)
+  if(NOT "${ARG_ALIAS_NAME}" STREQUAL "")
+    set(_tip_alias_name_explicit TRUE)
+  endif()
+  set(_tip_component_explicit FALSE)
+  if(NOT "${ARG_COMPONENT}" STREQUAL "")
+    set(_tip_component_explicit TRUE)
+  endif()
+
+  # ALIAS_NAME defaults to target name. If the target already has EXPORT_NAME, preserve that as the effective installed name.
   if(NOT ARG_ALIAS_NAME)
-    set(ARG_ALIAS_NAME "${TARGET_NAME}")
-    project_log(DEBUG "  Alias name not provided, using target name: ${ARG_ALIAS_NAME}")
+    get_target_property(_tip_existing_target_export_name ${TARGET_NAME} EXPORT_NAME)
+    if(_tip_existing_target_export_name AND NOT _tip_existing_target_export_name MATCHES "-NOTFOUND$")
+      set(ARG_ALIAS_NAME "${_tip_existing_target_export_name}")
+      project_log(DEBUG "  Alias name not provided, using existing EXPORT_NAME: ${ARG_ALIAS_NAME}")
+    else()
+      set(ARG_ALIAS_NAME "${TARGET_NAME}")
+      project_log(DEBUG "  Alias name not provided, using target name: ${ARG_ALIAS_NAME}")
+    endif()
   endif()
 
   # NAMESPACE defaults to EXPORT_NAME::
@@ -334,6 +816,14 @@ function(target_prepare_package TARGET_NAME)
     endif()
     set(ARG_CMAKE_CONFIG_DESTINATION "${CMAKE_INSTALL_DATADIR}/cmake/${ARG_EXPORT_NAME}")
     project_log(DEBUG "  CMake config destination not provided, using default: ${ARG_CMAKE_CONFIG_DESTINATION}")
+  endif()
+
+  if(NOT ARG_SOURCE_DESTINATION)
+    if(NOT CMAKE_INSTALL_DATADIR)
+      set(CMAKE_INSTALL_DATADIR "share")
+    endif()
+    set(ARG_SOURCE_DESTINATION "${CMAKE_INSTALL_DATADIR}/${ARG_EXPORT_NAME}/src")
+    project_log(DEBUG "  Source destination not provided, using default: ${ARG_SOURCE_DESTINATION}")
   endif()
 
   # BREAKING CHANGE: Validate against deprecated component names Users should use COMPONENT instead for cleaner naming
@@ -366,13 +856,163 @@ function(target_prepare_package TARGET_NAME)
     "Additional files destination")
 
   # Validate compatibility parameter
-  set(VALID_COMPATIBILITY "AnyNewerVersion;SameMajorVersion;SameMinorVersion;ExactVersion")
-  if(NOT ARG_COMPATIBILITY IN_LIST VALID_COMPATIBILITY)
-    project_log(FATAL_ERROR "Invalid COMPATIBILITY '${ARG_COMPATIBILITY}'. Must be one of: ${VALID_COMPATIBILITY}")
+  set(_tip_legacy_compatibility AnyNewerVersion SameMajorVersion SameMinorVersion ExactVersion)
+  set(_tip_cmake_44_compatibility SamePatchVersion SameFullVersion SemanticVersion)
+  set(_tip_valid_compatibility ${_tip_legacy_compatibility})
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.4")
+    list(APPEND _tip_valid_compatibility ${_tip_cmake_44_compatibility})
+  endif()
+
+  if(NOT ARG_COMPATIBILITY IN_LIST _tip_valid_compatibility)
+    if(ARG_COMPATIBILITY IN_LIST _tip_cmake_44_compatibility)
+      project_log(FATAL_ERROR "COMPATIBILITY '${ARG_COMPATIBILITY}' requires CMake 4.4 or newer.")
+    endif()
+    project_log(FATAL_ERROR "Invalid COMPATIBILITY '${ARG_COMPATIBILITY}'. Supported values: ${_tip_valid_compatibility}")
+  endif()
+
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.4" AND ARG_COMPATIBILITY STREQUAL "ExactVersion")
+    message(DEPRECATION "COMPATIBILITY ExactVersion is deprecated by CMake 4.4. Use SamePatchVersion to ignore tweak, or SameFullVersion to require every version component to match.")
+  endif()
+
+  set(_tip_cps_specific_requested FALSE)
+  foreach(
+    _tip_cps_arg IN
+    ITEMS ARG_CPS_PACKAGE_NAME
+          ARG_CPS_PROJECT
+          ARG_CPS_APPENDIX
+          ARG_CPS_DESTINATION
+          ARG_CPS_VERSION
+          ARG_CPS_COMPAT_VERSION
+          ARG_CPS_VERSION_SCHEMA
+          ARG_CPS_DEFAULT_TARGETS
+          ARG_CPS_DEFAULT_CONFIGURATIONS
+          ARG_CPS_LICENSE
+          ARG_CPS_DEFAULT_LICENSE
+          ARG_CPS_DESCRIPTION
+          ARG_CPS_HOMEPAGE_URL
+          ARG_CPS_PERMISSIONS
+          ARG_CPS_CONFIGURATIONS
+          ARG_CPS_CXX_MODULES_DIRECTORY
+          ARG_CPS_COMPONENT)
+    if(DEFINED ${_tip_cps_arg} AND NOT "${${_tip_cps_arg}}" STREQUAL "")
+      set(_tip_cps_specific_requested TRUE)
+    endif()
+  endforeach()
+  if(ARG_CPS_NO_PROJECT_METADATA
+     OR ARG_CPS_LOWER_CASE_FILE
+     OR ARG_CPS_EXCLUDE_FROM_ALL)
+    set(_tip_cps_specific_requested TRUE)
+  endif()
+
+  if(_tip_cps_specific_requested AND NOT ARG_CPS)
+    project_log(FATAL_ERROR "CPS-specific options require the CPS flag for target '${TARGET_NAME}'.")
+  endif()
+
+  if(ARG_CPS)
+    if(CMAKE_VERSION VERSION_LESS "4.3")
+      project_log(FATAL_ERROR "CPS package metadata requires CMake 4.3 or newer because it uses install(PACKAGE_INFO).")
+    endif()
+
+    if(NOT "${ARG_CPS_PROJECT}" STREQUAL "" AND ARG_CPS_NO_PROJECT_METADATA)
+      project_log(FATAL_ERROR "CPS_PROJECT and CPS_NO_PROJECT_METADATA cannot be used together.")
+    endif()
+
+    if(NOT "${ARG_CPS_APPENDIX}" STREQUAL "")
+      set(_tip_cps_appendix_forbidden "")
+      foreach(
+        _tip_cps_appendix_arg IN
+        ITEMS ARG_CPS_PROJECT
+              ARG_CPS_VERSION
+              ARG_CPS_COMPAT_VERSION
+              ARG_CPS_VERSION_SCHEMA
+              ARG_CPS_DEFAULT_TARGETS
+              ARG_CPS_DEFAULT_CONFIGURATIONS
+              ARG_CPS_LICENSE
+              ARG_CPS_DESCRIPTION
+              ARG_CPS_HOMEPAGE_URL)
+        if(DEFINED ${_tip_cps_appendix_arg} AND NOT "${${_tip_cps_appendix_arg}}" STREQUAL "")
+          string(REGEX REPLACE "^ARG_" "" _tip_cps_appendix_name "${_tip_cps_appendix_arg}")
+          list(APPEND _tip_cps_appendix_forbidden "${_tip_cps_appendix_name}")
+        endif()
+      endforeach()
+
+      if(_tip_cps_appendix_forbidden)
+        project_log(FATAL_ERROR "CPS_APPENDIX cannot be combined with: ${_tip_cps_appendix_forbidden}")
+      endif()
+    endif()
+  endif()
+
+  set(_tip_sbom_specific_requested FALSE)
+  foreach(
+    _tip_sbom_arg IN
+    ITEMS ARG_SBOM_NAME
+          ARG_SBOM_PROJECT
+          ARG_SBOM_DESTINATION
+          ARG_SBOM_VERSION
+          ARG_SBOM_LICENSE
+          ARG_SBOM_DESCRIPTION
+          ARG_SBOM_HOMEPAGE_URL
+          ARG_SBOM_PACKAGE_URL
+          ARG_SBOM_FORMAT)
+    if(DEFINED ${_tip_sbom_arg} AND NOT "${${_tip_sbom_arg}}" STREQUAL "")
+      set(_tip_sbom_specific_requested TRUE)
+    endif()
+  endforeach()
+  if(ARG_SBOM_NO_PROJECT_METADATA)
+    set(_tip_sbom_specific_requested TRUE)
+  endif()
+
+  if(_tip_sbom_specific_requested AND NOT ARG_SBOM)
+    project_log(FATAL_ERROR "SBOM-specific options require the SBOM flag for target '${TARGET_NAME}'.")
+  endif()
+
+  if(ARG_SBOM)
+    _tip_validate_sbom_activation("${ARG_EXPORT_NAME}")
+
+    if(NOT "${ARG_SBOM_PACKAGE_URL}" STREQUAL "" AND CMAKE_VERSION VERSION_LESS "4.4")
+      project_log(FATAL_ERROR "SBOM_PACKAGE_URL requires CMake 4.4 or newer because CMake 4.3 does not accept PACKAGE_URL in install(SBOM).")
+    endif()
+
+    set(_tip_effective_sbom_name "${ARG_SBOM_NAME}")
+    if("${_tip_effective_sbom_name}" STREQUAL "")
+      set(_tip_effective_sbom_name "${ARG_EXPORT_NAME}")
+    endif()
+
+    if(NOT "${ARG_SBOM_PROJECT}" STREQUAL "" AND ARG_SBOM_NO_PROJECT_METADATA)
+      project_log(FATAL_ERROR "SBOM_PROJECT and SBOM_NO_PROJECT_METADATA cannot be used together.")
+    endif()
+
+    set(_tip_sbom_metadata_project "")
+    if(NOT ARG_SBOM_NO_PROJECT_METADATA)
+      if(NOT "${ARG_SBOM_PROJECT}" STREQUAL "")
+        set(_tip_sbom_metadata_project "${ARG_SBOM_PROJECT}")
+        set(_tip_sbom_project_source_var "${ARG_SBOM_PROJECT}_SOURCE_DIR")
+        if(NOT DEFINED ${_tip_sbom_project_source_var})
+          project_log(FATAL_ERROR "SBOM_PROJECT '${ARG_SBOM_PROJECT}' is not visible from target '${TARGET_NAME}'.")
+        endif()
+      else()
+        if("${_tip_effective_sbom_name}" STREQUAL "${PROJECT_NAME}")
+          set(_tip_sbom_metadata_project "${PROJECT_NAME}")
+        endif()
+      endif()
+    endif()
+
+    if(ARG_SBOM_NO_PROJECT_METADATA)
+      set(_tip_sbom_metadata_mode "none")
+    elseif(NOT "${_tip_sbom_metadata_project}" STREQUAL "")
+      set(_tip_sbom_metadata_mode "project:${_tip_sbom_metadata_project}")
+    else()
+      set(_tip_sbom_metadata_mode "explicit")
+    endif()
   endif()
 
   # Store configuration in global properties for finalize_package
   set(EXPORT_PROPERTY_PREFIX "_CMAKE_PACKAGE_EXPORT_${ARG_EXPORT_NAME}")
+
+  get_property(_tip_export_finalized GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_FINALIZED")
+  if(_tip_export_finalized)
+    project_log(FATAL_ERROR "Export '${ARG_EXPORT_NAME}' has already been finalized. Target '${TARGET_NAME}' cannot be added after finalize_package().")
+  endif()
 
   if(ARG_CONFIG_TEMPLATE)
     _tip_resolve_absolute_paths(ARG_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}" "${ARG_CONFIG_TEMPLATE}")
@@ -392,19 +1032,86 @@ function(target_prepare_package TARGET_NAME)
   endif()
   list(REMOVE_DUPLICATES EXISTING_TARGETS)
 
-  # Store per-target component configuration Component logic: if COMPONENT is set, use it; otherwise use default Runtime/Development
+  # Store per-target component configuration. COMPONENT names runtime files only; SDK files are always part of the shared Development component.
+  get_property(
+    _tip_existing_alias_name_set GLOBAL
+    PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME"
+    SET)
+  if(_tip_existing_alias_name_set)
+    get_property(_tip_existing_alias_name GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME")
+    get_property(_tip_existing_alias_name_explicit GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME_EXPLICIT")
+    if(_tip_alias_name_explicit)
+      if(_tip_existing_alias_name_explicit AND NOT "${_tip_existing_alias_name}" STREQUAL "${ARG_ALIAS_NAME}")
+        project_log(FATAL_ERROR "Conflicting ALIAS_NAME for target '${TARGET_NAME}' in export '${ARG_EXPORT_NAME}': '${_tip_existing_alias_name}' vs '${ARG_ALIAS_NAME}'")
+      endif()
+    elseif(NOT "${_tip_existing_alias_name}" STREQUAL "")
+      set(ARG_ALIAS_NAME "${_tip_existing_alias_name}")
+      if(_tip_existing_alias_name_explicit)
+        set(_tip_alias_name_explicit TRUE)
+      endif()
+    endif()
+  endif()
+
+  get_property(
+    _tip_existing_component_set GLOBAL
+    PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_COMPONENT"
+    SET)
+  if(_tip_existing_component_set)
+    get_property(_tip_existing_component GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_COMPONENT")
+    get_property(_tip_existing_component_explicit GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_COMPONENT_EXPLICIT")
+    if(_tip_component_explicit)
+      if(_tip_existing_component_explicit AND NOT "${_tip_existing_component}" STREQUAL "${ARG_COMPONENT}")
+        project_log(FATAL_ERROR "Conflicting COMPONENT for target '${TARGET_NAME}' in export '${ARG_EXPORT_NAME}': '${_tip_existing_component}' vs '${ARG_COMPONENT}'")
+      endif()
+    elseif(NOT "${_tip_existing_component}" STREQUAL "")
+      set(ARG_COMPONENT "${_tip_existing_component}")
+      if(_tip_existing_component_explicit)
+        set(_tip_component_explicit TRUE)
+      endif()
+    endif()
+  endif()
+
   if(ARG_COMPONENT)
     set(RUNTIME_COMPONENT_NAME "${ARG_COMPONENT}")
-    set(DEVELOPMENT_COMPONENT_NAME "${ARG_COMPONENT}_Development")
   else()
     set(RUNTIME_COMPONENT_NAME "Runtime")
-    set(DEVELOPMENT_COMPONENT_NAME "Development")
   endif()
+  set(DEVELOPMENT_COMPONENT_NAME "Development")
 
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_RUNTIME_COMPONENT" "${RUNTIME_COMPONENT_NAME}")
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_DEVELOPMENT_COMPONENT" "${DEVELOPMENT_COMPONENT_NAME}")
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_COMPONENT" "${ARG_COMPONENT}")
+  set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_COMPONENT_EXPLICIT" "${_tip_component_explicit}")
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME" "${ARG_ALIAS_NAME}")
+  set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME_EXPLICIT" "${_tip_alias_name_explicit}")
+
+  foreach(_tip_additional_target IN LISTS ARG_ADDITIONAL_TARGETS)
+    get_property(
+      _tip_additional_target_component_set GLOBAL
+      PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_additional_target}_RUNTIME_COMPONENT"
+      SET)
+    if(NOT _tip_additional_target_component_set)
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_additional_target}_RUNTIME_COMPONENT" "${RUNTIME_COMPONENT_NAME}")
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_additional_target}_DEVELOPMENT_COMPONENT" "${DEVELOPMENT_COMPONENT_NAME}")
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_additional_target}_COMPONENT" "${ARG_COMPONENT}")
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_additional_target}_COMPONENT_EXPLICIT" FALSE)
+
+      get_target_property(_tip_additional_target_export_name ${_tip_additional_target} EXPORT_NAME)
+      if(_tip_additional_target_export_name AND NOT _tip_additional_target_export_name MATCHES "-NOTFOUND$")
+        set(_tip_additional_target_alias_name "${_tip_additional_target_export_name}")
+      else()
+        set(_tip_additional_target_alias_name "${_tip_additional_target}")
+      endif()
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_additional_target}_ALIAS_NAME" "${_tip_additional_target_alias_name}")
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_additional_target}_ALIAS_NAME_EXPLICIT" FALSE)
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_additional_target}_DEVELOPMENT_COMPONENT_EXPLICIT" FALSE)
+    endif()
+
+    get_target_property(_tip_additional_target_layout ${_tip_additional_target} TARGET_INSTALL_PACKAGE_LAYOUT)
+    if(NOT _tip_additional_target_layout)
+      set_target_properties(${_tip_additional_target} PROPERTIES TARGET_INSTALL_PACKAGE_LAYOUT "${_tip_layout}")
+    endif()
+  endforeach()
 
   # Store whether DEVELOPMENT_COMPONENT was explicitly specified (Always false now since we only use COMPONENT parameter)
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_DEVELOPMENT_COMPONENT_EXPLICIT" FALSE)
@@ -412,31 +1119,172 @@ function(target_prepare_package TARGET_NAME)
 
   # Store export-level configuration (shared settings)
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGETS" "${EXISTING_TARGETS}")
+  if(_tip_version_explicit)
+    set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_VERSION_EXPLICIT" TRUE)
+  endif()
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "NAMESPACE" "${ARG_NAMESPACE}" "namespace")
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "VERSION" "${ARG_VERSION}" "version")
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "COMPATIBILITY" "${ARG_COMPATIBILITY}" "compatibility")
+  _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "ARCH_INDEPENDENT" "${ARG_ARCH_INDEPENDENT}" "architecture independence")
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "CONFIG_TEMPLATE" "${ARG_CONFIG_TEMPLATE}" "config template")
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "INCLUDE_DESTINATION" "${ARG_INCLUDE_DESTINATION}" "include destination")
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "MODULE_DESTINATION" "${ARG_MODULE_DESTINATION}" "module destination")
-  _tip_store_export_property(
-    "${EXPORT_PROPERTY_PREFIX}"
-    "${ARG_EXPORT_NAME}"
-    "CMAKE_CONFIG_DESTINATION"
-    "${ARG_CMAKE_CONFIG_DESTINATION}"
-    "CMake config destination")
+  _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SOURCE_DESTINATION" "${ARG_SOURCE_DESTINATION}" "source destination")
+  _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "CMAKE_CONFIG_DESTINATION" "${ARG_CMAKE_CONFIG_DESTINATION}" "CMake config destination")
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "DEBUG_POSTFIX" "${ARG_DEBUG_POSTFIX}" "debug postfix")
 
-  get_property(_tip_current_source_dir_set GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CURRENT_SOURCE_DIR" SET)
+  if(ARG_CPS)
+    set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS" TRUE)
+    if(_tip_cps_version_explicit)
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_VERSION_EXPLICIT" TRUE)
+    endif()
+
+    foreach(
+      _tip_cps_one_value IN
+      ITEMS CPS_PACKAGE_NAME
+            CPS_PROJECT
+            CPS_APPENDIX
+            CPS_DESTINATION
+            CPS_VERSION
+            CPS_COMPAT_VERSION
+            CPS_VERSION_SCHEMA
+            CPS_LICENSE
+            CPS_DEFAULT_LICENSE
+            CPS_DESCRIPTION
+            CPS_HOMEPAGE_URL
+            CPS_CXX_MODULES_DIRECTORY
+            CPS_COMPONENT)
+      set(_tip_cps_arg_var "ARG_${_tip_cps_one_value}")
+      if(DEFINED ${_tip_cps_arg_var} AND NOT "${${_tip_cps_arg_var}}" STREQUAL "")
+        string(REPLACE "_" " " _tip_cps_description "${_tip_cps_one_value}")
+        string(TOLOWER "${_tip_cps_description}" _tip_cps_description)
+        _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "${_tip_cps_one_value}" "${${_tip_cps_arg_var}}" "${_tip_cps_description}")
+      endif()
+    endforeach()
+
+    foreach(_tip_cps_multi_value IN ITEMS CPS_DEFAULT_TARGETS CPS_DEFAULT_CONFIGURATIONS CPS_PERMISSIONS CPS_CONFIGURATIONS)
+      set(_tip_cps_arg_var "ARG_${_tip_cps_multi_value}")
+      if(DEFINED ${_tip_cps_arg_var} AND NOT "${${_tip_cps_arg_var}}" STREQUAL "")
+        _tip_append_export_property_unique("${EXPORT_PROPERTY_PREFIX}" "${_tip_cps_multi_value}" ${${_tip_cps_arg_var}})
+      endif()
+    endforeach()
+
+    if(ARG_CPS_NO_PROJECT_METADATA)
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_NO_PROJECT_METADATA" TRUE)
+    endif()
+    if(ARG_CPS_LOWER_CASE_FILE)
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_LOWER_CASE_FILE" TRUE)
+    endif()
+    if(ARG_CPS_EXCLUDE_FROM_ALL)
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_EXCLUDE_FROM_ALL" TRUE)
+    endif()
+  endif()
+
+  if(ARG_SBOM)
+    set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM" TRUE)
+    _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_METADATA_MODE" "${_tip_sbom_metadata_mode}" "SBOM metadata inheritance mode")
+    _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_EXPERIMENTAL_VALUE" "${CMAKE_EXPERIMENTAL_GENERATE_SBOM}" "SBOM experimental activation value")
+    if(_tip_sbom_version_explicit)
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_VERSION_EXPLICIT" TRUE)
+    endif()
+
+    foreach(
+      _tip_sbom_one_value IN
+      ITEMS SBOM_NAME
+            SBOM_PROJECT
+            SBOM_DESTINATION
+            SBOM_VERSION
+            SBOM_LICENSE
+            SBOM_DESCRIPTION
+            SBOM_HOMEPAGE_URL
+            SBOM_PACKAGE_URL
+            SBOM_FORMAT)
+      set(_tip_sbom_arg_var "ARG_${_tip_sbom_one_value}")
+      if(DEFINED ${_tip_sbom_arg_var} AND NOT "${${_tip_sbom_arg_var}}" STREQUAL "")
+        string(REPLACE "_" " " _tip_sbom_description "${_tip_sbom_one_value}")
+        string(TOLOWER "${_tip_sbom_description}" _tip_sbom_description)
+        _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "${_tip_sbom_one_value}" "${${_tip_sbom_arg_var}}" "${_tip_sbom_description}")
+      endif()
+    endforeach()
+
+    if(ARG_SBOM_NO_PROJECT_METADATA)
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_NO_PROJECT_METADATA" TRUE)
+    endif()
+
+    if(NOT "${_tip_sbom_metadata_project}" STREQUAL "")
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_INHERITED_PROJECT_METADATA" TRUE)
+
+      set(_tip_sbom_project_version_var "${_tip_sbom_metadata_project}_VERSION")
+      if(NOT _tip_sbom_version_explicit
+         AND NOT _tip_version_explicit
+         AND DEFINED ${_tip_sbom_project_version_var}
+         AND NOT "${${_tip_sbom_project_version_var}}" STREQUAL "")
+        _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_INHERITED_VERSION" "${${_tip_sbom_project_version_var}}" "SBOM inherited project version")
+      endif()
+
+      set(_tip_sbom_project_license_var "${_tip_sbom_metadata_project}_SPDX_LICENSE")
+      if("${ARG_SBOM_LICENSE}" STREQUAL ""
+         AND DEFINED ${_tip_sbom_project_license_var}
+         AND NOT "${${_tip_sbom_project_license_var}}" STREQUAL "")
+        _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_INHERITED_LICENSE" "${${_tip_sbom_project_license_var}}" "SBOM inherited project license")
+      endif()
+
+      set(_tip_sbom_project_description_var "${_tip_sbom_metadata_project}_DESCRIPTION")
+      if("${ARG_SBOM_DESCRIPTION}" STREQUAL ""
+         AND DEFINED ${_tip_sbom_project_description_var}
+         AND NOT "${${_tip_sbom_project_description_var}}" STREQUAL "")
+        _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_INHERITED_DESCRIPTION" "${${_tip_sbom_project_description_var}}" "SBOM inherited project description")
+      endif()
+
+      set(_tip_sbom_project_homepage_var "${_tip_sbom_metadata_project}_HOMEPAGE_URL")
+      if("${ARG_SBOM_HOMEPAGE_URL}" STREQUAL ""
+         AND DEFINED ${_tip_sbom_project_homepage_var}
+         AND NOT "${${_tip_sbom_project_homepage_var}}" STREQUAL "")
+        _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_INHERITED_HOMEPAGE_URL" "${${_tip_sbom_project_homepage_var}}" "SBOM inherited project homepage URL")
+      endif()
+    endif()
+
+    string(SHA256 _tip_sbom_group_hash "${_tip_effective_sbom_name}")
+    get_property(_tip_sbom_group_name GLOBAL PROPERTY "_TIP_SBOM_GROUP_${_tip_sbom_group_hash}_NAME")
+    if(NOT "${_tip_sbom_group_name}" STREQUAL "" AND NOT "${_tip_sbom_group_name}" STREQUAL "${_tip_effective_sbom_name}")
+      project_log(FATAL_ERROR "Internal SBOM name hash collision between '${_tip_sbom_group_name}' and '${_tip_effective_sbom_name}'.")
+    endif()
+    set_property(GLOBAL PROPERTY "_TIP_SBOM_GROUP_${_tip_sbom_group_hash}_NAME" "${_tip_effective_sbom_name}")
+
+    get_property(_tip_sbom_group_exports GLOBAL PROPERTY "_TIP_SBOM_GROUP_${_tip_sbom_group_hash}_EXPORTS")
+    if(CMAKE_VERSION VERSION_LESS "4.4"
+       AND _tip_sbom_group_exports
+       AND NOT ARG_EXPORT_NAME IN_LIST _tip_sbom_group_exports)
+      project_log(FATAL_ERROR
+                  "SBOM_NAME '${_tip_effective_sbom_name}' is already registered for export '${_tip_sbom_group_exports}'. Aggregating multiple export sets into one SBOM requires CMake 4.4 or newer.")
+    endif()
+    list(APPEND _tip_sbom_group_exports "${ARG_EXPORT_NAME}")
+    list(REMOVE_DUPLICATES _tip_sbom_group_exports)
+    set_property(GLOBAL PROPERTY "_TIP_SBOM_GROUP_${_tip_sbom_group_hash}_EXPORTS" "${_tip_sbom_group_exports}")
+
+    get_property(_tip_sbom_group_hashes GLOBAL PROPERTY "_TIP_SBOM_GROUP_HASHES")
+    list(APPEND _tip_sbom_group_hashes "${_tip_sbom_group_hash}")
+    list(REMOVE_DUPLICATES _tip_sbom_group_hashes)
+    set_property(GLOBAL PROPERTY "_TIP_SBOM_GROUP_HASHES" "${_tip_sbom_group_hashes}")
+  endif()
+
+  get_property(
+    _tip_current_source_dir_set GLOBAL
+    PROPERTY "${EXPORT_PROPERTY_PREFIX}_CURRENT_SOURCE_DIR"
+    SET)
   if(NOT _tip_current_source_dir_set)
     set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CURRENT_SOURCE_DIR" "${CMAKE_CURRENT_SOURCE_DIR}")
   endif()
 
-  get_property(_tip_current_binary_dir_set GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CURRENT_BINARY_DIR" SET)
+  get_property(
+    _tip_current_binary_dir_set GLOBAL
+    PROPERTY "${EXPORT_PROPERTY_PREFIX}_CURRENT_BINARY_DIR"
+    SET)
   if(NOT _tip_current_binary_dir_set)
     set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CURRENT_BINARY_DIR" "${CMAKE_CURRENT_BINARY_DIR}")
   endif()
 
-  # For config files, use the first target's development component as default
+  # For config files, use the shared development component for the export.
   get_property(EXISTING_CONFIG_COMPONENT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CONFIG_DEVELOPMENT_COMPONENT")
   if(NOT EXISTING_CONFIG_COMPONENT)
     set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CONFIG_DEVELOPMENT_COMPONENT" "${DEVELOPMENT_COMPONENT_NAME}")
@@ -447,6 +1295,11 @@ function(target_prepare_package TARGET_NAME)
     set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ADDITIONAL_FILES" "${ARG_ADDITIONAL_FILES}")
     set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ADDITIONAL_FILES_DESTINATION" "${ARG_ADDITIONAL_FILES_DESTINATION}")
     set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ADDITIONAL_FILES_SOURCE_DIR" "${CMAKE_CURRENT_SOURCE_DIR}")
+    if(ARG_ADDITIONAL_FILES_COMPONENTS)
+      set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ADDITIONAL_FILES_COMPONENTS" "${ARG_ADDITIONAL_FILES_COMPONENTS}")
+    endif()
+  elseif(ARG_ADDITIONAL_FILES_COMPONENTS)
+    project_log(FATAL_ERROR "ADDITIONAL_FILES_COMPONENTS requires ADDITIONAL_FILES for target '${TARGET_NAME}'.")
   endif()
 
   # Append to existing dependencies and CMake files
@@ -474,70 +1327,45 @@ function(target_prepare_package TARGET_NAME)
 
   # Handle component-dependent dependencies
   if(ARG_COMPONENT_DEPENDENCIES)
-    # Reconstruct component → dependency mappings while tolerating CMake's automatic list splitting (e.g. "OpenGL;glfw" turning into multiple entries). Dependencies are accumulated until we see the
-    # next component token, then merged with any previously recorded values.
     set(_tip_raw_component_deps ${ARG_COMPONENT_DEPENDENCIES})
     list(LENGTH _tip_raw_component_deps _tip_raw_count)
-    set(_tip_index 0)
-    set(_tip_normalized_component_deps "")
+    math(EXPR _tip_component_dep_remainder "${_tip_raw_count} % 2")
+    if(NOT _tip_component_dep_remainder EQUAL 0)
+      project_log(FATAL_ERROR "Ambiguous COMPONENT_DEPENDENCIES for export '${ARG_EXPORT_NAME}'. " "Pass exact component/dependency pairs. Repeat the component for multiple dependencies, "
+                  "for example: COMPONENT_DEPENDENCIES graphics \"OpenGL REQUIRED\" graphics \"glfw3 REQUIRED\".")
+    endif()
 
+    set(_tip_normalized_component_deps "")
+    set(_tip_component_dep_keywords
+        "REQUIRED;COMPONENTS;OPTIONAL_COMPONENTS;CONFIG;MODULE;QUIET;EXACT;NO_MODULE;GLOBAL;NO_POLICY_SCOPE;REGISTRY_VIEW;BYPASS_PROVIDER;UNWIND_INCLUDE;NAMES;CONFIGS;HINTS;PATHS;PATH_SUFFIXES;NO_DEFAULT_PATH;NO_PACKAGE_ROOT_PATH;NO_CMAKE_PATH;NO_CMAKE_ENVIRONMENT_PATH;NO_SYSTEM_ENVIRONMENT_PATH;NO_CMAKE_PACKAGE_REGISTRY;NO_CMAKE_SYSTEM_PATH;NO_CMAKE_SYSTEM_PACKAGE_REGISTRY;CMAKE_FIND_ROOT_PATH_BOTH;ONLY_CMAKE_FIND_ROOT_PATH;NO_CMAKE_FIND_ROOT_PATH"
+    )
+
+    set(_tip_index 0)
     while(_tip_index LESS _tip_raw_count)
       list(GET _tip_raw_component_deps ${_tip_index} _tip_component_name)
       if(_tip_component_name STREQUAL "")
         project_log(FATAL_ERROR "COMPONENT_DEPENDENCIES: Component name cannot be empty")
       endif()
-
-      math(EXPR _tip_index "${_tip_index} + 1")
-      if(_tip_index GREATER_EQUAL _tip_raw_count)
-        project_log(FATAL_ERROR "COMPONENT_DEPENDENCIES entry for component '${_tip_component_name}' is missing dependency values")
+      if(_tip_component_name MATCHES "[ \t\r\n]")
+        project_log(FATAL_ERROR "Ambiguous COMPONENT_DEPENDENCIES for export '${ARG_EXPORT_NAME}'. " "'${_tip_component_name}' is not a valid component key. "
+                    "Pass exact component/dependency pairs and repeat the component for multiple dependencies.")
       endif()
 
-      set(_tip_component_dep_list "")
-      while(_tip_index LESS _tip_raw_count)
-        list(GET _tip_raw_component_deps ${_tip_index} _tip_candidate)
+      string(TOUPPER "${_tip_component_name}" _tip_component_name_upper)
+      list(FIND _tip_component_dep_keywords "${_tip_component_name_upper}" _tip_component_name_keyword_index)
+      if(_tip_component_name STREQUAL _tip_component_name_upper AND NOT _tip_component_name_keyword_index EQUAL -1)
+        project_log(FATAL_ERROR "Ambiguous COMPONENT_DEPENDENCIES for export '${ARG_EXPORT_NAME}'. " "'${_tip_component_name}' looks like a find_dependency() option, not a component name. "
+                    "Pass exact component/dependency pairs and quote option-bearing dependencies.")
+      endif()
 
-        set(_tip_candidate_is_component FALSE)
-        # Treat tokens without whitespace as potential component keys unless they match common dependency keywords (REQUIRED, OPTIONAL, ...).
-        if(NOT _tip_candidate STREQUAL "")
-          if(_tip_candidate MATCHES "^[A-Za-z0-9_.+-]+$")
-            string(TOUPPER "${_tip_candidate}" _tip_candidate_upper)
-            set(_tip_component_stop_words "AND;OR;TRUE;FALSE;ON;OFF;YES;NO;REQUIRED;OPTIONAL;COMPONENTS;CONFIG;MODULE;TARGETS;QUIET;NO_DEFAULT_PATH;FOUND")
-            list(FIND _tip_component_stop_words "${_tip_candidate_upper}" _tip_stop_index)
-            if(_tip_stop_index EQUAL -1)
-              set(_tip_candidate_is_component TRUE)
-            endif()
-          endif()
-        endif()
-
-        if(_tip_candidate_is_component)
-          math(EXPR _tip_candidate_next "${_tip_index} + 1")
-          if(_tip_candidate_next GREATER_EQUAL _tip_raw_count)
-            set(_tip_candidate_is_component FALSE)
-          endif()
-
-          if(_tip_candidate_is_component AND _tip_component_dep_list STREQUAL "")
-            set(_tip_candidate_is_component FALSE)
-          endif()
-        endif()
-
-        if(_tip_candidate_is_component)
-          break()
-        endif()
-
-        if(_tip_component_dep_list STREQUAL "")
-          set(_tip_component_dep_list "${_tip_candidate}")
-        else()
-          set(_tip_component_dep_list "${_tip_component_dep_list};${_tip_candidate}")
-        endif()
-
-        math(EXPR _tip_index "${_tip_index} + 1")
-      endwhile()
-
+      math(EXPR _tip_dependency_index "${_tip_index} + 1")
+      list(GET _tip_raw_component_deps ${_tip_dependency_index} _tip_component_dep_list)
       if(_tip_component_dep_list STREQUAL "")
         project_log(FATAL_ERROR "COMPONENT_DEPENDENCIES entry for '${_tip_component_name}' does not list any dependencies")
       endif()
 
       list(APPEND _tip_normalized_component_deps "${_tip_component_name}" "${_tip_component_dep_list}")
+      math(EXPR _tip_index "${_tip_index} + 2")
     endwhile()
 
     get_property(_tip_component_names GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_COMPONENT_DEPENDENCY_COMPONENTS")
@@ -592,11 +1420,42 @@ function(target_prepare_package TARGET_NAME)
 
     # Schedule automatic finalization for this export at the end of configuration
     project_log(DEBUG "  Scheduling automatic finalization for export '${ARG_EXPORT_NAME}' at end of configuration")
-    cmake_language(EVAL CODE "cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL _auto_finalize_single_export \"${ARG_EXPORT_NAME}\")")
+    cmake_language(EVAL CODE "cmake_language(DEFER DIRECTORY \"${CMAKE_SOURCE_DIR}\" CALL _auto_finalize_single_export \"${ARG_EXPORT_NAME}\")")
+  endif()
+
+  if(ARG_SBOM)
+    get_property(_tip_sbom_finalization_scheduled GLOBAL PROPERTY "_TIP_SBOM_FINALIZATION_SCHEDULED")
+    if(NOT _tip_sbom_finalization_scheduled)
+      set_property(GLOBAL PROPERTY "_TIP_SBOM_FINALIZATION_SCHEDULED" TRUE)
+      cmake_language(EVAL CODE "cmake_language(DEFER DIRECTORY \"${CMAKE_SOURCE_DIR}\" CALL _tip_finalize_all_sboms)")
+    endif()
   endif()
 
   project_log(VERBOSE "Target '${TARGET_NAME}' configured successfully for export '${ARG_EXPORT_NAME}'")
 endfunction(target_prepare_package)
+
+# ~~~
+# Helper: Determine whether a target contributes runtime payload through this wrapper.
+#
+# Runtime components are reserved for artifacts a consumer may need at execution time.
+# Static, interface, and object targets contribute SDK/config payload only.
+# ~~~
+function(_tip_target_has_runtime_payload OUT_VAR TARGET_NAME)
+  set(_tip_has_runtime_payload FALSE)
+
+  if(TARGET "${TARGET_NAME}")
+    get_target_property(_tip_target_type "${TARGET_NAME}" TYPE)
+    if(_tip_target_type STREQUAL "EXECUTABLE"
+       OR _tip_target_type STREQUAL "SHARED_LIBRARY"
+       OR _tip_target_type STREQUAL "MODULE_LIBRARY")
+      set(_tip_has_runtime_payload TRUE)
+    endif()
+  endif()
+
+  set(${OUT_VAR}
+      "${_tip_has_runtime_payload}"
+      PARENT_SCOPE)
+endfunction()
 
 # ~~~
 # Helper: Collect component information from all targets in an export.
@@ -618,29 +1477,29 @@ function(_collect_export_components EXPORT_PROPERTY_PREFIX TARGETS)
   set(COMPONENT_TARGET_MAP "")
 
   foreach(TARGET_NAME ${TARGETS})
-    get_property(TARGET_COMP GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_COMPONENT")
     get_property(TARGET_RUNTIME_COMP GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_RUNTIME_COMPONENT")
     get_property(TARGET_DEV_COMP GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_DEVELOPMENT_COMPONENT")
 
-    # Determine actual component names Priority: explicit components > prefix pattern > defaults
-
-    if(TARGET_RUNTIME_COMP AND NOT TARGET_COMP)
-      # Explicit components specified (deprecated mode) - should be caught by validation
-      set(RUNTIME_COMPONENT_NAME "${TARGET_RUNTIME_COMP}")
+    if(TARGET_DEV_COMP)
       set(DEV_COMPONENT_NAME "${TARGET_DEV_COMP}")
-    elseif(TARGET_COMP)
-      # NEW SCHEME: COMPONENT -> runtime, COMPONENT_Development -> development files
-      set(RUNTIME_COMPONENT_NAME "${TARGET_COMP}")
-      set(DEV_COMPONENT_NAME "${TARGET_COMP}_Development")
     else()
-      # Default components: Runtime, Development
-      set(RUNTIME_COMPONENT_NAME "Runtime")
       set(DEV_COMPONENT_NAME "Development")
     endif()
 
-    list(APPEND ALL_RUNTIME_COMPONENTS ${RUNTIME_COMPONENT_NAME})
+    _tip_target_has_runtime_payload(_tip_has_runtime_payload "${TARGET_NAME}")
+    if(_tip_has_runtime_payload)
+      # Prefer the canonical component names stored by target_prepare_package().
+      if(TARGET_RUNTIME_COMP)
+        set(RUNTIME_COMPONENT_NAME "${TARGET_RUNTIME_COMP}")
+      else()
+        set(RUNTIME_COMPONENT_NAME "Runtime")
+      endif()
+
+      list(APPEND ALL_RUNTIME_COMPONENTS ${RUNTIME_COMPONENT_NAME})
+      list(APPEND COMPONENT_TARGET_MAP "${RUNTIME_COMPONENT_NAME}:${TARGET_NAME}")
+    endif()
+
     list(APPEND ALL_DEVELOPMENT_COMPONENTS ${DEV_COMPONENT_NAME})
-    list(APPEND COMPONENT_TARGET_MAP "${RUNTIME_COMPONENT_NAME}:${TARGET_NAME}")
     list(APPEND COMPONENT_TARGET_MAP "${DEV_COMPONENT_NAME}:${TARGET_NAME}")
   endforeach()
 
@@ -668,23 +1527,20 @@ function(_collect_export_components EXPORT_PROPERTY_PREFIX TARGETS)
 endfunction(_collect_export_components)
 
 # ~~~
-# Helper: Build CMake component arguments for install() commands using prefix pattern.
+# Helper: Build CMake component arguments for install() commands.
 #
-# This internal helper function generates component names using the Component Prefix Pattern:
-# - If COMPONENT_PREFIX is provided: "${COMPONENT_PREFIX}_${COMPONENT_TYPE}"
-# - If no prefix: "${COMPONENT_TYPE}" only
-# - Always single install (no dual install complexity)
+# This internal helper returns one COMPONENT argument for the requested component
+# name. COMPONENT_PREFIX is kept only for older internal callers.
 #
 # Parameters:
 #   VAR_PREFIX - Variable name prefix for the output arguments
-#   COMPONENT_PREFIX - Optional prefix for component names (e.g., "Core", "GUI")
+#   COMPONENT_PREFIX - Optional runtime component name (e.g., "Core", "GUI")
 #   COMPONENT_TYPE - Component type: "Runtime" or "Development"
 #
 # Returns via parent scope:
-#   ${VAR_PREFIX}_ARGS - CMake arguments for install() command (e.g., "COMPONENT Core_Runtime")
+#   ${VAR_PREFIX}_ARGS - CMake arguments for install() command (e.g., "COMPONENT Runtime")
 #
 # Examples:
-#   _build_component_args(TARGET "Core" "Runtime") → "COMPONENT Core_Runtime"
 #   _build_component_args(TARGET "" "Runtime") → "COMPONENT Runtime"
 # ~~~
 function(_build_component_args VAR_PREFIX COMPONENT_PREFIX COMPONENT_TYPE)
@@ -695,9 +1551,8 @@ function(_build_component_args VAR_PREFIX COMPONENT_PREFIX COMPONENT_TYPE)
     return()
   endif()
 
-  # Generate component name using prefix pattern
-  if(COMPONENT_PREFIX)
-    set(COMPONENT_NAME "${COMPONENT_PREFIX}_${COMPONENT_TYPE}")
+  if(COMPONENT_PREFIX AND COMPONENT_TYPE STREQUAL "Runtime")
+    set(COMPONENT_NAME "${COMPONENT_PREFIX}")
   else()
     set(COMPONENT_NAME "${COMPONENT_TYPE}")
   endif()
@@ -774,8 +1629,8 @@ endfunction()
 # This function completes the installation process for all targets that were
 # prepared with target_prepare_package() for the given export name.
 #
-# NOTE: Since v6.1.7, this function is OPTIONAL. All exports are automatically
-# finalized at the end of configuration using cmake_language(DEFER CALL).
+# NOTE: This function is OPTIONAL. All exports are automatically finalized at
+# the end of configuration using cmake_language(DEFER CALL).
 # Use this function only when you need explicit control over finalization timing.
 #
 # I don't think this function is needed anymore, but I leave it for now.
@@ -829,9 +1684,11 @@ function(finalize_package)
   get_property(NAMESPACE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_NAMESPACE")
   get_property(VERSION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_VERSION")
   get_property(COMPATIBILITY GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_COMPATIBILITY")
+  get_property(ARCH_INDEPENDENT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_ARCH_INDEPENDENT")
   get_property(CONFIG_TEMPLATE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CONFIG_TEMPLATE")
   get_property(INCLUDE_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_INCLUDE_DESTINATION")
   get_property(MODULE_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_MODULE_DESTINATION")
+  get_property(SOURCE_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SOURCE_DESTINATION")
   get_property(CMAKE_CONFIG_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CMAKE_CONFIG_DESTINATION")
   get_property(CONFIG_DEV_COMPONENT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CONFIG_DEVELOPMENT_COMPONENT")
   get_property(CURRENT_SOURCE_DIR GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CURRENT_SOURCE_DIR")
@@ -840,6 +1697,47 @@ function(finalize_package)
   get_property(INCLUDE_ON_FIND_PACKAGE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_INCLUDE_ON_FIND_PACKAGE")
   get_property(COMPONENT_DEPENDENCY_COMPONENTS GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_COMPONENT_DEPENDENCY_COMPONENTS")
   get_property(DEBUG_POSTFIX GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_DEBUG_POSTFIX")
+  get_property(CPS_ENABLED GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS")
+  get_property(CPS_PACKAGE_NAME GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_PACKAGE_NAME")
+  get_property(CPS_PROJECT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_PROJECT")
+  get_property(CPS_NO_PROJECT_METADATA GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_NO_PROJECT_METADATA")
+  get_property(CPS_APPENDIX GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_APPENDIX")
+  get_property(CPS_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_DESTINATION")
+  get_property(CPS_LOWER_CASE_FILE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_LOWER_CASE_FILE")
+  get_property(CPS_VERSION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_VERSION")
+  get_property(CPS_VERSION_EXPLICIT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_VERSION_EXPLICIT")
+  get_property(CPS_COMPAT_VERSION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_COMPAT_VERSION")
+  get_property(CPS_VERSION_SCHEMA GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_VERSION_SCHEMA")
+  get_property(CPS_DEFAULT_TARGETS GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_DEFAULT_TARGETS")
+  get_property(CPS_DEFAULT_CONFIGURATIONS GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_DEFAULT_CONFIGURATIONS")
+  get_property(CPS_LICENSE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_LICENSE")
+  get_property(CPS_DEFAULT_LICENSE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_DEFAULT_LICENSE")
+  get_property(CPS_DESCRIPTION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_DESCRIPTION")
+  get_property(CPS_HOMEPAGE_URL GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_HOMEPAGE_URL")
+  get_property(CPS_PERMISSIONS GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_PERMISSIONS")
+  get_property(CPS_CONFIGURATIONS GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_CONFIGURATIONS")
+  get_property(CPS_CXX_MODULES_DIRECTORY GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_CXX_MODULES_DIRECTORY")
+  get_property(CPS_COMPONENT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_COMPONENT")
+  get_property(CPS_EXCLUDE_FROM_ALL GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_EXCLUDE_FROM_ALL")
+  get_property(SBOM_ENABLED GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM")
+  get_property(SBOM_EXPERIMENTAL_VALUE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_EXPERIMENTAL_VALUE")
+  get_property(SBOM_METADATA_MODE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_METADATA_MODE")
+  get_property(SBOM_NAME GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_NAME")
+  get_property(SBOM_PROJECT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_PROJECT")
+  get_property(SBOM_NO_PROJECT_METADATA GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_NO_PROJECT_METADATA")
+  get_property(SBOM_INHERITED_PROJECT_METADATA GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_INHERITED_PROJECT_METADATA")
+  get_property(SBOM_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_DESTINATION")
+  get_property(SBOM_VERSION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_VERSION")
+  get_property(SBOM_VERSION_EXPLICIT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_VERSION_EXPLICIT")
+  get_property(SBOM_INHERITED_VERSION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_INHERITED_VERSION")
+  get_property(SBOM_LICENSE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_LICENSE")
+  get_property(SBOM_INHERITED_LICENSE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_INHERITED_LICENSE")
+  get_property(SBOM_DESCRIPTION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_DESCRIPTION")
+  get_property(SBOM_INHERITED_DESCRIPTION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_INHERITED_DESCRIPTION")
+  get_property(SBOM_HOMEPAGE_URL GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_HOMEPAGE_URL")
+  get_property(SBOM_INHERITED_HOMEPAGE_URL GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_INHERITED_HOMEPAGE_URL")
+  get_property(SBOM_FORMAT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_FORMAT")
+  get_property(VERSION_EXPLICIT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_VERSION_EXPLICIT")
 
   # Collect component information for logging and debugging
   _collect_export_components("${EXPORT_PROPERTY_PREFIX}" "${TARGETS}")
@@ -862,6 +1760,13 @@ function(finalize_package)
   if(ALL_COMPONENTS)
     list(APPEND ALL_UNIQUE_COMPONENTS ${ALL_COMPONENTS})
   endif()
+  foreach(TARGET_NAME ${TARGETS})
+    get_property(TARGET_ADDITIONAL_FILES GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ADDITIONAL_FILES")
+    get_property(TARGET_ADDITIONAL_FILES_COMPONENTS GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ADDITIONAL_FILES_COMPONENTS")
+    if(TARGET_ADDITIONAL_FILES AND TARGET_ADDITIONAL_FILES_COMPONENTS)
+      list(APPEND ALL_UNIQUE_COMPONENTS ${TARGET_ADDITIONAL_FILES_COMPONENTS})
+    endif()
+  endforeach()
 
   # Remove duplicates and create single log line
   if(ALL_UNIQUE_COMPONENTS)
@@ -882,8 +1787,29 @@ function(finalize_package)
       list(REMOVE_DUPLICATES detected_components)
       set_property(GLOBAL PROPERTY "_TIP_DETECTED_COMPONENTS" "${detected_components}")
     endif()
+
+    if(ALL_RUNTIME_COMPONENTS)
+      get_property(_tip_detected_runtime_components GLOBAL PROPERTY "_TIP_DETECTED_RUNTIME_COMPONENTS")
+      foreach(component ${ALL_RUNTIME_COMPONENTS})
+        if(NOT component IN_LIST _tip_detected_runtime_components)
+          list(APPEND _tip_detected_runtime_components "${component}")
+        endif()
+      endforeach()
+      if(_tip_detected_runtime_components)
+        list(REMOVE_DUPLICATES _tip_detected_runtime_components)
+        set_property(GLOBAL PROPERTY "_TIP_DETECTED_RUNTIME_COMPONENTS" "${_tip_detected_runtime_components}")
+      endif()
+    endif()
   else()
     project_log(VERBOSE "Export '${ARG_EXPORT_NAME}' finalizing ${target_count} ${target_label}: [${TARGETS}]")
+  endif()
+
+  set(_tip_export_target_components ${ALL_RUNTIME_COMPONENTS} ${ALL_DEVELOPMENT_COMPONENTS})
+  if(_tip_export_target_components)
+    list(REMOVE_DUPLICATES _tip_export_target_components)
+    foreach(_tip_development_component IN LISTS ALL_DEVELOPMENT_COMPONENTS)
+      _tip_append_cpack_component_dependencies("${_tip_development_component}" ${_tip_export_target_components})
+    endforeach()
   endif()
 
   # Apply DEBUG_POSTFIX only to library targets if specified
@@ -897,40 +1823,64 @@ function(finalize_package)
     endforeach()
   endif()
 
+  set(_tip_cps_exported_target_names "")
+  set(_tip_cps_default_target_names "")
+  set(_tip_cps_default_target_types STATIC_LIBRARY SHARED_LIBRARY INTERFACE_LIBRARY)
+  set(_tip_cps_unsupported_target_types EXECUTABLE MODULE_LIBRARY)
+  set(_tip_exported_alias_names "")
+
   # Install each target separately with its own components
+  set(_tip_export_has_source_sets FALSE)
   foreach(TARGET_NAME ${TARGETS})
     get_property(TARGET_RUNTIME_COMP GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_RUNTIME_COMPONENT")
     get_property(TARGET_DEV_COMP GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_DEVELOPMENT_COMPONENT")
-    get_property(TARGET_COMP GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_COMPONENT")
     get_property(TARGET_ALIAS_NAME GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME")
+    get_property(TARGET_ALIAS_NAME_EXPLICIT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME_EXPLICIT")
 
-    # Use alias name if set, otherwise use target name
-    if(NOT TARGET_ALIAS_NAME)
+    if(NOT TARGET_ALIAS_NAME_EXPLICIT)
+      get_target_property(_tip_existing_target_export_name ${TARGET_NAME} EXPORT_NAME)
+      if(_tip_existing_target_export_name AND NOT _tip_existing_target_export_name MATCHES "-NOTFOUND$")
+        set(TARGET_ALIAS_NAME "${_tip_existing_target_export_name}")
+      endif()
+    endif()
+
+    if("${TARGET_ALIAS_NAME}" STREQUAL "")
       set(TARGET_ALIAS_NAME "${TARGET_NAME}")
     endif()
 
-    # Build component args for this target Priority: explicit components > prefix pattern > defaults
+    if(TARGET_ALIAS_NAME IN_LIST _tip_exported_alias_names)
+      project_log(FATAL_ERROR "Duplicate exported target name '${TARGET_ALIAS_NAME}' in export '${ARG_EXPORT_NAME}'. Use unique ALIAS_NAME values for each target.")
+    endif()
+    list(APPEND _tip_exported_alias_names "${TARGET_ALIAS_NAME}")
+    list(APPEND _tip_cps_exported_target_names "${TARGET_ALIAS_NAME}")
 
-    if(TARGET_RUNTIME_COMP AND NOT TARGET_COMP)
-      # Explicit runtime component specified (traditional mode)
-      set(TARGET_RUNTIME_COMPONENT_ARGS COMPONENT ${TARGET_RUNTIME_COMP})
-    elseif(TARGET_COMP)
-      # NEW SCHEME: COMPONENT name directly for runtime files
-      set(TARGET_RUNTIME_COMPONENT_ARGS COMPONENT ${TARGET_COMP})
+    get_target_property(_tip_cps_target_type ${TARGET_NAME} TYPE)
+    if(CPS_ENABLED AND _tip_cps_target_type IN_LIST _tip_cps_unsupported_target_types)
+      project_log(
+        FATAL_ERROR
+        "CPS package metadata for export '${ARG_EXPORT_NAME}' does not support target '${TARGET_NAME}' of type '${_tip_cps_target_type}'. Put executables and module libraries in a separate non-CPS export."
+      )
+    endif()
+    if(_tip_cps_target_type IN_LIST _tip_cps_default_target_types)
+      list(APPEND _tip_cps_default_target_names "${TARGET_ALIAS_NAME}")
+    endif()
+
+    if(TARGET_RUNTIME_COMP)
+      set(TARGET_RUNTIME_COMPONENT_ARGS COMPONENT "${TARGET_RUNTIME_COMP}")
     else()
-      # Default: Runtime
       _build_component_args(TARGET_RUNTIME_COMPONENT "" "Runtime")
     endif()
 
-    if(TARGET_DEV_COMP AND NOT TARGET_COMP)
-      # Explicit development component specified (traditional mode)
-      set(TARGET_DEV_COMPONENT_ARGS COMPONENT ${TARGET_DEV_COMP})
-    elseif(TARGET_COMP)
-      # NEW SCHEME: COMPONENT_Development for development files
-      set(TARGET_DEV_COMPONENT_ARGS COMPONENT "${TARGET_COMP}_Development")
+    if(TARGET_DEV_COMP)
+      set(TARGET_DEV_COMPONENT_ARGS COMPONENT "${TARGET_DEV_COMP}")
     else()
-      # Default: Development
       _build_component_args(TARGET_DEV_COMPONENT "" "Development")
+    endif()
+
+    if(TARGET_DEV_COMP)
+      set(TARGET_NAMELINK_COMPONENT_ARGS NAMELINK_COMPONENT "${TARGET_DEV_COMP}")
+    else()
+      set(TARGET_NAMELINK_COMPONENT_ARGS NAMELINK_COMPONENT Development)
     endif()
 
     # Set the export name for the target if different from target name
@@ -951,9 +1901,8 @@ function(finalize_package)
     # - ARCHIVE: Static libraries and Windows import libs → lib/
     #   (Import .lib files are development artifacts, not runtime)
     # ~~~
-    # Determine configuration subdirectory policy based on layout. Layout options: - fhs:           no config subdir (standard system layout) - split_debug:   Debug under debug/, others no subdir - split_all:
-    # all configs
-    # under lower-cased $<CONFIG>/ (guarded for empty)
+    # Determine configuration subdirectory policy based on layout. Layout options: - fhs:           no config subdir (standard system layout) - split_debug:   Debug under debug/, others no subdir -
+    # split_all: all configs under lower-cased $<CONFIG>/ (guarded for empty)
     get_target_property(_tip_target_layout ${TARGET_NAME} TARGET_INSTALL_PACKAGE_LAYOUT)
     if(NOT _tip_target_layout)
       set(_tip_target_layout "fhs")
@@ -977,6 +1926,7 @@ function(finalize_package)
       DESTINATION
       "${_tip_cfgdir}${CMAKE_INSTALL_LIBDIR}"
       ${TARGET_RUNTIME_COMPONENT_ARGS}
+      ${TARGET_NAMELINK_COMPONENT_ARGS}
       ARCHIVE
       DESTINATION
       "${_tip_cfgdir}${CMAKE_INSTALL_LIBDIR}"
@@ -1007,6 +1957,29 @@ function(finalize_package)
       list(APPEND INSTALL_ARGS PUBLIC_HEADER DESTINATION ${INCLUDE_DESTINATION} ${TARGET_DEV_COMPONENT_ARGS})
     endif()
 
+    # Handle installable source file sets. All public and interface file sets must be listed when the target is exported.
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.4")
+      get_target_property(TARGET_INTERFACE_SOURCE_SETS ${TARGET_NAME} INTERFACE_SOURCE_SETS)
+      if(TARGET_INTERFACE_SOURCE_SETS AND NOT TARGET_INTERFACE_SOURCE_SETS MATCHES "-NOTFOUND$")
+        set(_tip_export_has_source_sets TRUE)
+        if(CPS_ENABLED)
+          project_log(
+            FATAL_ERROR
+            "CPS package metadata for export '${ARG_EXPORT_NAME}' is not supported with SOURCES file sets. Use the authoritative Config.cmake export or move source-only targets to a non-CPS export.")
+        endif()
+        foreach(CURRENT_SOURCE_SET_NAME IN LISTS TARGET_INTERFACE_SOURCE_SETS)
+          list(
+            APPEND
+            INSTALL_ARGS
+            FILE_SET
+            "${CURRENT_SOURCE_SET_NAME}"
+            DESTINATION
+            "${SOURCE_DESTINATION}"
+            ${TARGET_DEV_COMPONENT_ARGS})
+        endforeach()
+      endif()
+    endif()
+
     # Handle C++20 modules
     if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.28")
       get_target_property(TARGET_INTERFACE_MODULE_SETS ${TARGET_NAME} INTERFACE_CXX_MODULE_SETS)
@@ -1035,7 +2008,9 @@ function(finalize_package)
       project_log(DEBUG "Skipping RPATH due to DISABLE_RPATH parameter for '${TARGET_NAME}'")
     endif()
 
-    if(NOT WIN32 AND NOT CMAKE_SKIP_INSTALL_RPATH AND NOT TARGET_DISABLE_RPATH)
+    if(NOT WIN32
+       AND NOT CMAKE_SKIP_INSTALL_RPATH
+       AND NOT TARGET_DISABLE_RPATH)
       get_target_property(TARGET_TYPE ${TARGET_NAME} TYPE)
 
       if(TARGET_TYPE STREQUAL "EXECUTABLE" OR TARGET_TYPE STREQUAL "SHARED_LIBRARY")
@@ -1135,6 +2110,7 @@ function(finalize_package)
     if(TARGET_ADDITIONAL_FILES)
       get_property(TARGET_ADDITIONAL_FILES_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ADDITIONAL_FILES_DESTINATION")
       get_property(TARGET_ADDITIONAL_FILES_SOURCE_DIR GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ADDITIONAL_FILES_SOURCE_DIR")
+      get_property(TARGET_ADDITIONAL_FILES_COMPONENTS GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ADDITIONAL_FILES_COMPONENTS")
 
       if(NOT TARGET_ADDITIONAL_FILES_DESTINATION)
         # Install to the install prefix root by default Using '.' ensures DESTINATION resolves to ${CMAKE_INSTALL_PREFIX}
@@ -1147,7 +2123,7 @@ function(finalize_package)
         endif()
       endif()
 
-      foreach(FILE_PATH ${TARGET_ADDITIONAL_FILES})
+      foreach(FILE_PATH IN LISTS TARGET_ADDITIONAL_FILES)
         cmake_path(
           ABSOLUTE_PATH
           FILE_PATH
@@ -1158,47 +2134,229 @@ function(finalize_package)
           SRC_FILE_PATH)
 
         if(NOT EXISTS "${SRC_FILE_PATH}")
-          project_log(WARNING "  Additional file to install not found for '${TARGET_NAME}': ${SRC_FILE_PATH}")
-          continue()
+          project_log(FATAL_ERROR "  Additional file to install not found for '${TARGET_NAME}': ${SRC_FILE_PATH}")
         endif()
 
         set(TARGET_ADDITIONAL_FILES_DEST_PATH "${TARGET_ADDITIONAL_FILES_DESTINATION}")
 
-        install(
-          FILES "${SRC_FILE_PATH}"
-          DESTINATION "${TARGET_ADDITIONAL_FILES_DEST_PATH}"
-          ${TARGET_DEV_COMPONENT_ARGS})
+        if(TARGET_ADDITIONAL_FILES_COMPONENTS)
+          foreach(_tip_additional_file_component IN LISTS TARGET_ADDITIONAL_FILES_COMPONENTS)
+            install(
+              FILES "${SRC_FILE_PATH}"
+              DESTINATION "${TARGET_ADDITIONAL_FILES_DEST_PATH}"
+              COMPONENT "${_tip_additional_file_component}")
+          endforeach()
+        else()
+          install(
+            FILES "${SRC_FILE_PATH}"
+            DESTINATION "${TARGET_ADDITIONAL_FILES_DEST_PATH}"
+            ${TARGET_DEV_COMPONENT_ARGS})
+        endif()
         project_log(DEBUG "  Installing additional file for '${TARGET_NAME}': ${SRC_FILE_PATH} -> ${TARGET_ADDITIONAL_FILES_DEST_PATH}")
       endforeach()
     endif()
   endforeach()
 
-  # Set up component args for config files using the first development component
+  # Install CMake package metadata with the shared SDK component for this export.
+  set(CONFIG_COMPONENTS "")
   if(ALL_DEVELOPMENT_COMPONENTS)
-    list(GET ALL_DEVELOPMENT_COMPONENTS 0 FIRST_DEV_COMPONENT)
-    set(CONFIG_COMPONENT_ARGS COMPONENT ${FIRST_DEV_COMPONENT})
+    set(CONFIG_COMPONENTS ${ALL_DEVELOPMENT_COMPONENTS})
   else()
-    # Fallback to generic Development component
-    _build_component_args(CONFIG_COMPONENT "" "Development")
+    set(CONFIG_COMPONENTS Development)
   endif()
+  list(REMOVE_DUPLICATES CONFIG_COMPONENTS)
+  list(GET CONFIG_COMPONENTS 0 FIRST_CONFIG_COMPONENT)
+  set(CONFIG_COMPONENT_ARGS COMPONENT ${FIRST_CONFIG_COMPONENT})
 
   # Install targets export file with config component CMake automatically handles configuration-specific exports
-  install(
-    EXPORT ${ARG_EXPORT_NAME}
-    FILE ${ARG_EXPORT_NAME}Targets.cmake
-    NAMESPACE ${NAMESPACE}
-    DESTINATION ${CMAKE_CONFIG_DESTINATION}
-    ${CONFIG_COMPONENT_ARGS})
+  foreach(_tip_config_component IN LISTS CONFIG_COMPONENTS)
+    install(
+      EXPORT ${ARG_EXPORT_NAME}
+      FILE ${ARG_EXPORT_NAME}Targets.cmake
+      NAMESPACE ${NAMESPACE}
+      DESTINATION ${CMAKE_CONFIG_DESTINATION}
+      COMPONENT "${_tip_config_component}")
+  endforeach()
 
-  # Create package version file using EXPORT_NAME
-  write_basic_package_version_file(
-    "${CURRENT_BINARY_DIR}/${ARG_EXPORT_NAME}-config-version.cmake"
-    VERSION ${VERSION}
-    COMPATIBILITY ${COMPATIBILITY})
+  if(CPS_ENABLED)
+    if(CMAKE_VERSION VERSION_LESS "4.3")
+      project_log(FATAL_ERROR "CPS package metadata requires CMake 4.3 or newer because it uses install(PACKAGE_INFO).")
+    endif()
+
+    set(_tip_cps_explicit_version "")
+    if(CPS_VERSION_EXPLICIT)
+      set(_tip_cps_explicit_version "${CPS_VERSION}")
+    endif()
+
+    if("${CPS_PACKAGE_NAME}" STREQUAL "")
+      set(CPS_PACKAGE_NAME "${ARG_EXPORT_NAME}")
+    endif()
+
+    set(_tip_cps_effective_version "${CPS_VERSION}")
+    if("${_tip_cps_effective_version}" STREQUAL "")
+      if(VERSION_EXPLICIT OR "${CPS_PROJECT}" STREQUAL "")
+        set(_tip_cps_effective_version "${VERSION}")
+      elseif(NOT "${CPS_COMPAT_VERSION}" STREQUAL "" OR NOT "${CPS_VERSION_SCHEMA}" STREQUAL "")
+        set(_tip_cps_project_version_var "${CPS_PROJECT}_VERSION")
+        if(DEFINED ${_tip_cps_project_version_var} AND NOT "${${_tip_cps_project_version_var}}" STREQUAL "")
+          set(_tip_cps_effective_version "${${_tip_cps_project_version_var}}")
+        else()
+          project_log(FATAL_ERROR "CPS_COMPAT_VERSION or CPS_VERSION_SCHEMA for export '${ARG_EXPORT_NAME}' requires explicit CPS_VERSION/VERSION or a CPS_PROJECT with version metadata.")
+        endif()
+      endif()
+    endif()
+
+    if(NOT "${CPS_PROJECT}" STREQUAL "" AND CPS_NO_PROJECT_METADATA)
+      project_log(FATAL_ERROR "CPS_PROJECT and CPS_NO_PROJECT_METADATA cannot be used together for export '${ARG_EXPORT_NAME}'.")
+    endif()
+
+    if(NOT "${CPS_APPENDIX}" STREQUAL "")
+      set(_tip_cps_appendix_forbidden "")
+      foreach(
+        _tip_cps_appendix_option IN
+        ITEMS CPS_PROJECT
+              CPS_VERSION
+              CPS_COMPAT_VERSION
+              CPS_VERSION_SCHEMA
+              CPS_DEFAULT_TARGETS
+              CPS_DEFAULT_CONFIGURATIONS
+              CPS_LICENSE
+              CPS_DESCRIPTION
+              CPS_HOMEPAGE_URL)
+        set(_tip_cps_appendix_value "${${_tip_cps_appendix_option}}")
+
+        if(NOT "${_tip_cps_appendix_value}" STREQUAL "")
+          list(APPEND _tip_cps_appendix_forbidden "${_tip_cps_appendix_option}")
+        endif()
+      endforeach()
+
+      if(_tip_cps_appendix_forbidden)
+        project_log(FATAL_ERROR "CPS_APPENDIX cannot be combined with export-level CPS options for export '${ARG_EXPORT_NAME}': ${_tip_cps_appendix_forbidden}")
+      endif()
+    endif()
+
+    set(_tip_cps_args PACKAGE_INFO "${CPS_PACKAGE_NAME}" EXPORT "${ARG_EXPORT_NAME}")
+
+    if(NOT "${CPS_PROJECT}" STREQUAL "")
+      list(APPEND _tip_cps_args PROJECT "${CPS_PROJECT}")
+    elseif(CPS_NO_PROJECT_METADATA)
+      list(APPEND _tip_cps_args NO_PROJECT_METADATA)
+    endif()
+
+    if(NOT "${CPS_APPENDIX}" STREQUAL "")
+      list(APPEND _tip_cps_args APPENDIX "${CPS_APPENDIX}")
+    endif()
+    if(NOT "${CPS_DESTINATION}" STREQUAL "")
+      list(APPEND _tip_cps_args DESTINATION "${CPS_DESTINATION}")
+    endif()
+    if(CPS_LOWER_CASE_FILE)
+      list(APPEND _tip_cps_args LOWER_CASE_FILE)
+    endif()
+
+    if("${CPS_APPENDIX}" STREQUAL "")
+      if(NOT "${_tip_cps_effective_version}" STREQUAL "")
+        list(APPEND _tip_cps_args VERSION "${_tip_cps_effective_version}")
+
+        set(_tip_cps_effective_compat_version "${CPS_COMPAT_VERSION}")
+        if("${_tip_cps_effective_compat_version}" STREQUAL "")
+          _tip_derive_cps_compat_version(_tip_cps_effective_compat_version "${_tip_cps_effective_version}" "${COMPATIBILITY}" "${CPS_VERSION_SCHEMA}")
+          if(COMPATIBILITY STREQUAL "SamePatchVersion" OR COMPATIBILITY STREQUAL "ExactVersion")
+            project_log(
+              WARNING
+              "CPS cannot represent COMPATIBILITY '${COMPATIBILITY}' exactly for export '${ARG_EXPORT_NAME}'. Omitting COMPAT_VERSION makes CPS require the package version. Set CPS_COMPAT_VERSION explicitly to override this stricter behavior."
+            )
+          endif()
+        endif()
+        if(NOT "${_tip_cps_effective_compat_version}" STREQUAL "")
+          list(APPEND _tip_cps_args COMPAT_VERSION "${_tip_cps_effective_compat_version}")
+        endif()
+
+        if(NOT "${CPS_VERSION_SCHEMA}" STREQUAL "")
+          list(APPEND _tip_cps_args VERSION_SCHEMA "${CPS_VERSION_SCHEMA}")
+        endif()
+      endif()
+
+      set(_tip_cps_effective_default_targets ${CPS_DEFAULT_TARGETS})
+      list(LENGTH _tip_cps_effective_default_targets _tip_cps_effective_default_target_count)
+      if(_tip_cps_effective_default_target_count EQUAL 0)
+        set(_tip_cps_effective_default_targets ${_tip_cps_default_target_names})
+        list(REMOVE_DUPLICATES _tip_cps_effective_default_targets)
+        list(LENGTH _tip_cps_effective_default_targets _tip_cps_effective_default_target_count)
+      endif()
+      if(_tip_cps_effective_default_target_count GREATER 0)
+        foreach(_tip_cps_default_target IN LISTS _tip_cps_effective_default_targets)
+          if(NOT _tip_cps_default_target IN_LIST _tip_cps_exported_target_names)
+            project_log(FATAL_ERROR "CPS_DEFAULT_TARGETS entry '${_tip_cps_default_target}' is not an exported target name for export '${ARG_EXPORT_NAME}'.")
+          endif()
+        endforeach()
+        list(APPEND _tip_cps_args DEFAULT_TARGETS ${_tip_cps_effective_default_targets})
+      endif()
+
+      if(NOT "${CPS_DEFAULT_CONFIGURATIONS}" STREQUAL "")
+        list(APPEND _tip_cps_args DEFAULT_CONFIGURATIONS ${CPS_DEFAULT_CONFIGURATIONS})
+      endif()
+    endif()
+
+    if(NOT "${CPS_LICENSE}" STREQUAL "")
+      list(APPEND _tip_cps_args LICENSE "${CPS_LICENSE}")
+    endif()
+    if(NOT "${CPS_DEFAULT_LICENSE}" STREQUAL "")
+      list(APPEND _tip_cps_args DEFAULT_LICENSE "${CPS_DEFAULT_LICENSE}")
+    endif()
+    if(NOT "${CPS_DESCRIPTION}" STREQUAL "")
+      list(APPEND _tip_cps_args DESCRIPTION "${CPS_DESCRIPTION}")
+    endif()
+    if(NOT "${CPS_HOMEPAGE_URL}" STREQUAL "")
+      list(APPEND _tip_cps_args HOMEPAGE_URL "${CPS_HOMEPAGE_URL}")
+    endif()
+    if(NOT "${CPS_PERMISSIONS}" STREQUAL "")
+      list(APPEND _tip_cps_args PERMISSIONS ${CPS_PERMISSIONS})
+    endif()
+    if(NOT "${CPS_CONFIGURATIONS}" STREQUAL "")
+      list(APPEND _tip_cps_args CONFIGURATIONS ${CPS_CONFIGURATIONS})
+    endif()
+    if(NOT "${CPS_CXX_MODULES_DIRECTORY}" STREQUAL "")
+      list(APPEND _tip_cps_args CXX_MODULES_DIRECTORY "${CPS_CXX_MODULES_DIRECTORY}")
+    endif()
+    if(NOT "${CPS_COMPONENT}" STREQUAL "")
+      list(APPEND _tip_cps_args COMPONENT "${CPS_COMPONENT}")
+    else()
+      list(APPEND _tip_cps_args ${CONFIG_COMPONENT_ARGS})
+    endif()
+    if(CPS_EXCLUDE_FROM_ALL)
+      list(APPEND _tip_cps_args EXCLUDE_FROM_ALL)
+    endif()
+
+    install(${_tip_cps_args})
+    project_log(STATUS "CPS package '${CPS_PACKAGE_NAME}' is ready for export '${ARG_EXPORT_NAME}'")
+  endif()
+
+  # Create package version file using CMake's canonical ConfigVersion naming. Keep the historical -config-version alias for compatibility with existing installs/tests.
+  set(VERSION_FILENAME "${ARG_EXPORT_NAME}ConfigVersion.cmake")
+  set(VERSION_FILE_PATH "${CURRENT_BINARY_DIR}/${VERSION_FILENAME}")
+  set(LEGACY_VERSION_FILENAME "${ARG_EXPORT_NAME}-config-version.cmake")
+  set(LEGACY_VERSION_FILE_PATH "${CURRENT_BINARY_DIR}/${LEGACY_VERSION_FILENAME}")
+
+  set(_tip_version_file_args "${VERSION_FILE_PATH}" VERSION ${VERSION} COMPATIBILITY ${COMPATIBILITY})
+  if(ARCH_INDEPENDENT)
+    list(APPEND _tip_version_file_args ARCH_INDEPENDENT)
+  endif()
+  write_basic_package_version_file(${_tip_version_file_args})
+
+  if(NOT VERSION_FILENAME STREQUAL LEGACY_VERSION_FILENAME)
+    configure_file("${VERSION_FILE_PATH}" "${LEGACY_VERSION_FILE_PATH}" COPYONLY)
+  endif()
 
   # Prepare public dependencies content
   set(PACKAGE_PUBLIC_DEPENDENCIES_CONTENT "")
+  set(_tip_package_public_content_required FALSE)
+  if(_tip_export_has_source_sets)
+    set(_tip_package_public_content_required TRUE)
+    string(APPEND PACKAGE_PUBLIC_DEPENDENCIES_CONTENT
+           "if(CMAKE_VERSION VERSION_LESS \"4.4\")\n  message(FATAL_ERROR \"Package '${ARG_EXPORT_NAME}' contains SOURCES file sets and requires CMake 4.4 or newer.\")\nendif()\n")
+  endif()
   if(PUBLIC_DEPENDENCIES)
+    set(_tip_package_public_content_required TRUE)
     foreach(dep ${PUBLIC_DEPENDENCIES})
       string(APPEND PACKAGE_PUBLIC_DEPENDENCIES_CONTENT "find_dependency(${dep})\n")
     endforeach()
@@ -1207,9 +2365,18 @@ function(finalize_package)
 
   # Prepare component dependencies content for template substitution
   set(PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "")
-  if(COMPONENT_DEPENDENCY_COMPONENTS)
+  set(_tip_find_package_components ${ALL_UNIQUE_COMPONENTS} ${COMPONENT_DEPENDENCY_COMPONENTS})
+  foreach(TARGET_NAME IN LISTS TARGETS)
+    get_property(_tip_target_component_explicit GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_COMPONENT_EXPLICIT")
+    if(_tip_target_component_explicit)
+      get_property(_tip_target_runtime_component GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_RUNTIME_COMPONENT")
+      list(APPEND _tip_find_package_components "${_tip_target_runtime_component}")
+    endif()
+  endforeach()
+  if(_tip_find_package_components)
+    list(REMOVE_DUPLICATES _tip_find_package_components)
     set(_tip_known_find_components "")
-    foreach(component_name ${COMPONENT_DEPENDENCY_COMPONENTS})
+    foreach(component_name ${_tip_find_package_components})
       _tip_component_dependency_property_name(_tip_component_property "${EXPORT_PROPERTY_PREFIX}" "${component_name}")
       get_property(component_deps GLOBAL PROPERTY "${_tip_component_property}")
       list(APPEND _tip_known_find_components "${component_name}")
@@ -1218,7 +2385,16 @@ function(finalize_package)
 
       set(_tip_component_dep_list ${component_deps})
       foreach(component_dep IN LISTS _tip_component_dep_list)
-        string(APPEND PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "  find_dependency(${component_dep})\n")
+        _tip_find_package_expression_package_name(_tip_component_dep_package_name "${component_dep}")
+        _tip_find_package_expression_without_required(_tip_component_dep_optional_expression "${component_dep}")
+        string(APPEND PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "  if(${ARG_EXPORT_NAME}_FIND_REQUIRED_${component_name})\n")
+        string(APPEND PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "    find_dependency(${component_dep})\n")
+        string(APPEND PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "  else()\n")
+        string(APPEND PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "    find_package(${_tip_component_dep_optional_expression} QUIET)\n")
+        string(APPEND PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "    if(NOT ${_tip_component_dep_package_name}_FOUND)\n")
+        string(APPEND PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "      set(${ARG_EXPORT_NAME}_${component_name}_FOUND FALSE)\n")
+        string(APPEND PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "    endif()\n")
+        string(APPEND PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "  endif()\n")
       endforeach()
 
       string(APPEND PACKAGE_COMPONENT_DEPENDENCIES_CONTENT "endif()\n")
@@ -1250,14 +2426,10 @@ function(finalize_package)
     endif()
   endif()
 
-  # Fallback to generic template in script's cmake dir
+  # Fallback to the packaged generic template.
   if(NOT CONFIG_TEMPLATE_TO_USE)
-    if(EXISTS "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/generic-config.cmake.in")
-      set(CONFIG_TEMPLATE_TO_USE "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/generic-config.cmake.in")
-      project_log(DEBUG "  Using generic config template from script's relative cmake/ dir: ${CONFIG_TEMPLATE_TO_USE}")
-    else()
-      project_log(FATAL_ERROR "No config template found. Generic template expected at ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/generic-config.cmake.in but not found.")
-    endif()
+    _tip_find_target_install_package_resource_file("generic-config.cmake.in" CONFIG_TEMPLATE_TO_USE)
+    project_log(DEBUG "  Using generic config template: ${CONFIG_TEMPLATE_TO_USE}")
   endif()
 
   # Prepare CMake files to include on find_package
@@ -1278,22 +2450,19 @@ function(finalize_package)
 
       get_filename_component(file_name "${cmake_file}" NAME)
 
-      install(
-        FILES "${SRC_CMAKE_FILE}"
-        DESTINATION "${CMAKE_CONFIG_DESTINATION}"
-        ${CONFIG_COMPONENT_ARGS})
+      foreach(_tip_config_component IN LISTS CONFIG_COMPONENTS)
+        install(
+          FILES "${SRC_CMAKE_FILE}"
+          DESTINATION "${CMAKE_CONFIG_DESTINATION}"
+          COMPONENT "${_tip_config_component}")
+      endforeach()
 
       string(APPEND PACKAGE_INCLUDE_ON_FIND_PACKAGE "include(\"\${CMAKE_CURRENT_LIST_DIR}/${file_name}\")\n")
     endforeach()
   endif()
 
   # Validate template contains required placeholders for provided parameters
-  _validate_config_template_placeholders(
-    "${CONFIG_TEMPLATE_TO_USE}"
-    "${ARG_EXPORT_NAME}"
-    "${INCLUDE_ON_FIND_PACKAGE}"
-    "${PUBLIC_DEPENDENCIES}"
-    "${COMPONENT_DEPENDENCY_COMPONENTS}")
+  _validate_config_template_placeholders("${CONFIG_TEMPLATE_TO_USE}" "${ARG_EXPORT_NAME}" "${INCLUDE_ON_FIND_PACKAGE}" "${_tip_package_public_content_required}" "${_tip_find_package_components}")
 
   # Generate correct config filename following CMake conventions Use <PackageName>Config.cmake format (exact case + "Config.cmake")
   set(CONFIG_FILENAME "${ARG_EXPORT_NAME}Config.cmake")
@@ -1305,10 +2474,12 @@ function(finalize_package)
     PATH_VARS CMAKE_INSTALL_PREFIX)
 
   # Install config files using correct filename with config component
-  install(
-    FILES "${CURRENT_BINARY_DIR}/${CONFIG_FILENAME}" "${CURRENT_BINARY_DIR}/${ARG_EXPORT_NAME}-config-version.cmake"
-    DESTINATION ${CMAKE_CONFIG_DESTINATION}
-    ${CONFIG_COMPONENT_ARGS})
+  foreach(_tip_config_component IN LISTS CONFIG_COMPONENTS)
+    install(
+      FILES "${CURRENT_BINARY_DIR}/${CONFIG_FILENAME}" "${VERSION_FILE_PATH}" "${LEGACY_VERSION_FILE_PATH}"
+      DESTINATION ${CMAKE_CONFIG_DESTINATION}
+      COMPONENT "${_tip_config_component}")
+  endforeach()
 
   # Log package status with component information
   if(ALL_UNIQUE_COMPONENTS)
@@ -1455,6 +2626,7 @@ function(_validate_config_template_placeholders template_path export_name includ
 
     string(APPEND error_msg "\n\nTo fix this, add the missing placeholders to your template file.")
     string(APPEND error_msg "\nRefer to the generic template for guidance:")
+    string(APPEND error_msg "\n  ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/generic-config.cmake.in")
     string(APPEND error_msg "\n  ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/generic-config.cmake.in")
 
     project_log(FATAL_ERROR "${error_msg}")
