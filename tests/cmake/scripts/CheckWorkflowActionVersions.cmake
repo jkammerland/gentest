@@ -7,7 +7,8 @@ set(_workflow_files
   "${SOURCE_DIR}/.github/workflows/coverage.yml"
   "${SOURCE_DIR}/.github/workflows/lint.yml"
   "${SOURCE_DIR}/.github/workflows/buildsystems_linux.yml"
-  "${SOURCE_DIR}/.github/workflows/cross_qemu.yml")
+  "${SOURCE_DIR}/.github/workflows/cross_qemu.yml"
+  "${SOURCE_DIR}/.github/workflows/release.yml")
 
 foreach(_workflow_file IN LISTS _workflow_files)
   if(NOT EXISTS "${_workflow_file}")
@@ -32,6 +33,21 @@ foreach(_workflow_file IN LISTS _workflow_files)
   if(NOT _cache_v4_pos EQUAL -1)
     message(FATAL_ERROR
       "Workflow ${_workflow_file} must not use actions/cache@v4 because it runs on deprecated Node.js 20.")
+  endif()
+endforeach()
+
+file(READ "${SOURCE_DIR}/.github/workflows/release.yml" _release_workflow)
+foreach(_release_contract IN ITEMS
+    "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+    "git ls-remote origin"
+    "remote_tag_object"
+    "RELEASE_TAG_OBJECT"
+    "remote_commit"
+    "RELEASE_COMMIT")
+  string(FIND "${_release_workflow}" "${_release_contract}" _release_contract_index)
+  if(_release_contract_index EQUAL -1)
+    message(FATAL_ERROR "release workflow is missing hardening contract: ${_release_contract}")
   endif()
 endforeach()
 

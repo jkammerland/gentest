@@ -29,6 +29,9 @@ if(NOT COMMAND find_dependency)
 endif()
 
 # Component-dependent dependencies
+if("Development" IN_LIST target_install_package_FIND_COMPONENTS)
+  set(target_install_package_Development_FOUND TRUE)
+endif()
 
 
 # Package global dependencies (always loaded regardless of components)

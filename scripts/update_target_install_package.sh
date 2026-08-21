@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-tag="${1:-v6.1.7}"
+tag="${1:-v7.1.0}"
 repo_url="https://github.com/jkammerland/target_install_package.cmake.git"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

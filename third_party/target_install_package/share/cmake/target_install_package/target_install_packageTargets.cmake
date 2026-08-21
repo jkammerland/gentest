@@ -7,7 +7,7 @@ if(CMAKE_VERSION VERSION_LESS "3.0.0")
    message(FATAL_ERROR "CMake >= 3.0.0 required")
 endif()
 cmake_policy(PUSH)
-cmake_policy(VERSION 3.0.0...3.29)
+cmake_policy(VERSION 3.0.0...4.1)
 #----------------------------------------------------------------
 # Generated CMake target import file.
 #----------------------------------------------------------------
@@ -57,6 +57,10 @@ endif()
 
 # Create imported target target_install_package::target_install_package
 add_library(target_install_package::target_install_package INTERFACE IMPORTED)
+
+set_target_properties(target_install_package::target_install_package PROPERTIES
+  SPDX_LICENSE "MIT"
+)
 
 # Load information for each installed configuration.
 file(GLOB _cmake_config_files "${CMAKE_CURRENT_LIST_DIR}/target_install_packageTargets-*.cmake")

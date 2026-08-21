@@ -1,0 +1,227 @@
+# Generated GPG package signing script This script is executed by CPack after package generation
+
+cmake_minimum_required(VERSION 3.25)
+
+# Signing configuration (substituted by CMake configure_file)
+set(GPG_EXECUTABLE "@GPG_EXECUTABLE@")
+set(RPMSIGN_EXECUTABLE "@RPMSIGN_EXECUTABLE@")
+set(SIGNING_KEY "@ARG_SIGNING_KEY@")
+set(PASSPHRASE_FILE "@ARG_PASSPHRASE_FILE@")
+set(SIGNING_METHOD "@ARG_SIGNING_METHOD@")
+set(KEYSERVER "@ARG_KEYSERVER@")
+set(CHECKSUMS "@ARG_CHECKSUMS@")
+set(PACKAGE_NAME "@ARG_PACKAGE_NAME@")
+set(PACKAGE_VERSION "@ARG_PACKAGE_VERSION@")
+set(PACKAGE_CONTACT "@ARG_PACKAGE_CONTACT@")
+
+# CPack provides these variables during post-build script execution CPACK_PACKAGE_DIRECTORY - where packages are generated CPACK_PACKAGE_FILES - list of generated package files
+
+if(SIGNING_METHOD STREQUAL "none")
+  message(STATUS "[GPG Signing] Starting package checksum process...")
+else()
+  message(STATUS "[GPG Signing] Starting package signing process...")
+endif()
+message(STATUS "[GPG Signing] Package directory: ${CPACK_PACKAGE_DIRECTORY}")
+
+# Find all generated package files if CPACK_PACKAGE_FILES not available
+if(NOT CPACK_PACKAGE_FILES)
+  file(
+    GLOB
+    PACKAGE_FILES
+    "${CPACK_PACKAGE_DIRECTORY}/*.tar.gz"
+    "${CPACK_PACKAGE_DIRECTORY}/*.tar.xz"
+    "${CPACK_PACKAGE_DIRECTORY}/*.tgz"
+    "${CPACK_PACKAGE_DIRECTORY}/*.zip"
+    "${CPACK_PACKAGE_DIRECTORY}/*.deb"
+    "${CPACK_PACKAGE_DIRECTORY}/*.rpm"
+    "${CPACK_PACKAGE_DIRECTORY}/*.msi"
+    "${CPACK_PACKAGE_DIRECTORY}/*.dmg"
+    "${CPACK_PACKAGE_DIRECTORY}/*.pkg")
+else()
+  set(PACKAGE_FILES ${CPACK_PACKAGE_FILES})
+endif()
+
+if(NOT PACKAGE_FILES)
+  if(SIGNING_METHOD STREQUAL "none")
+    message(WARNING "[GPG Signing] No package files found to process")
+  else()
+    message(WARNING "[GPG Signing] No package files found to sign")
+  endif()
+  return()
+endif()
+
+list(LENGTH PACKAGE_FILES package_count)
+if(SIGNING_METHOD STREQUAL "none")
+  message(STATUS "[GPG Signing] Found ${package_count} package(s) to process")
+else()
+  message(STATUS "[GPG Signing] Found ${package_count} package(s) to sign")
+endif()
+
+set(embedded_signature_count 0)
+
+# Sign each package file
+foreach(package_file ${PACKAGE_FILES})
+  get_filename_component(package_name ${package_file} NAME)
+  set(target_signature "${CPACK_PACKAGE_DIRECTORY}/${package_name}.sig")
+
+  if(SIGNING_METHOD STREQUAL "none")
+    message(STATUS "[GPG Signing] Processing ${package_name}...")
+  else()
+    message(STATUS "[GPG Signing] Signing ${package_name}...")
+  endif()
+
+  if(NOT SIGNING_METHOD STREQUAL "detached" AND NOT SIGNING_METHOD STREQUAL "both")
+    set(stale_signature_files "${package_file}.sig" "${target_signature}")
+    list(REMOVE_DUPLICATES stale_signature_files)
+    foreach(stale_signature_file IN LISTS stale_signature_files)
+      if(EXISTS "${stale_signature_file}")
+        file(REMOVE "${stale_signature_file}")
+        message(STATUS "[GPG Signing] Removed stale detached signature: ${stale_signature_file}")
+      endif()
+    endforeach()
+  endif()
+
+  set(_tip_supported_checksum_algorithms
+      MD5
+      SHA1
+      SHA224
+      SHA256
+      SHA384
+      SHA512
+      SHA3_224
+      SHA3_256
+      SHA3_384
+      SHA3_512)
+  set(stale_checksum_files "")
+  foreach(checksum_algorithm IN LISTS _tip_supported_checksum_algorithms)
+    if(NOT checksum_algorithm IN_LIST CHECKSUMS)
+      string(TOLOWER "${checksum_algorithm}" checksum_extension)
+      list(APPEND stale_checksum_files "${package_file}.${checksum_extension}" "${CPACK_PACKAGE_DIRECTORY}/${package_name}.${checksum_extension}")
+    endif()
+  endforeach()
+  if(stale_checksum_files)
+    list(REMOVE_DUPLICATES stale_checksum_files)
+    foreach(stale_checksum_file IN LISTS stale_checksum_files)
+      if(EXISTS "${stale_checksum_file}")
+        file(REMOVE "${stale_checksum_file}")
+        message(STATUS "[GPG Signing] Removed stale checksum: ${stale_checksum_file}")
+      endif()
+    endforeach()
+  endif()
+
+  if(SIGNING_METHOD STREQUAL "embedded")
+    if(NOT package_file MATCHES "\\.rpm$")
+      message(FATAL_ERROR "[GPG Signing] SIGNING_METHOD 'embedded' only supports RPM packages, got ${package_name}")
+    endif()
+  endif()
+
+  if(SIGNING_METHOD STREQUAL "embedded" OR SIGNING_METHOD STREQUAL "both")
+    if(package_file MATCHES "\\.rpm$")
+      if(NOT RPMSIGN_EXECUTABLE)
+        message(FATAL_ERROR "[GPG Signing] rpmsign executable is required for embedded RPM signing")
+      endif()
+
+      execute_process(
+        COMMAND ${RPMSIGN_EXECUTABLE} --define "_gpg_name ${SIGNING_KEY}" --addsign "${package_file}"
+        RESULT_VARIABLE embedded_sign_result
+        OUTPUT_VARIABLE embedded_sign_output
+        ERROR_VARIABLE embedded_sign_error)
+
+      if(NOT embedded_sign_result EQUAL 0)
+        message(FATAL_ERROR "[GPG Signing] Failed to embed RPM signature in ${package_name}: ${embedded_sign_error}")
+      endif()
+
+      math(EXPR embedded_signature_count "${embedded_signature_count} + 1")
+      message(STATUS "[GPG Signing] Embedded RPM signature: ${package_name}")
+    endif()
+  endif()
+
+  # Create detached signature
+  if(SIGNING_METHOD STREQUAL "detached" OR SIGNING_METHOD STREQUAL "both")
+    set(signature_file "${package_file}.sig")
+
+    # Prepare GPG command
+    set(gpg_cmd ${GPG_EXECUTABLE} --batch --yes --detach-sign --armor)
+
+    # Add passphrase handling if file provided, or use pinentry-mode for passwordless keys
+    if(PASSPHRASE_FILE AND EXISTS "${PASSPHRASE_FILE}")
+      list(APPEND gpg_cmd --pinentry-mode loopback --passphrase-file "${PASSPHRASE_FILE}")
+    else()
+      # For passwordless keys or keys with empty passphrase, use pinentry-mode loopback
+      list(APPEND gpg_cmd --pinentry-mode loopback "--passphrase=")
+    endif()
+
+    # Add signing key and output file
+    list(
+      APPEND
+      gpg_cmd
+      --default-key
+      "${SIGNING_KEY}"
+      --output
+      "${signature_file}"
+      "${package_file}")
+
+    # Execute signing
+    execute_process(
+      COMMAND ${gpg_cmd}
+      RESULT_VARIABLE sign_result
+      OUTPUT_VARIABLE sign_output
+      ERROR_VARIABLE sign_error)
+
+    if(NOT sign_result EQUAL 0)
+      message(FATAL_ERROR "[GPG Signing] Failed to sign ${package_name}: ${sign_error}")
+    endif()
+
+    message(STATUS "[GPG Signing] Created signature: ${package_name}.sig")
+  endif()
+
+  # Generate checksums if requested
+  if(CHECKSUMS)
+    get_filename_component(package_basename "${package_file}" NAME)
+    foreach(checksum_algorithm IN LISTS CHECKSUMS)
+      string(TOLOWER "${checksum_algorithm}" checksum_extension)
+      file(${checksum_algorithm} "${package_file}" checksum_hash)
+      file(WRITE "${package_file}.${checksum_extension}" "${checksum_hash}  ${package_basename}\n")
+      message(STATUS "[GPG Signing] Created ${checksum_algorithm}: ${package_name}.${checksum_extension} (${checksum_hash})")
+    endforeach()
+  endif()
+endforeach()
+
+if(SIGNING_METHOD STREQUAL "embedded" AND embedded_signature_count EQUAL 0)
+  message(FATAL_ERROR "[GPG Signing] No RPM packages found for SIGNING_METHOD 'embedded'.")
+elseif(SIGNING_METHOD STREQUAL "both" AND embedded_signature_count EQUAL 0)
+  message(STATUS "[GPG Signing] No RPM packages found in this CPack generator pass; embedded RPM signing skipped.")
+endif()
+
+# Copy signatures and checksums to be alongside the packages. Packages are in
+# CPACK_PACKAGE_DIRECTORY, but post-build paths may be in subdirectories.
+message(STATUS "[GPG Signing] Ensuring generated verification files are in package directory...")
+
+foreach(package_file ${PACKAGE_FILES})
+  get_filename_component(package_name ${package_file} NAME)
+
+  # Target location is the same directory as the package (CPACK_PACKAGE_DIRECTORY)
+  set(target_signature "${CPACK_PACKAGE_DIRECTORY}/${package_name}.sig")
+
+  # Always copy to ensure fresh signatures on rebuilds
+  if(EXISTS "${package_file}.sig")
+    file(COPY_FILE "${package_file}.sig" "${target_signature}")
+    message(STATUS "[GPG Signing] Copied ${package_name}.sig to package directory")
+  endif()
+
+  foreach(checksum_algorithm IN LISTS CHECKSUMS)
+    string(TOLOWER "${checksum_algorithm}" checksum_extension)
+    set(checksum_file "${package_file}.${checksum_extension}")
+    set(target_checksum "${CPACK_PACKAGE_DIRECTORY}/${package_name}.${checksum_extension}")
+    if(EXISTS "${checksum_file}")
+      file(COPY_FILE "${checksum_file}" "${target_checksum}")
+      message(STATUS "[GPG Signing] Copied ${package_name}.${checksum_extension} to package directory")
+    endif()
+  endforeach()
+endforeach()
+
+if(SIGNING_METHOD STREQUAL "none")
+  message(STATUS "[GPG Signing] Package checksum generation completed successfully!")
+else()
+  message(STATUS "[GPG Signing] Package signing completed successfully!")
+endif()
