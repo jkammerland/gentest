@@ -167,7 +167,8 @@ foreach(_workflow_name IN ITEMS cmake release)
   foreach(_packaging_tool_contract IN ITEMS
       "cmake==4.3.4"
       "name: Restore pinned packaging CMake"
-      "packaging_scripts"
+      "packaging_cmake_bin"
+      "cmake.CMAKE_BIN_DIR"
       "cmake version 4.3.4")
     string(FIND "${_workflow_content}" "${_packaging_tool_contract}" _contract_index)
     if(_contract_index EQUAL -1)

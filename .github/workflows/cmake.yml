@@ -1078,10 +1078,10 @@ jobs:
       - name: Restore pinned packaging CMake
         run: |
           set -euxo pipefail
-          packaging_scripts="$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"
-          test -x "${packaging_scripts}/cmake"
-          "${packaging_scripts}/cmake" --version | grep -F 'cmake version 4.3.4'
-          echo "${packaging_scripts}" >> "$GITHUB_PATH"
+          packaging_cmake_bin="$(python3 -c 'import cmake; print(cmake.CMAKE_BIN_DIR)')"
+          test -x "${packaging_cmake_bin}/cmake"
+          "${packaging_cmake_bin}/cmake" --version | grep -F 'cmake version 4.3.4'
+          echo "${packaging_cmake_bin}" >> "$GITHUB_PATH"
 
       - name: Show tool versions
         run: |
