@@ -209,9 +209,8 @@ if ! "${assume_yes}"; then
 fi
 
 if [[ -n "${passphrase}" ]]; then
-  private_key="$({ printf '%s\n' "${passphrase}"; } |
-    gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
-      --armor --export-secret-keys "${fingerprint}")"
+  private_key="$(gpg --batch --yes --pinentry-mode loopback --passphrase-fd 3 \
+    --armor --export-secret-keys "${fingerprint}" 3<<<"${passphrase}")"
 else
   private_key="$(gpg --batch --armor --export-secret-keys "${fingerprint}")"
 fi

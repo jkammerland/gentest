@@ -68,6 +68,10 @@ class ReleaseEnvironmentSetupTests(unittest.TestCase):
                 if [[ " $* " == *" --list-secret-keys "* ]]; then
                   printf 'sec:-:255:22:DEADBEEF:0:0:::::::\nfpr:::::::::%s:\n' "$MOCK_FINGERPRINT"
                 elif [[ " $* " == *" --export-secret-keys "* ]]; then
+                  if [[ " $* " == *" --passphrase-fd 3 "* ]]; then
+                    IFS= read -r supplied_passphrase <&3
+                    [[ "$supplied_passphrase" == "$MOCK_PASSPHRASE" ]] || exit 92
+                  fi
                   if [[ "${MOCK_EMPTY_EXPORT:-false}" != "true" ]]; then
                     printf '%s\n' \
                       '-----BEGIN PGP PRIVATE KEY BLOCK-----' \
@@ -90,6 +94,7 @@ class ReleaseEnvironmentSetupTests(unittest.TestCase):
                 "PATH": f"{bin_dir}:{env['PATH']}",
                 "MOCK_LOG": str(log),
                 "MOCK_FINGERPRINT": FINGERPRINT,
+                "MOCK_PASSPHRASE": "correct horse battery staple",
             }
         )
         return env
