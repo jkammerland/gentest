@@ -160,3 +160,19 @@ foreach(_activation IN ITEMS
       "Configure preset '${_package_configure_preset}' must pin the non-boolean CMake 4.3 activation value for ${_activation}")
   endif()
 endforeach()
+
+foreach(_workflow_name IN ITEMS cmake release)
+  set(_workflow_file "${SOURCE_DIR}/.github/workflows/${_workflow_name}.yml")
+  file(READ "${_workflow_file}" _workflow_content)
+  foreach(_packaging_tool_contract IN ITEMS
+      "cmake==4.3.4"
+      "name: Restore pinned packaging CMake"
+      "packaging_scripts"
+      "cmake version 4.3.4")
+    string(FIND "${_workflow_content}" "${_packaging_tool_contract}" _contract_index)
+    if(_contract_index EQUAL -1)
+      message(FATAL_ERROR
+        "Workflow ${_workflow_file} is missing packaging tool contract: ${_packaging_tool_contract}")
+    endif()
+  endforeach()
+endforeach()

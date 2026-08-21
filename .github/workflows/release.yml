@@ -51,7 +51,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             clang-20 clang-tools-20 libclang-20-dev libclang-cpp20-dev llvm-20-dev
-          python3 -m pip install --break-system-packages cmake==4.3.1 ninja
+          python3 -m pip install --break-system-packages cmake==4.3.4 ninja
           python3 - <<'PY' >> "$GITHUB_PATH"
           import sysconfig
           print(sysconfig.get_path("scripts"))
@@ -96,6 +96,14 @@ jobs:
 
       - name: Setup vcpkg
         run: bash scripts/setup-vcpkg.sh
+
+      - name: Restore pinned packaging CMake
+        run: |
+          set -euxo pipefail
+          packaging_scripts="$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"
+          test -x "${packaging_scripts}/cmake"
+          "${packaging_scripts}/cmake" --version | grep -F 'cmake version 4.3.4'
+          echo "${packaging_scripts}" >> "$GITHUB_PATH"
 
       - name: Build, test, package, and verify signatures
         env:

@@ -1061,7 +1061,7 @@ jobs:
             llvm-20-dev
           # The release-package preset pins CMake 4.3 experimental CPS/SBOM
           # activation UUIDs, so keep this lane on the matching CMake release.
-          python3 -m pip install --break-system-packages cmake==4.3.1 ninja
+          python3 -m pip install --break-system-packages cmake==4.3.4 ninja
           python3 - <<'PY' >> "$GITHUB_PATH"
           import sysconfig
           print(sysconfig.get_path("scripts"))
@@ -1074,6 +1074,14 @@ jobs:
 
       - name: Setup vcpkg
         run: bash scripts/setup-vcpkg.sh
+
+      - name: Restore pinned packaging CMake
+        run: |
+          set -euxo pipefail
+          packaging_scripts="$(python3 -c 'import sysconfig; print(sysconfig.get_path("scripts"))')"
+          test -x "${packaging_scripts}/cmake"
+          "${packaging_scripts}/cmake" --version | grep -F 'cmake version 4.3.4'
+          echo "${packaging_scripts}" >> "$GITHUB_PATH"
 
       - name: Show tool versions
         run: |
