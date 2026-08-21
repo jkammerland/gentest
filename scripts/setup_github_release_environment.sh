@@ -68,12 +68,16 @@ resolve_fingerprint() {
   local -a fingerprints=()
 
   if [[ -n "${selector}" ]]; then
-    mapfile -t fingerprints < <(
+    while IFS= read -r fingerprint; do
+      fingerprints+=("${fingerprint}")
+    done < <(
       gpg --batch --with-colons --list-secret-keys "${selector}" 2>/dev/null |
         awk -F: '$1 == "sec" { want_fpr = 1; next } want_fpr && $1 == "fpr" { print toupper($10); exit }'
     )
   else
-    mapfile -t fingerprints < <(
+    while IFS= read -r fingerprint; do
+      fingerprints+=("${fingerprint}")
+    done < <(
       gpg --batch --with-colons --list-secret-keys 2>/dev/null |
         awk -F: '$1 == "sec" { want_fpr = 1; next } want_fpr && $1 == "fpr" { print toupper($10); want_fpr = 0 }'
     )

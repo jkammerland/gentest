@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -12,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "setup_github_release_environment.sh"
+BASH = shutil.which("bash")
 FINGERPRINT = "0123456789ABCDEF0123456789ABCDEF01234567"
 
 
@@ -67,6 +69,9 @@ class ReleaseEnvironmentSetupTests(unittest.TestCase):
                 set -euo pipefail
                 if [[ " $* " == *" --list-secret-keys "* ]]; then
                   printf 'sec:-:255:22:DEADBEEF:0:0:::::::\nfpr:::::::::%s:\n' "$MOCK_FINGERPRINT"
+                  if [[ -n "${MOCK_SECOND_FINGERPRINT:-}" ]]; then
+                    printf 'sec:-:255:22:DEADBEEF:0:0:::::::\nfpr:::::::::%s:\n' "$MOCK_SECOND_FINGERPRINT"
+                  fi
                 elif [[ " $* " == *" --export-secret-keys "* ]]; then
                   if [[ " $* " == *" --passphrase-fd 3 "* ]]; then
                     IFS= read -r supplied_passphrase <&3
@@ -100,8 +105,10 @@ class ReleaseEnvironmentSetupTests(unittest.TestCase):
         return env
 
     def run_script(self, env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+        if BASH is None:
+            self.fail("bash is required to exercise the release environment setup script")
         return subprocess.run(
-            [str(SCRIPT), *args],
+            [BASH, str(SCRIPT), *args],
             env=env,
             check=False,
             capture_output=True,
@@ -125,6 +132,21 @@ class ReleaseEnvironmentSetupTests(unittest.TestCase):
             self.assertIn("jkammerland/gentest", result.stdout)
             self.assertIn("jkammerland/cbor_tags", result.stdout)
             self.assertIn("Dry run", result.stdout)
+            self.assertFalse((root / "calls.log").exists())
+
+    def test_requires_key_selector_when_multiple_secret_keys_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = self.make_environment(root)
+            env["MOCK_SECOND_FINGERPRINT"] = "89ABCDEF0123456789ABCDEF0123456789ABCDEF"
+            result = self.run_script(
+                env,
+                "--no-passphrase",
+                "--dry-run",
+                "jkammerland/gentest",
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("found 2 GPG secret keys", result.stderr)
             self.assertFalse((root / "calls.log").exists())
 
     def test_rejects_non_github_repository_url(self) -> None:

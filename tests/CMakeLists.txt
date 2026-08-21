@@ -53,7 +53,7 @@ set_property(TEST package_metadata_validator_contract APPEND PROPERTY LABELS "pa
 add_test(
     NAME github_release_environment_setup_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_setup_github_release_environment.py)
-set_property(TEST github_release_environment_setup_contract APPEND PROPERTY LABELS "package;scripts;github")
+set_property(TEST github_release_environment_setup_contract APPEND PROPERTY LABELS "package;scripts;github;ci-compat")
 
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
