@@ -117,7 +117,7 @@ jobs:
           path: ${{ runner.temp }}/gentest-release/*
           if-no-files-found: error
 
-      - name: Publish tag release without replacement
+      - name: Stage and publish tag release without replacement
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
@@ -136,7 +136,9 @@ jobs:
             exit 1
           fi
           gh release create "${RELEASE_TAG}" "${RUNNER_TEMP}/gentest-release/"* \
+            --draft \
             --verify-tag \
             --target "${RELEASE_COMMIT}" \
             --title "Gentest ${RELEASE_TAG}" \
             --generate-notes
+          gh release edit "${RELEASE_TAG}" --draft=false
