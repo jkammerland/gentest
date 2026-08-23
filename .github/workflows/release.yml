@@ -80,6 +80,19 @@ jobs:
           echo "GPG_SIGNING_KEY=${actual_fingerprint}" >> "$GITHUB_ENV"
           echo "GPG_PASSPHRASE_FILE=${passphrase_file}" >> "$GITHUB_ENV"
 
+      - name: Verify release signing operation
+        run: |
+          set -euxo pipefail
+          signing_probe="${RUNNER_TEMP}/gentest-release-signing-probe"
+          printf '%s\n' "gentest release signing probe" > "${signing_probe}"
+          gpg --batch --yes --armor --detach-sign \
+            --local-user "${GPG_SIGNING_KEY}" \
+            --pinentry-mode loopback \
+            --passphrase-file "${GPG_PASSPHRASE_FILE}" \
+            --output "${signing_probe}.asc" \
+            "${signing_probe}"
+          gpg --batch --verify "${signing_probe}.asc" "${signing_probe}"
+
       - name: Verify tag identity and signature
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -114,7 +127,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gentest-${{ inputs.tag }}-signed-release
-          path: ${{ runner.temp }}/gentest-release/*
+          path: ${{ runner.temp }}/gentest-release/*.*
           if-no-files-found: error
 
       - name: Stage and publish tag release without replacement
@@ -123,6 +136,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euxo pipefail
+          artifact_dir="${RUNNER_TEMP}/gentest-release"
           remote_refs="$(git ls-remote origin \
             "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}")"
           remote_tag_object="$(awk -v ref="refs/tags/${RELEASE_TAG}" \
@@ -131,14 +145,34 @@ jobs:
             '$2 == ref { print $1; exit }' <<< "${remote_refs}")"
           test "${remote_tag_object}" = "${RELEASE_TAG_OBJECT}"
           test "${remote_commit}" = "${RELEASE_COMMIT}"
+          mapfile -d '' -t release_assets \
+            < <(find "${artifact_dir}" -maxdepth 1 -type f -print0 | sort -z)
+          test "${#release_assets[@]}" -gt 0
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "Release ${RELEASE_TAG} already exists; refusing to replace it" >&2
-            exit 1
+            release_id="$(gh api \
+              "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq .id)"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .draft)" = true
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .tag_name)" = "${RELEASE_TAG}"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .target_commitish)" = "${RELEASE_COMMIT}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --draft \
+              --verify-tag \
+              --target "${RELEASE_COMMIT}" \
+              --title "Gentest ${RELEASE_TAG}" \
+              --generate-notes
+            release_id="$(gh api \
+              "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq .id)"
           fi
-          gh release create "${RELEASE_TAG}" "${RUNNER_TEMP}/gentest-release/"* \
-            --draft \
-            --verify-tag \
-            --target "${RELEASE_COMMIT}" \
-            --title "Gentest ${RELEASE_TAG}" \
-            --generate-notes
+          gh release upload "${RELEASE_TAG}" "${release_assets[@]}" --clobber
+          local_names="$(printf '%s\n' "${release_assets[@]##*/}" | sort)"
+          remote_names="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            --jq '.assets[].name' | sort)"
+          test "${local_names}" = "${remote_names}"
+          while IFS=$'\t' read -r asset_name remote_digest; do
+            local_digest="sha256:$(sha256sum "${artifact_dir}/${asset_name}" | awk '{print $1}')"
+            test "${local_digest}" = "${remote_digest}"
+          done < <(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            --jq '.assets[] | [.name,.digest] | @tsv')
           gh release edit "${RELEASE_TAG}" --draft=false
+          test "$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft)" = false
