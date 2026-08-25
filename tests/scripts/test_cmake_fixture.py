@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from cmake_fixture import ConfigureOptions, build_configure_argv, check_configure_failure
 
@@ -125,13 +126,12 @@ class CMakeFixtureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             options = self.make_options(root)
-            target = root / "outside"
-            target.mkdir()
-            options.build_root.mkdir()
-            options.work_dir.symlink_to(target, target_is_directory=True)
 
-            with self.assertRaisesRegex(ValueError, "symlinked fixture work directory"):
-                check_configure_failure(options, "unused")
+            # Creating symlinks requires an elevated token on some Windows
+            # hosts. Mock the predicate so this safety contract is portable.
+            with patch.object(Path, "is_symlink", return_value=True):
+                with self.assertRaisesRegex(ValueError, "symlinked fixture work directory"):
+                    check_configure_failure(options, "unused")
 
 
 if __name__ == "__main__":
