@@ -60,6 +60,11 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_release_workflow.py)
 set_property(TEST github_release_workflow_contract APPEND PROPERTY LABELS "package;scripts;github;ci-compat")
 
+add_test(
+    NAME analyzer_assertions_contract
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_analyzer_assertions.py)
+set_property(TEST analyzer_assertions_contract APPEND PROPERTY LABELS "public-api;scripts;ci-compat")
+
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
 target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)

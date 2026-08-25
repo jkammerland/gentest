@@ -199,6 +199,24 @@ inline void add() {
 } // namespace math
 ```
 
+Include-based tests that use flow-sensitive analysis can opt into caller-visible
+fatal assertion macros. Clang-tidy recognizes `ASSERT_TRUE` and `ASSERT_FALSE`
+as guards, which avoids false positives such as an optional access after a
+fatal presence check:
+
+```cpp
+#include "gentest/analyzer_assertions.h"
+
+ASSERT_TRUE(result.has_value());
+use(*result);
+```
+
+The analyzer header intentionally defines macros and therefore cannot be
+exported by `import gentest;`. It also rejects an existing `ASSERT_TRUE` or
+`ASSERT_FALSE` definition instead of silently replacing another framework's
+macros. The ordinary `gentest::require` and `gentest::asserts` APIs remain
+macro-free.
+
 Exceptions:
 - If a test throws a `std::exception`, the runner records a failure like `unexpected std::exception: ...` and continues.
 - Include-based consumers can use the gtest-like macros.
