@@ -65,6 +65,11 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_cmake_fixture.py)
 set_property(TEST cmake_fixture_harness_contract APPEND PROPERTY LABELS "cmake;scripts;ci-compat")
 
+add_test(
+    NAME ci_package_lane_contract
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_ci_package_lanes.py)
+set_property(TEST ci_package_lane_contract APPEND PROPERTY LABELS "cmake;scripts;ci-compat")
+
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
 target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)
@@ -4638,12 +4643,14 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPackageWorkflowPreset.cmake
     cmake)
+set_property(TEST gentest_package_workflow_preset APPEND PROPERTY LABELS "package")
 
 _gentest_add_cmake_helper_test(
     gentest_vcpkg_manifest_metadata
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckVcpkgManifestMetadata.cmake
     cmake)
+set_property(TEST gentest_vcpkg_manifest_metadata APPEND PROPERTY LABELS "package")
 
 _gentest_add_cmake_helper_test(
     gentest_package_consumer_workdir_isolation
