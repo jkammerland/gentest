@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -12,11 +13,37 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CLANG_TIDY = shutil.which("clang-tidy")
 CHECK = "bugprone-unchecked-optional-access"
+EXTRA_INCLUDE_DIRS = tuple(
+    Path(entry) for entry in os.environ.get("GENTEST_ANALYZER_INCLUDE_DIRS", "").split("|") if entry
+)
+# Model the API shape recognized by clang-tidy without depending on the target
+# platform's standard-library implementation of std::optional.
+OPTIONAL_STUB = """
+namespace std {
+template <class T> class optional {
+  public:
+    bool has_value() const;
+    T &operator*();
+};
+}
+"""
+CONTROL_SOURCE = OPTIONAL_STUB + """
+int probe(std::optional<int> value) {
+    return *value;
+}
+"""
 
 
 @unittest.skipUnless(CLANG_TIDY, "clang-tidy is not available")
 class AnalyzerAssertionTests(unittest.TestCase):
-    def run_tidy(self, source: str) -> subprocess.CompletedProcess[str]:
+    control_result: subprocess.CompletedProcess[str]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.control_result = cls.run_tidy(CONTROL_SOURCE)
+
+    @staticmethod
+    def run_tidy(source: str) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory(prefix="gentest analyzer assertions ") as temporary:
             probe = Path(temporary) / "optional probe.cpp"
             probe.write_text(source, encoding="utf-8")
@@ -28,6 +55,7 @@ class AnalyzerAssertionTests(unittest.TestCase):
                     "--",
                     "-std=c++20",
                     f"-I{ROOT / 'include'}",
+                    *(f"-I{include_dir}" for include_dir in EXTRA_INCLUDE_DIRS),
                 ],
                 check=False,
                 capture_output=True,
@@ -36,23 +64,20 @@ class AnalyzerAssertionTests(unittest.TestCase):
                 errors="replace",
             )
 
+    def require_control_diagnostic(self) -> None:
+        output = self.control_result.stdout + self.control_result.stderr
+        self.assertEqual(self.control_result.returncode, 0, output)
+        self.assertIn(f"[{CHECK}]", output)
+
     def test_control_probe_reports_unchecked_optional_access(self) -> None:
-        result = self.run_tidy(
-            """
-#include <optional>
-int probe(std::optional<int> value) {
-    return *value;
-}
-"""
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn(f"[{CHECK}]", result.stdout + result.stderr)
+        self.require_control_diagnostic()
 
     def test_assert_true_prunes_failed_optional_path(self) -> None:
+        self.require_control_diagnostic()
         result = self.run_tidy(
-            """
+            OPTIONAL_STUB
+            + """
 #include "gentest/analyzer_assertions.h"
-#include <optional>
 int probe(std::optional<int> value) {
     ASSERT_TRUE(value.has_value(), "value is required");
     return *value;
@@ -63,10 +88,11 @@ int probe(std::optional<int> value) {
         self.assertNotIn(f"[{CHECK}]", result.stdout + result.stderr)
 
     def test_assert_false_prunes_failed_optional_path(self) -> None:
+        self.require_control_diagnostic()
         result = self.run_tidy(
-            """
+            OPTIONAL_STUB
+            + """
 #include "gentest/analyzer_assertions.h"
-#include <optional>
 int probe(std::optional<int> value) {
     ASSERT_FALSE(!value.has_value());
     return *value;
