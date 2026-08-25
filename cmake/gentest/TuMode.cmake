@@ -435,9 +435,9 @@ ${_gentest_registration_guard_end}\
         endif()
     endforeach()
 
-    set_source_files_properties(${_gentest_wrapper_cpp} PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION ON)
+    set_source_files_properties(${_gentest_wrapper_cpp} PROPERTIES GENERATED TRUE SKIP_LINTING ON SKIP_UNITY_BUILD_INCLUSION ON)
     if(_gentest_extra_cpp)
-        set_source_files_properties(${_gentest_extra_cpp} PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION ON)
+        set_source_files_properties(${_gentest_extra_cpp} PROPERTIES GENERATED TRUE SKIP_LINTING ON SKIP_UNITY_BUILD_INCLUSION ON)
     endif()
     set_source_files_properties(${_gentest_wrapper_headers} PROPERTIES GENERATED TRUE)
     if(_gentest_module_generated_sources)
@@ -515,7 +515,11 @@ function(_gentest_prepare_header_declaration_mode)
         list(APPEND _gentest_compile_context_ids "${GENTEST_TARGET_ID}:${_gentest_tu}")
     endforeach()
 
-    set_source_files_properties(${_gentest_registration_cpp} PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION ON CXX_SCAN_FOR_MODULES OFF)
+    set_source_files_properties(${_gentest_registration_cpp} PROPERTIES
+        GENERATED TRUE
+        SKIP_LINTING ON
+        SKIP_UNITY_BUILD_INCLUSION ON
+        CXX_SCAN_FOR_MODULES OFF)
     _gentest_copy_source_properties_to_wrappers(
         NO_IMPLICIT_SOURCE_DIR
         TU_SOURCE_ENTRIES ${GENTEST_TU_SOURCE_ENTRIES}
@@ -593,6 +597,7 @@ function(_gentest_prepare_module_registration_mode)
 
     set_source_files_properties(${_gentest_registration_cpp} PROPERTIES
         GENERATED TRUE
+        SKIP_LINTING ON
         SKIP_UNITY_BUILD_INCLUSION ON
         CXX_SCAN_FOR_MODULES ON)
     set_source_files_properties(${_gentest_wrapper_headers} PROPERTIES GENERATED TRUE)
@@ -840,7 +845,7 @@ function(_gentest_attach_module_registration_sources)
     if(GENTEST_REGISTRATION_CPP)
         target_sources(${GENTEST_TARGET} PRIVATE ${GENTEST_REGISTRATION_CPP})
         set_source_files_properties(${GENTEST_REGISTRATION_CPP} TARGET_DIRECTORY ${GENTEST_TARGET}
-            PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION ON CXX_SCAN_FOR_MODULES ON)
+            PROPERTIES GENERATED TRUE SKIP_LINTING ON SKIP_UNITY_BUILD_INCLUSION ON CXX_SCAN_FOR_MODULES ON)
     endif()
 
     add_custom_target(gentest_codegen_${GENTEST_TARGET_ID} DEPENDS ${GENTEST_CODEGEN_OUTPUTS})
@@ -859,7 +864,7 @@ function(_gentest_attach_header_declaration_registration_sources)
     if(GENTEST_REGISTRATION_CPP)
         target_sources(${GENTEST_TARGET} PRIVATE ${GENTEST_REGISTRATION_CPP})
         set_source_files_properties(${GENTEST_REGISTRATION_CPP} TARGET_DIRECTORY ${GENTEST_TARGET}
-            PROPERTIES GENERATED TRUE SKIP_UNITY_BUILD_INCLUSION ON CXX_SCAN_FOR_MODULES OFF)
+            PROPERTIES GENERATED TRUE SKIP_LINTING ON SKIP_UNITY_BUILD_INCLUSION ON CXX_SCAN_FOR_MODULES OFF)
     endif()
 
     add_custom_target(gentest_codegen_${GENTEST_TARGET_ID} DEPENDS ${GENTEST_CODEGEN_OUTPUTS})
