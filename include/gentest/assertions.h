@@ -137,12 +137,8 @@ inline void expect_ge(auto &&lhs, auto &&rhs, std::string_view message = {},
 inline void require(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!condition) {
-        ::gentest::detail::record_failure(::gentest::detail::failure_text("ASSERT_TRUE", loc, message), loc);
-#if GENTEST_EXCEPTIONS_ENABLED
-        throw assertion("ASSERT_TRUE");
-#else
-        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require");
-#endif
+        ::gentest::detail::fatal_assertion("ASSERT_TRUE", ::gentest::detail::failure_text("ASSERT_TRUE", loc, message), loc,
+                                           "gentest::require");
     }
 }
 
@@ -153,12 +149,8 @@ inline void require_false(bool condition, std::string_view message = {},
                           const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
     if (condition) {
-        ::gentest::detail::record_failure(::gentest::detail::failure_text("ASSERT_FALSE", loc, message), loc);
-#if GENTEST_EXCEPTIONS_ENABLED
-        throw assertion("ASSERT_FALSE");
-#else
-        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_false");
-#endif
+        ::gentest::detail::fatal_assertion("ASSERT_FALSE", ::gentest::detail::failure_text("ASSERT_FALSE", loc, message), loc,
+                                           "gentest::require_false");
     }
 }
 
@@ -169,12 +161,8 @@ inline void require_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs == rhs)) {
-        ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_EQ", loc, message, lhs, rhs), loc);
-#if GENTEST_EXCEPTIONS_ENABLED
-        throw assertion("ASSERT_EQ");
-#else
-        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_eq");
-#endif
+        ::gentest::detail::fatal_assertion("ASSERT_EQ", ::gentest::detail::comparison_failure_text("ASSERT_EQ", loc, message, lhs, rhs),
+                                           loc, "gentest::require_eq");
     }
 }
 
@@ -185,12 +173,8 @@ inline void require_ne(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs != rhs)) {
-        ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_NE", loc, message, lhs, rhs), loc);
-#if GENTEST_EXCEPTIONS_ENABLED
-        throw assertion("ASSERT_NE");
-#else
-        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_ne");
-#endif
+        ::gentest::detail::fatal_assertion("ASSERT_NE", ::gentest::detail::comparison_failure_text("ASSERT_NE", loc, message, lhs, rhs),
+                                           loc, "gentest::require_ne");
     }
 }
 
@@ -201,12 +185,8 @@ inline void require_lt(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs < rhs)) {
-        ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_LT", loc, message, lhs, rhs), loc);
-#if GENTEST_EXCEPTIONS_ENABLED
-        throw assertion("ASSERT_LT");
-#else
-        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_lt");
-#endif
+        ::gentest::detail::fatal_assertion("ASSERT_LT", ::gentest::detail::comparison_failure_text("ASSERT_LT", loc, message, lhs, rhs),
+                                           loc, "gentest::require_lt");
     }
 }
 
@@ -217,12 +197,8 @@ inline void require_le(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs <= rhs)) {
-        ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_LE", loc, message, lhs, rhs), loc);
-#if GENTEST_EXCEPTIONS_ENABLED
-        throw assertion("ASSERT_LE");
-#else
-        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_le");
-#endif
+        ::gentest::detail::fatal_assertion("ASSERT_LE", ::gentest::detail::comparison_failure_text("ASSERT_LE", loc, message, lhs, rhs),
+                                           loc, "gentest::require_le");
     }
 }
 
@@ -233,12 +209,8 @@ inline void require_gt(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs > rhs)) {
-        ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_GT", loc, message, lhs, rhs), loc);
-#if GENTEST_EXCEPTIONS_ENABLED
-        throw assertion("ASSERT_GT");
-#else
-        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_gt");
-#endif
+        ::gentest::detail::fatal_assertion("ASSERT_GT", ::gentest::detail::comparison_failure_text("ASSERT_GT", loc, message, lhs, rhs),
+                                           loc, "gentest::require_gt");
     }
 }
 
@@ -249,12 +221,8 @@ inline void require_ge(auto &&lhs, auto &&rhs, std::string_view message = {},
                        const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::require_owner_context("assertion/expectation called");
     if (!(lhs >= rhs)) {
-        ::gentest::detail::record_failure(::gentest::detail::comparison_failure_text("ASSERT_GE", loc, message, lhs, rhs), loc);
-#if GENTEST_EXCEPTIONS_ENABLED
-        throw assertion("ASSERT_GE");
-#else
-        ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_ge");
-#endif
+        ::gentest::detail::fatal_assertion("ASSERT_GE", ::gentest::detail::comparison_failure_text("ASSERT_GE", loc, message, lhs, rhs),
+                                           loc, "gentest::require_ge");
     }
 }
 

@@ -206,6 +206,21 @@ GENTEST_RUNTIME_API void record_failure_at(std::string msg, std::string file, un
     std::terminate();
 }
 
+// A distinct non-returning sink lets static analyzers prune the failed branch
+// of caller-visible assertion macros without incorrectly treating the
+// conditionally returning assertion API itself as [[noreturn]].
+[[noreturn]] inline void fatal_assertion(std::string_view label, std::string diagnostic, const std::source_location &loc,
+                                         std::string_view origin) {
+    ::gentest::detail::record_failure(std::move(diagnostic), loc);
+#if GENTEST_EXCEPTIONS_ENABLED
+    (void)origin;
+    throw ::gentest::assertion(std::string(label));
+#else
+    (void)label;
+    ::gentest::detail::terminate_no_exceptions_fatal(origin);
+#endif
+}
+
 [[noreturn]] GENTEST_RUNTIME_API void skip_shared_fixture_unavailable(std::string_view            reason,
                                                                       const std::source_location &loc = std::source_location::current());
 
