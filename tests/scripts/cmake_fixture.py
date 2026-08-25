@@ -16,7 +16,7 @@ from typing import Sequence
 
 @dataclass(frozen=True)
 class ConfigureOptions:
-    cmake_command: str
+    cmake_command: tuple[str, ...]
     source_dir: Path
     build_root: Path
     generator: str
@@ -40,7 +40,7 @@ class ConfigureOptions:
 
 def build_configure_argv(options: ConfigureOptions) -> list[str]:
     command = [
-        options.cmake_command,
+        *options.cmake_command,
         "-S",
         str(options.source_dir),
         "-B",
@@ -135,7 +135,7 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     options = ConfigureOptions(
-        cmake_command=args.cmake_command,
+        cmake_command=(args.cmake_command,),
         source_dir=args.source_dir,
         build_root=args.build_root,
         generator=args.generator,

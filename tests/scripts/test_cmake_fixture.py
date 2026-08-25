@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import stat
 import sys
 import tempfile
 import unittest
@@ -14,7 +13,7 @@ from cmake_fixture import ConfigureOptions, build_configure_argv, check_configur
 class CMakeFixtureTests(unittest.TestCase):
     def make_options(self, root: Path, **overrides: object) -> ConfigureOptions:
         values: dict[str, object] = {
-            "cmake_command": sys.executable,
+            "cmake_command": (sys.executable,),
             "source_dir": root / "fixture with spaces",
             "build_root": root / "build root",
             "generator": "Visual Studio 17 2022",
@@ -24,9 +23,11 @@ class CMakeFixtureTests(unittest.TestCase):
 
     def write_fake_cmake(self, root: Path, body: str) -> Path:
         script = root / "fake cmake.py"
-        script.write_text(f"#!{sys.executable}\n{body}\n", encoding="utf-8")
-        script.chmod(script.stat().st_mode | stat.S_IXUSR)
+        script.write_text(f"{body}\n", encoding="utf-8")
         return script
+
+    def fake_cmake_command(self, script: Path) -> tuple[str, ...]:
+        return (sys.executable, str(script))
 
     def test_build_configure_argv_preserves_platform_paths_and_semicolons(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -52,6 +53,16 @@ class CMakeFixtureTests(unittest.TestCase):
             self.assertIn("-DCMAKE_C_COMPILER=clang;wrapped", command)
             self.assertIn(r"-DCMAKE_CXX_COMPILER=C:\LLVM 21\bin\clang++.exe", command)
 
+    def test_command_prefix_preserves_interpreter_and_script_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            script = self.write_fake_cmake(root, "raise SystemExit(1)")
+            command = build_configure_argv(
+                self.make_options(root, cmake_command=self.fake_cmake_command(script))
+            )
+
+        self.assertEqual(command[:2], [sys.executable, str(script)])
+
     def test_empty_optional_values_are_omitted(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             command = build_configure_argv(self.make_options(Path(temporary)))
@@ -66,7 +77,7 @@ class CMakeFixtureTests(unittest.TestCase):
             fake_cmake = self.write_fake_cmake(
                 root, "import sys\nprint('expected\\tmessage', file=sys.stderr)\nraise SystemExit(7)"
             )
-            options = self.make_options(root, cmake_command=str(fake_cmake))
+            options = self.make_options(root, cmake_command=self.fake_cmake_command(fake_cmake))
 
             check_configure_failure(options, "expected\nmessage")
 
@@ -77,7 +88,8 @@ class CMakeFixtureTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "exit code was 0"):
                 check_configure_failure(
-                    self.make_options(root, cmake_command=str(fake_cmake)), "configured"
+                    self.make_options(root, cmake_command=self.fake_cmake_command(fake_cmake)),
+                    "configured",
                 )
 
     def test_reports_stdout_and_stderr_when_diagnostic_is_missing(self) -> None:
@@ -90,7 +102,8 @@ class CMakeFixtureTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "stdout marker[\\s\\S]*stderr marker"):
                 check_configure_failure(
-                    self.make_options(root, cmake_command=str(fake_cmake)), "missing"
+                    self.make_options(root, cmake_command=self.fake_cmake_command(fake_cmake)),
+                    "missing",
                 )
 
     def test_removes_stale_work_directory(self) -> None:
@@ -99,7 +112,7 @@ class CMakeFixtureTests(unittest.TestCase):
             fake_cmake = self.write_fake_cmake(
                 root, "import sys\nprint('expected failure')\nraise SystemExit(1)"
             )
-            options = self.make_options(root, cmake_command=str(fake_cmake))
+            options = self.make_options(root, cmake_command=self.fake_cmake_command(fake_cmake))
             options.work_dir.mkdir(parents=True)
             stale = options.work_dir / "stale.txt"
             stale.write_text("stale", encoding="utf-8")
