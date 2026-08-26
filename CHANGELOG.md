@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 1.1.0 - 2026-08-26
+
+### Added
+
+- Added opt-in analyzer-aware `ASSERT_TRUE` and `ASSERT_FALSE` fatal guards
+  through `gentest/analyzer_assertions.h`.
+
+### Changed
+
+- Generated CMake registration sources are marked `SKIP_LINTING`, keeping
+  consumer static-analysis runs focused on authored sources.
+- Pull-request CI avoids duplicated package-consumer work and uses a shared
+  Python fixture harness for CMake regression tests.
+
+### Fixed
+
+- Release publication can safely resume a matching verified draft while still
+  refusing to replace an already-published release.
+
+## 1.0.0 - 2026-08-23
+
 Unstable inside. No backward compatibility.
 
 ### Added

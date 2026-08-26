@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.31)
 project(gentest
-    VERSION 1.0.0
+    VERSION 1.1.0
     DESCRIPTION "C++20 testing framework with annotation-driven code generation"
     HOMEPAGE_URL "https://github.com/jkammerland/gentest"
     LANGUAGES C CXX)
