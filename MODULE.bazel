@@ -5,7 +5,7 @@
 # For more details, please check https://github.com/bazelbuild/bazel/issues/18958
 ###############################################################################
 
-module(name = "gentest", version = "1.0.0")
+module(name = "gentest", version = "1.1.0")
 
 # Exec-toolchain registrations use canonical OS constraints.
 bazel_dep(name = "platforms", version = "1.0.0")

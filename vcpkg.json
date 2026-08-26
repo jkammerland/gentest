@@ -1,6 +1,6 @@
 {
   "name": "gentest",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Attribute-driven test discovery with clang tooling",
   "dependencies": [
     "fmt",

@@ -178,7 +178,7 @@ contain those DLLs and Clang's resource headers.
 ```python
 module(name = "gentest_downstream_fixture")
 
-bazel_dep(name = "gentest", version = "1.0.0")
+bazel_dep(name = "gentest", version = "1.1.0")
 bazel_dep(name = "rules_cc", version = "0.2.17")
 
 local_path_override(
