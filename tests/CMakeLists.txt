@@ -60,6 +60,16 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_release_workflow.py)
 set_property(TEST github_release_workflow_contract APPEND PROPERTY LABELS "package;scripts;github;ci-compat")
 
+add_test(
+    NAME cmake_fixture_harness_contract
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_cmake_fixture.py)
+set_property(TEST cmake_fixture_harness_contract APPEND PROPERTY LABELS "cmake;scripts;ci-compat")
+
+add_test(
+    NAME ci_package_lane_contract
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_ci_package_lanes.py)
+set_property(TEST ci_package_lane_contract APPEND PROPERTY LABELS "cmake;scripts;ci-compat")
+
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
 target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)
@@ -3400,35 +3410,61 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
     set_property(TEST ${name} APPEND PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
 endfunction()
 
-_gentest_add_cmake_helper_test(
+function(_gentest_add_python_configure_failure_test name source_dir required_substring label)
+    # Keep helper fixture roots compact so nested CMake/Ninja scratch paths stay under
+    # Windows toolchain path limits even when the outer checkout path is long.
+    string(MD5 _gentest_helper_build_hash
+        "${name}|${source_dir}|${CMAKE_CURRENT_SOURCE_DIR}/scripts/cmake_fixture.py")
+    string(SUBSTRING "${_gentest_helper_build_hash}" 0 12 _gentest_helper_build_suffix)
+    set(_gentest_helper_build_root "${CMAKE_CURRENT_BINARY_DIR}/cmh_${_gentest_helper_build_suffix}")
+
+    add_test(NAME ${name}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/cmake_fixture.py
+            configure-fails
+            --cmake-command "${CMAKE_COMMAND}"
+            --source-dir "${source_dir}"
+            --build-root "${_gentest_helper_build_root}"
+            --generator "${CMAKE_GENERATOR}"
+            --generator-platform "${CMAKE_GENERATOR_PLATFORM}"
+            --generator-toolset "${CMAKE_GENERATOR_TOOLSET}"
+            --toolchain-file "${CMAKE_TOOLCHAIN_FILE}"
+            --make-program "${CMAKE_MAKE_PROGRAM}"
+            --c-compiler "${CMAKE_C_COMPILER}"
+            --cxx-compiler "${CMAKE_CXX_COMPILER}"
+            --llvm-dir "${LLVM_DIR}"
+            --clang-dir "${Clang_DIR}"
+            --build-type "${CMAKE_BUILD_TYPE}"
+            --required-substring "${required_substring}")
+
+    set_tests_properties(${name} PROPERTIES LABELS "${label}")
+    set_property(TEST ${name} APPEND PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
+endfunction()
+
+_gentest_add_python_configure_failure_test(
     gentest_codegen_output_collision
     ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_collision
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenOutputCollision.cmake
-    cmake
-    -DREQUIRED_SUBSTRING=OUTPUT manifest/single-TU mode was removed)
+    "OUTPUT manifest/single-TU mode was removed"
+    cmake)
 
-_gentest_add_cmake_helper_test(
+_gentest_add_python_configure_failure_test(
     gentest_codegen_no_scan_sources
     ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_no_scan_sources
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenOutputCollision.cmake
-    cmake
-    -DREQUIRED_SUBSTRING=no C++ translation units, module units, or annotated headers found to scan)
+    "no C++ translation units, module units, or annotated headers found to scan"
+    cmake)
 set_property(TEST gentest_codegen_no_scan_sources APPEND PROPERTY LABELS "codegen")
 
-_gentest_add_cmake_helper_test(
+_gentest_add_python_configure_failure_test(
     gentest_codegen_genex_sources_rejected
     ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_genex_sources
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenOutputCollision.cmake
-    cmake
-    -DREQUIRED_SUBSTRING=generator-expression SOURCES entries are not supported)
+    "generator-expression SOURCES entries are not supported"
+    cmake)
 set_property(TEST gentest_codegen_genex_sources_rejected APPEND PROPERTY LABELS "codegen")
 
-_gentest_add_cmake_helper_test(
+_gentest_add_python_configure_failure_test(
     gentest_codegen_output_genex_rejected
     ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_genex
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenOutputCollision.cmake
-    cmake
-    -DREQUIRED_SUBSTRING=OUTPUT manifest/single-TU mode was removed)
+    "OUTPUT manifest/single-TU mode was removed"
+    cmake)
 set_property(TEST gentest_codegen_output_genex_rejected APPEND PROPERTY LABELS "codegen")
 
 set(_gentest_discover_tests_config "")
@@ -4607,12 +4643,14 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPackageWorkflowPreset.cmake
     cmake)
+set_property(TEST gentest_package_workflow_preset APPEND PROPERTY LABELS "package")
 
 _gentest_add_cmake_helper_test(
     gentest_vcpkg_manifest_metadata
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckVcpkgManifestMetadata.cmake
     cmake)
+set_property(TEST gentest_vcpkg_manifest_metadata APPEND PROPERTY LABELS "package")
 
 _gentest_add_cmake_helper_test(
     gentest_package_consumer_workdir_isolation

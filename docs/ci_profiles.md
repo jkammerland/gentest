@@ -23,7 +23,11 @@ reporting, benchmark, and build-contract inputs.
 
 Pushes to `master` and manual dispatches keep the exhaustive CMake matrix. They
 do not apply the `ci-compat` filter, and the package job uses the complete
-`package` workflow.
+`package` workflow. Expensive installed-package consumers are not duplicated in
+every toolchain lane: the dedicated Linux Clang package job owns the complete
+package contract, with representative Linux GCC, macOS LLVM, Windows LLVM, and
+Windows MSVC jobs retaining cross-toolchain coverage. Other matrix jobs set
+`GENTEST_ENABLE_PACKAGE_TESTS=OFF` explicitly.
 
 ## Parallelism
 
