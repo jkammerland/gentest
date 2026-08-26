@@ -70,6 +70,18 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_ci_package_lanes.py)
 set_property(TEST ci_package_lane_contract APPEND PROPERTY LABELS "cmake;scripts;ci-compat")
 
+add_test(
+    NAME analyzer_assertions_contract
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_analyzer_assertions.py)
+_gentest_resolve_fmt_target(_gentest_analyzer_fmt_target)
+if(NOT _gentest_analyzer_fmt_target)
+    message(FATAL_ERROR "gentest analyzer assertion tests require the resolved fmt target")
+endif()
+set_property(TEST analyzer_assertions_contract APPEND PROPERTY ENVIRONMENT
+    "GENTEST_ANALYZER_INCLUDE_DIRS=$<JOIN:$<TARGET_PROPERTY:${_gentest_analyzer_fmt_target},INTERFACE_INCLUDE_DIRECTORIES>,|>")
+set_property(TEST analyzer_assertions_contract APPEND PROPERTY LABELS "public-api;scripts;ci-compat")
+unset(_gentest_analyzer_fmt_target)
+
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
 target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)

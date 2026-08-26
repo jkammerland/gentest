@@ -41,3 +41,19 @@ gentest_attach_codegen(cpp_source_module_tests
     MODULE_REGISTRATION
     FILE_SET cpp_source_cases
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+get_target_property(_module_registration_sources cpp_source_module_tests SOURCES)
+set(_generated_registration_count 0)
+foreach(_source IN LISTS _module_registration_sources)
+    if(_source MATCHES "\\.gentest\\.cpp$")
+        math(EXPR _generated_registration_count "${_generated_registration_count} + 1")
+        get_source_file_property(_skip_linting "${_source}"
+            TARGET_DIRECTORY cpp_source_module_tests SKIP_LINTING)
+        if(NOT _skip_linting)
+            message(FATAL_ERROR "Generated module registration does not set SKIP_LINTING: ${_source}")
+        endif()
+    endif()
+endforeach()
+if(_generated_registration_count EQUAL 0)
+    message(FATAL_ERROR "Expected module registration sources on the target")
+endif()

@@ -79,6 +79,20 @@ gentest_discover_tests(header_declaration_registration_tests TEST_PREFIX "additi
 
 get_target_property(_header_registration_sources header_declaration_registration_tests SOURCES)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/target_sources.txt" "${_header_registration_sources}\n")
+set(_generated_registration_count 0)
+foreach(_source IN LISTS _header_registration_sources)
+    if(_source MATCHES "\\.gentest\\.cpp$")
+        math(EXPR _generated_registration_count "${_generated_registration_count} + 1")
+        get_source_file_property(_skip_linting "${_source}"
+            TARGET_DIRECTORY header_declaration_registration_tests SKIP_LINTING)
+        if(NOT _skip_linting)
+            message(FATAL_ERROR "Generated registration does not set SKIP_LINTING: ${_source}")
+        endif()
+    endif()
+endforeach()
+if(_generated_registration_count EQUAL 0)
+    message(FATAL_ERROR "Expected header-declaration registration sources on the target")
+endif()
 
 # A target may consist only of annotated headers: its generated registration
 # sources are then its translation units. Two headers prove distinct scan slots.
