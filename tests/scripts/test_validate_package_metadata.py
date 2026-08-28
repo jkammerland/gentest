@@ -18,8 +18,29 @@ class PackageMetadataValidatorTests(unittest.TestCase):
     def write_fixture(self, root: Path, *, include_codegen: bool = True) -> None:
         cps_dir = root / "share" / "cps" / "gentest"
         sbom_dir = root / "share" / "sbom" / "gentest"
+        release_dir = root / "share" / "gentest"
         cps_dir.mkdir(parents=True)
         sbom_dir.mkdir(parents=True)
+        release_dir.mkdir(parents=True)
+        (release_dir / "gentest-release-artifact.json").write_text(
+            json.dumps(
+                {
+                    "schema": "gentest.release-artifact.v1",
+                    "name": "gentest",
+                    "version": "1.0.0",
+                    "artifact_kind": "host-developer-kit",
+                    "portable": False,
+                    "contents": {"runtime": "host-built", "codegen": "host-built"},
+                    "host": {"system": "Linux", "processor": "x86_64"},
+                    "build_toolchain": {"compiler_id": "Clang", "llvm_major": "20"},
+                    "requirements": {
+                        "compatible_host_userspace": True,
+                        "installed_llvm_runtime": True,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
         (cps_dir / "gentest.cps").write_text(
             json.dumps(
                 {
@@ -85,10 +106,40 @@ class PackageMetadataValidatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.write_fixture(root / "one")
-            self.write_fixture(root / "two")
+            duplicate = root / "two" / "share" / "cps" / "gentest" / "gentest.cps"
+            duplicate.parent.mkdir(parents=True)
+            original = root / "one" / "share" / "cps" / "gentest" / "gentest.cps"
+            duplicate.write_text(
+                original.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
             result = self.run_validator(root)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("found 2", result.stderr)
+
+    def test_rejects_artifact_that_claims_portability(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_fixture(root)
+            manifest = root / "share" / "gentest" / "gentest-release-artifact.json"
+            artifact = json.loads(manifest.read_text(encoding="utf-8"))
+            artifact["portable"] = True
+            manifest.write_text(json.dumps(artifact), encoding="utf-8")
+            result = self.run_validator(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("portable", result.stderr)
+
+    def test_rejects_artifact_that_hides_llvm_runtime_requirement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_fixture(root)
+            manifest = root / "share" / "gentest" / "gentest-release-artifact.json"
+            artifact = json.loads(manifest.read_text(encoding="utf-8"))
+            artifact["requirements"]["installed_llvm_runtime"] = False
+            manifest.write_text(json.dumps(artifact), encoding="utf-8")
+            result = self.run_validator(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("LLVM runtime", result.stderr)
 
 
 if __name__ == "__main__":

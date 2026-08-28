@@ -1,10 +1,19 @@
 # Release packaging
 
-Gentest's release package is a host-specific developer kit. It contains the
+Gentest's transitional release package is a host-specific developer kit. It contains the
 three CMake library targets, public headers and optional module interfaces,
 `gentest_codegen`, the CMake and Xmake integration helpers, documentation, and
 all bundled third-party license notices. LLVM and Clang remain host-toolchain
-dependencies and are not copied into the archive.
+dependencies and are not copied into the archive. The archive filename includes
+`llvm<major>-host-developer-kit`; it is not a portable SDK and must not be
+redistributed or cached under a platform-independent name.
+
+Each archive installs `share/gentest/gentest-release-artifact.json`. This
+machine-readable contract records the host, compiler, LLVM major version,
+host-built runtime and code-generator status, and external LLVM runtime
+requirement. Package validation rejects metadata that incorrectly claims the
+current artifact is portable. Future source SDKs and portable host-codegen
+artifacts will use distinct artifact kinds under the same versioned contract.
 
 The `release-package` preset requires CMake 4.3 and enables:
 
@@ -51,9 +60,10 @@ limit deployments to the protected `master` branch before publishing a release.
 
 `GPG_PASSPHRASE_FILE` may point to a protected passphrase file. Signed builds
 produce detached signatures for both archives, ASCII-armored detached
-signatures for both standalone SBOM assets, and the public key needed to verify
-them. The script verifies all checksums, signatures, CPS fields, SBOM coverage,
-and archive contents before it returns success.
+signatures for the standalone artifact manifest and artifact-scoped runtime and
+codegen SBOM assets, and the public key needed to verify them. The script
+verifies all checksums, signatures, artifact-contract fields, CPS fields, SBOM
+coverage, and archive contents before it returns success.
 
 ## License
 

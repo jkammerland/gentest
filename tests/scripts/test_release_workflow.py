@@ -8,12 +8,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
+CMAKE_LISTS = ROOT / "CMakeLists.txt"
+PRESETS = ROOT / "CMakePresets.json"
+PACKAGE_SCRIPT = ROOT / "scripts" / "package_release.sh"
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
+        cls.cmake_lists = CMAKE_LISTS.read_text(encoding="utf-8")
+        cls.presets = PRESETS.read_text(encoding="utf-8")
+        cls.package_script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
 
     def test_signing_probe_runs_before_expensive_package_build(self) -> None:
         probe = self.workflow.index("- name: Verify release signing operation")
@@ -45,6 +51,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
         publish = self.workflow.index('gh release edit "${RELEASE_TAG}" --draft=false')
         self.assertLess(names, digests)
         self.assertLess(digests, publish)
+
+    def test_transitional_artifact_is_not_named_as_a_portable_sdk(self) -> None:
+        self.assertIn("Signed Linux/LLVM host developer kit", self.workflow)
+        self.assertIn("linux-llvm-host-developer-kit", self.workflow)
+        self.assertIn("llvm${_gentest_release_llvm_major}-host-developer-kit", self.cmake_lists)
+        self.assertIn('"GENTEST_RELEASE_HOST_DEVELOPER_KIT": "ON"', self.presets)
+        self.assertIn('${artifact_dir}/${package_id}.manifest.json', self.package_script)
+        self.assertIn('${artifact_dir}/${package_id}-${sbom_role}.spdx.json', self.package_script)
 
 
 if __name__ == "__main__":

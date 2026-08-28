@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   signed-release:
-    name: Signed Linux developer package
+    name: Signed Linux/LLVM host developer kit
     runs-on: ubuntu-24.04
     environment: release
     permissions:
@@ -126,7 +126,7 @@ jobs:
       - name: Preserve verified artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: gentest-${{ inputs.tag }}-signed-release
+          name: gentest-${{ inputs.tag }}-linux-llvm-host-developer-kit
           path: ${{ runner.temp }}/gentest-release/*.*
           if-no-files-found: error
 

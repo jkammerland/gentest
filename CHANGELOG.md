@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- Transitional release archives are explicitly named as LLVM-bound host
+  developer kits and carry a validated, machine-readable artifact contract.
+- Standalone release manifests and SBOMs use artifact-scoped names so future
+  source SDK and platform-codegen assets can coexist without collisions.
+
 ## 1.1.0 - 2026-08-26
 
 ### Added
