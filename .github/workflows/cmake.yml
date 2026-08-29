@@ -290,6 +290,22 @@ jobs:
         with:
           arch: x64
 
+      - name: Setup LLVM 23 package dependencies
+        if: matrix.llvm-version == '23.1.0'
+        shell: bash
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Install LLVM 23 zlib dependency
+        if: matrix.llvm-version == '23.1.0'
+        shell: pwsh
+        run: |
+          Push-Location $env:RUNNER_TEMP
+          & (Join-Path $env:VCPKG_ROOT "vcpkg.exe") install zlib:x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          $prefix = Join-Path $env:VCPKG_ROOT "installed\\x64-windows"
+          "LLVM_DEPENDENCY_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Show tool versions
         shell: pwsh
         run: |
@@ -311,6 +327,9 @@ jobs:
             "-DClang_DIR=$env:Clang_DIR",
             "-DGENTEST_ENABLE_PACKAGE_TESTS=${{ matrix.enable_package_tests || 'OFF' }}"
           )
+          if ($env:LLVM_DEPENDENCY_PREFIX) {
+            $cmakeArgs += "-DCMAKE_PREFIX_PATH=$env:LLVM_DEPENDENCY_PREFIX"
+          }
           if ("${{ matrix.preset }}" -in @("debug-system", "debug-system-cxx23")) {
             $cmakeArgs += "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON"
           }

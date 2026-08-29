@@ -29,6 +29,12 @@ class LlvmUsrCompatibilityContractTests(unittest.TestCase):
         self.assertIn("if(TARGET clangUnifiedSymbolResolution)", tools_cmake)
         self.assertIn("set(_gentest_clang_usr_library clangUnifiedSymbolResolution)", tools_cmake)
 
+    def test_supports_module_exports_before_and_after_clang_23(self) -> None:
+        discovery = (ROOT / "tools" / "src" / "discovery.cpp").read_text(encoding="utf-8")
+        self.assertIn("#if CLANG_VERSION_MAJOR >= 23", discovery)
+        self.assertIn("const Module *exported = export_decl.first;", discovery)
+        self.assertIn("const Module *exported = export_decl.getPointer();", discovery)
+
 
 class ScaleProjectTests(unittest.TestCase):
     def test_single_tu_gentest_cases_are_header_defined(self) -> None:

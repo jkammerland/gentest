@@ -48,6 +48,9 @@ class CiPackageLaneTests(unittest.TestCase):
             'llvm-version: "23.1.0"\n            preset: "release-system"\n            variant: "default"',
             self.workflow,
         )
+        self.assertIn("Setup LLVM 23 package dependencies", self.workflow)
+        self.assertIn("install zlib:x64-windows", self.workflow)
+        self.assertIn('"-DCMAKE_PREFIX_PATH=$env:LLVM_DEPENDENCY_PREFIX"', self.workflow)
 
         self.assertEqual(self.workflow.count("- name: Ubuntu 24.04 • LLVM 23"), 1)
         llvm_23_linux = self.workflow.index("- name: Ubuntu 24.04 • LLVM 23")

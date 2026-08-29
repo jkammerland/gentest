@@ -144,7 +144,11 @@ bool module_reexports(const Module &importer, ModuleReexportSearch &search) {
         return false;
     }
     for (const auto &export_decl : importer.Exports) {
+#if CLANG_VERSION_MAJOR >= 23
+        const Module *exported = export_decl.first;
+#else
         const Module *exported = export_decl.getPointer();
+#endif
         if (exported == nullptr) {
             continue;
         }
