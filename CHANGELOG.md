@@ -9,6 +9,11 @@
 - Standalone release manifests and SBOMs use artifact-scoped names so future
   source SDK and platform-codegen assets can coexist without collisions.
 
+### Fixed
+
+- Draft publication resumes through its numeric GitHub release ID, avoiding
+  tag-based draft lookups that return 404 after successful creation.
+
 ## 1.1.0 - 2026-08-26
 
 ### Added
