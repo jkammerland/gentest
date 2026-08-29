@@ -20,7 +20,11 @@
 #include <clang/Basic/Module.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Basic/Version.h>
+#if __has_include(<clang/UnifiedSymbolResolution/USRGeneration.h>)
+#include <clang/UnifiedSymbolResolution/USRGeneration.h>
+#else
 #include <clang/Index/USRGeneration.h>
+#endif
 #include <cmath>
 #include <cstdio>
 #include <fmt/format.h>

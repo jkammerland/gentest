@@ -13,6 +13,8 @@
 
 - Draft publication resumes through its numeric GitHub release ID, avoiding
   tag-based draft lookups that return 404 after successful creation.
+- Codegen accepts LLVM 23's relocated USR-generation header and component while
+  retaining compatibility with LLVM 20–22.
 
 ## 1.1.0 - 2026-08-26
 
