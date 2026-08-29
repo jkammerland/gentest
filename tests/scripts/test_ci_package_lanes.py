@@ -36,6 +36,30 @@ class CiPackageLaneTests(unittest.TestCase):
         self.assertIn('preset: "debug-system"', representative)
         self.assertIn('enable_package_tests: "ON"', representative)
 
+    def test_llvm_23_has_one_focused_lane_on_each_host_os(self) -> None:
+        self.assertIn('compiler: ["appleclang", "llvm@20", "llvm@21", "llvm@23"]', self.workflow)
+        self.assertIn("brew --prefix \"${{ matrix.compiler }}\"", self.workflow)
+        self.assertIn(
+            'compiler: "llvm@23"\n                build-type: "release"\n                variant: "default"',
+            self.workflow,
+        )
+        self.assertIn('llvm-version: ["23.1.0", "22.1.0", "21.1.4"]', self.workflow)
+        self.assertIn(
+            'llvm-version: "23.1.0"\n            preset: "release-system"\n            variant: "default"',
+            self.workflow,
+        )
+
+        self.assertEqual(self.workflow.count("- name: Ubuntu 24.04 • LLVM 23"), 1)
+        llvm_23_linux = self.workflow.index("- name: Ubuntu 24.04 • LLVM 23")
+        next_entry = self.workflow.index("- name:", llvm_23_linux + 1)
+        linux_lane = self.workflow[llvm_23_linux:next_entry]
+        self.assertIn('clang_version: "23"', linux_lane)
+        self.assertIn("build_type: debug", linux_lane)
+        self.assertIn("ci_exhaustive: true", linux_lane)
+
+        self.assertIn("'Suites: llvm-toolchain-noble-${{ matrix.clang_version }}'", self.workflow)
+        self.assertIn('test "$("${COMPILER_BIN}/clang" --version', self.workflow)
+
     def test_package_pr_selects_workflow_and_manifest_contracts(self) -> None:
         for test_name in (
             "gentest_package_workflow_preset",
