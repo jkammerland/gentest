@@ -4,11 +4,7 @@ module;
 #include <cstdlib>
 #include <memory>
 
-#if defined(GENTEST_STORY034_MODULE_CONTEXT)
 export module gentest.story034.module_registration;
-#else
-export module gentest.story034.unconfigured;
-#endif
 
 import gentest;
 
