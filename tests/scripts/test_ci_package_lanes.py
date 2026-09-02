@@ -50,7 +50,9 @@ class CiPackageLaneTests(unittest.TestCase):
         )
         self.assertIn("Setup LLVM 23 package dependencies", self.workflow)
         self.assertIn("VCPKG_ROOT: ${{ runner.temp }}/gentest-vcpkg", self.workflow)
-        self.assertIn("install zlib:x64-windows", self.workflow)
+        self.assertIn("zlib:x64-windows", self.workflow)
+        self.assertIn("zstd:x64-windows", self.workflow)
+        self.assertIn("libxml2:x64-windows", self.workflow)
         self.assertIn('"-DCMAKE_PREFIX_PATH=$env:LLVM_DEPENDENCY_PREFIX"', self.workflow)
 
         self.assertEqual(self.workflow.count("- name: Ubuntu 24.04 • LLVM 23"), 1)
