@@ -54,6 +54,7 @@ class CiPackageLaneTests(unittest.TestCase):
         self.assertIn("zstd:x64-windows", self.workflow)
         self.assertIn("libxml2:x64-windows", self.workflow)
         self.assertIn('"-DCMAKE_PREFIX_PATH=$env:LLVM_DEPENDENCY_PREFIX"', self.workflow)
+        self.assertIn('"CMAKE_PREFIX_PATH=$prefix"', self.workflow)
         self.assertIn('(Join-Path $prefix "bin")', self.workflow)
 
         self.assertEqual(self.workflow.count("- name: Ubuntu 24.04 • LLVM 23"), 1)

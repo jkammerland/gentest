@@ -312,6 +312,7 @@ jobs:
           Pop-Location
           $prefix = Join-Path $env:VCPKG_ROOT "installed\\x64-windows"
           "LLVM_DEPENDENCY_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CMAKE_PREFIX_PATH=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           (Join-Path $prefix "bin") | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Show tool versions
