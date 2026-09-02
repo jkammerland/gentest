@@ -293,6 +293,8 @@ jobs:
       - name: Setup LLVM 23 package dependencies
         if: matrix.llvm-version == '23.1.0'
         shell: bash
+        env:
+          VCPKG_ROOT: ${{ runner.temp }}/gentest-vcpkg
         run: bash scripts/setup-vcpkg.sh
 
       - name: Install LLVM 23 zlib dependency

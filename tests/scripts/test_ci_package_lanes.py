@@ -49,6 +49,7 @@ class CiPackageLaneTests(unittest.TestCase):
             self.workflow,
         )
         self.assertIn("Setup LLVM 23 package dependencies", self.workflow)
+        self.assertIn("VCPKG_ROOT: ${{ runner.temp }}/gentest-vcpkg", self.workflow)
         self.assertIn("install zlib:x64-windows", self.workflow)
         self.assertIn('"-DCMAKE_PREFIX_PATH=$env:LLVM_DEPENDENCY_PREFIX"', self.workflow)
 

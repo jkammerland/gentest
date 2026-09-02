@@ -94,6 +94,13 @@ if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
     set(_cxx "${_cxx_print}")
   endif()
 
+  gentest_clang_major_version(_clang_major "${_cxx}")
+  if(NOT "${_clang_major}" STREQUAL "" AND NOT _clang_major VERSION_LESS 23)
+    gentest_skip_test(
+      "module name false-match build regression: Clang ${_clang_major} rejects module declarations controlled by preprocessor conditionals; inspect-source checks passed")
+    return()
+  endif()
+
   set(_codegen_source "${_work_dir}/conditional_false_match.ixx")
   file(COPY
     "${_module_name_false_match_fixture_dir}/conditional_false_match.ixx"
