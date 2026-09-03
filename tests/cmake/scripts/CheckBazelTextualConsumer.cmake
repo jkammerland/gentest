@@ -320,6 +320,15 @@ set(_bazel_repo_contents_cache "${_bazel_smoke_root}/repo-cache")
 file(MAKE_DIRECTORY "${_bazel_output_root}")
 file(MAKE_DIRECTORY "${_bazel_repo_contents_cache}")
 
+set(_gentest_macos_sdk_flags)
+if(APPLE AND DEFINED ENV{SDKROOT} AND NOT "$ENV{SDKROOT}" STREQUAL "")
+  list(APPEND _gentest_macos_sdk_flags
+    "--copt=-isysroot$ENV{SDKROOT}"
+    "--host_copt=-isysroot$ENV{SDKROOT}"
+    "--linkopt=-isysroot$ENV{SDKROOT}"
+    "--host_linkopt=-isysroot$ENV{SDKROOT}")
+endif()
+
 set(_gentest_bazel_build_flags
   --action_env=CCACHE_DISABLE
   --action_env=PATH
@@ -350,7 +359,8 @@ set(_gentest_bazel_build_flags
   --repo_env=HOME
   --action_env=HOME
   --verbose_failures
-  --sandbox_debug)
+  --sandbox_debug
+  ${_gentest_macos_sdk_flags})
 set(_gentest_bazel_build_args
   --output_user_root=${_bazel_output_root}
   build

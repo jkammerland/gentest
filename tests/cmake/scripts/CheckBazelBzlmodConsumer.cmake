@@ -326,6 +326,15 @@ set(_bazel_env
   "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}"
   "HOME=$ENV{HOME}")
 
+set(_gentest_macos_sdk_flags)
+if(APPLE AND DEFINED ENV{SDKROOT} AND NOT "$ENV{SDKROOT}" STREQUAL "")
+  list(APPEND _gentest_macos_sdk_flags
+    "--copt=-isysroot$ENV{SDKROOT}"
+    "--host_copt=-isysroot$ENV{SDKROOT}"
+    "--linkopt=-isysroot$ENV{SDKROOT}"
+    "--host_linkopt=-isysroot$ENV{SDKROOT}")
+endif()
+
 set(_build_args
   --output_user_root=${_output_root}
   build
@@ -358,6 +367,7 @@ set(_build_args
   --repo_env=GENTEST_BAZEL_LOCAL_CLANG
   --repo_env=GENTEST_BAZEL_LOCAL_SDKROOT
   --repo_env=HOME
+  ${_gentest_macos_sdk_flags}
   //:gentest_downstream_textual_mocks
   //:gentest_downstream_textual
   //:gentest_downstream_module_mocks
