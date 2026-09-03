@@ -36,6 +36,12 @@ if(NOT _clang OR NOT _clangxx)
   gentest_skip_test("module multiline directive regression: clang/clang++ not found")
   return()
 endif()
+gentest_clang_major_version(_clang_major "${_clangxx}")
+if(NOT "${_clang_major}" STREQUAL "" AND NOT _clang_major VERSION_LESS 23)
+  gentest_skip_test(
+    "module multiline directive regression: Clang ${_clang_major} rejects directives split across physical lines")
+  return()
+endif()
 
 set(_cmake_gen_args -G "${GENERATOR}")
 if(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")

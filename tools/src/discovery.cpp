@@ -20,7 +20,11 @@
 #include <clang/Basic/Module.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Basic/Version.h>
+#if __has_include(<clang/UnifiedSymbolResolution/USRGeneration.h>)
+#include <clang/UnifiedSymbolResolution/USRGeneration.h>
+#else
 #include <clang/Index/USRGeneration.h>
+#endif
 #include <cmath>
 #include <cstdio>
 #include <fmt/format.h>
@@ -140,7 +144,11 @@ bool module_reexports(const Module &importer, ModuleReexportSearch &search) {
         return false;
     }
     for (const auto &export_decl : importer.Exports) {
+#if CLANG_VERSION_MAJOR >= 23
+        const Module *exported = export_decl.first;
+#else
         const Module *exported = export_decl.getPointer();
+#endif
         if (exported == nullptr) {
             continue;
         }

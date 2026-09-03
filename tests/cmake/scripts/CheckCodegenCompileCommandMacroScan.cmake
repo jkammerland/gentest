@@ -32,6 +32,12 @@ if(NOT _clang OR NOT _clangxx)
   gentest_skip_test("compile-command macro scan regression: clang/clang++ not found")
   return()
 endif()
+gentest_clang_major_version(_clang_major "${_clangxx}")
+if(NOT "${_clang_major}" STREQUAL "" AND NOT _clang_major VERSION_LESS 23)
+  gentest_skip_test(
+    "compile-command macro scan regression: Clang ${_clang_major} rejects module declarations controlled by preprocessor conditionals")
+  return()
+endif()
 gentest_find_clang_scan_deps(_scan_deps "${_clangxx}")
 
 set(_provider "${_work_dir}/provider.cpp")

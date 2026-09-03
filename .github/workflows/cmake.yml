@@ -61,14 +61,18 @@ jobs:
   macos:
     needs: plan
     if: ${{ needs.plan.outputs.run_cmake == 'true' }}
-    name: macOS • ${{ matrix.compiler == 'appleclang' && 'AppleClang (Xcode 26)' || matrix.compiler == 'llvm' && 'Homebrew llvm (latest)' || format('Homebrew {0}', matrix.compiler) }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
+    name: macOS • ${{ matrix.compiler == 'appleclang' && 'AppleClang (Xcode 26)' || format('Homebrew {0}', matrix.compiler) }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
     runs-on: ${{ matrix.compiler == 'appleclang' && 'macos-26' || 'macos-15' }}
     strategy:
         fail-fast: false
         matrix:
-            compiler: ["appleclang", "llvm@20", "llvm@21", "llvm"]
+            compiler: ["appleclang", "llvm@20", "llvm@21", "llvm@23"]
             build-type: ["debug", "release"]
             variant: ["default"]
+            exclude:
+              - compiler: "llvm@23"
+                build-type: "release"
+                variant: "default"
             include:
               - compiler: "llvm@20"
                 build-type: "debug"
@@ -103,8 +107,8 @@ jobs:
           brew update
           if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             brew install llvm@20 ninja ccache googletest doctest
-          elif [ "${{ matrix.compiler }}" = "llvm@21" ]; then
-            brew install llvm@21 ninja ccache googletest doctest
+          elif [ "${{ matrix.compiler }}" = "llvm@21" ] || [ "${{ matrix.compiler }}" = "llvm@23" ]; then
+            brew install "${{ matrix.compiler }}" ninja ccache googletest doctest
           else
             brew install llvm ninja ccache googletest doctest
           fi
@@ -120,15 +124,15 @@ jobs:
         run: |
           if [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             LLVM_PREFIX="$(brew --prefix llvm@20)"
-          elif [ "${{ matrix.compiler }}" = "llvm@21" ]; then
-            LLVM_PREFIX="$(brew --prefix llvm@21)"
+          elif [ "${{ matrix.compiler }}" = "llvm@21" ] || [ "${{ matrix.compiler }}" = "llvm@23" ]; then
+            LLVM_PREFIX="$(brew --prefix "${{ matrix.compiler }}")"
           else
             LLVM_PREFIX="$(brew --prefix llvm)"
           fi
           echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
           echo "Clang_DIR=${LLVM_PREFIX}/lib/cmake/clang" >> $GITHUB_ENV
           echo "PATH=${LLVM_PREFIX}/bin:$PATH" >> $GITHUB_ENV
-          if [ "${{ matrix.compiler }}" = "llvm" ] || [ "${{ matrix.compiler }}" = "llvm@21" ] || [ "${{ matrix.compiler }}" = "llvm@20" ]; then
+          if [ "${{ matrix.compiler }}" = "llvm" ] || [ "${{ matrix.compiler }}" = "llvm@23" ] || [ "${{ matrix.compiler }}" = "llvm@21" ] || [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
           fi
 
@@ -145,7 +149,10 @@ jobs:
           ninja --version
           COMPILER_BIN="${LLVM_BIN:-/usr/bin}"
           "${COMPILER_BIN}/clang" --version
-          brew list --versions llvm llvm@20 llvm@21 || true
+          brew list --versions llvm llvm@20 llvm@21 llvm@23 || true
+          if [ "${{ matrix.compiler }}" = "llvm@23" ]; then
+            test "$("${COMPILER_BIN}/clang" --version | sed -nE 's/.*clang version ([0-9]+).*/\1/p' | head -n 1)" = "23"
+          fi
 
       - name: Setup vcpkg
         run: bash scripts/setup-vcpkg.sh
@@ -204,9 +211,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        llvm-version: ["22.1.0", "21.1.4"]
+        llvm-version: ["23.1.0", "22.1.0", "21.1.4"]
         preset: ["debug-system", "release-system"]
         variant: ["default"]
+        exclude:
+          - llvm-version: "23.1.0"
+            preset: "release-system"
+            variant: "default"
         include:
           # Keep one Windows LLVM/MSVC job representative of installed-package
           # consumers; the other matrix jobs focus on authored targets.
@@ -279,6 +290,31 @@ jobs:
         with:
           arch: x64
 
+      - name: Setup LLVM 23 package dependencies
+        if: matrix.llvm-version == '23.1.0'
+        shell: bash
+        env:
+          VCPKG_ROOT: ${{ runner.temp }}/gentest-vcpkg
+        run: bash scripts/setup-vcpkg.sh
+
+      - name: Install LLVM 23 package dependencies
+        if: matrix.llvm-version == '23.1.0'
+        shell: pwsh
+        run: |
+          Push-Location $env:RUNNER_TEMP
+          $packages = @(
+            "zlib:x64-windows",
+            "zstd:x64-windows",
+            "libxml2:x64-windows"
+          )
+          & (Join-Path $env:VCPKG_ROOT "vcpkg.exe") install @packages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          $prefix = Join-Path $env:VCPKG_ROOT "installed\\x64-windows"
+          "LLVM_DEPENDENCY_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CMAKE_PREFIX_PATH=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Join-Path $prefix "bin") | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Show tool versions
         shell: pwsh
         run: |
@@ -300,6 +336,9 @@ jobs:
             "-DClang_DIR=$env:Clang_DIR",
             "-DGENTEST_ENABLE_PACKAGE_TESTS=${{ matrix.enable_package_tests || 'OFF' }}"
           )
+          if ($env:LLVM_DEPENDENCY_PREFIX) {
+            $cmakeArgs += "-DCMAKE_PREFIX_PATH=$env:LLVM_DEPENDENCY_PREFIX"
+          }
           if ("${{ matrix.preset }}" -in @("debug-system", "debug-system-cxx23")) {
             $cmakeArgs += "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON"
           }
@@ -505,6 +544,18 @@ jobs:
             build_type: ASan+UBSan
             preset: alusan-system
             ctest_parallel: 2
+          - name: Ubuntu 24.04 • LLVM 23
+            container: ubuntu:24.04
+            pkg_manager: apt
+            setup_mode: apt-llvm-org
+            compiler: clang
+            cc: clang-23
+            cxx: clang++-23
+            clang_version: "23"
+            llvm_dir: /usr/lib/llvm-23/lib/cmake/llvm
+            clang_dir: /usr/lib/llvm-23/lib/cmake/clang
+            build_type: debug
+            ci_exhaustive: true
           # Prefer pinned Alpine releases over `alpine:latest` so the
           # LLVM/Clang package names and CMake package paths remain stable.
           - name: Alpine 3.21 • Clang 19
@@ -752,10 +803,10 @@ jobs:
             printf '%s\n' \
               'Types: deb' \
               'URIs: https://apt.llvm.org/noble/' \
-              'Suites: llvm-toolchain-noble-22' \
+              'Suites: llvm-toolchain-noble-${{ matrix.clang_version }}' \
               'Components: main' \
               'Signed-By: /etc/apt/trusted.gpg.d/apt.llvm.org.asc' \
-              >/etc/apt/sources.list.d/apt-llvm-22.sources
+              >/etc/apt/sources.list.d/apt-llvm-${{ matrix.clang_version }}.sources
             apt_update
           fi
           apt_install \

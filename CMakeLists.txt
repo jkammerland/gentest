@@ -38,6 +38,7 @@ option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" OFF)
 option(GENTEST_ENABLE_CPS "Install experimental Common Package Specification metadata (requires CMake 4.3+)" OFF)
 option(GENTEST_ENABLE_SBOM "Install experimental SPDX 3.0.1 SBOM metadata (requires CMake 4.3+)" OFF)
 option(GENTEST_REQUIRE_PACKAGE_SIGNING "Fail package configuration unless a GPG signing key is provided" OFF)
+option(GENTEST_RELEASE_HOST_DEVELOPER_KIT "Label CPack output as the transitional host-bound developer kit" OFF)
 set(GENTEST_GPG_SIGNING_KEY "" CACHE STRING "GPG fingerprint or key ID used to sign release packages")
 set(GENTEST_GPG_PASSPHRASE_FILE "" CACHE FILEPATH "Optional file containing the GPG signing-key passphrase")
 option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" OFF)
@@ -196,6 +197,28 @@ if(${PROJECT_NAME}_INSTALL)
             "${PROJECT_SOURCE_DIR}/third_party/licenses/NOTICE.txt"
         DESTINATION "share/doc/${PROJECT_NAME}"
         COMPONENT Development)
+
+    if(GENTEST_RELEASE_HOST_DEVELOPER_KIT)
+        if(NOT TARGET gentest_codegen)
+            message(FATAL_ERROR "GENTEST_RELEASE_HOST_DEVELOPER_KIT=ON requires the gentest_codegen host tool")
+        endif()
+        gentest_get_llvm_package_major(_gentest_release_llvm_major LLVM)
+        if(_gentest_release_llvm_major STREQUAL "")
+            message(FATAL_ERROR "Release package metadata requires the LLVM major version used by gentest_codegen")
+        endif()
+        configure_file(
+            "${PROJECT_SOURCE_DIR}/cmake/GentestReleaseArtifact.json.in"
+            "${PROJECT_BINARY_DIR}/gentest-release-artifact.json"
+            @ONLY)
+        install(FILES "${PROJECT_BINARY_DIR}/gentest-release-artifact.json"
+            DESTINATION "share/${PROJECT_NAME}"
+            COMPONENT Development)
+        set(_gentest_cpack_file_name
+            "${PROJECT_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}-llvm${_gentest_release_llvm_major}-host-developer-kit")
+    else()
+        set(_gentest_cpack_file_name "${PROJECT_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+
     install(FILES "${PROJECT_SOURCE_DIR}/LICENSE"
         DESTINATION "share/licenses/${PROJECT_NAME}"
         COMPONENT Development)
@@ -241,7 +264,7 @@ if(${PROJECT_NAME}_INSTALL)
         ${_gentest_cpack_signing_args}
         ADDITIONAL_CPACK_VARS
             CPACK_ARCHIVE_COMPONENT_INSTALL OFF
-            CPACK_PACKAGE_FILE_NAME "${PROJECT_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+            CPACK_PACKAGE_FILE_NAME "${_gentest_cpack_file_name}")
 else()
     message(STATUS "Enable install of ${PROJECT_NAME} with -D${PROJECT_NAME}_INSTALL=ON")
 endif()

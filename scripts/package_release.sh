@@ -51,29 +51,45 @@ for archive in "${archives[@]}"; do
 done
 
 tgz="$(find "${artifact_dir}" -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+package_id="${tgz##*/}"
+package_id="${package_id%.tar.gz}"
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/gentest-package-release.XXXXXX")"
 trap 'rm -rf "${work_dir}"' EXIT
 tar -xzf "${tgz}" -C "${work_dir}"
 python3 "${script_dir}/validate_package_metadata.py" "${work_dir}" --version "${version}"
 
-for sbom_name in gentest gentest-tools; do
+publish_metadata_asset() {
+  local source_path="$1"
+  local destination_path="$2"
+  cp "${source_path}" "${destination_path}"
+  (cd "${artifact_dir}" && sha256sum "$(basename "${destination_path}")" > "$(basename "${destination_path}").sha256")
+  (cd "${artifact_dir}" && sha512sum "$(basename "${destination_path}")" > "$(basename "${destination_path}").sha512")
+  if [[ -n "${GPG_SIGNING_KEY:-}" ]]; then
+    local gpg_args=(--batch --yes --armor --detach-sign --local-user "${GPG_SIGNING_KEY}")
+    if [[ -n "${GPG_PASSPHRASE_FILE:-}" ]]; then
+      gpg_args+=(--pinentry-mode loopback --passphrase-file "${GPG_PASSPHRASE_FILE}")
+    fi
+    gpg "${gpg_args[@]}" --output "${destination_path}.asc" "${destination_path}"
+    gpg --batch --verify "${destination_path}.asc" "${destination_path}"
+  fi
+}
+
+artifact_contract_source="$(find "${work_dir}" -type f -path '*/share/gentest/gentest-release-artifact.json' -print -quit)"
+[[ -n "${artifact_contract_source}" ]] || {
+  echo "Missing release artifact contract in ${tgz}" >&2
+  exit 1
+}
+publish_metadata_asset "${artifact_contract_source}" "${artifact_dir}/${package_id}.manifest.json"
+
+for sbom_spec in gentest:runtime gentest-tools:codegen; do
+  sbom_name="${sbom_spec%%:*}"
+  sbom_role="${sbom_spec##*:}"
   sbom_source="$(find "${work_dir}" -type f -path "*/share/sbom/gentest/${sbom_name}.spdx.json" -print -quit)"
   [[ -n "${sbom_source}" ]] || {
     echo "Missing ${sbom_name} SBOM in ${tgz}" >&2
     exit 1
   }
-  sbom_dest="${artifact_dir}/${sbom_name}-${version}.spdx.json"
-  cp "${sbom_source}" "${sbom_dest}"
-  (cd "${artifact_dir}" && sha256sum "$(basename "${sbom_dest}")" > "$(basename "${sbom_dest}").sha256")
-  (cd "${artifact_dir}" && sha512sum "$(basename "${sbom_dest}")" > "$(basename "${sbom_dest}").sha512")
-  if [[ -n "${GPG_SIGNING_KEY:-}" ]]; then
-    gpg_args=(--batch --yes --armor --detach-sign --local-user "${GPG_SIGNING_KEY}")
-    if [[ -n "${GPG_PASSPHRASE_FILE:-}" ]]; then
-      gpg_args+=(--pinentry-mode loopback --passphrase-file "${GPG_PASSPHRASE_FILE}")
-    fi
-    gpg "${gpg_args[@]}" --output "${sbom_dest}.asc" "${sbom_dest}"
-    gpg --batch --verify "${sbom_dest}.asc" "${sbom_dest}"
-  fi
+  publish_metadata_asset "${sbom_source}" "${artifact_dir}/${package_id}-${sbom_role}.spdx.json"
 done
 
 if [[ -n "${GPG_SIGNING_KEY:-}" ]]; then

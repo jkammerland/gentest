@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the CPS and SPDX documents installed by a Gentest package."""
+"""Validate the release contract, CPS, and SPDX documents in a Gentest package."""
 
 from __future__ import annotations
 
@@ -73,12 +73,51 @@ def validate_sbom(path: Path, expected_names: set[str]) -> None:
         raise SystemExit(f"SBOM {path} does not identify SPDX 3.0.1")
 
 
+def validate_release_artifact(path: Path, version: str) -> None:
+    artifact = load_object(path)
+    expected_fields = {
+        "schema": "gentest.release-artifact.v1",
+        "name": "gentest",
+        "version": version,
+        "artifact_kind": "host-developer-kit",
+        "portable": False,
+    }
+    for field, expected in expected_fields.items():
+        if artifact.get(field) != expected:
+            raise SystemExit(f"release artifact field {field!r} must be {expected!r} in {path}")
+
+    contents = artifact.get("contents")
+    if (
+        not isinstance(contents, dict)
+        or contents.get("runtime") != "host-built"
+        or contents.get("codegen") != "host-built"
+    ):
+        raise SystemExit(f"release artifact must identify its runtime and codegen as host-built in {path}")
+
+    host = artifact.get("host")
+    if not isinstance(host, dict) or not host.get("system") or not host.get("processor"):
+        raise SystemExit(f"release artifact must identify its host system and processor in {path}")
+
+    toolchain = artifact.get("build_toolchain")
+    if (
+        not isinstance(toolchain, dict)
+        or not toolchain.get("compiler_id")
+        or not toolchain.get("llvm_major")
+    ):
+        raise SystemExit(f"release artifact must identify its compiler and LLVM major version in {path}")
+
+    requirements = artifact.get("requirements")
+    if not isinstance(requirements, dict) or requirements.get("installed_llvm_runtime") is not True:
+        raise SystemExit(f"host developer kit must disclose its installed LLVM runtime requirement in {path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("root", type=Path, help="extracted package or install root")
     parser.add_argument("--version", required=True)
     args = parser.parse_args()
 
+    validate_release_artifact(find_one(args.root, "share/gentest/gentest-release-artifact.json"), args.version)
     validate_cps(find_one(args.root, "share/cps/gentest/gentest.cps"), args.version)
     validate_sbom(
         find_one(args.root, "share/sbom/gentest/gentest.spdx.json"),

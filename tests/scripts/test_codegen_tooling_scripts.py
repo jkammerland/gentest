@@ -18,6 +18,24 @@ import bench_case_scale  # noqa: E402
 import verify_codegen_parallel  # noqa: E402
 
 
+class LlvmUsrCompatibilityContractTests(unittest.TestCase):
+    def test_supports_usr_headers_and_link_targets_before_and_after_llvm_23(self) -> None:
+        discovery = (ROOT / "tools" / "src" / "discovery.cpp").read_text(encoding="utf-8")
+        tools_cmake = (ROOT / "tools" / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("__has_include(<clang/UnifiedSymbolResolution/USRGeneration.h>)", discovery)
+        self.assertIn("#include <clang/UnifiedSymbolResolution/USRGeneration.h>", discovery)
+        self.assertIn("#include <clang/Index/USRGeneration.h>", discovery)
+        self.assertIn("if(TARGET clangUnifiedSymbolResolution)", tools_cmake)
+        self.assertIn("set(_gentest_clang_usr_library clangUnifiedSymbolResolution)", tools_cmake)
+
+    def test_supports_module_exports_before_and_after_clang_23(self) -> None:
+        discovery = (ROOT / "tools" / "src" / "discovery.cpp").read_text(encoding="utf-8")
+        self.assertIn("#if CLANG_VERSION_MAJOR >= 23", discovery)
+        self.assertIn("const Module *exported = export_decl.first;", discovery)
+        self.assertIn("const Module *exported = export_decl.getPointer();", discovery)
+
+
 class ScaleProjectTests(unittest.TestCase):
     def test_single_tu_gentest_cases_are_header_defined(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

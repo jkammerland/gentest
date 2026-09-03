@@ -213,6 +213,14 @@ endif()
 
 llvm_map_components_to_libnames(_gentest_llvm_support Support)
 
+# LLVM 23 moved USR generation out of clangIndex into its own component.
+# Retain clangIndex below for the rest of the indexing API and add the new
+# component only when the installed Clang package exports it.
+set(_gentest_clang_usr_library)
+if(TARGET clangUnifiedSymbolResolution)
+    set(_gentest_clang_usr_library clangUnifiedSymbolResolution)
+endif()
+
 # Prefer monolithic clang-cpp when available (more stable across LLVM versions),
 # otherwise fall back to per-component linking.
 if(TARGET clang-cpp)
@@ -222,7 +230,7 @@ if(TARGET clang-cpp)
     # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
     # Link it when available; otherwise fall back to LLVMSupport because this
     # tool directly uses llvm::InitLLVM.
-    target_link_libraries(gentest_codegen_support INTERFACE clang-cpp ${_gentest_fmt_target})
+    target_link_libraries(gentest_codegen_support INTERFACE clang-cpp ${_gentest_clang_usr_library} ${_gentest_fmt_target})
     # If we discovered a monolithic libLLVM DSO, link it to satisfy LLVMSupport
     # RTTI/vtables required by our TU and by clang-cpp on some platforms.
     if(_gentest_llvm_dso)
@@ -269,6 +277,7 @@ else()
         clangBasic
         clangFrontend
         clangIndex
+        ${_gentest_clang_usr_library}
         clangLex
         clangParse
         clangSema)
@@ -305,6 +314,7 @@ if(${PROJECT_NAME}_INSTALL)
 endif()
 
 unset(_gentest_llvm_support)
+unset(_gentest_clang_usr_library)
 unset(_gentest_clang_includes)
 unset(_gentest_clang_libs)
 unset(_gentest_llvm_libdirs)

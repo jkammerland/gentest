@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   signed-release:
-    name: Signed Linux developer package
+    name: Signed Linux/LLVM host developer kit
     runs-on: ubuntu-24.04
     environment: release
     permissions:
@@ -126,7 +126,7 @@ jobs:
       - name: Preserve verified artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: gentest-${{ inputs.tag }}-signed-release
+          name: gentest-${{ inputs.tag }}-linux-llvm-host-developer-kit
           path: ${{ runner.temp }}/gentest-release/*.*
           if-no-files-found: error
 
@@ -135,7 +135,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           artifact_dir="${RUNNER_TEMP}/gentest-release"
           remote_refs="$(git ls-remote origin \
             "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}")"
@@ -148,31 +148,71 @@ jobs:
           mapfile -d '' -t release_assets \
             < <(find "${artifact_dir}" -maxdepth 1 -type f -print0 | sort -z)
           test "${#release_assets[@]}" -gt 0
-          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            release_id="$(gh api \
-              "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq .id)"
-            test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .draft)" = true
-            test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .tag_name)" = "${RELEASE_TAG}"
-            test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .target_commitish)" = "${RELEASE_COMMIT}"
+
+          release_rows="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | [.id,.tag_name,.target_commitish,.draft] | @tsv')"
+          mapfile -t matching_releases \
+            < <(awk -F $'\t' -v tag="${RELEASE_TAG}" '$2 == tag' <<< "${release_rows}")
+          test "${#matching_releases[@]}" -le 1
+          if [[ "${#matching_releases[@]}" -eq 1 ]]; then
+            IFS=$'\t' read -r release_id release_tag release_target release_draft \
+              <<< "${matching_releases[0]}"
+            test "${release_draft}" = true
+            test "${release_tag}" = "${RELEASE_TAG}"
+            test "${release_target}" = "${RELEASE_COMMIT}"
           else
-            gh release create "${RELEASE_TAG}" \
-              --draft \
-              --verify-tag \
-              --target "${RELEASE_COMMIT}" \
-              --title "Gentest ${RELEASE_TAG}" \
-              --generate-notes
-            release_id="$(gh api \
-              "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq .id)"
+            release_id="$(gh api --method POST \
+              "repos/${GITHUB_REPOSITORY}/releases" \
+              -f tag_name="${RELEASE_TAG}" \
+              -f target_commitish="${RELEASE_COMMIT}" \
+              -f name="Gentest ${RELEASE_TAG}" \
+              -F draft=true \
+              -F generate_release_notes=true \
+              --jq .id)"
           fi
-          gh release upload "${RELEASE_TAG}" "${release_assets[@]}" --clobber
+
+          test -n "${release_id}"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .draft)" = true
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .tag_name)" = "${RELEASE_TAG}"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .target_commitish)" = "${RELEASE_COMMIT}"
+
+          existing_assets="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" \
+            --jq '.[] | [.id,.name] | @tsv')"
+          while IFS=$'\t' read -r existing_id existing_name; do
+            if [[ -n "${existing_id}" ]]; then
+              gh api --method DELETE \
+                "repos/${GITHUB_REPOSITORY}/releases/assets/${existing_id}"
+            fi
+          done <<< "${existing_assets}"
+
+          for asset_path in "${release_assets[@]}"; do
+            asset_name="${asset_path##*/}"
+            [[ "${asset_name}" =~ ^[A-Za-z0-9._-]+$ ]]
+            curl --fail-with-body --silent --show-error \
+              --request POST \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Content-Type: application/octet-stream" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --data-binary "@${asset_path}" \
+              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?name=${asset_name}" \
+              >/dev/null
+          done
+
           local_names="$(printf '%s\n' "${release_assets[@]##*/}" | sort)"
-          remote_names="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-            --jq '.assets[].name' | sort)"
+          remote_asset_rows="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" \
+            --jq '.[] | [.name,.digest] | @tsv')"
+          remote_names="$(cut -f1 <<< "${remote_asset_rows}" | sort)"
           test "${local_names}" = "${remote_names}"
           while IFS=$'\t' read -r asset_name remote_digest; do
             local_digest="sha256:$(sha256sum "${artifact_dir}/${asset_name}" | awk '{print $1}')"
             test "${local_digest}" = "${remote_digest}"
-          done < <(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-            --jq '.assets[] | [.name,.digest] | @tsv')
-          gh release edit "${RELEASE_TAG}" --draft=false
-          test "$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft)" = false
+          done <<< "${remote_asset_rows}"
+
+          test "$(gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -F draft=false --jq .draft)" = false
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .draft)" = false
