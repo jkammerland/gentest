@@ -348,8 +348,10 @@ set(_gentest_bazel_build_args
   --repo_contents_cache=${_bazel_repo_contents_cache}
   --action_env=CCACHE_DISABLE
   --action_env=PATH
+  --action_env=SDKROOT
   --host_action_env=CCACHE_DISABLE
   --host_action_env=PATH
+  --host_action_env=SDKROOT
   --action_env=CC
   --action_env=CXX
   --action_env=LLVM_BIN
@@ -362,6 +364,7 @@ set(_gentest_bazel_build_args
   --host_action_env=Clang_DIR
   --host_action_env=HOME
   --repo_env=PATH
+  --repo_env=SDKROOT
   --repo_env=CC
   --repo_env=CXX
   --repo_env=LLVM_BIN
