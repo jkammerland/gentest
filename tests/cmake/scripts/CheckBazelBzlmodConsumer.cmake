@@ -4,6 +4,7 @@ endif()
 if(NOT DEFINED BUILD_ROOT)
   message(FATAL_ERROR "CheckBazelBzlmodConsumer.cmake: BUILD_ROOT not set")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/BazelMacosSdkSystemInclude.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
 if(DEFINED BAZEL_EXECUTABLE AND NOT BAZEL_EXECUTABLE STREQUAL "")
@@ -327,14 +328,8 @@ set(_bazel_env
   "HOME=$ENV{HOME}")
 
 set(_gentest_macos_sdk_flags)
-if(APPLE AND DEFINED ENV{SDKROOT} AND NOT "$ENV{SDKROOT}" STREQUAL "")
-  list(APPEND _gentest_macos_sdk_flags
-    "--copt=-isysroot$ENV{SDKROOT}"
-    "--host_copt=-isysroot$ENV{SDKROOT}"
-    "--linkopt=-isysroot$ENV{SDKROOT}"
-    "--host_linkopt=-isysroot$ENV{SDKROOT}")
-endif()
-
+gentest_append_bazel_macos_sdk_system_include(
+  _gentest_macos_sdk_flags "${_codegen_host_clang}" "${_fixture_dir}")
 set(_build_args
   --output_user_root=${_output_root}
   build

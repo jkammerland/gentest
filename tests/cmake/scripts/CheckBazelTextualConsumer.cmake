@@ -1,6 +1,7 @@
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckBazelTextualConsumer.cmake: SOURCE_DIR not set")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/BazelMacosSdkSystemInclude.cmake")
 if(WIN32 AND NOT GENTEST_BAZEL_HELPER_CONTRACT)
   message(STATUS
     "Skipping the Bazel textual consumer execution check on Windows: the automatic local exec-tool fallback is disabled; "
@@ -320,15 +321,6 @@ set(_bazel_repo_contents_cache "${_bazel_smoke_root}/repo-cache")
 file(MAKE_DIRECTORY "${_bazel_output_root}")
 file(MAKE_DIRECTORY "${_bazel_repo_contents_cache}")
 
-set(_gentest_macos_sdk_flags)
-if(APPLE AND DEFINED ENV{SDKROOT} AND NOT "$ENV{SDKROOT}" STREQUAL "")
-  list(APPEND _gentest_macos_sdk_flags
-    "--copt=-isysroot$ENV{SDKROOT}"
-    "--host_copt=-isysroot$ENV{SDKROOT}"
-    "--linkopt=-isysroot$ENV{SDKROOT}"
-    "--host_linkopt=-isysroot$ENV{SDKROOT}")
-endif()
-
 set(_gentest_bazel_build_flags
   --action_env=CCACHE_DISABLE
   --action_env=PATH
@@ -359,8 +351,9 @@ set(_gentest_bazel_build_flags
   --repo_env=HOME
   --action_env=HOME
   --verbose_failures
-  --sandbox_debug
-  ${_gentest_macos_sdk_flags})
+  --sandbox_debug)
+gentest_append_bazel_macos_sdk_system_include(
+  _gentest_bazel_build_flags "${_clang_cxx}" "${_bazel_smoke_root}")
 set(_gentest_bazel_build_args
   --output_user_root=${_bazel_output_root}
   build
