@@ -1,6 +1,7 @@
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckBazelTextualConsumer.cmake: SOURCE_DIR not set")
 endif()
+include("${CMAKE_CURRENT_LIST_DIR}/BazelConsumerSupport.cmake")
 if(WIN32 AND NOT GENTEST_BAZEL_HELPER_CONTRACT)
   message(STATUS
     "Skipping the Bazel textual consumer execution check on Windows: the automatic local exec-tool fallback is disabled; "
@@ -258,6 +259,10 @@ if(NOT _codegen_host_clang)
 endif()
 _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 set(_clang_cxx "${_codegen_host_clang}")
+gentest_skip_unsupported_bazel_consumer("${_clang_cxx}")
+if(GENTEST_BAZEL_CONSUMER_UNSUPPORTED)
+  return()
+endif()
 get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
 
 if(_use_explicit_c_compiler AND DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")

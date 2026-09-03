@@ -115,6 +115,32 @@ set(_env_fallback_dir "${_work_dir}/env_default_compiler")
 set(_env_fallback_generated_dir "${_env_fallback_dir}/generated")
 set(_env_fallback_empty_path "${_env_fallback_dir}/empty-path")
 file(MAKE_DIRECTORY "${_env_fallback_generated_dir}" "${_env_fallback_empty_path}")
+# On Windows, keep the test executable's dynamic-library closure available
+# without putting the LLVM bin directory (and therefore clang++) back on PATH.
+if(WIN32)
+  get_filename_component(_env_fallback_clang_bin "${_clangxx}" DIRECTORY)
+  file(GLOB _env_fallback_runtime_dlls "${_env_fallback_clang_bin}/*.dll")
+  if(NOT "$ENV{LLVM_DEPENDENCY_PREFIX}" STREQUAL "")
+    file(GLOB _env_fallback_dependency_dlls "$ENV{LLVM_DEPENDENCY_PREFIX}/bin/*.dll")
+    list(APPEND _env_fallback_runtime_dlls ${_env_fallback_dependency_dlls})
+  endif()
+  foreach(_env_fallback_runtime_dll IN LISTS _env_fallback_runtime_dlls)
+    get_filename_component(_env_fallback_runtime_name "${_env_fallback_runtime_dll}" NAME)
+    set(_env_fallback_runtime_link "${_env_fallback_empty_path}/${_env_fallback_runtime_name}")
+    if(NOT EXISTS "${_env_fallback_runtime_link}")
+      file(CREATE_LINK
+        "${_env_fallback_runtime_dll}"
+        "${_env_fallback_runtime_link}"
+        COPY_ON_ERROR
+        RESULT _env_fallback_runtime_link_result)
+      if(NOT _env_fallback_runtime_link_result STREQUAL "0")
+        message(FATAL_ERROR
+          "Failed to stage runtime dependency '${_env_fallback_runtime_dll}': "
+          "${_env_fallback_runtime_link_result}")
+      endif()
+    endif()
+  endforeach()
+endif()
 # AppleClang/Homebrew-Clang mixes currently trip PCM config mismatches here that
 # are unrelated to the bare-driver retargeting behavior this subcase exercises.
 if(NOT APPLE)
