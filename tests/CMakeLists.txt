@@ -4604,9 +4604,9 @@ _gentest_add_cmake_helper_test(
     contract)
 
 _gentest_add_cmake_helper_test(
-    gentest_bazel_macos_sdk_system_include
+    gentest_bazel_consumer_support
     ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBazelMacosSdkSystemInclude.cmake
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBazelConsumerSupport.cmake
     contract)
 
 _gentest_add_cmake_helper_test(

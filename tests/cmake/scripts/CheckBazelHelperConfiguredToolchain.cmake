@@ -871,7 +871,6 @@ function(_run_bazel_helper_regression name script_path)
   set(_expected_flags
     "--action_env=CCACHE_DISABLE"
     "--action_env=PATH"
-    "--action_env=SDKROOT"
     "--action_env=CC"
     "--action_env=CXX"
     "--action_env=LLVM_BIN"
@@ -879,7 +878,6 @@ function(_run_bazel_helper_regression name script_path)
     "--action_env=Clang_DIR"
     "--host_action_env=CCACHE_DISABLE"
     "--host_action_env=PATH"
-    "--host_action_env=SDKROOT"
     "--host_action_env=CC"
     "--host_action_env=CXX"
     "--host_action_env=LLVM_BIN"
@@ -887,7 +885,6 @@ function(_run_bazel_helper_regression name script_path)
     "--host_action_env=Clang_DIR"
     "--host_action_env=HOME"
     "--repo_env=PATH"
-    "--repo_env=SDKROOT"
     "--repo_env=CC"
     "--repo_env=CXX"
     "--repo_env=LLVM_BIN"

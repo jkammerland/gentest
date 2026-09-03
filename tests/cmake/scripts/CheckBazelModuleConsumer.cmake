@@ -1,7 +1,7 @@
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckBazelModuleConsumer.cmake: SOURCE_DIR not set")
 endif()
-include("${CMAKE_CURRENT_LIST_DIR}/BazelMacosSdkSystemInclude.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/BazelConsumerSupport.cmake")
 if(WIN32 AND NOT GENTEST_BAZEL_HELPER_CONTRACT)
   message(STATUS
     "Skipping the Bazel module consumer execution check on Windows: the automatic local exec-tool fallback is disabled; "
@@ -260,6 +260,10 @@ if(NOT _codegen_host_clang)
 endif()
 _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++)
 set(_clang_cxx "${_codegen_host_clang}")
+gentest_skip_unsupported_bazel_consumer("${_clang_cxx}")
+if(GENTEST_BAZEL_CONSUMER_UNSUPPORTED)
+  return()
+endif()
 get_filename_component(_clang_bin_dir "${_clang_cxx}" DIRECTORY)
 if(APPLE AND NOT GENTEST_BAZEL_HELPER_CONTRACT)
   set(_clang_scan_deps "${_clang_bin_dir}/clang-scan-deps")
@@ -342,9 +346,6 @@ set(_bazel_repo_contents_cache "${_bazel_smoke_root}/repo-cache")
 file(MAKE_DIRECTORY "${_bazel_output_root}")
 file(MAKE_DIRECTORY "${_bazel_repo_contents_cache}")
 
-set(_gentest_macos_sdk_flags)
-gentest_append_bazel_macos_sdk_system_include(
-  _gentest_macos_sdk_flags "${_clang_cxx}" "${_bazel_smoke_root}")
 set(_gentest_bazel_build_args
   --output_user_root=${_bazel_output_root}
   build
@@ -352,10 +353,8 @@ set(_gentest_bazel_build_args
   --repo_contents_cache=${_bazel_repo_contents_cache}
   --action_env=CCACHE_DISABLE
   --action_env=PATH
-  --action_env=SDKROOT
   --host_action_env=CCACHE_DISABLE
   --host_action_env=PATH
-  --host_action_env=SDKROOT
   --action_env=CC
   --action_env=CXX
   --action_env=LLVM_BIN
@@ -368,7 +367,6 @@ set(_gentest_bazel_build_args
   --host_action_env=Clang_DIR
   --host_action_env=HOME
   --repo_env=PATH
-  --repo_env=SDKROOT
   --repo_env=CC
   --repo_env=CXX
   --repo_env=LLVM_BIN
@@ -380,7 +378,6 @@ set(_gentest_bazel_build_args
   --action_env=HOME
   --verbose_failures
   --sandbox_debug
-  ${_gentest_macos_sdk_flags}
   //:gentest_consumer_module_mocks
   //:gentest_consumer_module_bazel)
 

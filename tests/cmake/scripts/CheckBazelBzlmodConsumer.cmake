@@ -4,7 +4,7 @@ endif()
 if(NOT DEFINED BUILD_ROOT)
   message(FATAL_ERROR "CheckBazelBzlmodConsumer.cmake: BUILD_ROOT not set")
 endif()
-include("${CMAKE_CURRENT_LIST_DIR}/BazelMacosSdkSystemInclude.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/BazelConsumerSupport.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/ModuleArtifactManifestAssertions.cmake")
 
 if(DEFINED BAZEL_EXECUTABLE AND NOT BAZEL_EXECUTABLE STREQUAL "")
@@ -246,6 +246,10 @@ if(NOT _codegen_host_clang)
   return()
 endif()
 _gentest_resolve_non_ccache_clang("${_codegen_host_clang}" _codegen_host_clang clang++-23 clang++-22 clang++-21 clang++-20 clang++-19 clang++)
+gentest_skip_unsupported_bazel_consumer("${_codegen_host_clang}")
+if(GENTEST_BAZEL_CONSUMER_UNSUPPORTED)
+  return()
+endif()
 
 get_filename_component(_clang_bin_dir "${_codegen_host_clang}" DIRECTORY)
 if(_use_explicit_c_compiler AND DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")
@@ -327,9 +331,6 @@ set(_bazel_env
   "GENTEST_BAZEL_LOCAL_SDKROOT=$ENV{SDKROOT}"
   "HOME=$ENV{HOME}")
 
-set(_gentest_macos_sdk_flags)
-gentest_append_bazel_macos_sdk_system_include(
-  _gentest_macos_sdk_flags "${_codegen_host_clang}" "${_fixture_dir}")
 set(_build_args
   --output_user_root=${_output_root}
   build
@@ -337,7 +338,6 @@ set(_build_args
   --experimental_cpp_modules
   --action_env=CCACHE_DISABLE
   --action_env=PATH
-  --action_env=SDKROOT
   --action_env=CC
   --action_env=CXX
   --action_env=LLVM_BIN
@@ -345,7 +345,6 @@ set(_build_args
   --action_env=Clang_DIR
   --host_action_env=CCACHE_DISABLE
   --host_action_env=PATH
-  --host_action_env=SDKROOT
   --host_action_env=CC
   --host_action_env=CXX
   --host_action_env=LLVM_BIN
@@ -353,7 +352,6 @@ set(_build_args
   --host_action_env=Clang_DIR
   --host_action_env=HOME
   --repo_env=PATH
-  --repo_env=SDKROOT
   --repo_env=CC
   --repo_env=CXX
   --repo_env=LLVM_BIN
@@ -362,7 +360,6 @@ set(_build_args
   --repo_env=GENTEST_BAZEL_LOCAL_CLANG
   --repo_env=GENTEST_BAZEL_LOCAL_SDKROOT
   --repo_env=HOME
-  ${_gentest_macos_sdk_flags}
   //:gentest_downstream_textual_mocks
   //:gentest_downstream_textual
   //:gentest_downstream_module_mocks
