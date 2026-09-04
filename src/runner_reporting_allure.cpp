@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <set>
 
 #ifdef GENTEST_USE_BOOST_JSON
 #include <boost/json.hpp>
@@ -40,6 +41,8 @@ bool preflight_output_file(OnFailure &&on_failure, const std::filesystem::path &
 }
 
 #ifdef GENTEST_USE_BOOST_JSON
+boost::json::value record_text(std::string_view text) { return boost::json::parse(gentest::detail::recording_json_string(text)); }
+
 void record_allure_failure(RunAccumulator &acc, std::string message) {
     record_runner_level_failure(acc, "gentest/reporting/allure", std::move(message));
 }
@@ -122,6 +125,7 @@ bool write_allure_file(RunAccumulator &acc, const std::filesystem::path &path, s
 std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &acc, const std::filesystem::path &allure_dir) {
     std::vector<PendingAllureFile> files;
     std::size_t                    idx = 0;
+    std::set<std::string>          shared_record_files;
     for (const auto &it : acc.report_items) {
         boost::json::object obj;
         obj["name"]   = it.name;
@@ -154,6 +158,11 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             }
         }
         obj["labels"] = std::move(labels);
+        boost::json::array parameters;
+        for (const auto &[key, value] : it.properties)
+            parameters.push_back(
+                {{"name", record_text("gentest.property." + key)}, {"value", record_text(gentest::detail::property_text(value))}});
+        obj["parameters"] = std::move(parameters);
         if (!it.failures.empty()) {
             boost::json::object ex;
             ex["message"]        = it.failures.front();
@@ -189,6 +198,16 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             used_stems.push_back("timeline");
         }
         for (const auto &attachment : it.attachments) {
+            if (!attachment.shared_source.empty()) {
+                if (shared_record_files.insert(attachment.shared_source).second)
+                    files.push_back(
+                        {.path = allure_dir / attachment.shared_source, .label = "Allure runtime record", .contents = attachment.contents});
+                attachments.push_back({{"name", record_text(attachment.name)},
+                                       {"source", attachment.shared_source},
+                                       {"type", record_text(attachment.mime_type)}});
+                has_attachments = true;
+                continue;
+            }
             std::string stem = sanitize_attachment_stem(attachment.name, "attachment");
             std::string ext  = sanitize_attachment_extension(attachment.file_extension, ".bin");
             std::string unique_stem{stem};

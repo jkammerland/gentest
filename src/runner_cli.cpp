@@ -448,6 +448,13 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
                 return false;
             continue;
         }
+        if (const OptionParseResult records_result = parse_value_option(
+                i, s, "--records", [&](std::string_view value) { return set_unique_string_option(opt.records_dir, "--records", value); });
+            records_result != OptionParseResult::NoMatch) {
+            if (records_result == OptionParseResult::Error)
+                return false;
+            continue;
+        }
         if (const OptionParseResult junit_result = parse_value_option(
                 i, s, "--junit", [&](std::string_view value) { return set_unique_string_option(opt.junit_path, "--junit", value); });
             junit_result != OptionParseResult::NoMatch) {

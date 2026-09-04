@@ -32,11 +32,10 @@ and exports each `req(...)` as a JUnit `requirement` property. Join the inventor
 `name` with the JUnit testcase `name` to associate owners and tags with outcomes;
 JUnit does not currently export those as dedicated properties.
 
-There is no public runtime key/value metadata-recording API in this checkout.
-`gentest::log()` records runtime text on the active case, but is not a structured
-metadata hook and these messages are not exported in JUnit. For machine-readable
-run context such as a git revision, compiler flags, device ID, or random seed,
-have the invoking script save a separate JSON file beside these reports.
+Runtime evidence is available through `gentest::record_property()` and
+`gentest::record_data()`. See [runtime recording](../../docs/recording.md) for
+case/suite/run scope, structured payloads, and exporter behavior. This example
+focuses on declaration metadata and inventory.
 
 The package smoke test parses JSON and JUnit to verify inherited metadata on both
 expanded cases and empty metadata on the plain case. See the

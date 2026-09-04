@@ -60,8 +60,9 @@ RunResult make_static_skip_result(TestRunContext &state, const gentest::Case &te
 }
 
 RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test, const InvokeResult &inv, TestCounters &c) {
-    RunResult  rr;
-    auto       ctxinfo         = inv.ctxinfo;
+    RunResult rr;
+    auto      ctxinfo          = inv.ctxinfo;
+    rr.recording               = ctxinfo->recording;
     const bool runtime_skipped = (inv.exception == gentest::runner::InvokeException::Skip);
     const bool runtime_blocked = (inv.exception == gentest::runner::InvokeException::Blocked);
     const bool threw_non_skip =
