@@ -4,6 +4,8 @@
 
 ### Added
 
+- Optional Glaze JSON and cbor_tags CBOR recording adapters, pinned vcpkg
+  features, and an executable runtime recording example.
 - Runtime scalar properties and owned structured records with case, suite, and run
   scopes, versioned record bundles, JUnit properties, and Allure attachments.
 

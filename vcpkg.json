@@ -7,5 +7,19 @@
     "zlib",
     "zstd",
     "libxml2"
-  ]
+  ],
+  "features": {
+    "record-glaze": {
+      "description": "Optional C++23 JSON recording adapter",
+      "dependencies": [
+        "glaze"
+      ]
+    },
+    "record-cbor": {
+      "description": "Optional C++20 CBOR recording adapter",
+      "dependencies": [
+        "cbor-tags"
+      ]
+    }
+  }
 }

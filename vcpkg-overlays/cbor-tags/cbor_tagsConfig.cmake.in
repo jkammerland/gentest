@@ -1,0 +1,6 @@
+@PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(fmt 11.0.2 CONFIG)
+find_dependency(nameof 0.10.4 CONFIG)
+find_dependency(tl-expected CONFIG)
+include("${CMAKE_CURRENT_LIST_DIR}/cbor_tagsTargets.cmake")
