@@ -1,0 +1,12 @@
+measured/sum_correct<int,false>
+measured/sum_correct<int,true>
+measured/sum_correct<long,false>
+measured/sum_correct<long,true>
+measured/sum_latency<int,false>
+measured/sum_latency<int,true>
+measured/sum_latency<long,false>
+measured/sum_latency<long,true>
+measured/sum_throughput<int,false>
+measured/sum_throughput<int,true>
+measured/sum_throughput<long,false>
+measured/sum_throughput<long,true>

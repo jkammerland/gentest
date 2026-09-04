@@ -1,0 +1,3 @@
+metadata/bounded_value(-1)
+metadata/bounded_value(11)
+metadata/plain

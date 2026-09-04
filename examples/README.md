@@ -21,6 +21,8 @@ example requires a gentest install configured with `-DGENTEST_ENABLE_PUBLIC_MODU
 | [parameterized](parameterized/) | Value axes, paired rows, and type/container matrices | 18 |
 | [fixtures](fixtures/) | Fresh local state and shared suite setup with free-function tests | 3 |
 | [mocking](mocking/) | Generated payment gateway mock, argument checks, and call counts | 4 |
+| [measured](measured/) | Benchmark/jitter runs and a type × direction template matrix | 12 |
+| [metadata](metadata/) | Declared metadata, JSON inventory, and JUnit requirements | 3 |
 
 Each directory is an independent CMake consumer with build commands and a
 checked case inventory. Start with the header-only hello, then pick a feature.
@@ -28,8 +30,10 @@ Install instructions: [Linux](../docs/install/linux.md),
 [macOS](../docs/install/macos.md), [Windows](../docs/install/windows.md).
 
 With `GENTEST_ENABLE_PACKAGE_TESTS=ON`, the
-`gentest_package_consumer_include_only` CTest check builds all three feature
+`gentest_package_consumer_include_only` CTest check builds all five feature
 examples against the same installed package. It checks their exact case names,
 runs discovered cases individually, and runs each executable with repeat and
-shuffle enabled. The lightweight examples documentation contract remains a
+shuffle enabled. For measured cases it uses short smoke settings and validates
+JSON report structure without imposing timing thresholds. It also parses metadata
+inventory and JUnit exports. The lightweight examples documentation contract remains a
 separate check; it does not compile the examples.

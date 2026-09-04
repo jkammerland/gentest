@@ -79,7 +79,8 @@ Contributor workflows, including lint, static analysis, coverage, and local CI-a
 Complete copy-paste projects live in [`examples/hello_header_only`](examples/hello_header_only),
 [`examples/hello`](examples/hello), and [`examples/hello_modules`](examples/hello_modules).
 Feature walkthroughs cover [parameter matrices](examples/parameterized/),
-[fixtures](examples/fixtures/), and [generated mocks](examples/mocking/).
+[fixtures](examples/fixtures/), [generated mocks](examples/mocking/),
+[benchmark/jitter matrices](examples/measured/), and [metadata exports](examples/metadata/).
 
 ```cmake
 # Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
