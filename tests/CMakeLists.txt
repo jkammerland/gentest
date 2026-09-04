@@ -19,6 +19,11 @@ add_test(NAME runtime_recording COMMAND ${Python3_EXECUTABLE}
     ${GENTEST_USE_BOOST_JSON})
 set_tests_properties(runtime_recording PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
 
+option(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS "Test optional Glaze and cbor_tags recording adapters" OFF)
+if(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS)
+    add_subdirectory(recording_adapters)
+endif()
+
 add_subdirectory(tool_core)
 
 add_executable(gentest_format_value_tests

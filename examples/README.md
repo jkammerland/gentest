@@ -22,6 +22,7 @@ example requires a gentest install configured with `-DGENTEST_ENABLE_PUBLIC_MODU
 | [fixtures](fixtures/) | Fresh local state and shared suite setup with free-function tests | 3 |
 | [mocking](mocking/) | Generated payment gateway mock, argument checks, and call counts | 4 |
 | [measured](measured/) | Benchmark/jitter runs and a type × direction template matrix | 12 |
+| [recording](recording/) | Runtime properties, raw payloads, and optional JSON/CBOR snapshots | 3 |
 | [metadata](metadata/) | Declared metadata, JSON inventory, and JUnit requirements | 3 |
 
 Each directory is an independent CMake consumer with build commands and a
@@ -30,7 +31,7 @@ Install instructions: [Linux](../docs/install/linux.md),
 [macOS](../docs/install/macos.md), [Windows](../docs/install/windows.md).
 
 With `GENTEST_ENABLE_PACKAGE_TESTS=ON`, the
-`gentest_package_consumer_include_only` CTest check builds all five feature
+`gentest_package_consumer_include_only` CTest check builds all six feature
 examples against the same installed package. It checks their exact case names,
 runs discovered cases individually, and runs each executable with repeat and
 shuffle enabled. For measured cases it uses short smoke settings and validates
