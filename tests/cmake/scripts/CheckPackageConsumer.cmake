@@ -15,6 +15,7 @@
 #     [-DPACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS=<path>]
 #     [-DCONSUMER_LINK_MODE=<main_only|runtime_only|double>]
 #     [-DPACKAGE_TEST_USE_MODULES=<ON|OFF>]
+#     [-DPACKAGE_TEST_BUILD_EXAMPLES=<ON|OFF>]
 #     [-DPACKAGE_TEST_EXPECT_MODULES=<AUTO|ON|OFF>]
 #     [-DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=<ON|OFF>]
 #     [-DPACKAGE_TEST_DRY_RUN_WORK_DIR=<ON|OFF>]
@@ -492,6 +493,10 @@ run_or_fail(COMMAND "${_consumer_exe}" --kind=bench --run=consumer/module_bench)
 
 message(STATUS "Run consumer jitter...")
 run_or_fail(COMMAND "${_consumer_exe}" --kind=jitter --run=consumer/module_jitter)
+
+if(PACKAGE_TEST_BUILD_EXAMPLES)
+  include("${CMAKE_CURRENT_LIST_DIR}/CheckFeatureExamples.cmake")
+endif()
 
 # Nested producer + consumer builds can occupy substantial disk space on
 # module-enabled Debug lanes. Remove the scratch roots after success so later

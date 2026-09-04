@@ -4735,7 +4735,9 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         -DCONSUMER_LINK_MODE=main_only
         -DPACKAGE_TEST_USE_MODULES=OFF
         -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+        -DPACKAGE_TEST_BUILD_EXAMPLES=ON
         ${_gentest_package_test_compiler_args})
+    set_property(TEST gentest_package_consumer_include_only APPEND PROPERTY LABELS "examples")
 
     _gentest_add_cmake_helper_test(
         gentest_third_party_mock_package_consumers

@@ -6,6 +6,7 @@
 ## Getting started
 
 - Quick start: [`README.md`](../README.md)
+- Runnable examples: [`examples/README.md`](../examples/README.md)
 - Changelog: [`CHANGELOG.md`](../CHANGELOG.md)
 - Modules guide: [`docs/modules.md`](modules.md)
 - Embedding the runner: [`docs/runner_api.md`](runner_api.md)
