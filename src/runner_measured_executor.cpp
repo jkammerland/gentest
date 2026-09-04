@@ -735,9 +735,10 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
                                   const MeasurementFailureFn &on_failure) {
     TimedRunStatus status{};
     for (auto i : idxs) {
-        const auto            &c = kCases[i];
-        Result                 result{};
-        MeasurementCaseFailure failure{};
+        const auto                           &c = kCases[i];
+        gentest::detail::RecordingTargetScope recording_scope(gentest::detail::make_case_recording(c));
+        Result                                result{};
+        MeasurementCaseFailure                failure{};
         ++status.total;
         if (!run_measured_case(c, run_call, result, failure)) {
             if (failure.skipped) {

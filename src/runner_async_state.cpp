@@ -98,10 +98,11 @@ auto finish_async_run(AsyncCaseRun &run) -> InvokeResult {
 
 void schedule_async_case(std::vector<AsyncCaseRun> &runs, const gentest::Case &test, std::size_t case_index, void *fixture_ctx) {
     AsyncCaseRun run;
-    run.case_index  = case_index;
-    run.fixture_ctx = fixture_ctx;
-    run.ctxinfo     = gentest::runner::detail::make_active_test_context(test.name);
-    run.start       = std::chrono::steady_clock::now();
+    run.case_index         = case_index;
+    run.fixture_ctx        = fixture_ctx;
+    run.ctxinfo            = gentest::runner::detail::make_active_test_context(test.name);
+    run.ctxinfo->recording = gentest::detail::make_case_recording(test);
+    run.start              = std::chrono::steady_clock::now();
 
     {
         gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);

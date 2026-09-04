@@ -170,6 +170,8 @@ Naming:
 - `test("...")` is optional; if omitted, the base name defaults to the C++ function name.
 - Member tests are experimental and support may be removed.
 
+Runtime evidence: [properties, structured records, scopes, and exporters](docs/recording.md).
+
 Tags/metadata:
 - Flag attributes are collected as tags: `fast`, `slow`, `linux`, `windows`, `death`.
 - Value attributes attach metadata: `req("BUG-123")`, `owner("team-runtime")`, `skip("reason")`.

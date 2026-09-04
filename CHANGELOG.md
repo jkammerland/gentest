@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Runtime scalar properties and owned structured records with case, suite, and run
+  scopes, versioned record bundles, JUnit properties, and Allure attachments.
+
 ### Changed
 
 - Transitional release archives are explicitly named as LLVM-bound host

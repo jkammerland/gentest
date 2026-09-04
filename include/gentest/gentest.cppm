@@ -1,6 +1,12 @@
 module;
 
 #include "gentest/runner.h"
+// Installed interfaces have adjacent headers; build-system staging may copy only module files.
+#if __has_include("record.h")
+#include "record.h"
+#else
+#include "gentest/record.h"
+#endif
 
 #ifdef EXPECT_THROW
 #undef EXPECT_THROW
@@ -52,6 +58,11 @@ using ::gentest::log;
 using ::gentest::LogSink;
 using ::gentest::LogSinkHandle;
 using ::gentest::make_ostream_log_sink;
+using ::gentest::PropertyValue;
+using ::gentest::record_data;
+using ::gentest::record_property;
+using ::gentest::RecordOptions;
+using ::gentest::RecordScope;
 using ::gentest::registered_cases;
 using ::gentest::remove_all_log_sinks;
 using ::gentest::remove_log_sink;

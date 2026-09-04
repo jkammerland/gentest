@@ -201,11 +201,20 @@ void record_case_result(RunAccumulator &acc, const gentest::Case &test, RunResul
     if (!result.summary_issues.empty()) {
         record_failure_summary(acc, test.name, std::move(result.summary_issues), test.file, test.line);
     }
+    if (!result.recording)
+        result.recording = gentest::detail::current_recording_target();
+    if (!result.recording)
+        result.recording = gentest::detail::make_case_recording(test);
+    if (result.recording && result.recording->occurrence) {
+        constexpr const char *outcomes[]      = {"pass", "fail", "skip", "blocked", "xfail", "xpass"};
+        result.recording->occurrence->outcome = outcomes[static_cast<unsigned>(result.outcome)];
+    }
     if (!include_report_item) {
         return;
     }
 
     ReportItem item;
+    item.recording   = std::move(result.recording);
     item.suite       = std::string(test.suite);
     item.name        = std::string(test.name);
     item.time_s      = result.time_s;
@@ -271,11 +280,17 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
         for (const auto &it : acc.report_items) {
             out << "  <testcase classname=\"" << escape_xml(it.suite) << "\" name=\"" << escape_xml(it.name) << "\" time=\"" << it.time_s
                 << "\">\n";
-            if (!it.requirements.empty()) {
+            if (!it.requirements.empty() || !it.properties.empty() || !it.record_index.empty()) {
                 out << "    <properties>\n";
                 for (const auto &req : it.requirements) {
                     out << R"(      <property name="requirement" value=")" << escape_xml(req) << "\"/>\n";
                 }
+                for (const auto &[key, value] : it.properties) {
+                    out << "      <property name=\"gentest.property." << escape_xml(key) << "\" value=\""
+                        << escape_xml(gentest::detail::property_text(value)) << "\"/>\n";
+                }
+                if (!it.record_index.empty())
+                    out << "      <property name=\"gentest.records\" value=\"" << escape_xml(it.record_index) << "\"/>\n";
                 out << "    </properties>\n";
             }
             if (it.skipped) {
