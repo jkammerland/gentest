@@ -146,6 +146,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
 auto make_context(std::string_view label) -> std::shared_ptr<TestContextInfo> {
     auto ctx          = std::make_shared<TestContextInfo>();
     ctx->display_name = std::string(label);
+    ctx->recording    = current_test() ? current_test()->recording : current_recording_target();
     start_context(*ctx);
     return ctx;
 }

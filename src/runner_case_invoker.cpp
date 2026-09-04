@@ -10,6 +10,8 @@ namespace gentest::runner {
 InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail::BenchPhase phase, UnhandledExceptionPolicy policy) {
     InvokeResult out;
     out.ctxinfo = gentest::runner::detail::make_active_test_context(c.name);
+    if (phase == gentest::detail::BenchPhase::None)
+        out.ctxinfo->recording = gentest::detail::make_case_recording(c);
 
     const auto start_tp = std::chrono::steady_clock::now();
     {
