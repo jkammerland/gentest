@@ -1,0 +1,44 @@
+name: Run CI
+run-name: CI (${{ inputs.profile || 'full' }}) — ${{ github.ref_name }}
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Test profile (full is exhaustive; pr keeps representative compatibility coverage)
+        type: choice
+        options: [full, pr]
+        default: full
+      base_ref:
+        description: Base branch, tag, or commit for the measured comparison
+        type: string
+        default: master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cmake:
+    uses: ./.github/workflows/cmake.yml
+    with:
+      profile: ${{ inputs.profile || 'full' }}
+  lint:
+    uses: ./.github/workflows/lint.yml
+  coverage:
+    uses: ./.github/workflows/coverage.yml
+  cross-qemu:
+    uses: ./.github/workflows/cross_qemu.yml
+  buildsystems:
+    uses: ./.github/workflows/buildsystems_linux.yml
+  measured:
+    uses: ./.github/workflows/measured_reports.yml
+    with:
+      base_ref: ${{ inputs.base_ref || github.event.before }}
+  recording:
+    uses: ./.github/workflows/recording.yml

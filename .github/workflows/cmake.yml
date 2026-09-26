@@ -1,20 +1,28 @@
 name: cmake
 
 on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
   workflow_dispatch:
+    inputs:
+      profile:
+        description: Test profile (pr runs one exhaustive Linux lane plus compatibility checks)
+        type: choice
+        options: [full, pr]
+        default: full
+  workflow_call:
+    inputs:
+      profile:
+        type: string
+        default: full
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: cmake-${{ github.ref }}
   cancel-in-progress: true
 
 env:
+  GENTEST_CI_PROFILE: ${{ inputs.profile || 'full' }}
   CTEST_OUTPUT_ON_FAILURE: 1
   GENTEST_HELPER_BUILD_PARALLEL_LEVEL: 1
 
@@ -198,7 +206,7 @@ jobs:
       - name: Test
         run: |
           ctest_args=(--preset=${{ matrix.build-type }} --output-on-failure --parallel 4 -E '^(gentest_bazel_bzlmod_consumer)$')
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+          if [ "${GENTEST_CI_PROFILE}" = "pr" ]; then
             ctest_args+=(--label-regex '^ci-compat$')
           fi
           ctest "${ctest_args[@]}"
@@ -356,7 +364,7 @@ jobs:
         shell: pwsh
         run: |
           $ctestArgs = @("--preset=${{ matrix.preset }}", "--output-on-failure", "--parallel", "4", "-E", "^(gentest_bazel_helpers_use_configured_toolchain)$")
-          if ($env:GITHUB_EVENT_NAME -eq "pull_request") {
+          if ($env:GENTEST_CI_PROFILE -eq "pr") {
             $ctestArgs += @("--label-regex", "^ci-compat$")
           }
           ctest @ctestArgs
@@ -380,7 +388,7 @@ jobs:
           cmake --build $msvcBuildDir
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $ctestArgs = @("--test-dir", $msvcBuildDir, "--output-on-failure", "--parallel", "4")
-          if ($env:GITHUB_EVENT_NAME -eq "pull_request") {
+          if ($env:GENTEST_CI_PROFILE -eq "pr") {
             $ctestArgs += @("--label-regex", "^ci-compat$")
           }
           ctest @ctestArgs
@@ -1041,7 +1049,7 @@ jobs:
         run: |
           set -euxo pipefail
           ctest_args=(--preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }})
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ] && [ "${{ matrix.ci_exhaustive }}" != "true" ]; then
+          if [ "${GENTEST_CI_PROFILE}" = "pr" ] && [ "${{ matrix.ci_exhaustive }}" != "true" ]; then
             ctest_args+=(--label-regex '^ci-compat$')
           fi
           ctest "${ctest_args[@]}"
@@ -1158,7 +1166,7 @@ jobs:
         run: |
           set -euxo pipefail
           package_workflow=package
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+          if [ "${GENTEST_CI_PROFILE}" = "pr" ]; then
             package_workflow=package-pr
           fi
           cmake --workflow --preset="${package_workflow}"

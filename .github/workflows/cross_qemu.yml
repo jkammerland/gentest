@@ -1,17 +1,14 @@
 name: cross-qemu
 
 on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: cross-qemu-${{ github.ref }}
   cancel-in-progress: true
 
 env:

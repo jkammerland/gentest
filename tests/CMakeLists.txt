@@ -87,6 +87,11 @@ add_test(
 set_property(TEST ci_package_lane_contract APPEND PROPERTY LABELS "cmake;scripts;ci-compat")
 
 add_test(
+    NAME manual_ci_contract
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_manual_ci.py)
+set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github;ci-compat")
+
+add_test(
     NAME analyzer_assertions_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_analyzer_assertions.py)
 _gentest_resolve_fmt_target(_gentest_analyzer_fmt_target)
