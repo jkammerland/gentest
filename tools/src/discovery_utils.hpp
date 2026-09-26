@@ -1,7 +1,6 @@
 // Helper utilities for discovery: template param collection and validation
 #pragma once
 
-#include "axis_expander.hpp"
 #include "validate.hpp"
 
 #include <cctype>
