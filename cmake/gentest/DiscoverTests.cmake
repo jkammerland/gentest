@@ -83,6 +83,9 @@ function(_gentest_ensure_check_death_script out_var)
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "CheckDeath.cmake: PROG not set")
 endif()
+if(NOT EXISTS "${PROG}" OR IS_DIRECTORY "${PROG}")
+  message(FATAL_ERROR "Death test process could not execute: executable does not exist: ${PROG}")
+endif()
 
 set(_emu)
 if(DEFINED EMU)
@@ -102,17 +105,21 @@ if(DEFINED ARGS)
   endif()
 endif()
 
-set(_command ${_emu} "${PROG}" ${_args})
 if(DEFINED ENV_VARS)
-  set(_env)
   foreach(kv IN LISTS ENV_VARS)
-    list(APPEND _env "${kv}")
+    string(FIND "${kv}" "=" _equals)
+    if(_equals LESS 1)
+      message(FATAL_ERROR "Invalid death test environment assignment: ${kv}")
+    endif()
+    string(SUBSTRING "${kv}" 0 ${_equals} _key)
+    math(EXPR _value_start "${_equals} + 1")
+    string(SUBSTRING "${kv}" ${_value_start} -1 _value)
+    set(ENV{${_key}} "${_value}")
   endforeach()
-  set(_command ${CMAKE_COMMAND} -E env ${_env} ${_emu} "${PROG}" ${_args})
 endif()
 
 execute_process(
-  COMMAND ${_command}
+  COMMAND ${_emu} "${PROG}" ${_args}
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err
@@ -120,6 +127,15 @@ execute_process(
   ERROR_STRIP_TRAILING_WHITESPACE)
 
 set(_all "${_out}\n${_err}")
+
+# execute_process returns text for both fatal signals and launch errors.
+# Accept CMake's termination descriptions; other text means execution failed.
+# See cmUVProcessChain::Status::GetException in CMake.
+set(_death_exception_pattern
+  "^(Segmentation fault|Bus error|Floating-point .+|Illegal instruction|User interrupt|Subprocess (aborted|killed|terminated)|SIG[A-Z0-9]+|Signal [0-9]+|Divide-by-zero|Invalid floating-point operation|Integer (divide-by-zero|overflow)|Datatype misalignment|Access violation|In-page error|Invalid handle|Noncontinuable exception|Invalid disposition|Array bounds exceeded|Stack overflow|Privileged instruction|Exit code 0x[0-9a-fA-F]+[\n]?)$")
+if(NOT _rc MATCHES "^-?[0-9]+$" AND NOT _rc MATCHES "${_death_exception_pattern}")
+  message(FATAL_ERROR "Death test process could not execute: ${_rc}. Output:\n${_all}")
+endif()
 
 set(_missing_case "")
 foreach(_arg IN LISTS _args)

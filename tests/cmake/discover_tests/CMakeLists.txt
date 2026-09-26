@@ -9,6 +9,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/GentestCodegen.cmake")
 
 add_executable(demo_tests "${CMAKE_CURRENT_LIST_DIR}/main.cpp")
 target_compile_features(demo_tests PRIVATE cxx_std_20)
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/demo_program_$<CONFIG>.txt" CONTENT "$<TARGET_FILE:demo_tests>")
 
 set(_gentest_death_expect_arg DEATH_EXPECT_SUBSTRING)
 if(GENTEST_DISCOVER_TESTS_USE_LEGACY_EXPECT_SUBSTRING)
