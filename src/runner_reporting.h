@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gentest/runner.h"
+#include "recording_internal.h"
 #include "runner_result_model.h"
 
 #include <cstddef>
@@ -12,18 +13,21 @@
 namespace gentest::runner {
 
 struct ReportItem {
-    std::string                   suite;
-    std::string                   name;
-    double                        time_s  = 0.0;
-    bool                          skipped = false;
-    std::string                   skip_reason;
-    Outcome                       outcome = Outcome::Pass;
-    std::vector<std::string>      failures;
-    std::vector<std::string>      logs;
-    std::vector<std::string>      timeline;
-    std::vector<std::string>      tags;
-    std::vector<std::string>      requirements;
-    std::vector<ReportAttachment> attachments;
+    std::shared_ptr<gentest::detail::RecordingTarget> recording;
+    std::map<std::string, PropertyValue, std::less<>> properties;
+    std::string                                       record_index;
+    std::string                                       suite;
+    std::string                                       name;
+    double                                            time_s  = 0.0;
+    bool                                              skipped = false;
+    std::string                                       skip_reason;
+    Outcome                                           outcome = Outcome::Pass;
+    std::vector<std::string>                          failures;
+    std::vector<std::string>                          logs;
+    std::vector<std::string>                          timeline;
+    std::vector<std::string>                          tags;
+    std::vector<std::string>                          requirements;
+    std::vector<ReportAttachment>                     attachments;
 };
 
 struct FailureSummary {
@@ -51,6 +55,9 @@ struct ReportConfig {
     const char *junit_path = nullptr;
     const char *allure_dir = nullptr;
 };
+
+void prepare_record_reports(RunAccumulator &acc, const gentest::detail::RecordingSession &session, const char *records_dir,
+                            const char *junit_path, const char *allure_dir);
 
 void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vector<std::string> issues, std::string_view file = {},
                             unsigned line = 0);

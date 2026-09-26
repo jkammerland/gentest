@@ -28,9 +28,12 @@ enum class ContextState : unsigned char {
     Closed,
 };
 
+struct RecordingTarget;
+
 struct TestContextInfo {
-    std::string              display_name;
-    std::vector<std::string> failures;
+    std::shared_ptr<RecordingTarget> recording;
+    std::string                      display_name;
+    std::vector<std::string>         failures;
     struct FailureLoc {
         std::string file;
         unsigned    line = 0;

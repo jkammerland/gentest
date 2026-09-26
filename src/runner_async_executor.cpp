@@ -431,6 +431,9 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             scheduler.cancel_owner(run_index);
             gentest::runner::detail::cancel_active_test_context_without_wait(run.ctxinfo);
             gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
+            if (run.ctxinfo->recording && run.ctxinfo->recording->occurrence && run.ctxinfo->recording->occurrence->outcome == "pending") {
+                run.ctxinfo->recording->occurrence->outcome = "canceled";
+            }
             if (adopted_work) {
                 deferred_canceled_tasks.push_back(DeferredCanceledTask{.task                     = std::move(run.task),
                                                                        .ctx                      = run.ctxinfo,

@@ -303,6 +303,7 @@ bool setup_shared_fixtures() {
         std::string fixture_name;
         std::string suite_name;
         bool        teardown_in_progress                                    = false;
+        bool        global_recording                                        = false;
         std::shared_ptr<void> (*create_fn)(std::string_view, std::string &) = nullptr;
         void (*setup_fn)(void *, std::string &)                             = nullptr;
 
@@ -319,6 +320,7 @@ bool setup_shared_fixtures() {
                     target_idx         = i;
                     fixture_name       = entry.fixture_name;
                     suite_name         = entry.suite;
+                    global_recording   = entry.scope == gentest::detail::SharedFixtureScope::Global;
                     create_fn          = entry.create;
                     setup_fn           = entry.setup;
                     break;
@@ -333,8 +335,9 @@ bool setup_shared_fixtures() {
             break;
         }
 
-        std::string           error;
-        std::shared_ptr<void> instance;
+        gentest::detail::RecordingTargetScope recording_scope(gentest::detail::make_fixture_recording(suite_name, global_recording));
+        std::string                           error;
+        std::shared_ptr<void>                 instance;
         if (!create_fn) {
             error = "missing factory";
         } else {
@@ -432,6 +435,8 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
     struct TeardownWorkItem {
         std::size_t           index = std::numeric_limits<std::size_t>::max();
         std::string           fixture_name;
+        std::string           suite;
+        bool                  global_recording = false;
         std::shared_ptr<void> instance;
         void (*teardown)(void *instance, std::string &error) = nullptr;
     };
@@ -461,16 +466,19 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
                 continue;
             }
             work.push_back(TeardownWorkItem{
-                .index        = i,
-                .fixture_name = entry.fixture_name,
-                .instance     = entry.instance,
-                .teardown     = entry.teardown,
+                .index            = i,
+                .fixture_name     = entry.fixture_name,
+                .suite            = entry.suite,
+                .global_recording = entry.scope == gentest::detail::SharedFixtureScope::Global,
+                .instance         = entry.instance,
+                .teardown         = entry.teardown,
             });
         }
     }
 
     bool teardown_ok = true;
     for (const auto &item : work) {
+        gentest::detail::RecordingTargetScope recording_scope(gentest::detail::make_fixture_recording(item.suite, item.global_recording));
         if (item.teardown) {
             std::string       error;
             const std::string label = fmt::format("fixture teardown {}", item.fixture_name);

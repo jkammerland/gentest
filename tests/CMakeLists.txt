@@ -8,6 +8,17 @@ if(NOT TARGET gentest_test_suites)
     add_custom_target(gentest_test_suites)
 endif()
 
+add_executable(gentest_recording_tests recording/main.cpp recording/cases.hpp)
+target_link_libraries(gentest_recording_tests PRIVATE gentest::gentest)
+target_compile_features(gentest_recording_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(gentest_recording_tests)
+add_dependencies(gentest_test_suites gentest_recording_tests)
+add_test(NAME runtime_recording COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_runtime_recording.py
+    $<TARGET_FILE:gentest_recording_tests> ${CMAKE_CURRENT_BINARY_DIR}/recording-reports
+    ${GENTEST_USE_BOOST_JSON})
+set_tests_properties(runtime_recording PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
+
 add_subdirectory(tool_core)
 
 add_executable(gentest_format_value_tests

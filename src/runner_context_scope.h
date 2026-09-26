@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gentest/detail/runtime_context.h"
+#include "recording_internal.h"
 
 #include <memory>
 #include <string>
@@ -11,6 +12,7 @@ namespace gentest::runner::detail {
 inline auto make_active_test_context(std::string_view display_name) -> std::shared_ptr<gentest::detail::TestContextInfo> {
     auto ctx          = std::make_shared<gentest::detail::TestContextInfo>();
     ctx->display_name = std::string(display_name);
+    ctx->recording    = gentest::detail::current_recording_target();
     gentest::detail::start_context(*ctx);
     return ctx;
 }
