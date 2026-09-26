@@ -23,6 +23,15 @@ else()
 endif()
 
 set(_root "${BUILD_ROOT}/fallback_header_semantics")
+# Synthetic driver commands must not inherit distro defaults for another
+# driver (for example Alpine's GNU-only -fstack-clash-protection in cl mode).
+# Poison the candidate defaults so this isolation is exercised on every host.
+set(_config_dir "${_root}/config")
+foreach(_driver IN ITEMS clang clang++ clang-cl)
+  gentest_fixture_write_file("${_config_dir}/${_driver}.cfg" "--gentest-unexpected-default-config\n")
+endforeach()
+list(APPEND _source_flags --no-default-config
+  "--config-system-dir=${_config_dir}" "--config-user-dir=${_config_dir}")
 foreach(_warning_mode IN LISTS _warning_modes)
   string(REPLACE "/" "slash" _mode_dir "${_warning_mode}")
   foreach(_scenario IN ITEMS single multi parse_error warning_error authored_source)
