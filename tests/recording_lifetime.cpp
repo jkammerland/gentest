@@ -35,7 +35,7 @@ int main() {
     const char *args[] = {"recording-lifetime", "--repeat=32", "--no-color"};
     const int   result = gentest::run_cases(std::span<const gentest::Case>(&test, 1), args);
     if (result != 0 || calls != 32 || retained != 0 || !previous.expired()) {
-        std::fprintf(stderr, "Completed recording occurrences retained without an exporter: %u of %u\n", retained, calls);
+        (void)std::fprintf(stderr, "Completed recording occurrences retained without an exporter: %u of %u\n", retained, calls);
         return 1;
     }
     return 0;
