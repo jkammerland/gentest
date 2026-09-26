@@ -97,10 +97,6 @@ Unstable inside. No backward compatibility.
 
 ### Fixed
 
-- Native MSVC codegen builds use conforming preprocessing for LLVM option tables.
-- Synthetic clang-cl fallback-header checks isolate host compiler defaults while
-  preserving warnings-as-errors and authored-source diagnostics.
-
 - Compile-command delimiter parsing follows the selected Clang driver mode,
   keeping clang-cl flags such as `-J` from consuming the delimiter as an
   option value from another driver's grammar.
