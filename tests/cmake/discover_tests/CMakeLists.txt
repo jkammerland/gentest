@@ -8,6 +8,7 @@ enable_testing()
 include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/GentestCodegen.cmake")
 
 add_executable(demo_tests "${CMAKE_CURRENT_LIST_DIR}/main.cpp")
+set_target_properties(demo_tests PROPERTIES OUTPUT_NAME "demo]=]")
 target_compile_features(demo_tests PRIVATE cxx_std_20)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/demo_program_$<CONFIG>.txt" CONTENT "$<TARGET_FILE:demo_tests>")
 
@@ -25,7 +26,9 @@ gentest_discover_tests(demo_tests
   TEST_LIST normal_discovered
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   ${_gentest_extra_args}
-  ${_gentest_death_expect_arg} "fatal path")
+  ${_gentest_death_expect_arg} "fatal path"
+  EXTRA_ARGS --verify-nested-quoting "--nested=]=]tail]=="
+  PROPERTIES LABELS "suffix]=")
 
 # Exercise post-build discovery, scalar filters, and empty inventories as well.
 gentest_discover_tests(demo_tests
@@ -33,6 +36,8 @@ gentest_discover_tests(demo_tests
   TEST_PREFIX "filtered/"
   TEST_SUFFIX "/suffix"
   TEST_FILTER "demo/*;*"
+  EXTRA_ARGS --verify-quoting "--value=]="
+  PROPERTIES LABELS "suffix]="
   DEATH_EXPECT_SUBSTRING "fatal path")
 gentest_discover_tests(demo_tests
   DISCOVERY_MODE POST_BUILD

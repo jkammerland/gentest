@@ -1,25 +1,17 @@
 include_guard(GLOBAL)
 
-function(_gentest_write_discover_tests_script out_script)
-    set(_gentest_script_dir "${CMAKE_BINARY_DIR}/gentest")
-    file(MAKE_DIRECTORY "${_gentest_script_dir}")
-
-    set(_gentest_add_tests_script "${_gentest_script_dir}/GentestAddTests.cmake")
-    set(_gentest_script_content [====[
-cmake_minimum_required(VERSION 3.31)
-
-set(_gentest_cmake_command "@CMAKE_COMMAND@")
-
 function(_gentest_append_args)
   # ARGV indices retain semicolons and unmatched brackets in individual names.
   set(index 0)
   while(index LESS ARGC)
     set(value "${ARGV${index}}")
-    set(equals "=")
-    string(FIND "${value}" "]${equals}]" close_pos)
+    # Keep the original guard width for paths expanded from generator expressions later.
+    set(equals "==")
+    # A closing-delimiter prefix at the value's end can overlap our appended ']'.
+    string(FIND "${value}" "]${equals}" close_pos)
     while(NOT close_pos EQUAL -1)
       string(APPEND equals "=")
-      string(FIND "${value}" "]${equals}]" close_pos)
+      string(FIND "${value}" "]${equals}" close_pos)
     endwhile()
     string(APPEND script " [${equals}[\n${value}]${equals}]")
     math(EXPR index "${index} + 1")
@@ -37,6 +29,21 @@ function(_gentest_add_command name)
   string(APPEND script ")\n")
   set(script "${script}" PARENT_SCOPE)
 endfunction()
+
+function(_gentest_write_discover_tests_script out_script)
+    set(_gentest_script_dir "${CMAKE_BINARY_DIR}/gentest")
+    file(MAKE_DIRECTORY "${_gentest_script_dir}")
+
+    set(_gentest_add_tests_script "${_gentest_script_dir}/GentestAddTests.cmake")
+    set(script)
+    _gentest_add_command(include "${CMAKE_CURRENT_FUNCTION_LIST_FILE}")
+    set(_gentest_helper_include "${script}")
+    set(_gentest_script_content [====[
+cmake_minimum_required(VERSION 3.31)
+
+set(_gentest_cmake_command "@CMAKE_COMMAND@")
+
+@_gentest_helper_include@
 
 function(_gentest_wildcard_to_regex out_var pat)
   # Convert a simple wildcard (*, ?) pattern to an anchored CMake regex.
@@ -519,27 +526,28 @@ function(gentest_discover_tests target)
                 "endif()\n")
         endif()
     elseif(GENTEST_DISCOVERY_MODE STREQUAL "PRE_TEST")
+        set(script)
+        _gentest_add_command(gentest_discover_tests_impl
+            TEST_EXECUTABLE "$<TARGET_FILE:${target}>"
+            TEST_EXECUTOR "${_gentest_test_executor}"
+            TEST_WORKING_DIR "${GENTEST_WORKING_DIRECTORY}"
+            TEST_EXTRA_ARGS "${GENTEST_EXTRA_ARGS}"
+            TEST_PROPERTIES "${GENTEST_PROPERTIES}"
+            TEST_PREFIX "${GENTEST_TEST_PREFIX}"
+            TEST_SUFFIX "${GENTEST_TEST_SUFFIX}"
+            TEST_FILTER "${GENTEST_TEST_FILTER}"
+            TEST_LIST "${GENTEST_TEST_LIST}"
+            CTEST_FILE "${_gentest_ctest_tests_file}"
+            TEST_DISCOVERY_TIMEOUT "${GENTEST_DISCOVERY_TIMEOUT}"
+            TEST_DISCOVERY_EXTRA_ARGS "${GENTEST_DISCOVERY_EXTRA_ARGS}"
+            DEATH_EXPECT_SUBSTRING "${GENTEST_DEATH_EXPECT_SUBSTRING}")
         string(CONCAT _gentest_ctest_include_content
             "if(EXISTS \"$<TARGET_FILE:${target}>\")" "\n"
             "  if(NOT EXISTS \"${_gentest_ctest_tests_file}\" OR" "\n"
             "     NOT \"${_gentest_ctest_tests_file}\" IS_NEWER_THAN \"$<TARGET_FILE:${target}>\" OR\n"
             "     NOT \"${_gentest_ctest_tests_file}\" IS_NEWER_THAN \"\${CMAKE_CURRENT_LIST_FILE}\")\n"
             "    include([==[${_gentest_add_tests_script}]==])" "\n"
-            "    gentest_discover_tests_impl(" "\n"
-            "      TEST_EXECUTABLE [==[$<TARGET_FILE:${target}>]==]" "\n"
-            "      TEST_EXECUTOR [==[${_gentest_test_executor}]==]" "\n"
-            "      TEST_WORKING_DIR [==[${GENTEST_WORKING_DIRECTORY}]==]" "\n"
-            "      TEST_EXTRA_ARGS [==[${GENTEST_EXTRA_ARGS}]==]" "\n"
-            "      TEST_PROPERTIES [==[${GENTEST_PROPERTIES}]==]" "\n"
-            "      TEST_PREFIX [==[${GENTEST_TEST_PREFIX}]==]" "\n"
-            "      TEST_SUFFIX [==[${GENTEST_TEST_SUFFIX}]==]" "\n"
-            "      TEST_FILTER [==[${GENTEST_TEST_FILTER}]==]" "\n"
-            "      TEST_LIST [==[${GENTEST_TEST_LIST}]==]" "\n"
-            "      CTEST_FILE [==[${_gentest_ctest_tests_file}]==]" "\n"
-            "      TEST_DISCOVERY_TIMEOUT [==[${GENTEST_DISCOVERY_TIMEOUT}]==]" "\n"
-            "      TEST_DISCOVERY_EXTRA_ARGS [==[${GENTEST_DISCOVERY_EXTRA_ARGS}]==]" "\n"
-            "      DEATH_EXPECT_SUBSTRING [==[${GENTEST_DEATH_EXPECT_SUBSTRING}]==]" "\n"
-            "    )" "\n"
+            "${script}"
             "  endif()" "\n"
             "  include(\"${_gentest_ctest_tests_file}\")" "\n"
             "else()" "\n"
