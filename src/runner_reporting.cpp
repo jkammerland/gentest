@@ -293,7 +293,7 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
                         << escape_xml_attribute(gentest::detail::property_text(value)) << "\"/>\n";
                 }
                 if (!it.record_index.empty())
-                    out << "      <property name=\"gentest.records\" value=\"" << escape_xml_attribute(it.record_index) << "\"/>\n";
+                    out << R"(      <property name="gentest.records" value=")" << escape_xml_attribute(it.record_index) << "\"/>\n";
                 out << "    </properties>\n";
             }
             if (it.skipped) {

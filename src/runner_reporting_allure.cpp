@@ -65,7 +65,7 @@ std::string join_lines(const std::vector<std::string> &lines) {
     return out;
 }
 
-std::string sanitize_attachment_stem(std::string_view name, std::string_view fallback) {
+std::string sanitize_attachment_stem(std::string_view name) {
     std::string stem;
     stem.reserve(name.size());
     for (char ch : name) {
@@ -85,12 +85,12 @@ std::string sanitize_attachment_stem(std::string_view name, std::string_view fal
         stem.pop_back();
     }
     if (stem.empty()) {
-        stem.assign(fallback);
+        stem = "attachment";
     }
     return stem;
 }
 
-std::string sanitize_attachment_extension(std::string_view extension, std::string_view fallback) {
+std::string sanitize_attachment_extension(std::string_view extension) {
     std::string cleaned;
     cleaned.reserve(extension.size() + 1);
     for (char ch : extension) {
@@ -100,24 +100,24 @@ std::string sanitize_attachment_extension(std::string_view extension, std::strin
         }
     }
     if (cleaned.empty()) {
-        cleaned.assign(fallback);
+        cleaned = ".bin";
     }
-    if (cleaned.empty() || cleaned.front() != '.') {
+    if (cleaned.front() != '.') {
         cleaned.insert(cleaned.begin(), '.');
     }
     return cleaned;
 }
 
-bool write_allure_file(RunAccumulator &acc, const std::filesystem::path &path, std::string_view label, std::string_view contents) {
-    std::ofstream out(path, std::ios::binary);
+bool write_allure_file(RunAccumulator &acc, const PendingAllureFile &file) {
+    std::ofstream out(file.path, std::ios::binary);
     if (!out) {
-        record_allure_failure(acc, fmt::format("failed to open {}: {}", label, path.string()));
+        record_allure_failure(acc, fmt::format("failed to open {}: {}", file.label, file.path.string()));
         return false;
     }
-    out << contents;
+    out << file.contents;
     out.flush();
     if (!out) {
-        record_allure_failure(acc, fmt::format("failed to write {}: {}", label, path.string()));
+        record_allure_failure(acc, fmt::format("failed to write {}: {}", file.label, file.path.string()));
         return false;
     }
     return true;
@@ -185,7 +185,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             });
             attachments.push_back({{"name", "logs"}, {"source", attachment_name}, {"type", "text/plain"}});
             has_attachments = true;
-            used_stems.push_back("attachment");
+            used_stems.emplace_back("attachment");
         }
         if (!it.timeline.empty()) {
             const std::string attachment_name = fmt::format("result-{}-timeline.txt", idx);
@@ -196,7 +196,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             });
             attachments.push_back({{"name", "timeline"}, {"source", attachment_name}, {"type", "text/plain"}});
             has_attachments = true;
-            used_stems.push_back("timeline");
+            used_stems.emplace_back("timeline");
         }
         for (const auto &attachment : it.attachments) {
             if (!attachment.shared_source.empty()) {
@@ -209,11 +209,11 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
                 has_attachments = true;
                 continue;
             }
-            std::string stem = sanitize_attachment_stem(attachment.name, "attachment");
-            std::string ext  = sanitize_attachment_extension(attachment.file_extension, ".bin");
+            std::string stem = sanitize_attachment_stem(attachment.name);
+            std::string ext  = sanitize_attachment_extension(attachment.file_extension);
             std::string unique_stem{stem};
             std::size_t duplicate_count = 1;
-            while (std::find(used_stems.begin(), used_stems.end(), unique_stem) != used_stems.end()) {
+            while (std::ranges::find(used_stems, unique_stem) != used_stems.end()) {
                 unique_stem = fmt::format("{}-{}", stem, duplicate_count);
                 ++duplicate_count;
             }
@@ -272,7 +272,7 @@ std::vector<PendingAllureFile> select_writable_allure_files(RunAccumulator &acc,
     writable_files.reserve(files.size());
     for (const auto &file : files) {
         const std::string path_string = file.path.string();
-        if (std::find(blocked_paths.begin(), blocked_paths.end(), path_string) != blocked_paths.end()) {
+        if (std::ranges::find(blocked_paths, path_string) != blocked_paths.end()) {
             continue;
         }
         if (!preflight_output_file([&](std::string message) { record_allure_failure(acc, std::move(message)); }, file.path, file.label)) {
@@ -287,7 +287,7 @@ std::vector<PendingAllureFile> select_writable_allure_files(RunAccumulator &acc,
 bool write_allure_files(RunAccumulator &acc, const std::vector<PendingAllureFile> &files) {
     bool ok = true;
     for (const auto &file : files) {
-        if (!write_allure_file(acc, file.path, file.label, file.contents)) {
+        if (!write_allure_file(acc, file)) {
             ok = false;
         }
     }
