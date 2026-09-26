@@ -10,9 +10,10 @@ if(NOT _producer_fmt_dir STREQUAL "")
   list(APPEND _example_cache_args "-Dfmt_DIR=${_producer_fmt_dir}")
 endif()
 
-foreach(_example IN ITEMS parameterized fixtures mocking)
+foreach(_example IN ITEMS parameterized fixtures mocking measured metadata)
   set(_example_source "${_work_dir}/examples/${_example}")
   set(_example_build "${_work_dir}/e_${_example}")
+  message(STATUS "Build and validate example: ${_example}")
   file(COPY "${SOURCE_DIR}/examples/${_example}/" DESTINATION "${_example_source}")
   run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_cmake_generator_args}
     -S "${_example_source}" -B "${_example_build}" ${_example_cache_args})
@@ -43,5 +44,16 @@ foreach(_example IN ITEMS parameterized fixtures mocking)
   # Discovery executes each case separately; the second run exercises shared
   # fixture lifetimes, per-case mock expectations, repetition, and shuffle.
   run_or_fail(COMMAND "${CMAKE_CTEST_COMMAND}" ${_example_ctest_args})
-  run_or_fail(COMMAND "${_example_exe}" --repeat=2 --shuffle --seed 123 --no-color)
+  set(_example_run_args)
+  if(_example STREQUAL "measured")
+    set(_example_run_args --bench-epochs=3 --bench-warmup=1
+      --bench-min-epoch-time-s=0.0001 --bench-min-total-time-s=0
+      --bench-max-total-time-s=0.02)
+  endif()
+  run_or_fail(COMMAND "${_example_exe}" --repeat=2 --shuffle --seed 123 --no-color ${_example_run_args})
+  if(_example STREQUAL "measured" OR _example STREQUAL "metadata")
+    run_or_fail(COMMAND "${Python3_EXECUTABLE}"
+      "${SOURCE_DIR}/tests/scripts/check_example_reports.py"
+      "${_example_exe}" "${_example}" "${_example_build}/reports")
+  endif()
 endforeach()
