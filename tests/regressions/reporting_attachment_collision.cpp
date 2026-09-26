@@ -49,19 +49,19 @@ int main(int argc, char **argv) {
         .name           = "attachment",
         .mime_type      = "text/plain",
         .file_extension = ".txt",
-        .contents       = "custom attachment payload",
+        .contents       = std::make_shared<const std::string>("custom attachment payload"),
     });
     item.attachments.push_back(gentest::runner::ReportAttachment{
         .name           = "timeline",
         .mime_type      = "text/plain",
         .file_extension = ".txt",
-        .contents       = "custom timeline payload",
+        .contents       = std::make_shared<const std::string>("custom timeline payload"),
     });
     item.attachments.push_back(gentest::runner::ReportAttachment{
         .name           = "result",
         .mime_type      = "application/json",
         .file_extension = ".json",
-        .contents       = kCustomResultPayload,
+        .contents       = std::make_shared<const std::string>(kCustomResultPayload),
     });
     acc.report_items.push_back(std::move(item));
 

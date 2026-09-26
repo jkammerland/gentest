@@ -21,8 +21,10 @@
 
 ### Fixed
 
-- Runs without report exporters release completed case recordings instead of
-  retaining a history for every repetition.
+- Runs without report exporters release completed synchronous and asynchronous
+  case recordings instead of retaining a history for every repetition.
+- Recording reports share immutable payload storage across cases and Allure
+  writes, avoiding repeated copies of run and suite payloads.
 - JUnit preserves whitespace in recorded property keys and values; recording
   verification reads UTF-8 consistently across host locales.
 

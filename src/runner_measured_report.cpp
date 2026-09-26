@@ -579,14 +579,14 @@ std::vector<ReportAttachment> make_bench_allure_attachments(const gentest::Case 
         .name           = "metrics",
         .mime_type      = "text/tab-separated-values",
         .file_extension = ".tsv",
-        .contents       = std::move(metrics),
+        .contents       = std::make_shared<const std::string>(std::move(metrics)),
     });
 
     attachments.push_back(ReportAttachment{
         .name           = "summary-plot",
         .mime_type      = "image/svg+xml",
         .file_extension = ".svg",
-        .contents       = make_bench_summary_svg(c, result),
+        .contents       = std::make_shared<const std::string>(make_bench_summary_svg(c, result)),
     });
 
     return attachments;
@@ -640,7 +640,7 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
         .name           = "metrics",
         .mime_type      = "text/tab-separated-values",
         .file_extension = ".tsv",
-        .contents       = std::move(metrics),
+        .contents       = std::make_shared<const std::string>(std::move(metrics)),
     });
 
     std::string                histogram = "bin\trange_lo_ns\trange_hi_ns\tinclusive_hi\tcount\tpercent\tcumulative_percent\n";
@@ -655,21 +655,21 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
         .name           = "histogram",
         .mime_type      = "text/tab-separated-values",
         .file_extension = ".tsv",
-        .contents       = std::move(histogram),
+        .contents       = std::make_shared<const std::string>(std::move(histogram)),
     });
 
     attachments.push_back(ReportAttachment{
         .name           = "histogram-plot",
         .mime_type      = "image/svg+xml",
         .file_extension = ".svg",
-        .contents       = make_jitter_histogram_svg(c, hist.bins),
+        .contents       = std::make_shared<const std::string>(make_jitter_histogram_svg(c, hist.bins)),
     });
 
     attachments.push_back(ReportAttachment{
         .name           = "samples",
         .mime_type      = "application/json",
         .file_extension = ".json",
-        .contents       = make_samples_json(result.samples_ns),
+        .contents       = std::make_shared<const std::string>(make_samples_json(result.samples_ns)),
     });
 
     return attachments;

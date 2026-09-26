@@ -2,11 +2,11 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace gentest::detail {
 struct RecordingTarget;
 }
-#include <vector>
 
 namespace gentest::runner {
 
@@ -23,8 +23,9 @@ struct ReportAttachment {
     std::string name;
     std::string mime_type;
     std::string file_extension;
-    std::string contents;
-    std::string shared_source; // Runner-generated filename for shared runtime payloads.
+    // One immutable payload can be referenced by many case reports.
+    std::shared_ptr<const std::string> contents = std::make_shared<const std::string>();
+    std::string                        shared_source; // Runner-generated filename for shared runtime payloads.
 };
 
 struct RunResult {
