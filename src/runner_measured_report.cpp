@@ -1,6 +1,7 @@
 #include "runner_measured_report.h"
 
 #include "gentest/detail/bench_stats.h"
+#include "runner_json.h"
 #include "runner_measured_format.h"
 
 #include <algorithm>
@@ -162,29 +163,6 @@ std::string escape_csv_cell(std::string_view value) {
     return fmt::to_string(out);
 }
 
-std::string escape_json_string(std::string_view value) {
-    fmt::memory_buffer out;
-    for (char ch : value) {
-        switch (ch) {
-        case '"': fmt::format_to(std::back_inserter(out), "\\\""); break;
-        case '\\': fmt::format_to(std::back_inserter(out), "\\\\"); break;
-        case '\b': fmt::format_to(std::back_inserter(out), "\\b"); break;
-        case '\f': fmt::format_to(std::back_inserter(out), "\\f"); break;
-        case '\n': fmt::format_to(std::back_inserter(out), "\\n"); break;
-        case '\r': fmt::format_to(std::back_inserter(out), "\\r"); break;
-        case '\t': fmt::format_to(std::back_inserter(out), "\\t"); break;
-        default:
-            if (static_cast<unsigned char>(ch) < 0x20) {
-                fmt::format_to(std::back_inserter(out), "\\u{:04x}", static_cast<unsigned>(static_cast<unsigned char>(ch)));
-            } else {
-                out.push_back(ch);
-            }
-            break;
-        }
-    }
-    return fmt::to_string(out);
-}
-
 void print_table_report(std::span<const ReportTable> tables) {
     for (std::size_t table_idx = 0; table_idx < tables.size(); ++table_idx) {
         const auto &table_data = tables[table_idx];
@@ -282,7 +260,7 @@ void print_csv_report(std::span<const ReportTable> tables, std::span<const Measu
 
 void print_json_field_value(const MachineField &field) {
     switch (field.kind) {
-    case MachineValueKind::String: std::cout << '"' << escape_json_string(field.value) << '"'; break;
+    case MachineValueKind::String: std::cout << json_string(field.value); break;
     case MachineValueKind::Number:
     case MachineValueKind::Bool: std::cout << field.value; break;
     case MachineValueKind::Null: std::cout << "null"; break;
@@ -290,7 +268,7 @@ void print_json_field_value(const MachineField &field) {
 }
 
 void print_json_report(std::string_view report_name, std::span<const ReportTable> tables, std::span<const MeasuredReportIssue> issues) {
-    std::cout << R"({"report":")" << escape_json_string(report_name) << R"(","tables":[)";
+    std::cout << R"({"report":)" << json_string(report_name) << R"(,"tables":[)";
     for (std::size_t table_idx = 0; table_idx < tables.size(); ++table_idx) {
         const auto &table = tables[table_idx];
         if (table_idx != 0) {
@@ -298,8 +276,8 @@ void print_json_report(std::string_view report_name, std::span<const ReportTable
         }
         const auto table_id = table.id.empty() ? std::string_view(table.title) : std::string_view(table.id);
         const auto report   = table.report.empty() ? std::string_view("measured") : std::string_view(table.report);
-        std::cout << R"({"report":")" << escape_json_string(report) << R"(","id":")" << escape_json_string(table_id) << R"(","title":")"
-                  << escape_json_string(table.title) << R"(","rows":[)";
+        std::cout << R"({"report":)" << json_string(report) << R"(,"id":)" << json_string(table_id) << R"(,"title":)"
+                  << json_string(table.title) << R"(,"rows":[)";
         for (std::size_t row_idx = 0; row_idx < table.machine_rows.size(); ++row_idx) {
             if (row_idx != 0) {
                 std::cout << ',';
@@ -311,7 +289,7 @@ void print_json_report(std::string_view report_name, std::span<const ReportTable
                     std::cout << ',';
                 }
                 const auto &field = row.fields[field_idx];
-                std::cout << '"' << escape_json_string(field.key) << R"(":)";
+                std::cout << json_string(field.key) << ':';
                 print_json_field_value(field);
             }
             std::cout << '}';
@@ -324,9 +302,9 @@ void print_json_report(std::string_view report_name, std::span<const ReportTable
         if (issue_idx != 0) {
             std::cout << ',';
         }
-        std::cout << R"({"name":")" << escape_json_string(issue.name) << R"(","file":")" << escape_json_string(issue.file) << R"(","line":)"
-                  << issue.line << R"(,"message":")" << escape_json_string(issue.message) << R"(","infrastructure":)"
-                  << (issue.infrastructure ? "true" : "false") << "}";
+        std::cout << R"({"name":)" << json_string(issue.name) << R"(,"file":)" << json_string(issue.file) << R"(,"line":)" << issue.line
+                  << R"(,"message":)" << json_string(issue.message) << R"(,"infrastructure":)" << (issue.infrastructure ? "true" : "false")
+                  << "}";
     }
     std::cout << "]}\n";
 }

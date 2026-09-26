@@ -1,6 +1,7 @@
 #include "runner_orchestrator.h"
 
 #include "runner_fixture_runtime.h"
+#include "runner_json.h"
 #include "runner_measured_executor.h"
 #include "runner_measured_report.h"
 #include "runner_reporting.h"
@@ -112,8 +113,6 @@ std::string format_list_sections(const gentest::Case &test) {
     sections.push_back(']');
     return fmt::to_string(sections);
 }
-
-void append_json_string(fmt::memory_buffer &out, std::string_view value) { out.append(gentest::detail::recording_json_string(value)); }
 
 void append_json_key(fmt::memory_buffer &out, std::string_view key) {
     append_json_string(out, key);
