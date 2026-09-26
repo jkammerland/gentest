@@ -157,7 +157,6 @@ cc_library(
         'src/bench_stats.cpp',
         'src/context_api.cpp',
         'src/recording.cpp',
-        'src/recording_json.cpp',
         'src/recording_report.cpp',
         'src/recording_internal.h',
         'src/log_sink.cpp',

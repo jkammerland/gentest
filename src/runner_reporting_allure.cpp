@@ -1,5 +1,6 @@
 #include "runner_reporting_allure.h"
 
+#include "runner_json.h"
 #include "runner_reporting.h"
 
 #include <algorithm>
@@ -41,7 +42,7 @@ bool preflight_output_file(OnFailure &&on_failure, const std::filesystem::path &
 }
 
 #ifdef GENTEST_USE_BOOST_JSON
-boost::json::value record_text(std::string_view text) { return boost::json::parse(gentest::detail::recording_json_string(text)); }
+boost::json::value record_text(std::string_view text) { return boost::json::parse(json_string(text)); }
 
 void record_allure_failure(RunAccumulator &acc, std::string message) {
     record_runner_level_failure(acc, "gentest/reporting/allure", std::move(message));
