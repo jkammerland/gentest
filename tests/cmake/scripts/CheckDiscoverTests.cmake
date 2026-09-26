@@ -136,54 +136,41 @@ gentest_check_run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_build_args} STRIP_TRAILI
 
 message(STATUS "List discovered tests...")
 gentest_check_run_or_fail(
-  COMMAND "${_ctest_cmd}" -N ${_ctest_common_args}
+  COMMAND "${_ctest_cmd}" --show-only=json-v1 ${_ctest_common_args}
   STRIP_TRAILING_WHITESPACE
   WORKING_DIRECTORY "${_build_dir}"
   OUTPUT_VARIABLE _list_out
 )
 
-set(_expected_tests
-  "demo/a"
-  "demo/b"
-  "demo/skip"
-  "demo/has [bracket]"
-  "death/demo/death")
-
-string(REPLACE "\r" "" _list_out_normalized "${_list_out}")
-string(REPLACE "\n" ";" _list_lines "${_list_out_normalized}")
-set(_discovered_tests)
-foreach(_line IN LISTS _list_lines)
-  if(_line MATCHES "^[ \t]*Test #[0-9]+: (.+)$")
-    list(APPEND _discovered_tests "${CMAKE_MATCH_1}")
+set(_expected_tests [====[
+  ["demo/a", "demo/b", "demo/skip", "demo/has [bracket]", "demo/a;b", "demo/lone[", "demo/lone]",
+   "demo/quote]==]", "demo/back\\slash$\"", "death/demo/death", "death/demo/death;[",
+   "filtered/demo/a;b/suffix", "filtered/death/demo/death;[/suffix"]
+]====])
+string(JSON _expected_count LENGTH "${_expected_tests}")
+string(JSON _discovered_count LENGTH "${_list_out}" tests)
+if(NOT _discovered_count EQUAL _expected_count)
+  message(FATAL_ERROR "Expected ${_expected_count} discovered tests, got ${_discovered_count}:\n${_list_out}")
+endif()
+math(EXPR _last "${_expected_count} - 1")
+foreach(_expected_index RANGE 0 ${_last})
+  string(JSON _expected GET "${_expected_tests}" ${_expected_index})
+  set(_found FALSE)
+  foreach(_actual_index RANGE 0 ${_last})
+    string(JSON _actual GET "${_list_out}" tests ${_actual_index} name)
+    if(_actual STREQUAL _expected)
+      set(_found TRUE)
+      break()
+    endif()
+  endforeach()
+  if(NOT _found)
+    message(FATAL_ERROR "Missing discovered test '${_expected}':\n${_list_out}")
   endif()
 endforeach()
 
-list(LENGTH _discovered_tests _discovered_count)
-list(LENGTH _expected_tests _expected_count)
-if(NOT _discovered_count EQUAL _expected_count)
-  message(FATAL_ERROR
-    "Unexpected discovered test count. Expected ${_expected_count}, got ${_discovered_count}. ctest -N output:\n${_list_out}")
-endif()
-
-list(SORT _discovered_tests)
-list(SORT _expected_tests)
-if(NOT _discovered_tests STREQUAL _expected_tests)
-  string(JOIN "\n  " _expected_block ${_expected_tests})
-  string(JOIN "\n  " _actual_block ${_discovered_tests})
-  message(FATAL_ERROR
-    "Discovered test set mismatch.\nExpected:\n  ${_expected_block}\nActual:\n  ${_actual_block}\nFull ctest -N output:\n${_list_out}")
-endif()
-
-if(_list_out MATCHES "(^|\\n)[ \t]*Test #[0-9]+: demo/death([ \t]*$)")
-  message(FATAL_ERROR "Death test should not be registered as a normal test: 'demo/death'. ctest -N output:\n${_list_out}")
-endif()
-if(_list_out MATCHES "(^|\\n)[ \t]*Test #[0-9]+: death/demo/death_skip([ \t]*$)")
-  message(FATAL_ERROR "Skipped death test should not be registered as a CTest death case: 'demo/death_skip'. ctest -N output:\n${_list_out}")
-endif()
-
 message(STATUS "Run discovered tests...")
 gentest_check_run_or_fail(
-  COMMAND "${_ctest_cmd}" ${_ctest_common_args} -R "^demo/"
+  COMMAND "${_ctest_cmd}" ${_ctest_common_args} -R "^(demo/|filtered/)"
   STRIP_TRAILING_WHITESPACE
   WORKING_DIRECTORY "${_build_dir}"
 )
