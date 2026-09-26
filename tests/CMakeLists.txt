@@ -4359,6 +4359,14 @@ foreach(_gentest_driver_mode IN ITEMS g++ cl)
         cmake
         -DDRIVER_MODE=${_gentest_driver_mode})
     set_property(TEST gentest_codegen_fallback_header_semantics${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen;ci-compat")
+
+    _gentest_add_cmake_helper_test(
+        gentest_codegen_function_body_diagnostics${_gentest_driver_suffix}
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFunctionBodyDiagnostics.cmake
+        cmake
+        -DDRIVER_MODE=${_gentest_driver_mode})
+    set_property(TEST gentest_codegen_function_body_diagnostics${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen;ci-compat")
 endforeach()
 unset(_gentest_driver_suffix)
 unset(_gentest_driver_mode)

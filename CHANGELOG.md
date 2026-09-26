@@ -97,6 +97,8 @@ Unstable inside. No backward compatibility.
 
 ### Fixed
 
+- Codegen parses function bodies normally, avoiding false unused-private-field
+  diagnostics under warnings-as-errors while preserving genuine body errors.
 - Function-pointer assertion and mock diagnostics use explicit boolean
   conversion instead of MSVC's function-to-object pointer extension, preserving
   stream manipulators and custom insertion operators under warnings-as-errors.

@@ -1792,9 +1792,9 @@ void register_codegen_matchers(MatchFinder &finder, TestCaseCollector &test_coll
 class MatchFinderAction final : public clang::ASTFrontendAction {
   public:
     MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                      bool allow_mock_includes, bool skip_function_bodies, bool fallback_header)
+                      bool allow_mock_includes, bool fallback_header)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
-          skip_function_bodies_(skip_function_bodies), fallback_header_(fallback_header) {}
+          fallback_header_(fallback_header) {}
 
     bool PrepareToExecuteAction(clang::CompilerInstance &compiler) override {
         if (fallback_header_) {
@@ -1812,10 +1812,9 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
     }
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
-        const bool is_named_module_input = named_module_name_from_source_file(std::filesystem::path{input_file.str()}).has_value();
-        if (skip_function_bodies_ && !is_named_module_input) {
-            compiler.getFrontendOpts().SkipFunctionBodies = true;
-        }
+        // Parse bodies normally: skipping them invents unused-private-field
+        // diagnostics and hides real errors. Discovery remains source-scoped
+        // by ScopedTraversalASTConsumer, independently of semantic analysis.
         compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(compiler.getSourceManager(), dependencies_));
         const std::string normalized = normalize_dependency_path(input_file.str());
         if (!normalized.empty()) {
@@ -1828,31 +1827,28 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
   private:
     clang::ast_matchers::MatchFinder &finder_;
     std::vector<std::string>         &dependencies_;
-    bool                              allow_includes_       = false;
-    bool                              allow_mock_includes_  = false;
-    bool                              skip_function_bodies_ = false;
-    bool                              fallback_header_      = false;
+    bool                              allow_includes_      = false;
+    bool                              allow_mock_includes_ = false;
+    bool                              fallback_header_     = false;
 };
 
 class MatchFinderActionFactory final : public clang::tooling::FrontendActionFactory {
   public:
     MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                             bool allow_mock_includes, bool skip_function_bodies, bool fallback_header)
+                             bool allow_mock_includes, bool fallback_header)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
-          skip_function_bodies_(skip_function_bodies), fallback_header_(fallback_header) {}
+          fallback_header_(fallback_header) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, skip_function_bodies_,
-                                                   fallback_header_);
+        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, fallback_header_);
     }
 
   private:
     clang::ast_matchers::MatchFinder &finder_;
     std::vector<std::string>         &dependencies_;
-    bool                              allow_includes_       = false;
-    bool                              allow_mock_includes_  = false;
-    bool                              skip_function_bodies_ = false;
-    bool                              fallback_header_      = false;
+    bool                              allow_includes_      = false;
+    bool                              allow_mock_includes_ = false;
+    bool                              fallback_header_     = false;
 };
 
 // MSVC cl.exe's module mapping flags that take their value as a separate argument, as spelled in
@@ -4813,7 +4809,6 @@ int run_codegen_tool(int argc, const char **argv) {
     std::vector<std::string>                     depfile_dependencies;
 
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
-    const bool skip_function_bodies = !options.discover_mocks;
 
     const std::string compdb_dir =
         options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
@@ -6128,11 +6123,7 @@ int run_codegen_tool(int argc, const char **argv) {
             MatchFinder finder;
             register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
                                       !mock_manifest_discovery_only);
-            MatchFinderActionFactory action_factory{finder,
-                                                    local_dependencies,
-                                                    allow_includes,
-                                                    options.discover_mocks,
-                                                    skip_function_bodies,
+            MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes, options.discover_mocks,
                                                     idx < options.scan_slot_kinds.size() &&
                                                         options.scan_slot_kinds[idx] == "fallback-header"};
 
@@ -6271,11 +6262,7 @@ int run_codegen_tool(int argc, const char **argv) {
         MatchFinder finder;
         register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
                                   !mock_manifest_discovery_only);
-        MatchFinderActionFactory action_factory{finder,
-                                                depfile_dependencies_local,
-                                                allow_includes,
-                                                options.discover_mocks,
-                                                skip_function_bodies,
+        MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes, options.discover_mocks,
                                                 !options.scan_slot_kinds.empty() && options.scan_slot_kinds.front() == "fallback-header"};
 
         const int status = tool.run(&action_factory);
