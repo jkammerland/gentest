@@ -4327,6 +4327,13 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_codegen_compile_command_delimiter APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_fallback_header_semantics
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFallbackHeaderSemantics.cmake
+    cmake)
+set_property(TEST gentest_codegen_fallback_header_semantics APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_codegen_header_shared_fixture_visibility
     ${PROJECT_SOURCE_DIR}/tests/cmake/manifest_header_shared_fixture_visibility
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckManifestHeaderSharedFixtureVisibility.cmake

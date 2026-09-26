@@ -97,6 +97,9 @@ Unstable inside. No backward compatibility.
 
 ### Fixed
 
+- Listed-header codegen preserves header semantics when borrowing a source-mode
+  compile command, so `#pragma once` remains effective under clang-cl `-TP`
+  without relaxing warnings-as-errors or changing authored-source parsing.
 - Additive codegen no longer mistakes a compile command's end-of-options
   delimiter for a lost semantic option, fixing normal CMake/clang-cl commands
   on Windows. Literal `--` option values remain significant, and the ordered
