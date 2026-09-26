@@ -2,22 +2,21 @@
 #include <iostream>
 #include <string_view>
 
-static void list_tests() {
-    std::cout << "demo/a\n";
-    std::cout << "demo/b\n";
-    std::cout << "demo/skip\n";
-    std::cout << "demo/has [bracket]\n";
-    std::cout << "demo/death\n";
-    std::cout << "demo/death_skip\n";
-}
-
-static void list_meta() {
-    std::cout << "demo/a [gentest:tags=fast] (main.cpp:1)\n";
-    std::cout << "demo/b (main.cpp:2)\n";
-    std::cout << "demo/skip [gentest:skip=needs [linux]] (main.cpp:3)\n";
-    std::cout << "demo/has [bracket] [gentest:tags=fast] (main.cpp:4)\n";
-    std::cout << "demo/death [gentest:tags=death;owner=ci] (main.cpp:5)\n";
-    std::cout << "demo/death_skip [gentest:tags=death;skip=disabled [debug]] (main.cpp:6)\n";
+static void list_json() {
+    std::cout << R"json([
+        {"name":"demo/a","tags":["fast"],"skipped":false},
+        {"name":"demo/b","tags":[],"skipped":false},
+        {"name":"demo/skip","tags":[],"skipped":true},
+        {"name":"demo/has [bracket]","tags":["fast"],"skipped":false},
+        {"name":"demo/a;b","tags":[],"skipped":false},
+        {"name":"demo/lone[","tags":[],"skipped":false},
+        {"name":"demo/lone]","tags":[],"skipped":false},
+        {"name":"demo/quote]==]","tags":[],"skipped":false},
+        {"name":"demo/back\\slash$\"","tags":[],"skipped":false},
+        {"name":"demo/death","tags":["death"],"skipped":false},
+        {"name":"demo/death;[","tags":["death"],"skipped":false},
+        {"name":"demo/death_skip","tags":["death"],"skipped":true}
+    ])json";
 }
 
 static int run_one(std::string_view name) {
@@ -40,11 +39,12 @@ static int run_one(std::string_view name) {
         std::cout << "[ SKIP ] demo/skip :: needs [linux]\n";
         return 0;
     }
-    if (name == "demo/has [bracket]") {
+    if (name == "demo/has [bracket]" || name == "demo/a;b" || name == "demo/lone[" || name == "demo/lone]" || name == "demo/quote]==]" ||
+        name == "demo/back\\slash$\"") {
         std::cout << "[ PASS ] demo/has [bracket]\n";
         return 0;
     }
-    if (name == "demo/death") {
+    if (name == "demo/death" || name == "demo/death;[") {
         std::cout << "Case not found: unrelated-diagnostic\n";
         std::cout << "fatal path\n";
         return 3;
@@ -60,16 +60,12 @@ static int run_one(std::string_view name) {
 int main(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) {
         std::string_view arg = argv[i] ? argv[i] : "";
-        if (arg == "--list-tests") {
-            list_tests();
-            return 0;
-        }
-        if (arg == "--list") {
-            list_meta();
-            return 0;
-        }
-        if (arg == "--list-death") {
-            std::cout << "demo/death\n";
+        if (arg == "--list-json") {
+            if (argc > 2 && std::string_view(argv[2]) == "--empty-inventory") {
+                std::cout << "[]";
+            } else {
+                list_json();
+            }
             return 0;
         }
         constexpr std::string_view kRun = "--run=";
