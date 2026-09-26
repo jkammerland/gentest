@@ -144,7 +144,7 @@ gentest_check_run_or_fail(
 
 set(_expected_tests [====[
   ["demo/a", "demo/b", "demo/skip", "demo/has [bracket]", "demo/a;b", "demo/lone[", "demo/lone]",
-   "demo/quote]==]", "demo/back\\slash$\"", "death/demo/death", "death/demo/death;[",
+   "demo/quote]==]", "demo/suffix]=", "demo/nested]=]tail]==", "demo/back\\slash$\"", "death/demo/death", "death/demo/death;[",
    "filtered/demo/a;b/suffix", "filtered/death/demo/death;[/suffix"]
 ]====])
 string(JSON _expected_count LENGTH "${_expected_tests}")

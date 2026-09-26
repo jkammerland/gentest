@@ -12,6 +12,8 @@ static void list_json() {
         {"name":"demo/lone[","tags":[],"skipped":false},
         {"name":"demo/lone]","tags":[],"skipped":false},
         {"name":"demo/quote]==]","tags":[],"skipped":false},
+        {"name":"demo/suffix]=","tags":[],"skipped":false},
+        {"name":"demo/nested]=]tail]==","tags":[],"skipped":false},
         {"name":"demo/back\\slash$\"","tags":[],"skipped":false},
         {"name":"demo/death","tags":["death"],"skipped":false},
         {"name":"demo/death;[","tags":["death"],"skipped":false},
@@ -40,7 +42,7 @@ static int run_one(std::string_view name) {
         return 0;
     }
     if (name == "demo/has [bracket]" || name == "demo/a;b" || name == "demo/lone[" || name == "demo/lone]" || name == "demo/quote]==]" ||
-        name == "demo/back\\slash$\"") {
+        name == "demo/back\\slash$\"" || name == "demo/suffix]=" || name == "demo/nested]=]tail]==") {
         std::cout << "[ PASS ] demo/has [bracket]\n";
         return 0;
     }
@@ -58,6 +60,14 @@ static int run_one(std::string_view name) {
 }
 
 int main(int argc, char **argv) {
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        if ((arg == "--verify-quoting" && (i + 1 >= argc || std::string_view(argv[i + 1]) != "--value=]=")) ||
+            (arg == "--verify-nested-quoting" && (i + 1 >= argc || std::string_view(argv[i + 1]) != "--nested=]=]tail]=="))) {
+            std::cerr << "Quoted discovery arguments changed\n";
+            return 1;
+        }
+    }
     for (int i = 1; i < argc; ++i) {
         std::string_view arg = argv[i] ? argv[i] : "";
         if (arg == "--list-json") {
