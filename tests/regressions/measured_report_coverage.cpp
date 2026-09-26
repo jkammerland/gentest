@@ -140,20 +140,20 @@ void check_bench_attachments() {
     const auto baseline_attachments =
         gentest::runner::make_bench_allure_attachments(baseline_case, make_bench_result(10.0, 11.0, 0.015, 300));
     expect(baseline_attachments.size() == 2, "expected two bench attachments");
-    expect(contains(find_attachment(baseline_attachments, "metrics").contents, "calls_per_sec\t20000"),
+    expect(contains(*find_attachment(baseline_attachments, "metrics").contents, "calls_per_sec\t20000"),
            "bench metrics should include non-zero calls/sec");
-    expect(contains(find_attachment(baseline_attachments, "metrics").contents, "items_per_call\t2"),
+    expect(contains(*find_attachment(baseline_attachments, "metrics").contents, "items_per_call\t2"),
            "bench metrics should include item count");
-    expect(contains(find_attachment(baseline_attachments, "metrics").contents, "items_per_sec\t40000"),
+    expect(contains(*find_attachment(baseline_attachments, "metrics").contents, "items_per_sec\t40000"),
            "bench metrics should include item throughput");
-    expect(contains(find_attachment(baseline_attachments, "metrics").contents, "median_ns_per_item\t5"),
+    expect(contains(*find_attachment(baseline_attachments, "metrics").contents, "median_ns_per_item\t5"),
            "bench metrics should normalize item timing");
-    expect(contains(find_attachment(baseline_attachments, "metrics").contents, "is_baseline\ttrue"),
+    expect(contains(*find_attachment(baseline_attachments, "metrics").contents, "is_baseline\ttrue"),
            "bench metrics should record baseline status");
-    expect(contains(find_attachment(baseline_attachments, "summary-plot").contents, "<svg"), "bench summary plot should be SVG");
+    expect(contains(*find_attachment(baseline_attachments, "summary-plot").contents, "<svg"), "bench summary plot should be SVG");
 
     const auto zero_attachments = gentest::runner::make_bench_allure_attachments(delta_case, make_bench_result(25.0, 26.0, 0.0, 0));
-    expect(contains(find_attachment(zero_attachments, "metrics").contents, "calls_per_sec\t0"),
+    expect(contains(*find_attachment(zero_attachments, "metrics").contents, "calls_per_sec\t0"),
            "bench metrics should report zero calls/sec when total_time_s is zero");
 }
 
@@ -168,10 +168,10 @@ void check_jitter_histogram_recompute_and_truncation() {
 
     const auto  jitter_case  = make_case("regressions/measured_report/jitter_large", "measured_suite", false, true, false, 4);
     const auto  attachments  = gentest::runner::make_jitter_allure_attachments(jitter_case, jitter, 7);
-    const auto &metrics      = find_attachment(attachments, "metrics").contents;
-    const auto &histogram    = find_attachment(attachments, "histogram").contents;
-    const auto &histogramSvg = find_attachment(attachments, "histogram-plot").contents;
-    const auto &samplesJson  = find_attachment(attachments, "samples").contents;
+    const auto &metrics      = *find_attachment(attachments, "metrics").contents;
+    const auto &histogram    = *find_attachment(attachments, "histogram").contents;
+    const auto &histogramSvg = *find_attachment(attachments, "histogram-plot").contents;
+    const auto &samplesJson  = *find_attachment(attachments, "samples").contents;
 
     expect(attachments.size() == 4, "expected four jitter attachments");
     expect(contains(metrics, "items_per_call\t4"), "jitter metrics should include item count");
@@ -189,21 +189,21 @@ void check_zero_and_one_sample_attachments() {
     const auto jitter_case = make_case("regressions/measured_report/jitter_zero", "edge_suite", false, true, false);
 
     const auto zero = gentest::runner::make_jitter_allure_attachments(jitter_case, make_jitter_result({}, 1), 3);
-    expect(contains(find_attachment(zero, "histogram").contents,
+    expect(contains(*find_attachment(zero, "histogram").contents,
                     "bin\trange_lo_ns\trange_hi_ns\tinclusive_hi\tcount\tpercent\tcumulative_percent\n"),
            "zero-sample histogram should still emit header");
-    expect(contains(find_attachment(zero, "histogram-plot").contents, "bins 0  peak count 1"),
+    expect(contains(*find_attachment(zero, "histogram-plot").contents, "bins 0  peak count 1"),
            "zero-sample histogram SVG should handle empty bins");
-    expect(contains(find_attachment(zero, "samples").contents, R"("sample_count":0,"stored_count":0,"truncated":false,"samples_ns":[])"),
+    expect(contains(*find_attachment(zero, "samples").contents, R"("sample_count":0,"stored_count":0,"truncated":false,"samples_ns":[])"),
            "zero-sample JSON should stay empty without truncation");
 
     auto one                   = make_jitter_result({42.5}, 1);
     one.overhead_mean_ns       = 0.0;
     const auto one_attachments = gentest::runner::make_jitter_allure_attachments(
         make_case("regressions/measured_report/jitter_one", "edge_suite", false, true, true), one, 1);
-    expect(contains(find_attachment(one_attachments, "histogram").contents, "1\t42.5\t42.5\ttrue\t1\t100\t100"),
+    expect(contains(*find_attachment(one_attachments, "histogram").contents, "1\t42.5\t42.5\ttrue\t1\t100\t100"),
            "single-sample histogram should preserve the lone sample");
-    expect(contains(find_attachment(one_attachments, "samples").contents,
+    expect(contains(*find_attachment(one_attachments, "samples").contents,
                     R"("sample_count":1,"stored_count":1,"truncated":false,"samples_ns":[42.5])"),
            "single-sample JSON should keep the single sample");
 }

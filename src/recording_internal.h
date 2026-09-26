@@ -14,7 +14,8 @@ struct RecordedPayload {
     std::string name;
     std::string content_type;
     std::string schema;
-    std::string bytes;
+    // One immutable payload can be referenced by many case reports.
+    std::shared_ptr<const std::string> bytes = std::make_shared<const std::string>();
 };
 
 struct RecordingBag {

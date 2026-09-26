@@ -19,9 +19,9 @@
 namespace gentest::runner {
 namespace {
 struct PendingAllureFile {
-    std::filesystem::path path;
-    std::string           label;
-    std::string           contents;
+    std::filesystem::path              path;
+    std::string                        label;
+    std::shared_ptr<const std::string> contents;
 };
 
 template <typename OnFailure>
@@ -114,7 +114,7 @@ bool write_allure_file(RunAccumulator &acc, const PendingAllureFile &file) {
         record_allure_failure(acc, fmt::format("failed to open {}: {}", file.label, file.path.string()));
         return false;
     }
-    out << file.contents;
+    out << *file.contents;
     out.flush();
     if (!out) {
         record_allure_failure(acc, fmt::format("failed to write {}: {}", file.label, file.path.string()));
@@ -181,7 +181,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             files.push_back(PendingAllureFile{
                 .path     = allure_dir / attachment_name,
                 .label    = "Allure attachment",
-                .contents = join_lines(it.logs),
+                .contents = std::make_shared<const std::string>(join_lines(it.logs)),
             });
             attachments.push_back({{"name", "logs"}, {"source", attachment_name}, {"type", "text/plain"}});
             has_attachments = true;
@@ -192,7 +192,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             files.push_back(PendingAllureFile{
                 .path     = allure_dir / attachment_name,
                 .label    = "Allure attachment",
-                .contents = join_lines(it.timeline),
+                .contents = std::make_shared<const std::string>(join_lines(it.timeline)),
             });
             attachments.push_back({{"name", "timeline"}, {"source", attachment_name}, {"type", "text/plain"}});
             has_attachments = true;
@@ -233,7 +233,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
         files.push_back(PendingAllureFile{
             .path     = allure_dir / fmt::format("result-{}-result.json", idx),
             .label    = "Allure result",
-            .contents = boost::json::serialize(obj),
+            .contents = std::make_shared<const std::string>(boost::json::serialize(obj)),
         });
         ++idx;
     }
@@ -256,7 +256,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
         files.push_back(PendingAllureFile{
             .path     = allure_dir / fmt::format("result-{}-result.json", idx),
             .label    = "Allure result",
-            .contents = boost::json::serialize(obj),
+            .contents = std::make_shared<const std::string>(boost::json::serialize(obj)),
         });
 
         ++infra_idx;

@@ -27,6 +27,17 @@ add_dependencies(gentest_test_suites gentest_recording_lifetime_tests)
 add_test(NAME runtime_recording_lifetime COMMAND gentest_recording_lifetime_tests)
 set_tests_properties(runtime_recording_lifetime PROPERTIES LABELS "runner;reporting;ci-compat")
 
+gentest_add_manual_regression(
+    TARGET gentest_recording_shared_payloads_tests
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/recording_shared_payloads.cpp)
+add_dependencies(gentest_test_suites gentest_recording_shared_payloads_tests)
+add_test(NAME runtime_recording_shared_payloads COMMAND gentest_recording_shared_payloads_tests)
+set_tests_properties(runtime_recording_shared_payloads PROPERTIES LABELS "runner;reporting;ci-compat")
+
+add_test(NAME runtime_recording_example_verifier
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_check_example_reports.py)
+set_tests_properties(runtime_recording_example_verifier PROPERTIES LABELS "reporting;scripts;ci-compat")
+
 option(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS "Test optional Glaze and cbor_tags recording adapters" OFF)
 if(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS)
     add_subdirectory(recording_adapters)

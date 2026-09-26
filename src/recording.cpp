@@ -170,6 +170,6 @@ void record_data(std::string_view name, std::span<const std::byte> bytes, std::s
     bag->records.push_back({.name         = std::string(name),
                             .content_type = std::string(content_type),
                             .schema       = std::string(options.schema),
-                            .bytes        = std::move(owned)});
+                            .bytes        = std::make_shared<const std::string>(std::move(owned))});
 }
 } // namespace gentest

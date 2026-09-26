@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Validate the public reports produced by the measured, metadata, and recording examples."""
 
+import argparse
 import json
 import math
 from pathlib import Path
 import subprocess
-import sys
 import xml.etree.ElementTree as ET
 
 
@@ -82,8 +82,15 @@ def check_measured(executable, output, inventory):
     assert "requires a measured-only selection" in mixed.stderr
 
 
-def check_recording(executable, output, inventory):
-    assert {item["name"] for item in inventory} == {"recording/sum", "recording/throughput", "recording/latency"}
+def check_recording(executable, output, inventory, *, expect_json=False, expect_cbor=False):
+    expected_names = {"recording/sum", "recording/throughput", "recording/latency"}
+    assert len(inventory) == len(expected_names)
+    assert {item["name"] for item in inventory} == expected_names
+    expected_content_types = {"application/octet-stream"}
+    if expect_json:
+        expected_content_types.add("application/json")
+    if expect_cbor:
+        expected_content_types.add("application/cbor")
     root = output / "records"
     junit = output / "results.xml"
     before = set(root.glob("run-*/index.json"))
@@ -93,12 +100,16 @@ def check_recording(executable, output, inventory):
     assert index["schemaVersion"] == 1 and not index["errors"]
     assert index["run"]["properties"]["device"] == "simulator"
     assert len(index["cases"]) == 3
+    assert {case["name"] for case in index["cases"]} == expected_names
     for case in index["cases"]:
         assert case["outcome"] == "pass"
         props = case["data"]["properties"]
         assert props["sample_count"] == 4 and props["teardown_complete"] is True
-        assert case["data"]["records"]
-        for record in case["data"]["records"]:
+        records = case["data"]["records"]
+        actual_content_types = {record["contentType"] for record in records}
+        assert actual_content_types == expected_content_types, (case["name"], actual_content_types, expected_content_types)
+        assert len(records) == len(expected_content_types), (case["name"], "duplicate recording format")
+        for record in records:
             data = (index_path.parent / record["path"]).read_bytes()
             if record["contentType"] == "application/json":
                 assert json.loads(data) == {"device": "simulator", "samples": [1, 2, 3, 4]}
@@ -107,7 +118,11 @@ def check_recording(executable, output, inventory):
             else:
                 assert record["contentType"] == "application/octet-stream"
                 assert data == bytes([1, 2, 3, 4])
-    for case in ET.parse(junit).getroot().findall("testcase"):
+    junit_cases = ET.parse(junit).getroot().findall("testcase")
+    assert len(junit_cases) == len(expected_names)
+    assert {case.attrib["name"] for case in junit_cases} == expected_names
+    for case in junit_cases:
+        assert case.find("failure") is None
         props = {p.attrib["name"]: p.attrib["value"] for p in case.findall("properties/property")}
         assert props["gentest.property.device"] == "simulator"
         assert props["gentest.property.teardown_complete"] == "true"
@@ -115,9 +130,18 @@ def check_recording(executable, output, inventory):
 
 
 def main():
-    executable = Path(sys.argv[1]).resolve()
-    example = sys.argv[2]
-    output = Path(sys.argv[3]).resolve()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("executable", type=Path)
+    parser.add_argument("example", choices=("metadata", "recording", "measured"))
+    parser.add_argument("output", type=Path)
+    parser.add_argument("--expect-json", action="store_true", help="require the recording example's JSON payloads")
+    parser.add_argument("--expect-cbor", action="store_true", help="require the recording example's CBOR payloads")
+    args = parser.parse_args()
+    if args.example != "recording" and (args.expect_json or args.expect_cbor):
+        parser.error("serializer expectations apply only to the recording example")
+    executable = args.executable.resolve()
+    example = args.example
+    output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     raw = capture(executable, "--list-json")
     (output / "inventory.json").write_text(raw, encoding="utf-8")
@@ -125,7 +149,7 @@ def main():
     if example == "metadata":
         check_metadata(executable, output, inventory)
     elif example == "recording":
-        check_recording(executable, output, inventory)
+        check_recording(executable, output, inventory, expect_json=args.expect_json, expect_cbor=args.expect_cbor)
     elif example == "measured":
         check_measured(executable, output, inventory)
     else:

@@ -101,30 +101,14 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
     try {
         std::map<const RecordingBag *, BagExport> bags;
         std::size_t                               next_id = 0;
-        auto                                      add_bag = [&](const RecordingBag &bag) -> const BagExport                                      &{
-            return bags.emplace(&bag, export_bag(bag, next_id++)).first->second;
-        };
-        std::string index = R"({"schemaVersion":1,"run":)" + add_bag(session.run).json + ",\"suites\":[";
-        bool        first = true;
+        auto add_bag = [&](const RecordingBag &bag) { bags.emplace(&bag, export_bag(bag, next_id++)); };
+        add_bag(session.run);
         for (const auto &[name, bag] : session.suites) {
-            if (!first)
-                index += ',';
-            first = false;
-            index += "{\"name\":" + json_string(name) + ",\"data\":" + add_bag(bag).json + '}';
+            (void)name;
+            add_bag(bag);
         }
-        index += "],\"cases\":[";
-        first = true;
-        for (const auto &c : session.cases) {
-            if (!first)
-                index += ',';
-            first = false;
-            index += fmt::format("{{\"id\":{},\"name\":{},\"suite\":{},\"kind\":{},\"file\":{},\"line\":{},"
-                                 "\"owner\":{},\"requirements\":{},\"tags\":{},\"outcome\":{},\"data\":{}}}",
-                                 c->id, json_string(c->name), json_string(c->suite), json_string(c->kind), json_string(c->file), c->line,
-                                 json_string(c->owner), string_array(c->requirements), string_array(c->tags), json_string(c->outcome),
-                                 add_bag(c->data).json);
-        }
-        index += "],\"errors\":" + string_array(acc.infra_errors) + "}\n";
+        for (const auto &c : session.cases)
+            add_bag(c->data);
 
         bool has_records = false;
         for (const auto &[bag, exported] : bags) {
@@ -134,13 +118,34 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
         std::string index_path;
         try {
             if (records_dir || (junit_path && has_records)) {
+                std::string index = R"({"schemaVersion":1,"run":)" + bags.at(&session.run).json + ",\"suites\":[";
+                bool        first = true;
+                for (const auto &[name, bag] : session.suites) {
+                    if (!first)
+                        index += ',';
+                    first = false;
+                    index += "{\"name\":" + json_string(name) + ",\"data\":" + bags.at(&bag).json + '}';
+                }
+                index += "],\"cases\":[";
+                first = true;
+                for (const auto &c : session.cases) {
+                    if (!first)
+                        index += ',';
+                    first = false;
+                    index += fmt::format("{{\"id\":{},\"name\":{},\"suite\":{},\"kind\":{},\"file\":{},\"line\":{},"
+                                         "\"owner\":{},\"requirements\":{},\"tags\":{},\"outcome\":{},\"data\":{}}}",
+                                         c->id, json_string(c->name), json_string(c->suite), json_string(c->kind), json_string(c->file),
+                                         c->line, json_string(c->owner), string_array(c->requirements), string_array(c->tags),
+                                         json_string(c->outcome), bags.at(&c->data).json);
+                }
+                index += "],\"errors\":" + string_array(acc.infra_errors) + "}\n";
                 const auto root =
                     records_dir ? std::filesystem::path(records_dir) : std::filesystem::path(std::string(junit_path) + ".records");
                 const auto bundle = create_bundle(root);
                 for (const auto &[bag, exported] : bags) {
                     (void)bag;
                     for (const auto &attachment : exported.attachments)
-                        write_file(bundle / attachment.shared_source, attachment.contents);
+                        write_file(bundle / attachment.shared_source, *attachment.contents);
                 }
                 write_file(bundle / "index.json.tmp", index);
                 std::filesystem::rename(bundle / "index.json.tmp", bundle / "index.json");
@@ -192,7 +197,7 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
                 item.attachments.push_back({.name           = "runtime record index",
                                             .mime_type      = "application/json",
                                             .file_extension = ".json",
-                                            .contents       = std::move(scopes),
+                                            .contents       = std::make_shared<const std::string>(std::move(scopes)),
                                             .shared_source  = fmt::format("runtime-case-{}-index.json", c.id)});
             }
         }
