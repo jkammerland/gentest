@@ -65,7 +65,9 @@ function(_gentest_ensure_check_death_script out_var)
   file(WRITE "${_script}" [==[
 # Requires:
 #  -DPROG=<path to test binary>
-#  -DARGS=<optional CLI args>
+#  -DCASE_ID=<case name, preserved as one argument>
+#  -DEXTRA_ARGS=<optional CMake list of extra CLI args>
+#  -DARGS=<legacy optional CLI args, used without CASE_ID>
 #  -DENV_VARS=<optional env vars (list of KEY=VALUE)>
 #  -DDEATH_EXPECT_SUBSTRING=<substring expected in combined output>
 
@@ -115,14 +117,10 @@ if(DEFINED CASE_ID)
     RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _err
     OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE)
 else()
-execute_process(
-  COMMAND ${_emu} "${PROG}" ${_args}
-  RESULT_VARIABLE _rc
-  OUTPUT_VARIABLE _out
-  ERROR_VARIABLE _err
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_STRIP_TRAILING_WHITESPACE)
-
+  execute_process(
+    COMMAND ${_emu} "${PROG}" ${_args}
+    RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _err
+    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE)
 endif()
 
 set(_all "${_out}\n${_err}")
