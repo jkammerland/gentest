@@ -61,6 +61,10 @@ add_executable(gentest_codegen
     src/tooling_support.cpp)
 
 target_compile_features(gentest_codegen PRIVATE cxx_std_20)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    # LLVM's option-table macros require conforming variadic macro expansion.
+    target_compile_options(gentest_codegen PRIVATE /Zc:preprocessor)
+endif()
 
 set(_gentest_codegen_default_thread_stack_size 0)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
