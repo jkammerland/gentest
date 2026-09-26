@@ -179,6 +179,7 @@ cc_library(
         'src/runner_context_scope.h',
         'src/runner_fixture_runtime.cpp',
         'src/runner_fixture_runtime.h',
+        'src/runner_json.h',
         'src/runner_measured_executor.cpp',
         'src/runner_measured_executor.h',
         'src/runner_measured_format.cpp',
