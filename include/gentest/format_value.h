@@ -4,6 +4,7 @@
 #include <ostream>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <typeinfo>
 
 namespace gentest::detail {
@@ -22,7 +23,17 @@ inline std::string format_printable_value(const T &value, bool use_boolalpha) {
         if (use_boolalpha) {
             stream << std::boolalpha;
         }
-        stream << value;
+        // Ordinary function pointers use the standard boolean representation.
+        // Avoid MSVC's function-to-object pointer extension, while preserving
+        // actual manipulators and custom free insertion operators.
+        if constexpr (std::is_function_v<std::remove_pointer_t<std::remove_cvref_t<T>>> &&
+                      !std::is_convertible_v<T, std::ostream &(*)(std::ostream &)> &&
+                      !std::is_convertible_v<T, std::ios &(*)(std::ios &)> &&
+                      !std::is_convertible_v<T, std::ios_base &(*)(std::ios_base &)> && !requires { operator<<(stream, value); }) {
+            stream << static_cast<bool>(value);
+        } else {
+            stream << value;
+        }
         return stream.str();
     } else {
         return fmt::format("{}", value);
