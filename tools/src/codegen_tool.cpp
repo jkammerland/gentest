@@ -3425,24 +3425,6 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             adjusted.emplace_back(std::move(input_path));
         }
     }
-    // Kept commented out rather than deleted: dumping the incoming and outgoing
-    // command lines side by side is how the MSVC driver-mode argument handling
-    // above gets diagnosed, and reconstructing it costs more than it saves.
-    // Uncomment to trace every adjustment.
-    //
-    // if (const auto dbg = get_env_value("GENTEST_CODEGEN_LOG_ADJUSTED_CMD"); dbg.has_value()) {
-    //     auto dump = [](const clang::tooling::CommandLineArguments &args) {
-    //         std::string s;
-    //         for (const auto &a : args) {
-    //             s += a + " | ";
-    //         }
-    //         return s;
-    //     };
-    //     const bool has_cl_mode =
-    //         std::ranges::find(sanitized_command_line, std::string("--driver-mode=cl")) != sanitized_command_line.end();
-    //     gentest::codegen::log_err("DBG-ADJ file=[{}] has_cl_mode={} in=[{}] out=[{}]\n", file.str(), has_cl_mode,
-    //                               dump(command_line), dump(adjusted));
-    // }
     return adjusted;
 }
 
