@@ -18,6 +18,11 @@
 
 ### Fixed
 
+- Runs without report exporters release completed case recordings instead of
+  retaining a history for every repetition.
+- JUnit preserves whitespace in recorded property keys and values; recording
+  verification reads UTF-8 consistently across host locales.
+
 - Draft publication resumes through its numeric GitHub release ID, avoiding
   tag-based draft lookups that return 404 after successful creation.
 - Codegen accepts LLVM 23's relocated USR-generation header and component while

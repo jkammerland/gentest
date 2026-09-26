@@ -69,6 +69,8 @@ namespace ok {
     gentest::record_property("explicit_run", 7, gentest::RecordScope::Run);
     gentest::record_property("child_suite", "child", gentest::RecordScope::Suite);
     gentest::record_property("quotes\"<&", "Unicode: å\n\"<&");
+    gentest::record_property("whitespace\n\r\t", "line\nreturn\rtab\tend");
+    gentest::record_property("whitespace   ", "distinct key");
     gentest::record_property("invalid_utf8", std::string(1, static_cast<char>(0xff)));
     gentest::record_property("nul", std::string("a\0b", 3));
     payload(std::string("invalid-") + static_cast<char>(0xff));

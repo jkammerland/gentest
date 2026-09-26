@@ -382,10 +382,10 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
     const auto &bench_idxs  = selection.bench_idxs;
     const auto &jitter_idxs = selection.jitter_idxs;
 
-    gentest::detail::RecordingRunScope recording_run;
-    OrchestratorState                  state{};
+    OrchestratorState state{};
     state.color_output   = opt.color_output;
     state.record_results = (opt.junit_path != nullptr) || (opt.allure_dir != nullptr) || (opt.records_dir != nullptr);
+    gentest::detail::RecordingRunScope recording_run(state.record_results);
 
     SharedFixtureRunGuard fixture_guard;
     TestCounters          counters;

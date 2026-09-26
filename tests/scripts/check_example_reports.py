@@ -19,7 +19,7 @@ SMOKE_ARGS = [
 def capture(executable, *args):
     return subprocess.run(
         [str(executable), *args, "--no-color"], check=True,
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, text=True, encoding="utf-8", timeout=60,
     ).stdout
 
 
@@ -76,7 +76,7 @@ def check_measured(executable, output, inventory):
     # Mixed correctness/measured selection must not masquerade as a machine report.
     mixed = subprocess.run(
         [str(executable), "--report-format=json", *SMOKE_ARGS],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, text=True, encoding="utf-8", timeout=60,
     )
     assert mixed.returncode != 0
     assert "requires a measured-only selection" in mixed.stderr
@@ -89,7 +89,7 @@ def check_recording(executable, output, inventory):
     before = set(root.glob("run-*/index.json"))
     capture(executable, f"--records={root}", f"--junit={junit}", *SMOKE_ARGS)
     index_path, = set(root.glob("run-*/index.json")) - before
-    index = json.loads(index_path.read_text())
+    index = json.loads(index_path.read_text(encoding="utf-8"))
     assert index["schemaVersion"] == 1 and not index["errors"]
     assert index["run"]["properties"]["device"] == "simulator"
     assert len(index["cases"]) == 3

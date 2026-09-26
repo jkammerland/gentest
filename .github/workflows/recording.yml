@@ -46,7 +46,8 @@ jobs:
             -DGENTEST_USE_BOOST_JSON=ON -Dgentest_INSTALL=ON \
             -DCMAKE_INSTALL_PREFIX="$PWD/build/recording-install"
           cmake --build --preset=debug-system --parallel 2 --target \
-            gentest_recording_tests gentest_record_json_tests gentest_record_cbor_tests gentest_record_json_noexceptions gentest_main
+            gentest_recording_tests gentest_recording_lifetime_tests \
+            gentest_record_json_tests gentest_record_cbor_tests gentest_record_json_noexceptions gentest_main
           ctest --preset=debug-system --output-on-failure -R '^runtime_record'
       - name: Exercise installed example with both serializers
         run: |
