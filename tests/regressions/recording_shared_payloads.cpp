@@ -1,6 +1,7 @@
 #include "../../src/runner_reporting.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <exception>
 #include <iostream>
 #include <memory>
@@ -22,7 +23,7 @@ const gentest::runner::ReportAttachment &attachment(const gentest::runner::Repor
 
 void check_shared_payloads() {
     constexpr std::size_t                            case_count   = 64;
-    constexpr std::size_t                            payload_size = 1024 * 1024;
+    constexpr std::size_t                            payload_size = std::size_t{1024} * 1024;
     gentest::runner::RunAccumulator                  acc;
     std::weak_ptr<const std::string>                 run_payload, suite_payload, first_case_payload;
     std::weak_ptr<gentest::detail::RecordingSession> session;
