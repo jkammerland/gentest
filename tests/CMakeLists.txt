@@ -148,6 +148,10 @@ gentest_add_mocks(gentest_textual_suite_mocks
 
 gentest_link_mocks(gentest_mocking_tests PRIVATE gentest_textual_suite_mocks)
 gentest_link_mocks(gentest_failing_tests PRIVATE gentest_textual_suite_mocks)
+# Generated fixture support must also compile when a helper has no callers in
+# this registration unit; clang-cl /W4 /WX diagnoses such internal functions.
+target_compile_options(gentest_failing_tests PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Werror=unneeded-internal-declaration>)
 if(TARGET ${PROJECT_NAME}_libassert_tests)
     gentest_link_mocks(${PROJECT_NAME}_libassert_tests PRIVATE gentest_textual_suite_mocks)
 endif()

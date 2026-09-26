@@ -97,6 +97,8 @@ Unstable inside. No backward compatibility.
 
 ### Fixed
 
+- Generated shared-fixture failure handling stays in its templated caller,
+  avoiding an unneeded internal function under clang-cl `/W4 /WX`.
 - Codegen parses function bodies normally, avoiding false unused-private-field
   diagnostics under warnings-as-errors while preserving genuine body errors.
 - Function-pointer assertion and mock diagnostics use explicit boolean
