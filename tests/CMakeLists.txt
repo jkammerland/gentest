@@ -19,6 +19,14 @@ add_test(NAME runtime_recording COMMAND ${Python3_EXECUTABLE}
     ${GENTEST_USE_BOOST_JSON})
 set_tests_properties(runtime_recording PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
 
+add_executable(gentest_recording_lifetime_tests recording_lifetime.cpp)
+target_compile_features(gentest_recording_lifetime_tests PRIVATE cxx_std_20)
+target_include_directories(gentest_recording_lifetime_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(gentest_recording_lifetime_tests PRIVATE gentest::gentest)
+add_dependencies(gentest_test_suites gentest_recording_lifetime_tests)
+add_test(NAME runtime_recording_lifetime COMMAND gentest_recording_lifetime_tests)
+set_tests_properties(runtime_recording_lifetime PROPERTIES LABELS "runner;reporting;ci-compat")
+
 option(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS "Test optional Glaze and cbor_tags recording adapters" OFF)
 if(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS)
     add_subdirectory(recording_adapters)

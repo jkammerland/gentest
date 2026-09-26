@@ -18,13 +18,13 @@ smoke = ["--bench-epochs=2", "--bench-warmup=0", "--bench-min-epoch-time-s=0.000
 
 
 def run(*args, rc=0):
-    result = subprocess.run([str(exe), "--no-color", *args, *smoke], capture_output=True, text=True, timeout=60)
+    result = subprocess.run([str(exe), "--no-color", *args, *smoke], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert result.returncode == rc, (args, result.returncode, result.stdout, result.stderr)
     return result
 
 
 def bundles(directory):
-    return [(p.parent, json.loads(p.read_text())) for p in sorted(directory.glob("run-*/index.json"))]
+    return [(p.parent, json.loads(p.read_text(encoding="utf-8"))) for p in sorted(directory.glob("run-*/index.json"))]
 
 
 def verify_payloads(directory, index):
@@ -80,9 +80,13 @@ for case in ET.parse(junit).getroot().findall("testcase"):
     assert props["gentest.property.precedence"] == ("case" if case.attrib["name"].endswith("/scalars") else "suite")
     assert props["gentest.property.run_teardown"] == "true"
     assert (junit.parent / props["gentest.records"]).resolve() == directory / "index.json"
+    if case.attrib["name"].endswith("/scalars"):
+        assert props['gentest.property.quotes"<&'] == 'Unicode: å\n"<&'
+        assert props["gentest.property.whitespace\n\r\t"] == "line\nreturn\rtab\tend"
+        assert props["gentest.property.whitespace   "] == "distinct key"
 
 if allure_enabled:
-    reports = [json.loads(p.read_text()) for p in (root / "allure").glob("*-result.json")]
+    reports = [json.loads(p.read_text(encoding="utf-8")) for p in (root / "allure").glob("*-result.json")]
     assert len(reports) == 8
     shared = []
     for report in reports:
@@ -142,12 +146,14 @@ assert len(bundles(root / "alone.xml.records")) == 1
 run("--list-json", f"--records={root / 'list'}")
 assert not (root / "list").exists()
 run("--run=rt_recording/ok/separate")  # Recording also works without exporters.
+run("--run=rt_recording/bad/invalid", rc=1)
+run("--run=rt_recording/bad/timed", rc=1)
 blocked = root / "not-a-directory"
 blocked.write_text("keep me")
 run("--run=rt_recording/ok/separate", f"--records={blocked}", rc=1)
-assert blocked.read_text() == "keep me"
+assert blocked.read_text(encoding="utf-8") == "keep me"
 for args in [("--record-outside",), ("--run=rt_recording/bad/adopted", "--include-death")]:
-    result = subprocess.run([str(exe), *args], capture_output=True, text=True, timeout=20)
+    result = subprocess.run([str(exe), *args], capture_output=True, text=True, encoding="utf-8", timeout=20)
     assert result.returncode != 0
     assert "recording" in result.stderr
 print("runtime recording: scope, lifecycle, ownership, payload and export checks passed")

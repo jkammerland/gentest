@@ -35,7 +35,8 @@ struct RecordingSession {
     RecordingBag                                     run;
     std::map<std::string, RecordingBag, std::less<>> suites;
     std::vector<std::shared_ptr<CaseRecording>>      cases;
-    bool                                             active = true;
+    bool                                             active       = true;
+    bool                                             retain_cases = false;
 };
 
 struct RecordingTarget {
@@ -51,7 +52,7 @@ std::shared_ptr<RecordingTarget> make_fixture_recording(std::string_view suite, 
 
 class RecordingRunScope {
   public:
-    RecordingRunScope();
+    explicit RecordingRunScope(bool retain_cases);
     ~RecordingRunScope();
     RecordingRunScope(const RecordingRunScope &)                           = delete;
     RecordingRunScope                &operator=(const RecordingRunScope &) = delete;
