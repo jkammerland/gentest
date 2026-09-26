@@ -97,6 +97,10 @@ Unstable inside. No backward compatibility.
 
 ### Fixed
 
+- Additive codegen no longer mistakes a compile command's end-of-options
+  delimiter for a lost semantic option, fixing normal CMake/clang-cl commands
+  on Windows. Literal `--` option values remain significant, and the ordered
+  semantic-context preservation check remains enabled.
 - Meson forwards fmt include directories.
 - Codegen strips MSVC `.modmap` module-mapping flags value-aware: a flag
   that takes a separate value argument only consumes the next token when it

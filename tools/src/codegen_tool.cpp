@@ -21,6 +21,11 @@
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
+#if CLANG_VERSION_MAJOR >= 22
+#include <clang/Options/Options.h>
+#else
+#include <clang/Driver/Options.h>
+#endif
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Lex/PPCallbacks.h>
@@ -39,6 +44,7 @@
 #include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/Statistic.h>
+#include <llvm/Option/ArgList.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -3019,6 +3025,36 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
     return argument.starts_with('@') && argument.find(".modmap") != std::string_view::npos;
 }
 
+[[nodiscard]] std::optional<std::size_t> compile_command_delimiter(const clang::tooling::CommandLineArguments &command_line,
+                                                                   std::size_t                                 compiler_index) {
+    if (std::ranges::find(command_line, "--") == command_line.end()) {
+        return std::nullopt;
+    }
+    // Use the driver grammar: a literal '--' can instead be an option's value
+    // (for example, '-include --'), which must remain part of the context.
+    llvm::SmallVector<const char *, 32> arguments;
+    for (std::size_t idx = compiler_index + 1; idx < command_line.size(); ++idx) {
+        arguments.push_back(command_line[idx].c_str());
+    }
+    unsigned missing_index = 0;
+    unsigned missing_count = 0;
+#if CLANG_VERSION_MAJOR >= 22
+    const auto &option_table = clang::getDriverOptTable();
+#else
+    const auto &option_table = clang::driver::getDriverOptTable();
+#endif
+    const auto parsed = option_table.ParseArgs(arguments, missing_index, missing_count);
+    if (missing_count != 0) {
+        return std::nullopt;
+    }
+    for (const auto *argument : parsed) {
+        if (argument->getSpelling() == "--" && argument->getOption().getKind() == llvm::opt::Option::RemainingArgsClass) {
+            return compiler_index + 1 + argument->getIndex();
+        }
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] std::vector<std::string> normalized_semantic_compile_context(const clang::tooling::CompileCommand &command,
                                                                            std::string_view                      source_file) {
     std::vector<std::string> normalized;
@@ -3028,8 +3064,17 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
     const std::string normalized_source = normalize_compdb_lookup_path(source_file, command.Directory);
     bool              skip_value        = false;
     const std::size_t compiler_index    = compiler_arg_index_for_resource_dir_probe(command.CommandLine).value_or(0);
+    const auto        delimiter         = compile_command_delimiter(command.CommandLine, compiler_index);
     for (std::size_t idx = compiler_index + 1; idx < command.CommandLine.size(); ++idx) {
         const std::string_view argument = command.CommandLine[idx];
+        if (delimiter && idx >= *delimiter) {
+            // The scan rewrites input placement. The separator is not a
+            // semantic option; later tokens are operands, even if option-like.
+            if (idx != *delimiter && normalize_compdb_lookup_path(argument, command.Directory) != normalized_source) {
+                normalized.push_back(fmt::format("operand={}", argument));
+            }
+            continue;
+        }
         if (skip_value) {
             skip_value = false;
             continue;
