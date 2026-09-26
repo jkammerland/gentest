@@ -21,6 +21,7 @@
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
+#include <clang/Driver/Driver.h>
 #if CLANG_VERSION_MAJOR >= 22
 #include <clang/Options/Options.h>
 #else
@@ -3057,11 +3058,16 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
     unsigned missing_index = 0;
     unsigned missing_count = 0;
 #if CLANG_VERSION_MAJOR >= 22
-    const auto &option_table = clang::getDriverOptTable();
+    namespace driver_options = clang;
 #else
-    const auto &option_table = clang::driver::getDriverOptTable();
+    namespace driver_options = clang::driver;
 #endif
-    const auto parsed = option_table.ParseArgs(arguments, missing_index, missing_count);
+    // Option spellings overlap between drivers: cl's -J is a flag, while
+    // Flang's -J consumes a value. Match the actual driver's grammar.
+    const auto driver_mode = clang::driver::getDriverMode(command_line[compiler_index], arguments);
+    const auto visibility  = llvm::opt::Visibility(clang::driver::IsClangCL(driver_mode) ? driver_options::options::CLOption
+                                                                                         : driver_options::options::ClangOption);
+    const auto parsed      = driver_options::getDriverOptTable().ParseArgs(arguments, missing_index, missing_count, visibility);
     if (missing_count != 0) {
         return std::nullopt;
     }

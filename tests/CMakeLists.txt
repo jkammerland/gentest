@@ -4319,19 +4319,29 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_codegen_synthetic_compile_context APPEND PROPERTY LABELS "codegen")
 
-_gentest_add_cmake_helper_test(
-    gentest_codegen_compile_command_delimiter
-    ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenCompileCommandDelimiter.cmake
-    cmake)
-set_property(TEST gentest_codegen_compile_command_delimiter APPEND PROPERTY LABELS "codegen")
+foreach(_gentest_driver_mode IN ITEMS g++ cl)
+    set(_gentest_driver_suffix "")
+    if(_gentest_driver_mode STREQUAL "cl")
+        set(_gentest_driver_suffix "_clang_cl")
+    endif()
+    _gentest_add_cmake_helper_test(
+        gentest_codegen_compile_command_delimiter${_gentest_driver_suffix}
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenCompileCommandDelimiter.cmake
+        cmake
+        -DDRIVER_MODE=${_gentest_driver_mode})
+    set_property(TEST gentest_codegen_compile_command_delimiter${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen;ci-compat")
 
-_gentest_add_cmake_helper_test(
-    gentest_codegen_fallback_header_semantics
-    ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFallbackHeaderSemantics.cmake
-    cmake)
-set_property(TEST gentest_codegen_fallback_header_semantics APPEND PROPERTY LABELS "codegen")
+    _gentest_add_cmake_helper_test(
+        gentest_codegen_fallback_header_semantics${_gentest_driver_suffix}
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFallbackHeaderSemantics.cmake
+        cmake
+        -DDRIVER_MODE=${_gentest_driver_mode})
+    set_property(TEST gentest_codegen_fallback_header_semantics${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen;ci-compat")
+endforeach()
+unset(_gentest_driver_suffix)
+unset(_gentest_driver_mode)
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_header_shared_fixture_visibility

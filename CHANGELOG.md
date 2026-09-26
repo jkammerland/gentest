@@ -97,6 +97,9 @@ Unstable inside. No backward compatibility.
 
 ### Fixed
 
+- Compile-command delimiter parsing follows the selected Clang driver mode,
+  keeping clang-cl flags such as `-J` from consuming the delimiter as an
+  option value from another driver's grammar.
 - Listed-header codegen preserves header semantics when borrowing a source-mode
   compile command, so `#pragma once` remains effective under clang-cl `-TP`
   without relaxing warnings-as-errors or changing authored-source parsing.
