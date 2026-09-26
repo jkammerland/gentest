@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <iostream>
 #include <string_view>
 
@@ -20,6 +21,13 @@ static void list_meta() {
 }
 
 static int run_one(std::string_view name) {
+    if (name == "demo/abort") {
+        std::abort();
+    }
+    if (name == "demo/fail") {
+        std::cout << "[ FAIL ] ordinary assertion failure\n";
+        return 1;
+    }
     if (name == "demo/a") {
         std::cout << "[ PASS ] demo/a\n";
         return 0;
