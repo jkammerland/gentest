@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the public reports produced by the measured and metadata examples."""
+"""Validate the public reports produced by the measured, metadata, and recording examples."""
 
 import json
 import math
@@ -82,6 +82,38 @@ def check_measured(executable, output, inventory):
     assert "requires a measured-only selection" in mixed.stderr
 
 
+def check_recording(executable, output, inventory):
+    assert {item["name"] for item in inventory} == {"recording/sum", "recording/throughput", "recording/latency"}
+    root = output / "records"
+    junit = output / "results.xml"
+    before = set(root.glob("run-*/index.json"))
+    capture(executable, f"--records={root}", f"--junit={junit}", *SMOKE_ARGS)
+    index_path, = set(root.glob("run-*/index.json")) - before
+    index = json.loads(index_path.read_text())
+    assert index["schemaVersion"] == 1 and not index["errors"]
+    assert index["run"]["properties"]["device"] == "simulator"
+    assert len(index["cases"]) == 3
+    for case in index["cases"]:
+        assert case["outcome"] == "pass"
+        props = case["data"]["properties"]
+        assert props["sample_count"] == 4 and props["teardown_complete"] is True
+        assert case["data"]["records"]
+        for record in case["data"]["records"]:
+            data = (index_path.parent / record["path"]).read_bytes()
+            if record["contentType"] == "application/json":
+                assert json.loads(data) == {"device": "simulator", "samples": [1, 2, 3, 4]}
+            elif record["contentType"] == "application/cbor":
+                assert data == b"\x82\x69simulator\x84\x01\x02\x03\x04"
+            else:
+                assert record["contentType"] == "application/octet-stream"
+                assert data == bytes([1, 2, 3, 4])
+    for case in ET.parse(junit).getroot().findall("testcase"):
+        props = {p.attrib["name"]: p.attrib["value"] for p in case.findall("properties/property")}
+        assert props["gentest.property.device"] == "simulator"
+        assert props["gentest.property.teardown_complete"] == "true"
+        assert (junit.parent / props["gentest.records"]).resolve() == index_path.resolve()
+
+
 def main():
     executable = Path(sys.argv[1]).resolve()
     example = sys.argv[2]
@@ -92,6 +124,8 @@ def main():
     inventory = json.loads(raw)
     if example == "metadata":
         check_metadata(executable, output, inventory)
+    elif example == "recording":
+        check_recording(executable, output, inventory)
     elif example == "measured":
         check_measured(executable, output, inventory)
     else:

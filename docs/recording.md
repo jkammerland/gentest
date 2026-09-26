@@ -78,3 +78,47 @@ per-case JSON scope index. Run/suite payloads are written once and referenced by
 applicable cases. Allure retains its existing build-time Boost.JSON requirement.
 Recording itself works without any exporter. Listing does not execute hooks or
 create recording files.
+
+## Optional object serialization
+
+```cpp
+#include <gentest/record_glaze.h> // link glaze::glaze; C++23
+#include <gentest/record_cbor.h>  // link cbor::tags; C++20
+
+struct Snapshot { std::string device; std::vector<int> samples; };
+Snapshot value{"simulator", {1, 2, 3}};
+gentest::record_json("snapshot", value, {.schema = "snapshot/v1"});
+gentest::record_cbor("snapshot", value, {.schema = "snapshot/v1"});
+```
+
+The adapters use [Glaze 8.3.0](https://github.com/stephenberry/glaze/tree/v8.3.0)
+and [cbor_tags 0.24.0](https://github.com/jkammerland/cbor_tags/tree/v0.24.0).
+They are separate textual headers and are not imported by `gentest` or required
+by the core package. Glaze uses its default JSON options and normal `glz::meta`
+and writer customization; cbor_tags uses its default encoder and supported
+aggregate/tag/custom-codec rules. Unsupported types produce compiler diagnostics.
+CBOR is preserved as bytes, including tags and byte strings.
+
+Encoding errors become nonfatal failures; failed encodings append nothing, and
+later valid records still work. Caught serializer exceptions are also failures.
+Glaze supports exception-disabled consumers; cbor_tags' default encoder requires
+exceptions. Both adapters check scope/owner/timing before calling the serializer.
+For custom format/options/encoder extensions, serialize explicitly and pass an
+owned snapshot through `record_data()` outside measured call phases.
+
+The repository has opt-in vcpkg features and pinned overlay ports:
+
+```sh
+vcpkg install --x-feature=record-glaze --x-feature=record-cbor
+cmake --preset=debug-system -DGENTEST_ENABLE_RECORDING_ADAPTER_TESTS=ON \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_PREFIX_PATH=/path/to/vcpkg_installed/x64-linux
+```
+
+Use the repository's `vcpkg-configuration.json` (or add `vcpkg-overlays` to your
+own overlay paths). The cbor-tags overlay packages its default C++20 header
+surface using vcpkg-managed fmt, nameof, and tl-expected, without upstream CPM
+downloads. The default Gentest features install neither serializer. Both
+packages must be present when enabling the adapter integration tests; missing
+packages fail configuration instead of silently skipping tests. CI exercises
+those real dependencies and Allure. See [the recording example](../examples/recording/).
