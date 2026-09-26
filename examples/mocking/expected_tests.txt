@@ -1,0 +1,4 @@
+mocking/invalid_amount(-1)
+mocking/invalid_amount(0)
+mocking/payment_declined
+mocking/payment_succeeds

@@ -1,0 +1,3 @@
+fixtures/checkout/add_item
+fixtures/checkout/empty_cart
+fixtures/fresh_cart
