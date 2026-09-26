@@ -59,10 +59,13 @@ BagExport export_bag(const RecordingBag &bag, std::size_t scope_id) {
         const auto  filename = fmt::format("runtime-record-{}-{}{}", scope_id, i, extension(record.content_type));
         if (i != 0)
             result.json += ',';
-        result.json +=
-            fmt::format("{{\"sequence\":{},\"name\":{},\"contentType\":{},\"schema\":{},\"path\":{}}}", i, json_string(record.name),
-                        json_string(record.content_type), json_string(record.schema), json_string(filename));
-        result.attachments.push_back({record.name, record.content_type, extension(record.content_type), record.bytes, filename});
+        result.json += fmt::format(R"({{"sequence":{},"name":{},"contentType":{},"schema":{},"path":{}}})", i, json_string(record.name),
+                                   json_string(record.content_type), json_string(record.schema), json_string(filename));
+        result.attachments.push_back({.name           = record.name,
+                                      .mime_type      = record.content_type,
+                                      .file_extension = extension(record.content_type),
+                                      .contents       = record.bytes,
+                                      .shared_source  = filename});
     }
     result.json += "]}";
     return result;
@@ -101,7 +104,7 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
         auto                                      add_bag = [&](const RecordingBag &bag) -> const BagExport                                      &{
             return bags.emplace(&bag, export_bag(bag, next_id++)).first->second;
         };
-        std::string index = "{\"schemaVersion\":1,\"run\":" + add_bag(session.run).json + ",\"suites\":[";
+        std::string index = R"({"schemaVersion":1,"run":)" + add_bag(session.run).json + ",\"suites\":[";
         bool        first = true;
         for (const auto &[name, bag] : session.suites) {
             if (!first)
@@ -158,10 +161,10 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
             item.properties       = gentest::detail::effective_properties(session, c);
             item.record_index     = index_path;
             const auto applicable = gentest::detail::recording_bags(session, c);
-            const bool has_data   = std::any_of(applicable.begin(), applicable.end(),
-                                                [](const RecordingBag *bag) { return !bag->properties.empty() || !bag->records.empty(); });
+            const bool has_data =
+                std::ranges::any_of(applicable, [](const RecordingBag *bag) { return !bag->properties.empty() || !bag->records.empty(); });
             if (allure_dir && has_data) {
-                std::string scopes      = "{\"schemaVersion\":1,\"caseId\":" + std::to_string(c.id) + ",\"scopes\":[";
+                std::string scopes      = R"({"schemaVersion":1,"caseId":)" + std::to_string(c.id) + ",\"scopes\":[";
                 bool        first_scope = true;
                 for (auto bag : applicable) {
                     const auto &exported = bags.at(bag);
@@ -186,8 +189,11 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
                     item.attachments.insert(item.attachments.end(), exported.attachments.begin(), exported.attachments.end());
                 }
                 scopes += "]}";
-                item.attachments.push_back({"runtime record index", "application/json", ".json", std::move(scopes),
-                                            fmt::format("runtime-case-{}-index.json", c.id)});
+                item.attachments.push_back({.name           = "runtime record index",
+                                            .mime_type      = "application/json",
+                                            .file_extension = ".json",
+                                            .contents       = std::move(scopes),
+                                            .shared_source  = fmt::format("runtime-case-{}-index.json", c.id)});
             }
         }
     } catch (const std::exception &e) { record_runner_level_failure(acc, "gentest/reporting/records", e.what()); }

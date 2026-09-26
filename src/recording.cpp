@@ -167,6 +167,9 @@ void record_data(std::string_view name, std::span<const std::byte> bytes, std::s
     std::string owned;
     if (!bytes.empty())
         owned.assign(reinterpret_cast<const char *>(bytes.data()), bytes.size());
-    bag->records.push_back({std::string(name), std::string(content_type), std::string(options.schema), std::move(owned)});
+    bag->records.push_back({.name         = std::string(name),
+                            .content_type = std::string(content_type),
+                            .schema       = std::string(options.schema),
+                            .bytes        = std::move(owned)});
 }
 } // namespace gentest
