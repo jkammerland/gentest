@@ -254,6 +254,8 @@ void template_forwarding_alias() {
     });
     rvalue_mock.template take<TrackedMove>(std::move(value));
     EXPECT_EQ(calls, 2);
+    // Inspecting the move-tracking flag proves that reference binding did not move from the argument.
+    // NOLINTNEXTLINE(bugprone-use-after-move)
     EXPECT_FALSE(value.moved);
 }
 
