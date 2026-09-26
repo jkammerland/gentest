@@ -54,4 +54,10 @@ void assert_no_throw_unknown();
 [[using gentest: test("comparison/expect_eq_message_values")]]
 void expect_eq_message_values();
 
+[[using gentest: test("comparison/null_function_pointer")]]
+void null_function_pointer();
+
+[[using gentest: test("comparison/nonnull_function_pointer")]]
+void nonnull_function_pointer();
+
 } // namespace failing

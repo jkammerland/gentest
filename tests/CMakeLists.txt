@@ -2094,7 +2094,7 @@ gentest_add_check_inventory(
     ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeBlockedInventoryProgram.cmake --
     EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_blocked_status.list)
 
-gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 10 SKIP 0 BLOCKED 2)
+gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 12 SKIP 0 BLOCKED 2)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
@@ -2301,6 +2301,26 @@ gentest_add_check_death(
     PROG gentest_failing_tests
     REQUIRED_SUBSTRING "comparison detail; lhs=1, rhs=2"
     ARGS --run=failing/comparison/expect_eq_message_values)
+
+string(HEX "null function pointer diagnostic; lhs=false" _null_function_pointer_text)
+gentest_add_cmake_script_test(
+    NAME null_function_pointer_diagnostic
+    PROG gentest_failing_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckNoTimeout.cmake
+    ARGS --run=failing/comparison/null_function_pointer
+    DEFINES EXPECT_RC=1 TIMEOUT_SEC=10
+    ENCODED_DEFINES "REQUIRED_SUBSTRING=${_null_function_pointer_text}")
+unset(_null_function_pointer_text)
+
+string(HEX "nonnull function pointer diagnostic; lhs=true, rhs=false" _nonnull_function_pointer_text)
+gentest_add_cmake_script_test(
+    NAME nonnull_function_pointer_diagnostic
+    PROG gentest_failing_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckNoTimeout.cmake
+    ARGS --run=failing/comparison/nonnull_function_pointer
+    DEFINES EXPECT_RC=1 TIMEOUT_SEC=10
+    ENCODED_DEFINES "REQUIRED_SUBSTRING=${_nonnull_function_pointer_text}")
+unset(_nonnull_function_pointer_text)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Regressions.cmake)
 

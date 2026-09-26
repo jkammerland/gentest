@@ -97,6 +97,9 @@ Unstable inside. No backward compatibility.
 
 ### Fixed
 
+- Function-pointer assertion and mock diagnostics use explicit boolean
+  conversion instead of MSVC's function-to-object pointer extension, preserving
+  stream manipulators and custom insertion operators under warnings-as-errors.
 - Compile-command delimiter parsing follows the selected Clang driver mode,
   keeping clang-cl flags such as `-J` from consuming the delimiter as an
   option value from another driver's grammar.
