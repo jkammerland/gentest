@@ -246,6 +246,15 @@ void template_forwarding_alias() {
 
     EXPECT_EQ(calls, 1);
     EXPECT_FALSE(value.moved);
+
+    gentest::mock<ForwardingAlias> rvalue_mock;
+    EXPECT_CALL(rvalue_mock, take<TrackedMove>).times(1).invokes([&](const TrackedMove &actual) {
+        EXPECT_EQ(&actual, &value);
+        ++calls;
+    });
+    rvalue_mock.template take<TrackedMove>(std::move(value));
+    EXPECT_EQ(calls, 2);
+    EXPECT_FALSE(value.moved);
 }
 
 } // namespace mocking
@@ -412,8 +421,11 @@ void move_only_with_eq() {
     int                       hits = 0;
     EXPECT_CALL(mock_mo, accept).times(1).with(MoveOnly{7}).invokes([&](const MoveOnly &) { ++hits; });
 
+    EXPECT_CALL(mock_mo, accept_rvalue).times(1).with(MoveOnly{9}).invokes([&](const MoveOnly &actual) { hits += actual.value; });
+
+    mock_mo.accept_rvalue(MoveOnly{9});
     mock_mo.accept(MoveOnly{7});
-    EXPECT_EQ(hits, 1);
+    EXPECT_EQ(hits, 10);
 }
 
 } // namespace mocking

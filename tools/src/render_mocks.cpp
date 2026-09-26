@@ -347,7 +347,7 @@ std::string dispatch_block(const std::string &indent, const MockClassInfo &cls, 
     block.append("{0}auto token = ::gentest::detail::mocking::method_constant_identity<{1}>();\n", indent, method_constant_ref);
     block.append("{0}auto fallback_token = this->__gentest_state_.identify({1});\n", indent, raw_method_ref);
     block.append("{0}{1}this->__gentest_state_.template dispatch_with_fallback<{2}>(token, fallback_token, \"{3}\"{4});\n", indent,
-                 returns_value ? "return " : "", type_parts.return_type, fq_method_escaped, dispatch_args);
+                 returns_value ? "return " : "", type_parts.expectation_push_types, fq_method_escaped, dispatch_args);
     return block.str();
 }
 
