@@ -161,6 +161,11 @@ bool raw_string_closes_here(std::string_view text, std::size_t index, std::strin
     return text.substr(delimiter_start, delimiter.size()) == delimiter && text[delimiter_start + delimiter.size()] == '"';
 }
 
+std::size_t raw_string_end(std::string_view text, std::size_t index, const RawStringStart &start) {
+    const auto end = text.find(")" + start.delimiter + "\"", index + start.prefix_length);
+    return end == std::string_view::npos ? text.size() : end + start.delimiter.size() + 2;
+}
+
 std::string next_identifier_token(std::string_view text, std::size_t index) {
     while (index < text.size() && std::isspace(static_cast<unsigned char>(text[index])) != 0) {
         ++index;
@@ -212,6 +217,11 @@ bool has_matching_angle_close(std::string_view text, std::size_t open_index) {
             } else if (ch == '\'') {
                 in_char = false;
             }
+            continue;
+        }
+
+        if (const auto raw_start = detect_raw_string_start(text, idx)) {
+            idx = raw_string_end(text, idx, *raw_start) - 1;
             continue;
         }
 
@@ -284,7 +294,9 @@ bool has_matching_angle_close(std::string_view text, std::size_t open_index) {
     return false;
 }
 
-std::vector<std::string> split_arguments(std::string_view arguments) {
+} // namespace
+
+std::vector<std::string> split_expression_list(std::string_view arguments) {
     std::vector<std::string> parts;
     std::string              current;
     int                      depth       = 0;
@@ -330,6 +342,13 @@ std::vector<std::string> split_arguments(std::string_view arguments) {
             continue;
         }
 
+        if (const auto raw_start = detect_raw_string_start(arguments, idx)) {
+            const auto end = raw_string_end(arguments, idx, *raw_start);
+            current.append(arguments.substr(idx, end - idx));
+            idx = end - 1;
+            continue;
+        }
+
         switch (ch) {
         case '"':
             in_string = true;
@@ -371,7 +390,7 @@ std::vector<std::string> split_arguments(std::string_view arguments) {
             if (depth == 0 && angle_depth == 0) {
                 auto token = trim_copy(current);
                 if (!token.empty()) {
-                    parts.push_back(unquote(token));
+                    parts.push_back(std::move(token));
                 }
                 current.clear();
                 break;
@@ -383,12 +402,10 @@ std::vector<std::string> split_arguments(std::string_view arguments) {
 
     auto token = trim_copy(current);
     if (!token.empty()) {
-        parts.push_back(unquote(token));
+        parts.push_back(std::move(token));
     }
     return parts;
 }
-
-} // namespace
 
 auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute> {
     std::vector<ParsedAttribute> attributes;
@@ -525,7 +542,10 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
                     --depth;
                     if (depth == 0) {
                         auto inside = list.substr(args_start, index - args_start);
-                        args        = split_arguments(inside);
+                        args        = split_expression_list(inside);
+                        for (auto &arg : args) {
+                            arg = unquote(arg);
+                        }
                         ++index; // consume ')'
                         break;
                     }
