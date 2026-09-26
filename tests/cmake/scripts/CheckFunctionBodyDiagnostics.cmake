@@ -54,7 +54,7 @@ foreach(_slot IN ITEMS authored-tu fallback-header)
 
     # The ordinary compiler is the diagnostic oracle, not codegen's own output.
     execute_process(
-      COMMAND "${_clangxx}" ${_flags} ${_syntax_only} "${_work}/cases.cpp"
+      COMMAND "${_clangxx}" ${_flags} ${_syntax_only} -- "${_work}/cases.cpp"
       RESULT_VARIABLE _compile_rc
       OUTPUT_VARIABLE _compile_out
       ERROR_VARIABLE _compile_err)
