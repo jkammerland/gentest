@@ -77,6 +77,5 @@ bool                                              recording_suite_matches(std::s
 std::vector<const RecordingBag *>                 recording_bags(const RecordingSession &session, const CaseRecording &c);
 std::map<std::string, PropertyValue, std::less<>> effective_properties(const RecordingSession &session, const CaseRecording &c);
 std::string                                       property_text(const PropertyValue &value);
-std::string                                       recording_json_string(std::string_view text);
 
 } // namespace gentest::detail

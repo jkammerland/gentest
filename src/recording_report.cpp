@@ -1,3 +1,4 @@
+#include "runner_json.h"
 #include "runner_reporting.h"
 
 #include <algorithm>
@@ -11,7 +12,6 @@
 
 namespace gentest::runner {
 namespace {
-using gentest::detail::recording_json_string;
 using gentest::detail::RecordingBag;
 
 std::string properties_json(const std::map<std::string, PropertyValue, std::less<>> &properties) {
@@ -21,9 +21,9 @@ std::string properties_json(const std::map<std::string, PropertyValue, std::less
         if (!first)
             out += ',';
         first = false;
-        out += recording_json_string(key) + ':';
+        out += json_string(key) + ':';
         const auto text = gentest::detail::property_text(value);
-        out += std::holds_alternative<std::string>(value.value) ? recording_json_string(text) : text;
+        out += std::holds_alternative<std::string>(value.value) ? json_string(text) : text;
     }
     return out + '}';
 }
@@ -33,7 +33,7 @@ std::string string_array(const std::vector<std::string> &strings) {
     for (const auto &value : strings) {
         if (out.size() > 1)
             out += ',';
-        out += recording_json_string(value);
+        out += json_string(value);
     }
     return out + ']';
 }
@@ -59,9 +59,9 @@ BagExport export_bag(const RecordingBag &bag, std::size_t scope_id) {
         const auto  filename = fmt::format("runtime-record-{}-{}{}", scope_id, i, extension(record.content_type));
         if (i != 0)
             result.json += ',';
-        result.json += fmt::format("{{\"sequence\":{},\"name\":{},\"contentType\":{},\"schema\":{},\"path\":{}}}", i,
-                                   recording_json_string(record.name), recording_json_string(record.content_type),
-                                   recording_json_string(record.schema), recording_json_string(filename));
+        result.json +=
+            fmt::format("{{\"sequence\":{},\"name\":{},\"contentType\":{},\"schema\":{},\"path\":{}}}", i, json_string(record.name),
+                        json_string(record.content_type), json_string(record.schema), json_string(filename));
         result.attachments.push_back({record.name, record.content_type, extension(record.content_type), record.bytes, filename});
     }
     result.json += "]}";
@@ -107,7 +107,7 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
             if (!first)
                 index += ',';
             first = false;
-            index += "{\"name\":" + recording_json_string(name) + ",\"data\":" + add_bag(bag).json + '}';
+            index += "{\"name\":" + json_string(name) + ",\"data\":" + add_bag(bag).json + '}';
         }
         index += "],\"cases\":[";
         first = true;
@@ -117,9 +117,9 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
             first = false;
             index += fmt::format("{{\"id\":{},\"name\":{},\"suite\":{},\"kind\":{},\"file\":{},\"line\":{},"
                                  "\"owner\":{},\"requirements\":{},\"tags\":{},\"outcome\":{},\"data\":{}}}",
-                                 c->id, recording_json_string(c->name), recording_json_string(c->suite), recording_json_string(c->kind),
-                                 recording_json_string(c->file), c->line, recording_json_string(c->owner), string_array(c->requirements),
-                                 string_array(c->tags), recording_json_string(c->outcome), add_bag(c->data).json);
+                                 c->id, json_string(c->name), json_string(c->suite), json_string(c->kind), json_string(c->file), c->line,
+                                 json_string(c->owner), string_array(c->requirements), string_array(c->tags), json_string(c->outcome),
+                                 add_bag(c->data).json);
         }
         index += "],\"errors\":" + string_array(acc.infra_errors) + "}\n";
 
@@ -182,8 +182,7 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
                             }
                         }
                     }
-                    scopes += "{\"scope\":" + recording_json_string(scope) + ",\"name\":" + recording_json_string(name) +
-                              ",\"data\":" + exported.json + '}';
+                    scopes += "{\"scope\":" + json_string(scope) + ",\"name\":" + json_string(name) + ",\"data\":" + exported.json + '}';
                     item.attachments.insert(item.attachments.end(), exported.attachments.begin(), exported.attachments.end());
                 }
                 scopes += "]}";

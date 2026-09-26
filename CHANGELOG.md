@@ -11,6 +11,9 @@
 
 ### Changed
 
+- Recording, inventory, and measured reports share one UTF-8-safe JSON string
+  encoder.
+
 - Transitional release archives are explicitly named as LLVM-bound host
   developer kits and carry a validated, machine-readable artifact contract.
 - Standalone release manifests and SBOMs use artifact-scoped names so future
