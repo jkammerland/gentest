@@ -11,10 +11,10 @@ for name, rc in [("success", 0), ("errors", 1), ("timed", 1)]:
     directory = root / name
     result = subprocess.run([exe, f"--run=adapter/{name}", f"--records={directory}",
                              "--bench-epochs=1", "--bench-warmup=0", "--bench-max-total-time-s=0.01"],
-                            capture_output=True, text=True, timeout=60)
+                            capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert result.returncode == rc, (result.stdout, result.stderr)
     index_path, = directory.glob("run-*/index.json")
-    case, = json.loads(index_path.read_text())["cases"]
+    case, = json.loads(index_path.read_text(encoding="utf-8"))["cases"]
     assert case["outcome"] == ("pass" if rc == 0 else "fail"), case
     records = case["data"]["records"]
     payloads = {r["name"]: (index_path.parent / r["path"]).read_bytes() for r in records}

@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <ranges>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -90,16 +91,26 @@ bool contains_manual_case(std::span<const gentest::Case> cases) {
 } // namespace
 
 int main(int argc, char **argv) {
-    if (argc == 2 && std::string_view(argv[1]) == "--list-json-malformed") {
-        const std::string   malformed_name = std::string("embed/malformed-") + static_cast<char>(0xFF);
+    const std::string_view mode = argc == 2 ? argv[1] : "";
+    if (mode == "--list-json-malformed" || mode == "--measured-json-malformed" || mode == "--measured-json-malformed-failure") {
+        const std::string malformed_name =
+            "embed/malformed-\xff-\xc3\xa9-\xe2\x82\xac-\xf0\x9f\x98\x80-\xc0\xaf-\xed\xa0\x80-\xf4\x90\x80\x80-\xe2\x82";
+        const bool          measured         = mode != "--list-json-malformed";
+        const auto          measured_failure = +[](void *) { throw std::runtime_error("failure-\xff"); };
         const gentest::Case malformed_case{
             .name             = malformed_name,
-            .fn               = &alpha_selected,
-            .file             = "malformed.cpp",
+            .fn               = mode == "--measured-json-malformed-failure" ? measured_failure : &alpha_selected,
+            .file             = "malformed-\xff.cpp",
             .line             = 1,
+            .is_benchmark     = measured,
             .fixture_lifetime = gentest::FixtureLifetime::None,
             .suite            = "embed",
         };
+        if (measured) {
+            const char *report_args[] = {"run-cases-api",    "--kind=bench",    "--report-format=json", "--bench-min-epoch-time-s=0",
+                                         "--bench-epochs=1", "--bench-warmup=0"};
+            return gentest::run_cases(std::span<const gentest::Case>(&malformed_case, 1), report_args);
+        }
         const char *list_args[] = {"run-cases-api", "--list-json"};
         return gentest::run_cases(std::span<const gentest::Case>(&malformed_case, 1), list_args);
     }

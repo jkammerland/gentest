@@ -9,7 +9,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -25,27 +24,6 @@
 namespace gentest::runner {
 namespace {
 
-double mean_of(const std::vector<double> &v) {
-    if (v.empty())
-        return 0.0;
-
-    double s = 0;
-    for (double x : v)
-        s += x;
-    return s / static_cast<double>(v.size());
-}
-
-double stddev_of(const std::vector<double> &v, double mean) {
-    if (v.size() < 2)
-        return 0.0;
-    double sum = 0.0;
-    for (double x : v) {
-        const double d = x - mean;
-        sum += d * d;
-    }
-    return std::sqrt(sum / static_cast<double>(v.size()));
-}
-
 struct OverheadEstimate {
     double      mean_ns   = 0.0;
     double      stddev_ns = 0.0;
@@ -58,22 +36,6 @@ struct CalibratedEpoch {
     double      elapsed_s  = 0.0;
     bool        had_assert = false;
 };
-
-double percentile_sorted(const std::vector<double> &v, double p) {
-    if (v.empty())
-        return 0.0;
-    if (v.size() == 1)
-        return v.front();
-    if (p <= 0.0)
-        return v.front();
-    if (p >= 1.0)
-        return v.back();
-    const double idx  = p * static_cast<double>(v.size() - 1);
-    const auto   lo   = static_cast<std::size_t>(idx);
-    const auto   hi   = (lo + 1 < v.size()) ? (lo + 1) : lo;
-    const double frac = idx - static_cast<double>(lo);
-    return v[lo] + (v[hi] - v[lo]) * frac;
-}
 
 void record_runtime_skip_or_default(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string_view default_reason) {
     std::string runtime_skip_reason;
@@ -315,9 +277,10 @@ OverheadEstimate estimate_timer_overhead_per_iter(std::size_t sample_count) {
         const double ns  = ns_from_s(std::chrono::duration<double>(end - start).count()) / static_cast<double>(repeat);
         samples.push_back(ns);
     }
-    est.mean_ns   = mean_of(samples);
-    est.stddev_ns = stddev_of(samples, est.mean_ns);
-    est.samples   = samples.size();
+    const auto stats = gentest::detail::compute_sample_stats(samples);
+    est.mean_ns      = stats.mean;
+    est.stddev_ns    = stats.stddev;
+    est.samples      = stats.count;
     return est;
 }
 
@@ -339,9 +302,10 @@ OverheadEstimate estimate_timer_overhead_batch(std::size_t sample_count, std::si
         samples.push_back(ns);
     }
     (void)sink;
-    est.mean_ns   = mean_of(samples);
-    est.stddev_ns = stddev_of(samples, est.mean_ns);
-    est.samples   = samples.size();
+    const auto stats = gentest::detail::compute_sample_stats(samples);
+    est.mean_ns      = stats.mean;
+    est.stddev_ns    = stats.stddev;
+    est.samples      = stats.count;
     return est;
 }
 
@@ -441,16 +405,15 @@ BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg,
         }
     }
     if (!epoch_ns.empty()) {
-        std::vector<double> sorted = epoch_ns;
-        std::ranges::sort(sorted);
-        br.epochs          = sorted.size();
+        const auto stats   = gentest::detail::compute_sample_stats(epoch_ns);
+        br.epochs          = stats.count;
         br.iters_per_epoch = iters;
-        br.best_ns         = sorted.front();
-        br.worst_ns        = sorted.back();
-        br.median_ns       = percentile_sorted(sorted, 0.5);
-        br.mean_ns         = mean_of(epoch_ns);
-        br.p05_ns          = percentile_sorted(sorted, 0.05);
-        br.p95_ns          = percentile_sorted(sorted, 0.95);
+        br.best_ns         = stats.min;
+        br.worst_ns        = stats.max;
+        br.median_ns       = stats.median;
+        br.mean_ns         = stats.mean;
+        br.p05_ns          = stats.p05;
+        br.p95_ns          = stats.p95;
     }
     br.wall_time_s = br.warmup_time_s + br.total_time_s + br.calibration_time_s;
     return br;

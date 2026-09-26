@@ -114,6 +114,21 @@ int main() {
     }
 
     {
+        MockClassInfo cls                       = service_mock();
+        cls.methods[0].return_type              = "void";
+        cls.methods[0].parameters               = {MockParamInfo{.type = "int &&", .name = "value"}};
+        cls.methods[0].parameters[0].pass_style = MockParamInfo::PassStyle::RValueRef;
+        const MockRenderResult result           = gentest::codegen::render::render_mocks(mock_options(), {cls});
+        t.expect(result.error.empty(), "native backend renders an rvalue-reference parameter");
+        const MockGeneratedFile *impl = find_file(result, "public_mocks_inline.hpp");
+        t.expect(impl != nullptr, "native backend emits an implementation header");
+        if (impl != nullptr) {
+            t.contains(impl->content, "dispatch_with_fallback<void, int &&>",
+                       "dispatch preserves the declared rvalue reference used by its expectation");
+        }
+    }
+
+    {
         const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {service_mock()});
         t.expect(result.error.empty(), "gmock backend renders without an error");
         const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");

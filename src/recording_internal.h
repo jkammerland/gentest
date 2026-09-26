@@ -14,7 +14,8 @@ struct RecordedPayload {
     std::string name;
     std::string content_type;
     std::string schema;
-    std::string bytes;
+    // One immutable payload can be referenced by many case reports.
+    std::shared_ptr<const std::string> bytes = std::make_shared<const std::string>();
 };
 
 struct RecordingBag {
@@ -35,7 +36,8 @@ struct RecordingSession {
     RecordingBag                                     run;
     std::map<std::string, RecordingBag, std::less<>> suites;
     std::vector<std::shared_ptr<CaseRecording>>      cases;
-    bool                                             active = true;
+    bool                                             active       = true;
+    bool                                             retain_cases = false;
 };
 
 struct RecordingTarget {
@@ -51,7 +53,7 @@ std::shared_ptr<RecordingTarget> make_fixture_recording(std::string_view suite, 
 
 class RecordingRunScope {
   public:
-    RecordingRunScope();
+    explicit RecordingRunScope(bool retain_cases);
     ~RecordingRunScope();
     RecordingRunScope(const RecordingRunScope &)                           = delete;
     RecordingRunScope                &operator=(const RecordingRunScope &) = delete;
@@ -76,6 +78,5 @@ bool                                              recording_suite_matches(std::s
 std::vector<const RecordingBag *>                 recording_bags(const RecordingSession &session, const CaseRecording &c);
 std::map<std::string, PropertyValue, std::less<>> effective_properties(const RecordingSession &session, const CaseRecording &c);
 std::string                                       property_text(const PropertyValue &value);
-std::string                                       recording_json_string(std::string_view text);
 
 } // namespace gentest::detail

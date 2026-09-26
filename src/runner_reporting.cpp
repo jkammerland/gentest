@@ -129,7 +129,7 @@ std::string sanitize_xml_text(std::string_view s) {
     return out;
 }
 
-std::string escape_xml(std::string_view s) {
+std::string escape_xml_attribute(std::string_view s) {
     const std::string sanitized = sanitize_xml_text(s);
     std::string       out;
     out.reserve(sanitized.size());
@@ -139,6 +139,9 @@ std::string escape_xml(std::string_view s) {
         case '<': out += "&lt;"; break;
         case '>': out += "&gt;"; break;
         case '"': out += "&quot;"; break;
+        case '\n': out += "&#10;"; break;
+        case '\r': out += "&#13;"; break;
+        case '\t': out += "&#9;"; break;
         default: out.push_back(ch); break;
         }
     }
@@ -278,25 +281,25 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
         out << R"(<testsuite name="gentest" tests=")" << total_tests << "\" failures=\"" << total_fail << "\" skipped=\"" << total_skip
             << "\" errors=\"" << total_err << "\">\n";
         for (const auto &it : acc.report_items) {
-            out << "  <testcase classname=\"" << escape_xml(it.suite) << "\" name=\"" << escape_xml(it.name) << "\" time=\"" << it.time_s
-                << "\">\n";
+            out << "  <testcase classname=\"" << escape_xml_attribute(it.suite) << "\" name=\"" << escape_xml_attribute(it.name)
+                << "\" time=\"" << it.time_s << "\">\n";
             if (!it.requirements.empty() || !it.properties.empty() || !it.record_index.empty()) {
                 out << "    <properties>\n";
                 for (const auto &req : it.requirements) {
-                    out << R"(      <property name="requirement" value=")" << escape_xml(req) << "\"/>\n";
+                    out << R"(      <property name="requirement" value=")" << escape_xml_attribute(req) << "\"/>\n";
                 }
                 for (const auto &[key, value] : it.properties) {
-                    out << "      <property name=\"gentest.property." << escape_xml(key) << "\" value=\""
-                        << escape_xml(gentest::detail::property_text(value)) << "\"/>\n";
+                    out << "      <property name=\"gentest.property." << escape_xml_attribute(key) << "\" value=\""
+                        << escape_xml_attribute(gentest::detail::property_text(value)) << "\"/>\n";
                 }
                 if (!it.record_index.empty())
-                    out << "      <property name=\"gentest.records\" value=\"" << escape_xml(it.record_index) << "\"/>\n";
+                    out << R"(      <property name="gentest.records" value=")" << escape_xml_attribute(it.record_index) << "\"/>\n";
                 out << "    </properties>\n";
             }
             if (it.skipped) {
                 out << "    <skipped";
                 if (!it.skip_reason.empty())
-                    out << " message=\"" << escape_xml(it.skip_reason) << "\"";
+                    out << " message=\"" << escape_xml_attribute(it.skip_reason) << "\"";
                 out << "/>\n";
             }
             for (const auto &f : it.failures) {

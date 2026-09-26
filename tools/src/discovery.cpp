@@ -2,7 +2,6 @@
 
 #include "discovery.hpp"
 
-#include "axis_expander.hpp"
 #include "discovery_utils.hpp"
 #include "log.hpp"
 #include "parse.hpp"
