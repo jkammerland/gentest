@@ -1,5 +1,5 @@
 # A compile-command delimiter is syntax, not a semantic compiler option.
-foreach(_required IN ITEMS BUILD_ROOT GENTEST_SOURCE_DIR PROG)
+foreach(_required IN ITEMS BUILD_ROOT GENTEST_SOURCE_DIR PROG DRIVER_MODE)
   if(NOT DEFINED ${_required} OR "${${_required}}" STREQUAL "")
     message(FATAL_ERROR "CheckCodegenCompileCommandDelimiter.cmake: ${_required} not set")
   endif()
@@ -23,6 +23,7 @@ set(_registration "${_work_dir}/generated/registration.cpp")
 set(_manifest "${_work_dir}/generated/manifest.json")
 gentest_fixture_write_file("${_header}" [=[
 #pragma once
+static_assert(char(-1) > 0, "unsigned-char compiler option was lost");
 #if defined(GENTEST_DISABLED)
 #error compile-command undefinition was lost
 #endif
@@ -36,12 +37,20 @@ gentest_fixture_write_file("${_header}" [=[
 ]=])
 gentest_fixture_write_file("${_source}" "#include \"cases.hpp\"\n")
 
-get_filename_component(_compiler_name "${_clangxx}" NAME_WE)
-if(_compiler_name STREQUAL "clang-cl" OR _compiler_name STREQUAL "cl")
+if(DRIVER_MODE STREQUAL "cl")
   set(_standard "/std:c++20")
-else()
+  # In cl mode -J is a flag. Flang's same-spelled option consumes a value,
+  # so it must not swallow a following delimiter while fingerprinting.
+  set(_unsigned_char -J)
+  set(_force_include /FI)
+elseif(DRIVER_MODE STREQUAL "g++")
   set(_standard "-std=c++20")
+  set(_unsigned_char -funsigned-char)
+  set(_force_include -include)
+else()
+  message(FATAL_ERROR "Unsupported DRIVER_MODE: ${DRIVER_MODE}")
 endif()
+set(_driver_flags "--driver-mode=${DRIVER_MODE}" "${_standard}")
 
 foreach(_slot IN ITEMS authored-tu fallback-header)
   if(_slot STREQUAL "authored-tu")
@@ -58,19 +67,19 @@ foreach(_slot IN ITEMS authored-tu fallback-header)
     if(_scenario STREQUAL "changed")
       set(_variant 2)
     endif()
-    set(_flags "${_standard}" "-DGENTEST_VARIANT=${_variant}" "-DGENTEST_DISABLED=1" "-UGENTEST_DISABLED")
+    set(_flags ${_driver_flags} "-DGENTEST_VARIANT=${_variant}" "-DGENTEST_DISABLED=1" "-UGENTEST_DISABLED")
     # Mixed commands prove equal fingerprints; marking both commands or using
     # only the generated slot also exercises a delimited selected scan command.
     gentest_fixture_make_compdb_entry(_generated_entry
       DIRECTORY "${_work_dir}" FILE "${_registration}"
-      ARGUMENTS "${_clangxx}" ${_flags} -c ${_separator} "${_registration}")
+      ARGUMENTS "${_clangxx}" ${_flags} -c "${_unsigned_char}" ${_separator} "${_registration}")
     set(_authored_separator)
     if(_scenario STREQUAL "both_delimited")
       set(_authored_separator "--")
     endif()
     gentest_fixture_make_compdb_entry(_authored_entry
       DIRECTORY "${_work_dir}" FILE "${_input}"
-      ARGUMENTS "${_clangxx}" ${_flags} -c ${_authored_separator} "${_input}")
+      ARGUMENTS "${_clangxx}" ${_flags} -c "${_unsigned_char}" ${_authored_separator} "${_input}")
     if(_scenario STREQUAL "slot_only")
       gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_generated_entry}")
     else()
@@ -117,7 +126,7 @@ endforeach()
 gentest_fixture_write_file("${_work_dir}/--" "// forced include\n")
 gentest_fixture_make_compdb_entry(_value_entry
   DIRECTORY "${_work_dir}" FILE "${_registration}"
-  ARGUMENTS "${_clangxx}" "${_standard}" -DGENTEST_VARIANT=1 -include -- -c "${_registration}")
+  ARGUMENTS "${_clangxx}" ${_driver_flags} -DGENTEST_VARIANT=1 "${_unsigned_char}" ${_force_include} -- -c "${_registration}")
 gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_value_entry}")
 file(REMOVE "${_registration}" "${_manifest}")
 execute_process(
@@ -136,7 +145,7 @@ endif()
 gentest_fixture_write_file("${_work_dir}/-DOTHER=1" "// second input\n")
 gentest_fixture_make_compdb_entry(_operand_entry
   DIRECTORY "${_work_dir}" FILE "${_registration}"
-  ARGUMENTS "${_clangxx}" "${_standard}" -DGENTEST_VARIANT=1 -c -- "${_registration}" -DOTHER=1)
+  ARGUMENTS "${_clangxx}" ${_driver_flags} -DGENTEST_VARIANT=1 -c "${_unsigned_char}" -- "${_registration}" -DOTHER=1)
 gentest_fixture_write_compdb("${_work_dir}/compile_commands.json" "${_operand_entry}")
 file(REMOVE "${_registration}" "${_manifest}")
 execute_process(
