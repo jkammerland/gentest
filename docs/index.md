@@ -40,6 +40,7 @@
 
 - Windows troubleshooting: [`docs/windows_troubleshooting.md`](windows_troubleshooting.md)
 - LLVM 21 location notes: [`docs/llvm21-location-api-fix.md`](llvm21-location-api-fix.md)
+- Libclang deferred diagnostic leak and patch proposal: [`docs/issues/libclang_dependent_diagnostic_leak.md`](issues/libclang_dependent_diagnostic_leak.md)
 - Fixture allocation hook: [`docs/fixtures_allocation.md`](fixtures_allocation.md)
 - Coverage hygiene gate: [`docs/coverage_hygiene.md`](coverage_hygiene.md)
 - Traceability standards map: [`docs/traceability_standards.md`](traceability_standards.md)
