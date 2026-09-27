@@ -45,6 +45,8 @@ gentest_discover_tests(demo_tests
   DISCOVERY_EXTRA_ARGS --empty-inventory)
 
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/check_list.cmake" [==[
+# CTest includes this outside the fixture project's configure-time policy scope.
+cmake_policy(SET CMP0057 NEW)
 list(LENGTH normal_discovered count)
 if(NOT count EQUAL 6)
   message(FATAL_ERROR "Expected six list-representable names, got ${count}: ${normal_discovered}")
