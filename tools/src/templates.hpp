@@ -109,20 +109,6 @@ inline void gentest_record_fixture_failure(std::string_view fixture, std::string
     gentest::detail::record_failure(std::move(msg));
 }
 
-inline void gentest_record_shared_fixture_unavailable(std::string_view fixture, std::string_view reason) {
-    std::string msg =
-        reason.empty() ? fmt::format("shared fixture unavailable for '{}'", fixture) : fmt::format("shared fixture unavailable for '{}': {}", fixture, reason);
-    if constexpr (::gentest::detail::exceptions_enabled) {
-        ::gentest::detail::skip_shared_fixture_unavailable(msg);
-    } else {
-        if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
-            ::gentest::detail::record_bench_error(std::move(msg));
-            return;
-        }
-        ::gentest::detail::record_failure(std::move(msg));
-    }
-}
-
 template <typename TeardownFn>
 struct gentest_noexceptions_local_teardown {
     TeardownFn *teardown = nullptr;
@@ -251,7 +237,17 @@ inline bool gentest_init_shared_fixture(::gentest::detail::FixtureHandle<T>& han
     std::string reason;
     auto shared = ::gentest::detail::get_shared_fixture_typed<T>(scope, suite, fixture, reason);
     if (!shared) {
-        gentest_record_shared_fixture_unavailable(fixture, reason);
+        // Keep this path in its templated caller: registration units without
+        // shared free-function fixtures do not need a standalone helper.
+        std::string msg =
+            reason.empty() ? fmt::format("shared fixture unavailable for '{}'", fixture) : fmt::format("shared fixture unavailable for '{}': {}", fixture, reason);
+        if constexpr (::gentest::detail::exceptions_enabled) {
+            ::gentest::detail::skip_shared_fixture_unavailable(msg);
+        } else if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
+            ::gentest::detail::record_bench_error(std::move(msg));
+        } else {
+            ::gentest::detail::record_failure(std::move(msg));
+        }
         return false;
     }
     if (!handle.init_shared(std::move(shared))) {

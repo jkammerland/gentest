@@ -77,4 +77,15 @@ namespace failing {
 
 void expect_eq_message_values() { EXPECT_EQ(1, 2, "comparison detail"); }
 
+void null_function_pointer() {
+    void (*const callback)() = nullptr;
+    ASSERT_NE(callback, nullptr, "null function pointer diagnostic");
+}
+
+void nonnull_function_pointer() {
+    void (*const callback)() = &null_function_pointer;
+    void (*const absent)()   = nullptr;
+    ASSERT_EQ(callback, absent, "nonnull function pointer diagnostic");
+}
+
 } // namespace failing
