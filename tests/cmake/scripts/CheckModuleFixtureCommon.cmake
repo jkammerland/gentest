@@ -808,6 +808,22 @@ endfunction()
 
 function(gentest_append_public_dependency_include_args out_var)
   set(_args ${${out_var}})
+  # During the first configure CMakeCache.txt has not been written yet. Use the
+  # resolved dependency target when this helper runs in project mode; script
+  # mode still uses the installed/cache fallbacks below.
+  foreach(_fmt_target IN ITEMS fmt::fmt fmt::fmt-header-only)
+    if(TARGET "${_fmt_target}")
+      get_target_property(_fmt_includes "${_fmt_target}" INTERFACE_INCLUDE_DIRECTORIES)
+      foreach(_include_dir IN LISTS _fmt_includes)
+        if(_include_dir MATCHES "^\\$<BUILD_INTERFACE:(.*)>$")
+          set(_include_dir "${CMAKE_MATCH_1}")
+        endif()
+        if(NOT _include_dir MATCHES "\\$<")
+          _gentest_append_include_arg_unique(_args "${_include_dir}")
+        endif()
+      endforeach()
+    endif()
+  endforeach()
   set(_build_root "${BUILD_ROOT}")
   if(ARGC GREATER 1 AND NOT "${ARGV1}" STREQUAL "")
     set(_build_root "${ARGV1}")

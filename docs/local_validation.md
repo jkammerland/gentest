@@ -20,7 +20,9 @@ python3 scripts/validate_local.py run --commit <candidate-SHA> --base <base-SHA>
 The command creates detached candidate and baseline worktrees in that directory,
 fresh build directories, `report.json`, and `summary.md`. Existing directories
 are refused. POSIX outputs are restricted to the current user; on Windows choose
-a parent directory with appropriate user ACLs. Do not add the output directory
+a parent directory with appropriate user ACLs. Keep Windows output paths short:
+Ninja can reject generated object paths over 260 characters in deeply nested
+report directories. Do not add the output directory
 to an artifact upload, Git repository, shared folder, or PR attachment.
 
 `--jobs` defaults to two. Nested helper builds use one job. Each command has a
