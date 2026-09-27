@@ -5063,6 +5063,8 @@ foreach(_gentest_test IN LISTS _gentest_registered_tests)
     endif()
 endforeach()
 foreach(_gentest_test IN ITEMS
+    gentest_diagnostic_workflow_lanes
+    gentest_buildsystems_linux_workflow_contract
     gentest_discover_tests_smoke
     gentest_module_registration_mock_split
     gentest_codegen_check_valid

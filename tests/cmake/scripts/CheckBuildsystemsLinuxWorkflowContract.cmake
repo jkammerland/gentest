@@ -38,112 +38,21 @@ if(_xmake_ci_version_pos EQUAL -1)
   message(FATAL_ERROR "Fedora xmake workflow must run the packaged xmake binary as the ci user.")
 endif()
 
-string(FIND "${_content}" "gentest_consumer_textual_bazel" _bazel_consumer_textual_pos)
-if(_bazel_consumer_textual_pos EQUAL -1)
-  message(FATAL_ERROR "buildsystems_linux workflow must validate the Bazel textual explicit-mock consumer slice.")
-endif()
-
-string(FIND "${_content}" "./bazel-bin/gentest_consumer_textual_bazel --list" _bazel_textual_list_pos)
-if(_bazel_textual_list_pos EQUAL -1)
-  message(FATAL_ERROR "buildsystems_linux workflow must run the Bazel textual consumer listing after building it.")
-endif()
-
-string(FIND "${_content}" "gentest_consumer_module_bazel" _bazel_consumer_module_pos)
-if(_bazel_consumer_module_pos EQUAL -1)
-  message(FATAL_ERROR "buildsystems_linux workflow must validate the Bazel module consumer slice.")
-endif()
-
-string(FIND "${_content}" "--experimental_cpp_modules" _bazel_cpp_modules_flag_pos)
-if(_bazel_cpp_modules_flag_pos EQUAL -1)
-  message(FATAL_ERROR "buildsystems_linux workflow must enable Bazel C++20 modules for the module consumer slice.")
-endif()
-
-string(FIND "${_content}" "./bazel-bin/gentest_consumer_module_bazel --list" _bazel_module_list_pos)
-if(_bazel_module_list_pos EQUAL -1)
-  message(FATAL_ERROR "buildsystems_linux workflow must run the Bazel module consumer listing after building it.")
-endif()
-
-foreach(_consumer_run IN ITEMS
-    "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_test --kind=test"
-    "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_mock --kind=test"
-    "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/log_sink --kind=test"
-    "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_bench --kind=bench"
-    "./bazel-bin/gentest_consumer_textual_bazel --run=consumer/consumer/module_jitter --kind=jitter"
-    "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_test --kind=test"
-    "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_mock --kind=test"
-    "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/log_sink --kind=test"
-    "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_bench --kind=bench"
-    "./bazel-bin/gentest_consumer_module_bazel --run=consumer/consumer/module_jitter --kind=jitter")
-  string(FIND "${_content}" "${_consumer_run}" _consumer_run_pos)
-  if(_consumer_run_pos EQUAL -1)
-    message(FATAL_ERROR "buildsystems_linux workflow must execute '${_consumer_run}'.")
+# Acceptance commands now live in one shared builder used by local validation
+# and CI. Exercise its resolved command lists instead of matching removed YAML.
+foreach(_suite IN ITEMS bazel meson xmake)
+  string(FIND "${_content}" "scripts/validation_suites.py ${_suite}" _call_pos)
+  if(_call_pos EQUAL -1)
+    message(FATAL_ERROR "Workflow must invoke the shared ${_suite} acceptance suite")
   endif()
 endforeach()
-
-foreach(_exec_toolchain_literal IN ITEMS
-    [[export GENTEST_BAZEL_LOCAL_CLANG="${host_clang}"]]
-    [[--repo_env=GENTEST_BAZEL_LOCAL_CLANG]])
-  string(FIND "${_content}" "${_exec_toolchain_literal}" _exec_toolchain_literal_pos)
-  if(_exec_toolchain_literal_pos EQUAL -1)
-    message(FATAL_ERROR
-      "buildsystems_linux workflow must contain '${_exec_toolchain_literal}' to exercise the Bazel exec-toolchain bootstrap.")
-  endif()
-endforeach()
-
-foreach(_obsolete_bazel_pass_through IN ITEMS
-    [[--action_env=GENTEST_CODEGEN_HOST_CLANG]]
-    [[--host_action_env=GENTEST_CODEGEN_HOST_CLANG]]
-    [[--repo_env=GENTEST_CODEGEN_HOST_CLANG]]
-    [[--action_env=GENTEST_CODEGEN_RESOURCE_DIR]]
-    [[--host_action_env=GENTEST_CODEGEN_RESOURCE_DIR]]
-    [[--repo_env=GENTEST_CODEGEN_RESOURCE_DIR]])
-  string(FIND "${_content}" "${_obsolete_bazel_pass_through}" _obsolete_bazel_pass_through_pos)
-  if(NOT _obsolete_bazel_pass_through_pos EQUAL -1)
-    message(FATAL_ERROR
-      "buildsystems_linux workflow must not retain obsolete Bazel codegen pass-through '${_obsolete_bazel_pass_through}'.")
-  endif()
-endforeach()
-
-string(FIND "${_content}" "gentest_consumer_textual_xmake" _xmake_consumer_textual_pos)
-if(_xmake_consumer_textual_pos EQUAL -1)
-  message(FATAL_ERROR "buildsystems_linux workflow must validate the Xmake textual explicit-mock consumer slice.")
+if(NOT Python3_EXECUTABLE)
+  find_program(Python3_EXECUTABLE NAMES python3 python REQUIRED)
 endif()
-
-string(FIND "${_content}" "gentest_consumer_module_xmake" _xmake_consumer_module_pos)
-if(_xmake_consumer_module_pos EQUAL -1)
-  message(FATAL_ERROR "buildsystems_linux workflow must validate the Xmake module consumer slice.")
-endif()
-
-foreach(_xmake_binary_var IN ITEMS "consumer_textual_bin" "consumer_module_bin")
-  string(FIND "${_content}" "${_xmake_binary_var}=\"$(find " _xmake_binary_pos)
-  if(_xmake_binary_pos EQUAL -1)
-    message(FATAL_ERROR "buildsystems_linux workflow must resolve ${_xmake_binary_var} before executing the Xmake consumer binaries.")
-  endif()
-endforeach()
-
-foreach(_literal IN ITEMS
-    [[consumer_textual_bin]]
-    [[consumer_module_bin]]
-    [[--list]]
-    [[--run=consumer/consumer/module_test --kind=test]]
-    [[--run=consumer/consumer/module_mock --kind=test]]
-    [[--run=consumer/consumer/log_sink --kind=test]]
-    [[--run=consumer/consumer/module_bench --kind=bench]]
-    [[--run=consumer/consumer/module_jitter --kind=jitter]])
-  string(FIND "${_content}" "${_literal}" _literal_pos)
-  if(_literal_pos EQUAL -1)
-    message(FATAL_ERROR "buildsystems_linux workflow must contain '${_literal}' for the Xmake consumer execution path.")
-  endif()
-endforeach()
-
-string(FIND "${_content}" "/home/ci/.local/bin/xmake f -c -m release" _hardcoded_build_pos)
-if(NOT _hardcoded_build_pos EQUAL -1)
-  message(FATAL_ERROR "Xmake build step must not hardcode the ci-local xmake path.")
-endif()
-
-string(FIND "${_content}" "/home/ci/.local/bin/xmake r gentest_unit_xmake" _hardcoded_test_pos)
-if(NOT _hardcoded_test_pos EQUAL -1)
-  message(FATAL_ERROR "Xmake test step must not hardcode the ci-local xmake path.")
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${SOURCE_DIR}/tests/scripts/test_validation_suites.py"
+  RESULT_VARIABLE _suite_rc OUTPUT_VARIABLE _suite_out ERROR_VARIABLE _suite_err)
+if(NOT _suite_rc EQUAL 0)
+  message(FATAL_ERROR "Shared acceptance command contract failed:\n${_suite_out}\n${_suite_err}")
 endif()
 
 set(_meson_file "${SOURCE_DIR}/meson.build")
