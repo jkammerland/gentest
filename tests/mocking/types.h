@@ -62,6 +62,7 @@ struct MoveOnly {
 
 struct MOConsumer {
     void accept(MoveOnly) {}
+    void accept_rvalue(MoveOnly &&) {}
 };
 
 template <typename T> using Alias = T;

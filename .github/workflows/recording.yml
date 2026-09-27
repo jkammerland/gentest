@@ -46,7 +46,8 @@ jobs:
             -DGENTEST_USE_BOOST_JSON=ON -Dgentest_INSTALL=ON \
             -DCMAKE_INSTALL_PREFIX="$PWD/build/recording-install"
           cmake --build --preset=debug-system --parallel 2 --target \
-            gentest_recording_tests gentest_record_json_tests gentest_record_cbor_tests gentest_record_json_noexceptions gentest_main
+            gentest_recording_tests gentest_recording_lifetime_tests gentest_recording_shared_payloads_tests \
+            gentest_record_json_tests gentest_record_cbor_tests gentest_record_json_noexceptions gentest_main
           ctest --preset=debug-system --output-on-failure -R '^runtime_record'
       - name: Exercise installed example with both serializers
         run: |
@@ -58,7 +59,8 @@ jobs:
           cmake --build build/recording-example --parallel 2
           ctest --test-dir build/recording-example --output-on-failure
           python3 tests/scripts/check_example_reports.py \
-            build/recording-example/gentest_recording recording build/recording-example/reports
+            build/recording-example/gentest_recording recording build/recording-example/reports \
+            --expect-json --expect-cbor
       - name: Upload recording evidence
         if: always()
         uses: actions/upload-artifact@v4

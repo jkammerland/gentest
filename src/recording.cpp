@@ -37,8 +37,9 @@ RecordingBag *destination(RecordScope scope, const std::source_location &loc) {
 }
 } // namespace
 
-RecordingRunScope::RecordingRunScope() : session(std::make_shared<RecordingSession>()), previous_(active_session) {
-    active_session = session;
+RecordingRunScope::RecordingRunScope(bool retain_cases) : session(std::make_shared<RecordingSession>()), previous_(active_session) {
+    session->retain_cases = retain_cases;
+    active_session        = session;
 }
 RecordingRunScope::~RecordingRunScope() {
     session->active = false;
@@ -53,20 +54,27 @@ std::shared_ptr<RecordingTarget> current_recording_target() { return active_targ
 std::shared_ptr<RecordingTarget> make_case_recording(const Case &c) {
     if (!active_session)
         return {};
-    auto occurrence   = std::make_shared<CaseRecording>();
-    occurrence->id    = active_session->cases.size();
-    occurrence->name  = c.name;
-    occurrence->suite = c.suite;
-    occurrence->file  = c.file;
-    occurrence->line  = c.line;
-    occurrence->kind  = c.is_benchmark ? "bench" : c.is_jitter ? "jitter" : "test";
-    occurrence->owner = c.owner;
-    for (auto v : c.tags)
-        occurrence->tags.emplace_back(v);
-    for (auto v : c.requirements)
-        occurrence->requirements.emplace_back(v);
-    active_session->cases.push_back(occurrence);
-    return std::make_shared<RecordingTarget>(RecordingTarget{active_session, occurrence, std::string(c.suite), RecordScope::Case});
+    auto occurrence = std::make_shared<CaseRecording>();
+    // Without an exporter, the owning context releases each case's data when
+    // it finishes. Keep scope validation active without a run-long history.
+    if (active_session->retain_cases) {
+        occurrence->id    = active_session->cases.size();
+        occurrence->name  = c.name;
+        occurrence->suite = c.suite;
+        occurrence->file  = c.file;
+        occurrence->line  = c.line;
+        occurrence->kind  = c.is_benchmark ? "bench" : c.is_jitter ? "jitter" : "test";
+        occurrence->owner = c.owner;
+        for (auto v : c.tags)
+            occurrence->tags.emplace_back(v);
+        for (auto v : c.requirements)
+            occurrence->requirements.emplace_back(v);
+        active_session->cases.push_back(occurrence);
+    }
+    return std::make_shared<RecordingTarget>(RecordingTarget{.session    = active_session,
+                                                             .occurrence = std::move(occurrence),
+                                                             .suite      = std::string(c.suite),
+                                                             .current    = RecordScope::Case});
 }
 
 std::shared_ptr<RecordingTarget> make_fixture_recording(std::string_view suite, bool global) {
@@ -75,7 +83,7 @@ std::shared_ptr<RecordingTarget> make_fixture_recording(std::string_view suite, 
     if (!global)
         active_session->suites.try_emplace(std::string(suite));
     return std::make_shared<RecordingTarget>(
-        RecordingTarget{active_session, {}, std::string(suite), global ? RecordScope::Run : RecordScope::Suite});
+        RecordingTarget{.session = active_session, .suite = std::string(suite), .current = global ? RecordScope::Run : RecordScope::Suite});
 }
 
 bool recording_suite_matches(std::string_view parent, std::string_view child) {
@@ -92,7 +100,7 @@ std::vector<const RecordingBag *> recording_bags(const RecordingSession &session
     for (const auto &[suite, data] : session.suites)
         if (recording_suite_matches(suite, c.suite))
             scopes.emplace_back(suite, &data);
-    std::sort(scopes.begin(), scopes.end(), [](const auto &a, const auto &b) { return a.first.size() < b.first.size(); });
+    std::ranges::sort(scopes, [](const auto &a, const auto &b) { return a.first.size() < b.first.size(); });
     std::vector<const RecordingBag *> result{&session.run};
     for (const auto &scope : scopes)
         result.push_back(scope.second);
@@ -159,6 +167,9 @@ void record_data(std::string_view name, std::span<const std::byte> bytes, std::s
     std::string owned;
     if (!bytes.empty())
         owned.assign(reinterpret_cast<const char *>(bytes.data()), bytes.size());
-    bag->records.push_back({std::string(name), std::string(content_type), std::string(options.schema), std::move(owned)});
+    bag->records.push_back({.name         = std::string(name),
+                            .content_type = std::string(content_type),
+                            .schema       = std::string(options.schema),
+                            .bytes        = std::make_shared<const std::string>(std::move(owned))});
 }
 } // namespace gentest

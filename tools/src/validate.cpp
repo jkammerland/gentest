@@ -3,6 +3,7 @@
 #include "validate.hpp"
 
 #include "attr_rules.hpp"
+#include "parse_core.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -34,37 +35,6 @@ static std::string trim_copy(std::string s) {
     return {b, e};
 }
 
-char previous_non_space(std::string_view text) {
-    for (std::size_t idx = text.size(); idx > 0; --idx) {
-        const char ch = text[idx - 1];
-        if (std::isspace(static_cast<unsigned char>(ch)) == 0) {
-            return ch;
-        }
-    }
-    return '\0';
-}
-
-char next_non_space(std::string_view text, std::size_t index) {
-    while (index < text.size()) {
-        const char ch = text[index];
-        if (std::isspace(static_cast<unsigned char>(ch)) == 0) {
-            return ch;
-        }
-        ++index;
-    }
-    return '\0';
-}
-
-bool is_likely_template_left(char ch) {
-    return std::isalpha(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == ':' || ch == '>' || ch == ')' || ch == ']';
-}
-
-bool is_likely_template_right(char ch) {
-    return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_' || ch == ':' || ch == '(' || ch == '+' || ch == '-' || ch == '\'';
-}
-
-bool is_word_char(char ch) { return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_'; }
-
 bool parse_positive_u64(std::string_view text, std::uint64_t &out) {
     if (text.empty()) {
         return false;
@@ -90,157 +60,6 @@ bool parse_positive_u64(std::string_view text, std::uint64_t &out) {
     return true;
 }
 
-bool is_char_literal_prefix(std::string_view text, std::size_t index) {
-    if (index >= 1 && (text[index - 1] == 'L' || text[index - 1] == 'u' || text[index - 1] == 'U')) {
-        return index == 1 || !is_word_char(text[index - 2]);
-    }
-    if (index >= 2 && text[index - 2] == 'u' && text[index - 1] == '8') {
-        return index == 2 || !is_word_char(text[index - 3]);
-    }
-    return false;
-}
-
-bool should_enter_char_literal(std::string_view text, std::size_t index) {
-    if (index >= text.size() || text[index] != '\'') {
-        return false;
-    }
-    if (is_char_literal_prefix(text, index)) {
-        return true;
-    }
-
-    const char prev = index > 0 ? text[index - 1] : '\0';
-    const char next = index + 1 < text.size() ? text[index + 1] : '\0';
-    if (next == '\0') {
-        return false;
-    }
-    if (std::isalnum(static_cast<unsigned char>(prev)) != 0 && std::isalnum(static_cast<unsigned char>(next)) != 0) {
-        return false;
-    }
-    return true;
-}
-
-std::string next_identifier_token(std::string_view text, std::size_t index) {
-    while (index < text.size() && std::isspace(static_cast<unsigned char>(text[index])) != 0) {
-        ++index;
-    }
-    if (index >= text.size()) {
-        return {};
-    }
-    const char first = text[index];
-    if (std::isalpha(static_cast<unsigned char>(first)) == 0 && first != '_') {
-        return {};
-    }
-
-    std::size_t end = index + 1;
-    while (end < text.size()) {
-        const char ch = text[end];
-        if (std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_') {
-            ++end;
-            continue;
-        }
-        break;
-    }
-    return std::string(text.substr(index, end - index));
-}
-
-bool has_matching_angle_close(std::string_view text, std::size_t open_index) {
-    int  depth        = 0;
-    int  nested_angle = 0;
-    bool in_string    = false;
-    bool in_char      = false;
-    bool escape_next  = false;
-
-    for (std::size_t idx = open_index + 1; idx < text.size(); ++idx) {
-        const char ch = text[idx];
-        if (in_string) {
-            if (escape_next) {
-                escape_next = false;
-            } else if (ch == '\\') {
-                escape_next = true;
-            } else if (ch == '"') {
-                in_string = false;
-            }
-            continue;
-        }
-        if (in_char) {
-            if (escape_next) {
-                escape_next = false;
-            } else if (ch == '\\') {
-                escape_next = true;
-            } else if (ch == '\'') {
-                in_char = false;
-            }
-            continue;
-        }
-
-        if (ch == '"') {
-            in_string = true;
-            continue;
-        }
-        if (ch == '\'' && should_enter_char_literal(text, idx)) {
-            in_char = true;
-            continue;
-        }
-
-        if (ch == '(' || ch == '[' || ch == '{') {
-            ++depth;
-            continue;
-        }
-        if (ch == ')' || ch == ']' || ch == '}') {
-            if (depth > 0) {
-                --depth;
-            }
-            continue;
-        }
-        if (depth > 0) {
-            continue;
-        }
-
-        if (ch == '<') {
-            ++nested_angle;
-            continue;
-        }
-        if (ch == '>') {
-            if (nested_angle == 0) {
-                const char follower = next_non_space(text, idx + 1);
-                if (follower == '\0') {
-                    return true;
-                }
-                switch (follower) {
-                case '_':
-                case ',':
-                case ')':
-                case ']':
-                case '}':
-                case '{':
-                case '(':
-                case ':':
-                case ';':
-                case '*':
-                case '&': return true;
-                default: {
-                    const std::string token = next_identifier_token(text, idx + 1);
-                    if (token == "const" || token == "volatile") {
-                        return true;
-                    }
-                    if (token.empty()) {
-                        return false;
-                    }
-                    std::size_t token_start = idx + 1;
-                    while (token_start < text.size() && std::isspace(static_cast<unsigned char>(text[token_start])) != 0) {
-                        ++token_start;
-                    }
-                    const std::size_t token_end = token_start + token.size();
-                    const char        after     = next_non_space(text, token_end);
-                    return after == '{';
-                }
-                }
-            }
-            --nested_angle;
-        }
-    }
-    return false;
-}
 } // namespace
 
 auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::function<void(const std::string &)> &report)
@@ -484,113 +303,16 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             saw_case         = true;
-            auto parse_tuple = [&](const std::string &text, std::vector<std::string> &out) {
-                std::string s = text;
-                // Strip outer parens if present
-                if (!s.empty() && s.front() == '(' && s.back() == ')') {
-                    s = s.substr(1, s.size() - 2);
+            auto parse_tuple = [](std::string_view text) {
+                if (text.size() >= 2 && text.front() == '(' && text.back() == ')') {
+                    text.remove_prefix(1);
+                    text.remove_suffix(1);
                 }
-                // Split on commas with nesting support by reusing split_arguments-like logic
-                // Here we implement a small local splitter: no quotes unescaping required.
-                std::vector<std::string> parts;
-                std::string              cur;
-                int                      depth             = 0;
-                int                      angle_depth       = 0;
-                bool                     in_str            = false;
-                bool                     in_char           = false;
-                bool                     esc               = false;
-                auto                     should_open_angle = [&](std::size_t idx) {
-                    const char prev = previous_non_space(cur);
-                    if (prev == '\0' || !is_likely_template_left(prev)) {
-                        return false;
-                    }
-                    const char next = next_non_space(s, idx + 1);
-                    if (next == '\0' || next == '<' || next == '=' || !is_likely_template_right(next)) {
-                        return false;
-                    }
-                    return has_matching_angle_close(s, idx);
-                };
-                for (std::size_t idx = 0; idx < s.size(); ++idx) {
-                    const char ch = s[idx];
-                    if (in_str) {
-                        cur.push_back(ch);
-                        if (esc)
-                            esc = false;
-                        else if (ch == '\\')
-                            esc = true;
-                        else if (ch == '"')
-                            in_str = false;
-                        continue;
-                    }
-                    if (in_char) {
-                        cur.push_back(ch);
-                        if (esc)
-                            esc = false;
-                        else if (ch == '\\')
-                            esc = true;
-                        else if (ch == '\'')
-                            in_char = false;
-                        continue;
-                    }
-                    if (ch == '"') {
-                        in_str = true;
-                        cur.push_back(ch);
-                        continue;
-                    }
-                    if (ch == '\'') {
-                        if (should_enter_char_literal(s, idx)) {
-                            in_char = true;
-                        }
-                        cur.push_back(ch);
-                        continue;
-                    }
-                    if (ch == '(' || ch == '[' || ch == '{') {
-                        ++depth;
-                        cur.push_back(ch);
-                        continue;
-                    }
-                    if (ch == ')' || ch == ']' || ch == '}') {
-                        if (depth > 0)
-                            --depth;
-                        cur.push_back(ch);
-                        continue;
-                    }
-                    if (ch == '<') {
-                        if (should_open_angle(idx)) {
-                            ++angle_depth;
-                        }
-                        cur.push_back(ch);
-                        continue;
-                    }
-                    if (ch == '>') {
-                        if (angle_depth > 0) {
-                            --angle_depth;
-                        }
-                        cur.push_back(ch);
-                        continue;
-                    }
-                    if (ch == ',' && depth == 0 && angle_depth == 0) {
-                        if (!cur.empty()) {
-                            const auto l = cur.find_first_not_of(" \t\n\r");
-                            const auto r = cur.find_last_not_of(" \t\n\r");
-                            if (l != std::string::npos)
-                                out.push_back(cur.substr(l, r - l + 1));
-                        }
-                        cur.clear();
-                        continue;
-                    }
-                    cur.push_back(ch);
-                }
-                if (!cur.empty()) {
-                    const auto l = cur.find_first_not_of(" \t\n\r");
-                    const auto r = cur.find_last_not_of(" \t\n\r");
-                    if (l != std::string::npos)
-                        out.push_back(cur.substr(l, r - l + 1));
-                }
+                return split_expression_list(text);
             };
             AttributeSummary::ParamPack pack;
             // First argument: parameter names tuple
-            parse_tuple(attr.arguments.front(), pack.names);
+            pack.names = parse_tuple(attr.arguments.front());
             if (pack.names.empty()) {
                 summary.had_error = true;
                 report("'parameters_pack' first tuple must list at least one parameter name");
@@ -598,8 +320,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             }
             // Remaining arguments: value tuples matching arity
             for (std::size_t i = 1; i < attr.arguments.size(); ++i) {
-                std::vector<std::string> row;
-                parse_tuple(attr.arguments[i], row);
+                auto row = parse_tuple(attr.arguments[i]);
                 if (row.size() != pack.names.size()) {
                     summary.had_error = true;
                     report("'parameters_pack' value tuple arity mismatch");

@@ -4080,8 +4080,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory   category{"gentest codegen"};
     static llvm::cl::opt<std::string> output_option{"output", llvm::cl::desc("Removed legacy manifest/single-TU output source file option"),
                                                     llvm::cl::init(""), llvm::cl::cat(category), llvm::cl::Hidden};
-    static llvm::cl::opt<std::string> entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
-                                                   llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> tu_out_dir_option{
         "tu-out-dir", llvm::cl::desc("Emit per-translation-unit generated artifacts into this directory (enables TU mode)"),
         llvm::cl::init(""), llvm::cl::cat(category)};
@@ -4216,7 +4214,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     llvm::cl::ParseCommandLineOptions(static_cast<int>(tool_argv.size()), tool_argv.data(), "gentest clang code generator\n");
 
     CollectorOptions opts;
-    opts.entry = entry_option;
     if (!tu_out_dir_option.getValue().empty()) {
         opts.tu_output_dir = std::filesystem::path{tu_out_dir_option.getValue()};
     }

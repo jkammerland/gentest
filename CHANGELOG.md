@@ -11,12 +11,22 @@
 
 ### Changed
 
+- Recording, inventory, and measured reports share one UTF-8-safe JSON string
+  encoder.
+
 - Transitional release archives are explicitly named as LLVM-bound host
   developer kits and carry a validated, machine-readable artifact contract.
 - Standalone release manifests and SBOMs use artifact-scoped names so future
   source SDK and platform-codegen assets can coexist without collisions.
 
 ### Fixed
+
+- Runs without report exporters release completed synchronous and asynchronous
+  case recordings instead of retaining a history for every repetition.
+- Recording reports share immutable payload storage across cases and Allure
+  writes, avoiding repeated copies of run and suite payloads.
+- JUnit preserves whitespace in recorded property keys and values; recording
+  verification reads UTF-8 consistently across host locales.
 
 - Draft publication resumes through its numeric GitHub release ID, avoiding
   tag-based draft lookups that return 404 after successful creation.
