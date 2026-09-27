@@ -217,6 +217,14 @@ check_death_result("${_build_dir}/not-executable" "" "process could not execute"
 check_death_result("${_program}" "--run=demo/a" "exit code was 0")
 check_death_result("${_program}" "--run=demo/fail" "normal test failure")
 check_death_result("${_program}" "--run=demo/death" "Death test passed")
-check_death_result("${_program}" "--run=demo/abort" "Death test passed")
+if(WIN32 AND _config STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
+  # This fixture invokes the death harness directly, outside the runtime death
+  # tests' DISABLED properties. Keep the other discovery/harness checks active.
+  # Do not use GENTEST_SKIP_TEST: that would skip the entire enclosing test.
+  message(STATUS "GENTEST_KNOWN_SKIP: windows-debug-abort: Application may suspend for debugger attachment.")
+else()
+  message(STATUS "Run aborting death-harness probe...")
+  check_death_result("${_program}" "--run=demo/abort" "Death test passed")
+endif()
 
 message(STATUS "gentest_discover_tests fixture passed")

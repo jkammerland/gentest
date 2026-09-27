@@ -110,6 +110,13 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_manual_ci.py)
 set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github;ci-compat")
 
+foreach(_gentest_validation_contract IN ITEMS ci_matrix clang_leak_probes validate_local discovery_skip)
+    add_test(NAME ${_gentest_validation_contract}_contract
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_${_gentest_validation_contract}.py)
+    set_property(TEST ${_gentest_validation_contract}_contract APPEND PROPERTY LABELS "scripts;ci-compat")
+endforeach()
+unset(_gentest_validation_contract)
+
 add_test(
     NAME analyzer_assertions_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_analyzer_assertions.py)
@@ -3553,6 +3560,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/discover_tests
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckDiscoverTests.cmake
     cmake
+    -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=${GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS}
     -DBUILD_CONFIG=${_gentest_discover_tests_config})
 
 unset(_gentest_discover_tests_config)
@@ -5022,8 +5030,8 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
 endif()
 
 # Compatibility lanes deliberately exercise a compact cross-platform contract.
-# The exhaustive Linux lane and post-merge/manual matrices still run every
-# test, including the complete nested build-helper matrix.
+# Unfiltered local and explicit full CI runs retain every test, including
+# the complete nested build-helper matrix.
 set(_gentest_ci_compat_tests
     gentest_codegen_check_valid
     gentest_header_declaration_registration
@@ -5044,6 +5052,33 @@ foreach(_gentest_ci_compat_test IN LISTS _gentest_ci_compat_tests)
 endforeach()
 unset(_gentest_ci_compat_test)
 unset(_gentest_ci_compat_tests)
+
+# Routine hosted validation exercises authored suites and small integration
+# contracts. Exhaustive nested build matrices remain in unfiltered CTest runs.
+get_property(_gentest_registered_tests DIRECTORY PROPERTY TESTS)
+foreach(_gentest_test IN LISTS _gentest_registered_tests)
+    get_property(_gentest_labels TEST ${_gentest_test} PROPERTY LABELS)
+    if("ci-compat" IN_LIST _gentest_labels AND ("scripts" IN_LIST _gentest_labels OR NOT "cmake" IN_LIST _gentest_labels))
+        set_property(TEST ${_gentest_test} APPEND PROPERTY LABELS "ci-smoke")
+    endif()
+endforeach()
+foreach(_gentest_test IN ITEMS
+    gentest_discover_tests_smoke
+    gentest_module_registration_mock_split
+    gentest_codegen_check_valid
+    gentest_codegen_msvc_modmap_external_module
+    gentest_codegen_separate_module_flag_strip
+    gentest_codegen_scan_deps_joined_module_file)
+    if(TEST ${_gentest_test})
+        set_property(TEST ${_gentest_test} APPEND PROPERTY LABELS "ci-smoke")
+    endif()
+endforeach()
+if(WIN32)
+    set_property(TEST gentest_codegen_mock_cross_root_include_windows APPEND PROPERTY LABELS "ci-smoke")
+endif()
+unset(_gentest_test)
+unset(_gentest_labels)
+unset(_gentest_registered_tests)
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
 #

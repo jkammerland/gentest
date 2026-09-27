@@ -1,5 +1,5 @@
 name: Run CI
-run-name: CI (${{ inputs.profile || 'full' }}) — ${{ github.ref_name }}
+run-name: CI (${{ inputs.profile || 'pr' }}) — ${{ github.ref_name }}
 
 on:
   push:
@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       profile:
-        description: Test profile (full is exhaustive; pr keeps representative compatibility coverage)
+        description: Test profile (pr is routine smoke validation; full is the exhaustive fallback)
         type: choice
         options: [full, pr]
-        default: full
+        default: pr
       base_ref:
         description: Base branch, tag, or commit for the measured comparison
         type: string
@@ -24,21 +24,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  profile:
+    name: Validate profile
+    runs-on: ubuntu-24.04
+    outputs:
+      profile: ${{ steps.profile.outputs.profile }}
+    steps:
+      - name: Validate requested profile
+        id: profile
+        env:
+          CI_PROFILE: ${{ inputs.profile || 'pr' }}
+        run: |
+          case "$CI_PROFILE" in
+            pr|full) echo "profile=$CI_PROFILE" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Unknown CI profile" >&2; exit 1 ;;
+          esac
   cmake:
+    needs: profile
     uses: ./.github/workflows/cmake.yml
     with:
-      profile: ${{ inputs.profile || 'full' }}
+      profile: ${{ needs.profile.outputs.profile }}
   lint:
+    needs: profile
     uses: ./.github/workflows/lint.yml
   coverage:
+    needs: profile
+    if: ${{ needs.profile.outputs.profile == 'full' }}
     uses: ./.github/workflows/coverage.yml
   cross-qemu:
+    needs: profile
+    if: ${{ needs.profile.outputs.profile == 'full' }}
     uses: ./.github/workflows/cross_qemu.yml
   buildsystems:
+    needs: profile
+    if: ${{ needs.profile.outputs.profile == 'full' }}
     uses: ./.github/workflows/buildsystems_linux.yml
   measured:
+    needs: profile
+    if: ${{ needs.profile.outputs.profile == 'full' }}
     uses: ./.github/workflows/measured_reports.yml
     with:
       base_ref: ${{ inputs.base_ref || github.event.before }}
   recording:
+    needs: profile
     uses: ./.github/workflows/recording.yml
+  clang-leaks:
+    needs: profile
+    if: ${{ needs.profile.outputs.profile == 'full' }}
+    uses: ./.github/workflows/clang_leaks.yml
