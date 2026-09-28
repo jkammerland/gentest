@@ -13,11 +13,13 @@ class SuiteContracts(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.work = Path(self.temp.name)
+        self.input_work = Path(self.temp.name)
+        # macOS spells this temporary directory as /var but resolves it under /private/var.
+        self.work = self.input_work.resolve()
         self.codegen = self.work / "installed-codegen"
 
     def commands(self, suite):
-        return suite_commands(suite, ROOT, self.work, codegen=self.codegen, cc="selected-clang", cxx="selected-clang++")
+        return suite_commands(suite, ROOT, self.input_work, codegen=self.codegen, cc="selected-clang", cxx="selected-clang++")
 
     def test_bazel_consumers_are_built_and_executed_with_the_selected_toolchain(self):
         commands = self.commands("bazel")

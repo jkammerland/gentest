@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -22,8 +23,7 @@ class CiPackageLaneTests(unittest.TestCase):
         self.assertGreaterEqual(self.workflow.count(override), 2)
 
     def test_full_matrix_keeps_representative_package_consumers(self):
-        import json
-        matrix = json.loads((ROOT / "scripts" / "ci_matrix.json").read_text())
+        matrix = json.loads((ROOT / "scripts" / "ci_matrix.json").read_text(encoding="utf-8"))
         gcc = [entry for entry in matrix["linux"]
                if entry["name"] == "Ubuntu 24.04 • GCC" and entry["build_type"] == "release"]
         self.assertEqual(len(gcc), 1)
@@ -34,8 +34,7 @@ class CiPackageLaneTests(unittest.TestCase):
         self.assertEqual(windows[0]["enable_package_tests"], "ON")
 
     def test_full_matrix_retains_llvm_23_on_each_host_os(self):
-        import json
-        matrix = json.loads((ROOT / "scripts" / "ci_matrix.json").read_text())
+        matrix = json.loads((ROOT / "scripts" / "ci_matrix.json").read_text(encoding="utf-8"))
         for platform, key, version in (("macos", "compiler", "llvm@23"),
                                        ("windows", "llvm-version", "23.1.0"),
                                        ("linux", "clang_version", "23")):
