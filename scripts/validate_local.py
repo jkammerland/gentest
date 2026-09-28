@@ -110,6 +110,9 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         if cc:
             args += ["-DCMAKE_C_COMPILER=" + cc, "-DCMAKE_CXX_COMPILER=" + cxx]
         args += ["-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO", "-DGENTEST_USE_BOOST_JSON=ON", *extra]
+        boost_include = os.environ.get("GENTEST_BOOST_JSON_INCLUDE_DIR", "")
+        if boost_include and "-DGENTEST_USE_BOOST_JSON=OFF" not in extra:
+            args.append("-DGENTEST_BOOST_JSON_INCLUDE_DIR=" + boost_include)
         commands = [Command(args, origin, env), Command([cmake, "--build", str(build), "--parallel", str(jobs),
                     *(["--target", *targets] if targets else [])], origin, env)]
         if tests:

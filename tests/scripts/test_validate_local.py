@@ -174,6 +174,16 @@ class PlanTests(unittest.TestCase):
             mac = validator.make_plan("Darwin", ROOT, output, output / "base", 2)
             self.assertEqual([s.name for s in mac], ["appleclang-debug", "appleclang-release", "llvm-debug", "llvm-release"])
 
+    def test_boost_json_include_override_keeps_the_optional_writer_enabled(self):
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.dict(os.environ, {"GENTEST_BOOST_JSON_INCLUDE_DIR": "/installed/boost/include"}):
+            output = Path(temp)
+            stages = validator.make_plan("Windows", ROOT, output, output / "base", 2)
+            for stage in stages:
+                configure = stage.commands[0].args
+                self.assertIn("-DGENTEST_USE_BOOST_JSON=ON", configure)
+                self.assertIn("-DGENTEST_BOOST_JSON_INCLUDE_DIR=/installed/boost/include", configure)
+
     def test_ci_uses_the_shared_acceptance_commands(self):
         recording = (ROOT / ".github/workflows/recording.yml").read_text()
         buildsystems = (ROOT / ".github/workflows/buildsystems_linux.yml").read_text()

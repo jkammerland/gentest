@@ -9,6 +9,12 @@
     "libxml2"
   ],
   "features": {
+    "allure-boost-json": {
+      "description": "Optional Boost.JSON headers for the Allure writer",
+      "dependencies": [
+        "boost-json"
+      ]
+    },
     "record-glaze": {
       "description": "Optional C++23 JSON recording adapter",
       "dependencies": [
