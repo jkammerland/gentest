@@ -1,92 +1,97 @@
-# CI test profiles
+# CI profiles and private validation
 
-CI starts on demand for pull requests. Opening, updating, or retargeting a PR
-starts no build or test matrix. Pushes to `master` start one full validation
-bundle after merge.
-
-## Start CI
-
-After the workflow is merged into `master`, open **Actions → Run CI → Run
-workflow**, select the PR or integration branch, and choose a profile. The
-native button lives in Actions, rather than the PR conversation. A PR
-conversation can link to [Run CI](https://github.com/jkammerland/gentest/actions/workflows/ci.yml).
-See [GitHub's manual workflow documentation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow).
-
-The equivalent CLI command starts the entire bundle:
+Pull requests start CI manually. Pushes to `master` start the routine `pr`
+bundle after merge. Both the Actions button and CLI default to `pr`:
 
 ```bash
-gh workflow run ci.yml --ref ci/review-integration-20260926 \
-  -f profile=full -f base_ref=master
+gh workflow run ci.yml --ref <candidate-branch> -f profile=pr
 ```
 
-For any PR, resolve its branch and comparison base from its number:
+Use **Actions → Run CI → Run workflow** to choose a branch. The native button
+lives in Actions; a PR can link to [Run CI](https://github.com/jkammerland/gentest/actions/workflows/ci.yml).
+A newly introduced dispatch workflow becomes available after it reaches the
+repository's default branch. Until then, dispatch the existing `cmake.yml`
+(with `profile=pr`), `lint.yml`, and `recording.yml` individually on the same
+candidate branch.
+
+## Routine GitHub coverage
+
+The matrix selector runs before creating platform jobs. Unknown profiles,
+invalid matrix data, and selector failures fail the planning job. There is no
+fallback that silently starts the exhaustive matrix.
+
+| Environment | Configuration |
+| --- | --- |
+| Ubuntu 25.10, Clang 20 | Debug |
+| Ubuntu 24.04, GCC | Release |
+| Fedora 43, LLVM 22 | ASan + UBSan |
+| Windows, LLVM 22 | Debug, plus the MSVC Debug step |
+| macOS, Homebrew LLVM 23 | Debug |
+
+All five build the authored targets and run `ci-smoke` tests. This label covers
+core unit tests, default authored suites, public API/script contracts,
+discovery, one module-registration/mock integration, and small codegen-driver
+regressions. Empty selections fail. Package consumers are disabled in these
+five jobs. Lint and recording with both real serializers remain in the routine
+bundle.
+
+Exhaustive CMake/package/mock/module/shared-library acceptance, coverage,
+QEMU, alternate build systems, and measured comparisons run locally by default.
+See [private local validation](local_validation.md) for the single run/report
+command. Local evidence is never sent to GitHub by these scripts.
+
+## Explicit full GitHub fallback
 
 ```bash
-pr_number=154
-ci_branch=$(gh pr view "$pr_number" --json headRefName --jq .headRefName)
-ci_base=$(gh pr view "$pr_number" --json baseRefOid --jq .baseRefOid)
-gh workflow run ci.yml --ref "$ci_branch" -f profile=full -f base_ref="$ci_base"
+gh workflow run ci.yml --ref <candidate-branch> -f profile=full -f base_ref=<base-commit>
 ```
 
-The bundle calls CMake/platform/package tests, lint, coverage, cross/QEMU,
-Bazel/Meson/Xmake, measured comparisons, and recording/serializer checks. All
-called workflow files and checkouts use the caller's commit. Each suite also
-retains its own manual entry point for a focused rerun, for example
-`gh workflow run lint.yml --ref "$ci_branch"`.
+`full` selects the retained compatibility matrix (31 Linux, five Windows, eight
+macOS jobs), complete configured CTest inventories, the package workflow, lint,
+coverage, aarch64/riscv64 QEMU, Bazel/Meson/Xmake, measured comparisons, recording,
+and the isolated Clang leak diagnostics. Each suite also has its own manual
+entry point. All reusable workflows check out the caller's commit.
 
-Rebase or merge the current target into the candidate before validation: a
-manual run tests the selected branch commit, not GitHub's synthetic PR merge.
-A later code change or rebase needs a new run. Prefer validating the final
-integration branch once after preparing a stack.
+The two Clang 20 ASan jobs that failed inside libclang are replaced by isolated,
+strict XFAIL probes. Ordinary Clang 20 compatibility and other sanitizer lanes
+remain. **The probes do not provide end-to-end Clang 20 sanitizer coverage.**
+That coverage gap remains until the relevant upstream fixes are available in
+supported packages and the full lanes can be restored. Neither libclang nor
+Gentest leak detection is patched or globally disabled by this change.
 
-## Profiles
+See the [diagnostic ownership leak](issues/libclang_dependent_diagnostic_leak.md)
+and [deduction-failure ownership leak](issues/libclang_deduction_failure_leak.md).
+`gh workflow run clang_leaks.yml --ref <candidate-branch>` runs just the probes.
+Only logs generated on GitHub runners are uploaded by that workflow.
 
-`full` is the default. Every CMake matrix job runs its complete configured
-CTest inventory, and the package job uses the complete `package` workflow.
+## Known Windows Debug limit
 
-`pr` runs the complete inventory on the designated exhaustive Linux lanes.
-Other CMake matrix jobs build the same authored targets but run tests carrying
-the `ci-compat` label. That label covers the main test executables, public API
-checks, representative textual and named-module registration, explicit mocks,
-runtime shared-library exports, and module-flag regressions. The package job
-uses `package-pr`, which tests installed-consumer contracts without repeating
-the complete runtime and nested-helper inventory. Both profiles still run all
-seven validation suites.
+With `GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON`, the discovery and recording
+fixtures skip only their direct abort sub-probes in the actual Debug
+configuration and print a known-skip notice. The discovery notice includes:
 
-Expensive installed-package consumers are not duplicated in every toolchain
-lane. The dedicated Linux Clang package job owns the complete package
-contract, with representative Linux GCC, macOS LLVM, Windows LLVM, and Windows
-MSVC jobs retaining cross-toolchain coverage. Other matrix jobs explicitly
-set `GENTEST_ENABLE_PACKAGE_TESTS=OFF`.
+> Application may suspend for debugger attachment.
 
-Measured comparisons resolve `base_ref` to a commit once, then reuse that
-commit for the baseline build. On a `master` push, the baseline is the commit
-before the push. For manual runs, it defaults to `master`; supply a commit or
-branch when a different baseline is needed.
+Ordinary discovery, recording scope/lifecycle/export checks, non-aborting death
+checks, and process-launch failure checks still run. Release keeps the abort
+probes. The existing runtime death-test skips remain unchanged. We do not
+change debugger settings or work around the Debug CRT behavior.
 
-## Parallelism
+## Candidate and merge discipline
 
-Standard local system-Clang presets use four outer CTest jobs and cap nested
-helper builds at one job through `GENTEST_HELPER_BUILD_PARALLEL_LEVEL=1`. CI
-uses the same nested cap. Xmake helper tests share a CTest resource lock because
-their tool-level state is not safe to mutate concurrently.
+Rebase or merge the target into the candidate before validation. Manual CI
+tests the selected branch commit, not a synthetic merge. A rebase or code change
+requires fresh evidence for the resulting commit. Validate the final integration
+candidate once, then merge the stack from bottom to top without rewriting its
+validated content. Keep local evidence private; any public check description
+should contain only a deliberately reviewed, minimal result summary.
 
-This design deliberately avoids persistent producer, textual parse, or PCM
-caches. Every CI job validates artifacts produced from its exact checkout and
-toolchain.
-
-## Validation
-
-Inspect the focused inventory after configuring `debug-system`:
+Inspect the routine inventory with:
 
 ```bash
-ctest --test-dir build/debug-system --show-only=json-v1 -L '^ci-compat$'
+ctest --test-dir build/debug-system --show-only=json-v1 -L '^ci-smoke$'
 ```
 
-Run the same profile locally with:
-
-```bash
-ctest --preset=debug-system --output-on-failure -L '^ci-compat$'
-```
-
-Run the complete profile by omitting `-L`.
+Full local runs omit label filters. Nested helper builds are capped at one job;
+Xmake helpers retain their CTest resource lock. No persistent producer, textual
+parse, or PCM cache is introduced.

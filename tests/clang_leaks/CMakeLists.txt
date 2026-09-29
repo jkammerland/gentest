@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.31)
+project(gentest_clang_leak_probes LANGUAGES C CXX)
+
+find_package(LLVM CONFIG REQUIRED)
+find_package(Clang CONFIG REQUIRED)
+add_executable(clang_leak_probe probe.cpp)
+target_compile_features(clang_leak_probe PRIVATE cxx_std_20)
+target_include_directories(clang_leak_probe SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
+target_compile_options(clang_leak_probe PRIVATE -g -fsanitize=address -fno-omit-frame-pointer)
+target_link_options(clang_leak_probe PRIVATE -fsanitize=address)
+target_link_libraries(clang_leak_probe PRIVATE clang-cpp LLVM)

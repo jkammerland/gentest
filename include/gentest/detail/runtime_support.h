@@ -8,7 +8,6 @@
 #include <exception>
 #include <filesystem>
 #include <fmt/format.h>
-#include <iterator>
 #include <memory>
 #include <source_location>
 #include <string>
@@ -166,7 +165,8 @@ inline std::string failure_site_text(std::string_view label, const std::source_l
 inline std::string failure_text(std::string_view label, const std::source_location &loc, std::string_view message = {}) {
     std::string out = failure_site_text(label, loc);
     if (!message.empty()) {
-        fmt::format_to(std::back_inserter(out), ": {}", message);
+        out.append(": ");
+        out.append(message);
     }
     return out;
 }
@@ -175,8 +175,8 @@ template <typename... Args>
 inline std::string format_failure_text(std::string_view label, const std::source_location &loc, fmt::format_string<Args...> format_string,
                                        Args &&...args) {
     std::string out = failure_site_text(label, loc);
-    fmt::format_to(std::back_inserter(out), ": ");
-    fmt::format_to(std::back_inserter(out), format_string, std::forward<Args>(args)...);
+    out.append(": ");
+    out.append(fmt::format(format_string, std::forward<Args>(args)...));
     return out;
 }
 
@@ -184,8 +184,10 @@ template <typename L, typename R>
 inline std::string comparison_failure_text(std::string_view label, const std::source_location &loc, std::string_view message, const L &lhs,
                                            const R &rhs) {
     std::string out = failure_text(label, loc, message);
-    fmt::format_to(std::back_inserter(out), "{}lhs={}, rhs={}", message.empty() ? ": " : "; ", to_string_fallback(lhs),
-                   to_string_fallback(rhs));
+    out.append(message.empty() ? ": lhs=" : "; lhs=");
+    out.append(to_string_fallback(lhs));
+    out.append(", rhs=");
+    out.append(to_string_fallback(rhs));
     return out;
 }
 

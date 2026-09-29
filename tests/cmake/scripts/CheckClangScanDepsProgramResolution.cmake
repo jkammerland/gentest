@@ -33,6 +33,10 @@ _gentest_write_fake_scan_deps(_fake_scan_deps_a "${_resolver_dir_a}")
 _gentest_write_fake_scan_deps(_fake_scan_deps_b "${_resolver_dir_b}")
 
 set(_old_path "$ENV{PATH}")
+set(_old_cmake_program_path "${CMAKE_PROGRAM_PATH}")
+# A bare executable request follows PATH even when CMake has a separate
+# package/tool prefix; changing PATH must change the selected executable.
+set(CMAKE_PROGRAM_PATH "${_resolver_dir_b}")
 set(ENV{PATH} "${_resolver_dir_a}")
 
 gentest_resolve_optional_program(_public_bare "clang-scan-deps")
@@ -128,4 +132,5 @@ if(NOT CMAKE_HOST_WIN32)
 endif()
 
 set(ENV{PATH} "${_old_path}")
+set(CMAKE_PROGRAM_PATH "${_old_cmake_program_path}")
 message(STATUS "clang-scan-deps program resolution regression passed")

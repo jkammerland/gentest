@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -132,6 +133,32 @@ class CMakeFixtureTests(unittest.TestCase):
             with patch.object(Path, "is_symlink", return_value=True):
                 with self.assertRaisesRegex(ValueError, "symlinked fixture work directory"):
                     check_configure_failure(options, "unused")
+
+
+class DependencyIncludeTests(unittest.TestCase):
+    def test_first_configure_uses_fmt_target_before_a_cache_file_exists(self):
+        helper = Path(__file__).resolve().parents[1] / "cmake/scripts/CheckModuleFixtureCommon.cmake"
+        for target, build_interface in [("fmt::fmt", False), ("fmt::fmt-header-only", False), ("fmt::fmt", True)]:
+            with self.subTest(target=target, build_interface=build_interface), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                include = root / "installed fmt/include"
+                include.mkdir(parents=True)
+                expression = f"$<BUILD_INTERFACE:{include.as_posix()}>" if build_interface else include.as_posix()
+                (root / "CMakeLists.txt").write_text(f'''cmake_minimum_required(VERSION 3.31)
+project(dependency_include_contract NONE)
+include([===[{helper.as_posix()}]===])
+add_library({target} INTERFACE IMPORTED)
+set_property(TARGET {target} PROPERTY INTERFACE_INCLUDE_DIRECTORIES [===[{expression}]===])
+if(EXISTS "${{CMAKE_BINARY_DIR}}/CMakeCache.txt")
+  message(FATAL_ERROR "Regression must exercise the first configure")
+endif()
+gentest_append_public_dependency_include_args(_args "${{CMAKE_BINARY_DIR}}")
+file(WRITE "${{CMAKE_BINARY_DIR}}/args.txt" "${{_args}}")
+''', encoding="utf-8")
+                result = subprocess.run(["cmake", "-S", str(root), "-B", str(root / "build"), "-G", "Ninja"],
+                                        text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertEqual((root / "build/args.txt").read_text(), "-I" + include.as_posix())
 
 
 if __name__ == "__main__":

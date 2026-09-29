@@ -55,6 +55,15 @@ class ManualCiTests(unittest.TestCase):
         self.assertEqual(automatic, {"ci.yml"})
         self.assertIn("branches: [master]", events_block(self.workflows["ci.yml"]))
 
+    def test_routine_bundle_keeps_expensive_suites_behind_full(self):
+        text = self.workflows["ci.yml"]
+        self.assertIn("default: pr", events_block(text))
+        self.assertIn("CI_PROFILE: ${{ inputs.profile || 'pr' }}", text)
+        jobs = dict(re.findall(r"(?m)^  ([a-z-]+):\n((?:    .*\n|\n)+)", text.split("jobs:\n", 1)[1]))
+        full_only = {name for name, body in jobs.items() if "profile == 'full'" in body}
+        self.assertEqual(full_only, {"coverage", "cross-qemu", "buildsystems", "measured", "clang-leaks"})
+        self.assertIn('*) echo "Unknown CI profile" >&2; exit 1', text)
+
     def test_reused_suites_do_not_cancel_each_other_or_the_caller(self):
         groups = []
         for name, text in {"ci.yml": self.workflows["ci.yml"], **self.reusable}.items():
@@ -66,7 +75,7 @@ class ManualCiTests(unittest.TestCase):
 
     def test_manual_pr_profile_controls_bash_and_powershell_runners(self):
         text = self.workflows["cmake.yml"]
-        self.assertIn("GENTEST_CI_PROFILE: ${{ inputs.profile || 'full' }}", text)
+        self.assertIn("GENTEST_CI_PROFILE: ${{ inputs.profile || 'pr' }}", text)
         self.assertIn('if [ "${GENTEST_CI_PROFILE}" = "pr" ]', text)
         self.assertIn('if ($env:GENTEST_CI_PROFILE -eq "pr")', text)
         self.assertNotIn('if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]', text)

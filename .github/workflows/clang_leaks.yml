@@ -1,0 +1,77 @@
+name: Clang leak diagnostics
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+concurrency:
+  group: clang-leaks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  known-leak:
+    name: Clang 20 • ${{ matrix.probe }} • strict XFAIL
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - container: ubuntu:25.10
+            probe: dependent
+            apt_llvm: false
+          - container: ubuntu:24.04
+            probe: deduction
+            apt_llvm: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install normally packaged Clang 20
+        env:
+          USE_APT_LLVM: ${{ matrix.apt_llvm }}
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates curl python3 python3-pip build-essential \
+            libffi-dev libxml2-dev zlib1g-dev libzstd-dev
+          if [ "$USE_APT_LLVM" = true ]; then
+            curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /etc/apt/trusted.gpg.d/apt-llvm.asc
+            printf 'deb https://apt.llvm.org/noble/ llvm-toolchain-noble-20 main\n' > /etc/apt/sources.list.d/llvm.list
+            apt-get update
+          fi
+          apt-get install -y --no-install-recommends clang-20 clang-tools-20 libclang-20-dev \
+            libclang-cpp20-dev libclang-rt-20-dev llvm-20-dev
+          python3 -m pip install --break-system-packages cmake ninja
+          echo /usr/lib/llvm-20/bin >> "$GITHUB_PATH"
+      - uses: actions/checkout@v6
+      - name: Build isolated ownership probe
+        run: |
+          cmake -S tests/clang_leaks -B build/clang-leaks -G Ninja \
+            -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 \
+            -DLLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm -DClang_DIR=/usr/lib/llvm-20/lib/cmake/clang
+          cmake --build build/clang-leaks
+          clang-20 --version > build/clang-leaks/tool-versions.txt
+          dpkg-query -W clang-20 libclang-cpp20 llvm-20 >> build/clang-leaks/tool-versions.txt
+          sha256sum /usr/lib/llvm-20/bin/clang /usr/lib/llvm-20/lib/libclang-cpp.so.20.1 > build/clang-leaks/tool-hashes.txt
+      - name: Classify known failure
+        run: |
+          python3 scripts/probe_clang_leaks.py --binary build/clang-leaks/clang_leak_probe \
+            --probe "${{ matrix.probe }}" --output build/clang-leak-result
+      - name: Publish GitHub-generated diagnostic summary
+        if: always()
+        run: |
+          if [ -f build/clang-leak-result/summary.md ]; then
+            cat build/clang-leak-result/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retain GitHub-generated diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clang-leak-${{ matrix.probe }}
+          path: |
+            build/clang-leak-result/
+            build/clang-leaks/tool-versions.txt
+            build/clang-leaks/tool-hashes.txt

@@ -65,6 +65,13 @@ target_link_libraries(gentest_runtime
 
 if(GENTEST_USE_BOOST_JSON)
     # Enable the runtime Allure JSON writer implementation.
+    find_path(GENTEST_BOOST_JSON_INCLUDE_DIR NAMES boost/json.hpp)
+    if(NOT GENTEST_BOOST_JSON_INCLUDE_DIR OR NOT EXISTS "${GENTEST_BOOST_JSON_INCLUDE_DIR}/boost/json.hpp")
+        message(FATAL_ERROR
+            "GENTEST_USE_BOOST_JSON=ON requires Boost.JSON headers (boost/json.hpp); "
+            "install Boost.JSON or set GENTEST_BOOST_JSON_INCLUDE_DIR")
+    endif()
+    target_include_directories(gentest_runtime PRIVATE "${GENTEST_BOOST_JSON_INCLUDE_DIR}")
     target_compile_definitions(gentest_runtime PRIVATE GENTEST_USE_BOOST_JSON BOOST_JSON_NO_LIB)
 endif()
 

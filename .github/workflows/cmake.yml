@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       profile:
-        description: Test profile (pr runs one exhaustive Linux lane plus compatibility checks)
+        description: Test profile (pr runs five smoke environments; full runs exhaustive validation)
         type: choice
         options: [full, pr]
-        default: full
+        default: pr
   workflow_call:
     inputs:
       profile:
         type: string
-        default: full
+        default: pr
 
 permissions:
   contents: read
@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GENTEST_CI_PROFILE: ${{ inputs.profile || 'full' }}
+  GENTEST_CI_PROFILE: ${{ inputs.profile || 'pr' }}
   CTEST_OUTPUT_ON_FAILURE: 1
   GENTEST_HELPER_BUILD_PARALLEL_LEVEL: 1
 
@@ -31,62 +31,23 @@ jobs:
     name: CMake • plan
     runs-on: ubuntu-24.04
     outputs:
-      run_cmake: ${{ steps.plan.outputs.run_cmake }}
+      linux: ${{ steps.matrix.outputs.linux }}
+      windows: ${{ steps.matrix.outputs.windows }}
+      macos: ${{ steps.matrix.outputs.macos }}
     steps:
-      - name: Checkout planner and history
+      - name: Checkout matrix definition
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Compute CI plan
-        id: plan
-        env:
-          CI_EVENT_NAME: ${{ github.event_name }}
-          CI_REF: ${{ github.ref }}
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          ci_plan_script="scripts/ci_plan.py"
-          if [ "${CI_EVENT_NAME}" = "pull_request" ]; then
-            ci_plan_script="${RUNNER_TEMP}/ci_plan.py"
-            if ! git show "${CI_BASE_SHA}:scripts/ci_plan.py" > "${ci_plan_script}"; then
-              ci_plan_script=""
-            fi
-          fi
-          if [ -z "${ci_plan_script}" ] || ! python3 "${ci_plan_script}" \
-            --event "${CI_EVENT_NAME}" \
-            --ref "${CI_REF}" \
-            --base "${CI_BASE_SHA}" \
-            --head "${CI_HEAD_SHA}" \
-            --github-output "${GITHUB_OUTPUT}"
-          then
-            echo "CI planner failed; enabling all lanes." >&2
-            for lane in cmake lint coverage cross_qemu bazel meson xmake; do
-              printf 'run_%s=true\n' "${lane}" >> "${GITHUB_OUTPUT}"
-            done
-          fi
+      - name: Select validation matrix
+        id: matrix
+        run: python3 scripts/ci_matrix.py --profile "${GENTEST_CI_PROFILE}" --github-output "$GITHUB_OUTPUT"
 
   macos:
     needs: plan
-    if: ${{ needs.plan.outputs.run_cmake == 'true' }}
     name: macOS • ${{ matrix.compiler == 'appleclang' && 'AppleClang (Xcode 26)' || format('Homebrew {0}', matrix.compiler) }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
     runs-on: ${{ matrix.compiler == 'appleclang' && 'macos-26' || 'macos-15' }}
     strategy:
-        fail-fast: false
-        matrix:
-            compiler: ["appleclang", "llvm@20", "llvm@21", "llvm@23"]
-            build-type: ["debug", "release"]
-            variant: ["default"]
-            exclude:
-              - compiler: "llvm@23"
-                build-type: "release"
-                variant: "default"
-            include:
-              - compiler: "llvm@20"
-                build-type: "debug"
-                variant: "cxx23"
-                test_cxx_standard: "23"
-                enable_package_tests: "ON"
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.macos) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -205,34 +166,19 @@ jobs:
 
       - name: Test
         run: |
-          ctest_args=(--preset=${{ matrix.build-type }} --output-on-failure --parallel 4 -E '^(gentest_bazel_bzlmod_consumer)$')
+          ctest_args=(--no-tests=error --preset=${{ matrix.build-type }} --output-on-failure --parallel 4 -E '^(gentest_bazel_bzlmod_consumer)$')
           if [ "${GENTEST_CI_PROFILE}" = "pr" ]; then
-            ctest_args+=(--label-regex '^ci-compat$')
+            ctest_args+=(--label-regex '^ci-smoke$')
           fi
           ctest "${ctest_args[@]}"
 
   windows:
     needs: plan
-    if: ${{ needs.plan.outputs.run_cmake == 'true' }}
     name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
-      matrix:
-        llvm-version: ["23.1.0", "22.1.0", "21.1.4"]
-        preset: ["debug-system", "release-system"]
-        variant: ["default"]
-        exclude:
-          - llvm-version: "23.1.0"
-            preset: "release-system"
-            variant: "default"
-        include:
-          # Keep one Windows LLVM/MSVC job representative of installed-package
-          # consumers; the other matrix jobs focus on authored targets.
-          - llvm-version: "21.1.4"
-            preset: "debug-system"
-            variant: "default"
-            enable_package_tests: "ON"
+      matrix: ${{ fromJSON(needs.plan.outputs.windows) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -363,9 +309,9 @@ jobs:
       - name: Test
         shell: pwsh
         run: |
-          $ctestArgs = @("--preset=${{ matrix.preset }}", "--output-on-failure", "--parallel", "4", "-E", "^(gentest_bazel_helpers_use_configured_toolchain)$")
+          $ctestArgs = @("--no-tests=error", "--preset=${{ matrix.preset }}", "--output-on-failure", "--parallel", "4", "-E", "^(gentest_bazel_helpers_use_configured_toolchain)$")
           if ($env:GENTEST_CI_PROFILE -eq "pr") {
-            $ctestArgs += @("--label-regex", "^ci-compat$")
+            $ctestArgs += @("--label-regex", "^ci-smoke$")
           }
           ctest @ctestArgs
 
@@ -387,16 +333,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build $msvcBuildDir
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $ctestArgs = @("--test-dir", $msvcBuildDir, "--output-on-failure", "--parallel", "4")
+          $ctestArgs = @("--no-tests=error", "--test-dir", $msvcBuildDir, "--output-on-failure", "--parallel", "4")
           if ($env:GENTEST_CI_PROFILE -eq "pr") {
-            $ctestArgs += @("--label-regex", "^ci-compat$")
+            $ctestArgs += @("--label-regex", "^ci-smoke$")
           }
           ctest @ctestArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   linux:
     needs: plan
-    if: ${{ needs.plan.outputs.run_cmake == 'true' }}
     name: ${{ matrix.name }} • ${{ matrix.preset == 'debug-system-cxx23' && 'C++23 tests' || matrix.build_type }}
     runs-on: ubuntu-24.04
     container: ${{ matrix.container }}
@@ -405,354 +350,7 @@ jobs:
         shell: bash
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Ubuntu 24.04 • Clang 20
-            container: ubuntu:24.04
-            pkg_manager: apt
-            compiler: clang
-            cc: clang-20
-            cxx: clang++-20
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: ASan+UBSan
-            preset: alusan-system
-            ctest_parallel: 2
-          - name: Ubuntu 24.04 • Clang 20
-            container: ubuntu:24.04
-            pkg_manager: apt
-            compiler: clang
-            cc: clang-20
-            cxx: clang++-20
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: TSan
-            preset: tsan-system
-            ctest_parallel: 2
-          - name: Ubuntu 24.04 • Clang 20
-            container: ubuntu:24.04
-            pkg_manager: apt
-            compiler: clang
-            cc: clang-20
-            cxx: clang++-20
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: release
-          - name: Ubuntu 24.04 • Clang 20
-            container: ubuntu:24.04
-            pkg_manager: apt
-            compiler: clang
-            cc: clang-20
-            cxx: clang++-20
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: debug
-            preset: debug-system-cxx23
-          - name: Ubuntu 24.04 • GCC
-            container: ubuntu:24.04
-            pkg_manager: apt
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: debug
-          - name: Ubuntu 24.04 • GCC
-            container: ubuntu:24.04
-            pkg_manager: apt
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: release
-            # The package workflow owns Clang packaging. Retain one GCC lane
-            # so installed consumers also cover a non-Clang compiler.
-            enable_package_tests: "ON"
-          - name: Ubuntu 25.10 • Clang 20
-            container: ubuntu:25.10
-            pkg_manager: apt
-            compiler: clang
-            cc: clang-20
-            cxx: clang++-20
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: debug
-          - name: Ubuntu 25.10 • Clang 20
-            container: ubuntu:25.10
-            pkg_manager: apt
-            compiler: clang
-            cc: clang-20
-            cxx: clang++-20
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: ASan+UBSan
-            preset: alusan-system
-            ctest_parallel: 2
-          - name: Ubuntu 25.10 • Clang 20
-            container: ubuntu:25.10
-            pkg_manager: apt
-            compiler: clang
-            cc: clang-20
-            cxx: clang++-20
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: release
-          - name: Ubuntu 25.10 • GCC
-            container: ubuntu:25.10
-            pkg_manager: apt
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: debug
-          - name: Ubuntu 25.10 • GCC
-            container: ubuntu:25.10
-            pkg_manager: apt
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            clang_version: "20"
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
-            build_type: release
-          - name: Ubuntu 24.04 • LLVM 22
-            container: ubuntu:24.04
-            pkg_manager: apt
-            setup_mode: apt-llvm-org
-            compiler: clang
-            cc: clang-22
-            cxx: clang++-22
-            clang_version: "22"
-            llvm_dir: /usr/lib/llvm-22/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-22/lib/cmake/clang
-            build_type: debug
-            ci_exhaustive: true
-          - name: Ubuntu 24.04 • LLVM 22
-            container: ubuntu:24.04
-            pkg_manager: apt
-            setup_mode: apt-llvm-org
-            compiler: clang
-            cc: clang-22
-            cxx: clang++-22
-            clang_version: "22"
-            llvm_dir: /usr/lib/llvm-22/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-22/lib/cmake/clang
-            build_type: ASan+UBSan
-            preset: alusan-system
-            ctest_parallel: 2
-          - name: Ubuntu 24.04 • LLVM 23
-            container: ubuntu:24.04
-            pkg_manager: apt
-            setup_mode: apt-llvm-org
-            compiler: clang
-            cc: clang-23
-            cxx: clang++-23
-            clang_version: "23"
-            llvm_dir: /usr/lib/llvm-23/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-23/lib/cmake/clang
-            build_type: debug
-            ci_exhaustive: true
-          # Prefer pinned Alpine releases over `alpine:latest` so the
-          # LLVM/Clang package names and CMake package paths remain stable.
-          - name: Alpine 3.21 • Clang 19
-            container: alpine:3.21
-            pkg_manager: apk
-            compiler: clang
-            cc: clang-19
-            cxx: clang++-19
-            llvm_version: "19"
-            llvm_dir: /usr/lib/cmake/llvm19
-            clang_dir: /usr/lib/cmake/clang19
-            build_type: debug
-            codegen_jobs: 2
-          - name: Alpine 3.21 • Clang 19
-            container: alpine:3.21
-            pkg_manager: apk
-            compiler: clang
-            cc: clang-19
-            cxx: clang++-19
-            llvm_version: "19"
-            llvm_dir: /usr/lib/cmake/llvm19
-            clang_dir: /usr/lib/cmake/clang19
-            build_type: release
-            codegen_jobs: 2
-          - name: Alpine 3.23 • Clang 21
-            container: alpine:3.23
-            pkg_manager: apk
-            compiler: clang
-            cc: clang-21
-            cxx: clang++-21
-            llvm_version: "21"
-            llvm_dir: /usr/lib/cmake/llvm21
-            clang_dir: /usr/lib/cmake/clang21
-            build_type: debug
-            codegen_jobs: 2
-          - name: Alpine 3.23 • Clang 21
-            container: alpine:3.23
-            pkg_manager: apk
-            compiler: clang
-            cc: clang-21
-            cxx: clang++-21
-            llvm_version: "21"
-            llvm_dir: /usr/lib/cmake/llvm21
-            clang_dir: /usr/lib/cmake/clang21
-            build_type: release
-            codegen_jobs: 2
-          - name: Fedora 41 • Clang
-            container: fedora:41
-            pkg_manager: dnf
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: debug
-          - name: Fedora 41 • Clang
-            container: fedora:41
-            pkg_manager: dnf
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: release
-          - name: Fedora 41 • GCC
-            container: fedora:41
-            pkg_manager: dnf
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: debug
-          - name: Fedora 41 • GCC
-            container: fedora:41
-            pkg_manager: dnf
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: release
-          - name: Fedora 42 • Clang
-            container: fedora:42
-            pkg_manager: dnf
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: debug
-          - name: Fedora 42 • Clang
-            container: fedora:42
-            pkg_manager: dnf
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: release
-          - name: Fedora 42 • GCC
-            container: fedora:42
-            pkg_manager: dnf
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: debug
-          - name: Fedora 42 • GCC
-            container: fedora:42
-            pkg_manager: dnf
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: release
-          - name: Fedora 43 • Clang 21
-            container: fedora:43
-            pkg_manager: dnf
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: debug
-          - name: Fedora 43 • Clang 21
-            container: fedora:43
-            pkg_manager: dnf
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: ASan+UBSan
-            preset: alusan-system
-            ctest_parallel: 2
-          - name: Fedora 43 • Clang 21
-            container: fedora:43
-            pkg_manager: dnf
-            compiler: clang
-            cc: clang
-            cxx: clang++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: release
-          - name: Fedora 43 • GCC
-            container: fedora:43
-            pkg_manager: dnf
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: debug
-          - name: Fedora 43 • GCC
-            container: fedora:43
-            pkg_manager: dnf
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
-            build_type: release
-          - name: Fedora 43 • LLVM 22
-            container: fedora:43
-            pkg_manager: dnf
-            setup_mode: upstream-archive
-            llvm_release: "22.1.0"
-            compiler: clang
-            cc: /opt/llvm-22.1.0/bin/clang
-            cxx: /opt/llvm-22.1.0/bin/clang++
-            llvm_dir: /opt/llvm-22.1.0/lib/cmake/llvm
-            clang_dir: /opt/llvm-22.1.0/lib/cmake/clang
-            build_type: debug
-          - name: Fedora 43 • LLVM 22
-            container: fedora:43
-            pkg_manager: dnf
-            setup_mode: upstream-archive
-            llvm_release: "22.1.0"
-            compiler: clang
-            cc: /opt/llvm-22.1.0/bin/clang
-            cxx: /opt/llvm-22.1.0/bin/clang++
-            llvm_dir: /opt/llvm-22.1.0/lib/cmake/llvm
-            clang_dir: /opt/llvm-22.1.0/lib/cmake/clang
-            build_type: ASan+UBSan
-            preset: alusan-system
-            ctest_parallel: 2
+      matrix: ${{ fromJSON(needs.plan.outputs.linux) }}
     steps:
       - name: Update and install dependencies (apt)
         if: ${{ matrix.pkg_manager == 'apt' }}
@@ -1048,15 +646,15 @@ jobs:
           LANG: C.UTF-8
         run: |
           set -euxo pipefail
-          ctest_args=(--preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }})
-          if [ "${GENTEST_CI_PROFILE}" = "pr" ] && [ "${{ matrix.ci_exhaustive }}" != "true" ]; then
-            ctest_args+=(--label-regex '^ci-compat$')
+          ctest_args=(--no-tests=error --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }})
+          if [ "${GENTEST_CI_PROFILE}" = "pr" ]; then
+            ctest_args+=(--label-regex '^ci-smoke$')
           fi
           ctest "${ctest_args[@]}"
 
   package-workflow:
     needs: plan
-    if: ${{ needs.plan.outputs.run_cmake == 'true' }}
+    if: ${{ inputs.profile == 'full' }}
     name: Package Workflow
     runs-on: ubuntu-24.04
     steps:
@@ -1165,8 +763,4 @@ jobs:
       - name: Run package workflow
         run: |
           set -euxo pipefail
-          package_workflow=package
-          if [ "${GENTEST_CI_PROFILE}" = "pr" ]; then
-            package_workflow=package-pr
-          fi
-          cmake --workflow --preset="${package_workflow}"
+          cmake --workflow --preset=package

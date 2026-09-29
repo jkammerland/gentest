@@ -11,7 +11,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "ci_plan.py"
 WORKFLOW_FILES = (
-    ROOT / ".github" / "workflows" / "cmake.yml",
     ROOT / ".github" / "workflows" / "lint.yml",
     ROOT / ".github" / "workflows" / "coverage.yml",
     ROOT / ".github" / "workflows" / "cross_qemu.yml",
@@ -210,14 +209,18 @@ class WorkflowContractTests(unittest.TestCase):
                 self.assertIn('git show "${CI_BASE_SHA}:scripts/ci_plan.py" > "${ci_plan_script}"', contents)
                 self.assertIn('if [ -z "${ci_plan_script}" ] || ! python3 "${ci_plan_script}"', contents)
 
-    def test_cmake_pull_requests_use_compatibility_profiles(self) -> None:
+    def test_cmake_selects_smoke_matrices_before_starting_workers(self) -> None:
         contents = (ROOT / ".github" / "workflows" / "cmake.yml").read_text(encoding="utf-8")
         self.assertIn("GENTEST_HELPER_BUILD_PARALLEL_LEVEL: 1", contents)
-        bash_profiles = contents.count("--label-regex '^ci-compat$'")
-        powershell_profiles = contents.count('@("--label-regex", "^ci-compat$")')
+        bash_profiles = contents.count("--label-regex '^ci-smoke$'")
+        powershell_profiles = contents.count('@("--label-regex", "^ci-smoke$")')
         self.assertGreaterEqual(bash_profiles + powershell_profiles, 3)
-        self.assertIn('matrix.ci_exhaustive', contents)
-        self.assertIn('package_workflow=package-pr', contents)
+        self.assertNotIn('matrix.ci_exhaustive', contents)
+        self.assertIn('scripts/ci_matrix.py --profile', contents)
+        for host in ('linux', 'windows', 'macos'):
+            self.assertIn('fromJSON(needs.plan.outputs.' + host + ')', contents)
+        self.assertNotIn('CI planner failed; enabling all lanes', contents)
+        self.assertIn("if: ${{ inputs.profile == 'full' }}", contents)
 
     def test_package_pr_preset_is_focused_and_parallel(self) -> None:
         presets = json.loads((ROOT / "CMakePresets.json").read_text(encoding="utf-8"))

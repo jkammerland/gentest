@@ -144,3 +144,10 @@ if(TARGET gentest_codegen_support)
 endif()
 
 unset(_gentest_tool_core_src_dir)
+
+# These directly exercise codegen internals without nested consumer builds.
+get_property(_gentest_core_tests DIRECTORY PROPERTY TESTS)
+if(_gentest_core_tests)
+    set_property(TEST ${_gentest_core_tests} APPEND PROPERTY LABELS "ci-smoke")
+endif()
+unset(_gentest_core_tests)

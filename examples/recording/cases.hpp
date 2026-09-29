@@ -2,6 +2,7 @@
 
 #include "gentest/bench_util.h"
 #include "gentest/fixture.h"
+#include "gentest/record.h"
 #include "gentest/test.h"
 #ifdef RECORDING_WITH_GLAZE
 #include "gentest/record_glaze.h"

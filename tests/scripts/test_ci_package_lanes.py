@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 
@@ -17,54 +18,40 @@ class CiPackageLaneTests(unittest.TestCase):
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
         cls.tests_cmake = TESTS_CMAKE.read_text(encoding="utf-8")
 
-    def test_linux_and_windows_matrices_disable_package_tests_by_default(self) -> None:
-        override = (
-            '"-DGENTEST_ENABLE_PACKAGE_TESTS=' "${{ matrix.enable_package_tests || 'OFF' }}" '"'
-        )
+    def test_linux_and_windows_default_package_override_is_still_forwarded(self):
+        override = '\"-DGENTEST_ENABLE_PACKAGE_TESTS=${{ matrix.enable_package_tests || \'OFF\' }}\"'
         self.assertGreaterEqual(self.workflow.count(override), 2)
 
-    def test_representative_gcc_and_windows_lanes_keep_package_consumers(self) -> None:
-        gcc_debug = self.workflow.index("- name: Ubuntu 24.04 • GCC")
-        gcc_release = self.workflow.index("- name: Ubuntu 24.04 • GCC", gcc_debug + 1)
-        next_entry = self.workflow.index("- name:", gcc_release + 1)
-        self.assertIn('enable_package_tests: "ON"', self.workflow[gcc_release:next_entry])
+    def test_full_matrix_keeps_representative_package_consumers(self):
+        matrix = json.loads((ROOT / "scripts" / "ci_matrix.json").read_text(encoding="utf-8"))
+        gcc = [entry for entry in matrix["linux"]
+               if entry["name"] == "Ubuntu 24.04 • GCC" and entry["build_type"] == "release"]
+        self.assertEqual(len(gcc), 1)
+        self.assertEqual(gcc[0]["enable_package_tests"], "ON")
+        windows = [entry for entry in matrix["windows"]
+                   if entry["llvm-version"] == "21.1.4" and entry["preset"] == "debug-system"]
+        self.assertEqual(len(windows), 1)
+        self.assertEqual(windows[0]["enable_package_tests"], "ON")
 
-        windows_matrix = self.workflow.index("# Keep one Windows LLVM/MSVC job")
-        windows_steps = self.workflow.index("    steps:", windows_matrix)
-        representative = self.workflow[windows_matrix:windows_steps]
-        self.assertIn('llvm-version: "21.1.4"', representative)
-        self.assertIn('preset: "debug-system"', representative)
-        self.assertIn('enable_package_tests: "ON"', representative)
-
-    def test_llvm_23_has_one_focused_lane_on_each_host_os(self) -> None:
-        self.assertIn('compiler: ["appleclang", "llvm@20", "llvm@21", "llvm@23"]', self.workflow)
-        self.assertIn("brew --prefix \"${{ matrix.compiler }}\"", self.workflow)
-        self.assertIn(
-            'compiler: "llvm@23"\n                build-type: "release"\n                variant: "default"',
-            self.workflow,
-        )
-        self.assertIn('llvm-version: ["23.1.0", "22.1.0", "21.1.4"]', self.workflow)
-        self.assertIn(
-            'llvm-version: "23.1.0"\n            preset: "release-system"\n            variant: "default"',
-            self.workflow,
-        )
+    def test_full_matrix_retains_llvm_23_on_each_host_os(self):
+        matrix = json.loads((ROOT / "scripts" / "ci_matrix.json").read_text(encoding="utf-8"))
+        for platform, key, version in (("macos", "compiler", "llvm@23"),
+                                       ("windows", "llvm-version", "23.1.0"),
+                                       ("linux", "clang_version", "23")):
+            with self.subTest(platform=platform):
+                selected = [entry for entry in matrix[platform] if entry.get(key) == version]
+                self.assertEqual(len(selected), 1)
         self.assertIn("Setup LLVM 23 package dependencies", self.workflow)
-        self.assertIn("VCPKG_ROOT: ${{ runner.temp }}/gentest-vcpkg", self.workflow)
         self.assertIn("zlib:x64-windows", self.workflow)
         self.assertIn("zstd:x64-windows", self.workflow)
         self.assertIn("libxml2:x64-windows", self.workflow)
+
+    def test_llvm_23_dependency_and_compiler_setup_contracts_remain(self):
+        self.assertIn('brew --prefix "${{ matrix.compiler }}"', self.workflow)
+        self.assertIn("VCPKG_ROOT: ${{ runner.temp }}/gentest-vcpkg", self.workflow)
         self.assertIn('"-DCMAKE_PREFIX_PATH=$env:LLVM_DEPENDENCY_PREFIX"', self.workflow)
         self.assertIn('"CMAKE_PREFIX_PATH=$prefix"', self.workflow)
         self.assertIn('(Join-Path $prefix "bin")', self.workflow)
-
-        self.assertEqual(self.workflow.count("- name: Ubuntu 24.04 • LLVM 23"), 1)
-        llvm_23_linux = self.workflow.index("- name: Ubuntu 24.04 • LLVM 23")
-        next_entry = self.workflow.index("- name:", llvm_23_linux + 1)
-        linux_lane = self.workflow[llvm_23_linux:next_entry]
-        self.assertIn('clang_version: "23"', linux_lane)
-        self.assertIn("build_type: debug", linux_lane)
-        self.assertIn("ci_exhaustive: true", linux_lane)
-
         self.assertIn("'Suites: llvm-toolchain-noble-${{ matrix.clang_version }}'", self.workflow)
         self.assertIn('test "$("${COMPILER_BIN}/clang" --version', self.workflow)
 
