@@ -4,7 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing signed release tag (for example v1.2.0)
+        description: Release tag to sign and publish (for example v1.2.0)
+        required: true
+        type: string
+      ci_run_id:
+        description: Successful full CI run ID for this exact master commit
         required: true
         type: string
 
@@ -21,15 +25,37 @@ jobs:
     runs-on: ubuntu-24.04
     environment: release
     permissions:
+      actions: read
       contents: write
     env:
       EXPECTED_GPG_FINGERPRINT: ${{ vars.GPG_FINGERPRINT }}
     steps:
-      - name: Checkout signed tag
+      - name: Checkout validated master commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.sha }}
+
+      - name: Verify successful full CI for exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "${CI_RUN_ID}" =~ ^[1-9][0-9]*$ ]]
+          git fetch origin master --tags
+          release_commit="$(git rev-parse HEAD)"
+          test "${release_commit}" = "${GITHUB_SHA}"
+          test "${release_commit}" = "$(git rev-parse origin/master)"
+          ci_run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CI_RUN_ID}")"
+          ci_workflow_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml" --jq .id)"
+          test "$(jq -r .workflow_id <<< "${ci_run}")" = "${ci_workflow_id}"
+          test "$(jq -r .head_repository.full_name <<< "${ci_run}")" = "${GITHUB_REPOSITORY}"
+          test "$(jq -r .head_branch <<< "${ci_run}")" = master
+          test "$(jq -r .event <<< "${ci_run}")" = workflow_dispatch
+          test "$(jq -r .display_title <<< "${ci_run}")" = 'CI (full) — master'
+          test "$(jq -r .conclusion <<< "${ci_run}")" = success
+          test "$(jq -r .head_sha <<< "${ci_run}")" = "${release_commit}"
 
       - name: Install build dependencies
         run: |
@@ -93,19 +119,42 @@ jobs:
             "${signing_probe}"
           gpg --batch --verify "${signing_probe}.asc" "${signing_probe}"
 
-      - name: Verify tag identity and signature
+      - name: Sign and verify release tag
         env:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          git verify-tag "${RELEASE_TAG}"
-          test "$(git rev-parse HEAD)" = "$(git rev-list -n 1 "${RELEASE_TAG}")"
-          echo "RELEASE_TAG_OBJECT=$(git rev-parse "refs/tags/${RELEASE_TAG}")" >> "$GITHUB_ENV"
-          echo "RELEASE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           project_version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -n 1)"
           test "${RELEASE_TAG}" = "v${project_version}"
+          release_commit="$(git rev-parse HEAD)"
+          remote_tag="$(git ls-remote origin "refs/tags/${RELEASE_TAG}" | awk -v ref="refs/tags/${RELEASE_TAG}" '$2 == ref { print $1; exit }')"
+          if [[ -n "${remote_tag}" ]]; then
+            git fetch origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+            test "$(git rev-parse "refs/tags/${RELEASE_TAG}")" = "${remote_tag}"
+          else
+            test -z "$(git tag --list "${RELEASE_TAG}")"
+            signing_program="${RUNNER_TEMP}/gentest-gpg-sign"
+            umask 077
+            printf '%s\n' \
+              '#!/usr/bin/env bash' \
+              'exec gpg --batch --pinentry-mode loopback --passphrase-file "$GPG_PASSPHRASE_FILE" "$@"' \
+              > "${signing_program}"
+            chmod 700 "${signing_program}"
+            git -c user.name='Gentest release workflow' \
+              -c user.email='actions@users.noreply.github.com' \
+              -c user.signingkey="${GPG_SIGNING_KEY}" \
+              -c gpg.program="${signing_program}" \
+              tag -s "${RELEASE_TAG}" -m "Gentest ${RELEASE_TAG}" "${release_commit}"
+            test "$(git ls-remote origin refs/heads/master | awk '{print $1}')" = "${release_commit}"
+            git push origin "refs/tags/${RELEASE_TAG}"
+          fi
+          test "$(git cat-file -t "refs/tags/${RELEASE_TAG}")" = tag
+          git verify-tag "${RELEASE_TAG}"
+          test "${release_commit}" = "$(git rev-list -n 1 "${RELEASE_TAG}")"
           git merge-base --is-ancestor "${RELEASE_TAG}" origin/master
+          echo "RELEASE_TAG_OBJECT=$(git rev-parse "refs/tags/${RELEASE_TAG}")" >> "$GITHUB_ENV"
+          echo "RELEASE_COMMIT=${release_commit}" >> "$GITHUB_ENV"
 
       - name: Setup vcpkg
         run: bash scripts/setup-vcpkg.sh

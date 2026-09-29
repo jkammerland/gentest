@@ -27,6 +27,19 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertLess(probe, package)
         self.assertIn('--passphrase-file "${GPG_PASSPHRASE_FILE}"', self.workflow)
 
+    def test_tag_is_signed_only_after_exact_successful_full_ci(self) -> None:
+        ci_gate = self.workflow.index("- name: Verify successful full CI for exact commit")
+        signing = self.workflow.index("- name: Sign and verify release tag")
+        package = self.workflow.index("- name: Build, test, package, and verify signatures")
+        self.assertLess(ci_gate, signing)
+        self.assertLess(signing, package)
+        self.assertIn('test "$(jq -r .conclusion <<< "${ci_run}")" = success', self.workflow)
+        self.assertIn("= 'CI (full) — master'", self.workflow)
+        self.assertIn('test "$(jq -r .head_sha <<< "${ci_run}")" = "${release_commit}"', self.workflow)
+        self.assertIn('test "${release_commit}" = "$(git rev-parse origin/master)"', self.workflow)
+        self.assertIn('tag -s "${RELEASE_TAG}"', self.workflow)
+        self.assertIn('git verify-tag "${RELEASE_TAG}"', self.workflow)
+
     def test_only_regular_release_files_are_uploaded(self) -> None:
         self.assertIn("path: ${{ runner.temp }}/gentest-release/*.*", self.workflow)
         self.assertIn(
