@@ -83,12 +83,13 @@ local function gentest_root()
     end
 
     local script_dir = helper_script_dir()
-    local candidates = {
-        path.directory(script_dir),
-        path.directory(path.directory(path.directory(script_dir))),
-        codegen_project_root(),
-        project_root(),
-    }
+    local candidates = {path.directory(script_dir)}
+    local package_root = path.directory(path.directory(path.directory(script_dir)))
+    if package_root then
+        table.insert(candidates, package_root)
+    end
+    table.insert(candidates, codegen_project_root())
+    table.insert(candidates, project_root())
     for _, candidate in ipairs(candidates) do
         local resolved = normalize_root_candidate(candidate)
         if resolved then
