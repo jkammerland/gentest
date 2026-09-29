@@ -27,6 +27,7 @@ class SuiteContracts(unittest.TestCase):
         self.assertEqual(len(builds), 3)
         self.assertIn("//:codegen_check_invalid", builds[0].args)
         for command in builds:
+            self.assertIn("--repo_contents_cache=", command.args)
             self.assertIn("--repo_env=GENTEST_BAZEL_LOCAL_CLANG", command.args)
             self.assertEqual(command.env["GENTEST_BAZEL_LOCAL_CLANG"], "selected-clang++")
             self.assertEqual(command.env["CC"], "selected-clang")

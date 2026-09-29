@@ -73,7 +73,8 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
     elif suite == "bazel":
         common["GENTEST_BAZEL_LOCAL_CLANG"] = cxx
         bazel = ["bazel", f"--output_user_root={work / 'cache'}"]
-        flags = [f"--symlink_prefix={work / 'bazel-'}", f"--jobs={jobs}",
+        # CI puts work under the checkout; Bazel 9 rejects its default repo contents cache there.
+        flags = ["--repo_contents_cache=", f"--symlink_prefix={work / 'bazel-'}", f"--jobs={jobs}",
                  "--action_env=CCACHE_DISABLE=1", "--host_action_env=CCACHE_DISABLE=1",
                  "--action_env=CC", "--action_env=CXX", "--host_action_env=CC", "--host_action_env=CXX",
                  "--repo_env=CC", "--repo_env=CXX", "--repo_env=GENTEST_BAZEL_LOCAL_CLANG"]
