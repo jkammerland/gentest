@@ -85,6 +85,11 @@ class ReportsTests(unittest.TestCase):
             self.assertEqual(summary, {"tests": 2, "failures": [], "skips": [{"test": "limited", "reason": "unsupported toolchain"}]})
             xml.write_text('<testsuite><testcase name="broken"><failure/></testcase></testsuite>')
             self.assertEqual(validator.junit_summary(xml)["failures"], ["broken"])
+            xml.write_text('<testsuite><testcase name="disabled" status="disabled"><system-out>Disabled</system-out></testcase>'
+                           '<testcase name="notrun" status="notrun"><skipped message="unsupported toolchain"/></testcase></testsuite>')
+            self.assertEqual(validator.junit_summary(xml)["skips"], [
+                {"test": "disabled", "reason": "CTest disabled test"},
+                {"test": "notrun", "reason": "unsupported toolchain"}])
             xml.write_text('<testsuite tests="500"/>')
             with self.assertRaises(ValueError):
                 validator.junit_summary(xml)
@@ -119,6 +124,18 @@ class ExecutionTests(unittest.TestCase):
             result = validator.execute(command, root / "timeout.log", 1)
             self.assertIsNone(result["exit_code"])
             self.assertIn("exceeded", result["error"])
+
+    def test_all_disabled_junit_cases_cannot_pass_a_stage(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "evidence").mkdir()
+            xml = root / "evidence" / "disabled.xml"
+            write_xml = "from pathlib import Path; Path(__import__('sys').argv[-1]).write_text(" \
+                "'<testsuite><testcase name=\"disabled\" status=\"disabled\"/></testsuite>')"
+            command = Command([sys.executable, "-c", write_xml, "--output-junit", str(xml)], root)
+            result = validator.run_stage(validator.Stage("disabled", [command]), root, 10, {}, {})
+            self.assertEqual(result["status"], "FAIL")
+            self.assertEqual(result["reason"], "JUnit contains failures or no executed tests")
 
     def test_source_must_be_exact_and_tracked_clean_but_untracked_work_is_preserved(self):
         with tempfile.TemporaryDirectory() as temp:

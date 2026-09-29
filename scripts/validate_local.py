@@ -228,8 +228,17 @@ def junit_summary(path: Path) -> dict:
     if not cases:
         raise ValueError(f"Empty JUnit report: {path.name}")
     failed = [case.get("name", "") for case in cases if case.find("failure") is not None or case.find("error") is not None]
-    skips = [{"test": case.get("name", ""), "reason": skip.get("message") or skip.text or "CTest marked skipped/disabled"}
-             for case in cases if (skip := case.find("skipped")) is not None]
+    skips = []
+    for case in cases:
+        skip = case.find("skipped")
+        status = case.get("status")
+        # CTest writes disabled cases without a <skipped> child. They are not
+        # executed and must count toward the all-skipped guard below.
+        if skip is None and status not in ("disabled", "notrun"):
+            continue
+        reason = ((skip.get("message") or skip.text) if skip is not None else None)
+        skips.append({"test": case.get("name", ""), "reason": reason or
+                      ("CTest disabled test" if status == "disabled" else "CTest marked skipped/not run")})
     return {"tests": len(cases), "failures": failed, "skips": skips}
 
 
