@@ -993,7 +993,7 @@ function(gentest_resolve_program_candidate out_program candidate)
      AND NOT "${candidate}" MATCHES "[/\\\\]")
     unset(_resolved CACHE)
     unset(_resolved)
-    find_program(_resolved NAMES "${candidate}" "${_candidate_name}" NO_CACHE)
+    find_program(_resolved NAMES "${candidate}" "${_candidate_name}" PATHS ENV PATH NO_DEFAULT_PATH NO_CACHE)
   endif()
 
   if(_resolved)
