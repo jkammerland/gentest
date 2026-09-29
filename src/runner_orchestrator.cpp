@@ -1,6 +1,7 @@
 #include "runner_orchestrator.h"
 
 #include "runner_fixture_runtime.h"
+#include "runner_json.h"
 #include "runner_measured_executor.h"
 #include "runner_measured_report.h"
 #include "runner_reporting.h"
@@ -112,8 +113,6 @@ std::string format_list_sections(const gentest::Case &test) {
     sections.push_back(']');
     return fmt::to_string(sections);
 }
-
-void append_json_string(fmt::memory_buffer &out, std::string_view value) { out.append(gentest::detail::recording_json_string(value)); }
 
 void append_json_key(fmt::memory_buffer &out, std::string_view key) {
     append_json_string(out, key);
@@ -383,10 +382,10 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
     const auto &bench_idxs  = selection.bench_idxs;
     const auto &jitter_idxs = selection.jitter_idxs;
 
-    gentest::detail::RecordingRunScope recording_run;
-    OrchestratorState                  state{};
+    OrchestratorState state{};
     state.color_output   = opt.color_output;
     state.record_results = (opt.junit_path != nullptr) || (opt.allure_dir != nullptr) || (opt.records_dir != nullptr);
+    gentest::detail::RecordingRunScope recording_run(state.record_results);
 
     SharedFixtureRunGuard fixture_guard;
     TestCounters          counters;

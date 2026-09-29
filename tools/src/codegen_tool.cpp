@@ -21,6 +21,12 @@
 #include <clang/Basic/Diagnostic.h>
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
+#include <clang/Driver/Driver.h>
+#if CLANG_VERSION_MAJOR >= 22
+#include <clang/Options/Options.h>
+#else
+#include <clang/Driver/Options.h>
+#endif
 #include <clang/Frontend/CompilerInstance.h>
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Lex/PPCallbacks.h>
@@ -39,6 +45,7 @@
 #include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/Statistic.h>
+#include <llvm/Option/ArgList.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/FormatVariadic.h>
@@ -1785,15 +1792,29 @@ void register_codegen_matchers(MatchFinder &finder, TestCaseCollector &test_coll
 class MatchFinderAction final : public clang::ASTFrontendAction {
   public:
     MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                      bool allow_mock_includes, bool skip_function_bodies)
+                      bool allow_mock_includes, bool fallback_header)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
-          skip_function_bodies_(skip_function_bodies) {}
+          fallback_header_(fallback_header) {}
+
+    bool PrepareToExecuteAction(clang::CompilerInstance &compiler) override {
+        if (fallback_header_) {
+            // The borrowed registration command may force source mode (e.g. -TP).
+            // This slot is a header: preserve its language and diagnostics, but
+            // make #pragma once effective before preprocessing starts.
+            for (auto &input : compiler.getFrontendOpts().Inputs) {
+                const auto kind = input.getKind().getHeader();
+                input           = input.isFile() ? clang::FrontendInputFile{input.getFile(), kind, input.isSystem()}
+                                                 : clang::FrontendInputFile{input.getBuffer(), kind, input.isSystem()};
+            }
+            compiler.getLangOpts().IsHeaderFile = true;
+        }
+        return true;
+    }
 
     std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(clang::CompilerInstance &compiler, llvm::StringRef input_file) override {
-        const bool is_named_module_input = named_module_name_from_source_file(std::filesystem::path{input_file.str()}).has_value();
-        if (skip_function_bodies_ && !is_named_module_input) {
-            compiler.getFrontendOpts().SkipFunctionBodies = true;
-        }
+        // Parse bodies normally: skipping them invents unused-private-field
+        // diagnostics and hides real errors. Discovery remains source-scoped
+        // by ScopedTraversalASTConsumer, independently of semantic analysis.
         compiler.getPreprocessor().addPPCallbacks(std::make_unique<DependencyRecorder>(compiler.getSourceManager(), dependencies_));
         const std::string normalized = normalize_dependency_path(input_file.str());
         if (!normalized.empty()) {
@@ -1806,28 +1827,28 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
   private:
     clang::ast_matchers::MatchFinder &finder_;
     std::vector<std::string>         &dependencies_;
-    bool                              allow_includes_       = false;
-    bool                              allow_mock_includes_  = false;
-    bool                              skip_function_bodies_ = false;
+    bool                              allow_includes_      = false;
+    bool                              allow_mock_includes_ = false;
+    bool                              fallback_header_     = false;
 };
 
 class MatchFinderActionFactory final : public clang::tooling::FrontendActionFactory {
   public:
     MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                             bool allow_mock_includes, bool skip_function_bodies)
+                             bool allow_mock_includes, bool fallback_header)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
-          skip_function_bodies_(skip_function_bodies) {}
+          fallback_header_(fallback_header) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, skip_function_bodies_);
+        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, fallback_header_);
     }
 
   private:
     clang::ast_matchers::MatchFinder &finder_;
     std::vector<std::string>         &dependencies_;
-    bool                              allow_includes_       = false;
-    bool                              allow_mock_includes_  = false;
-    bool                              skip_function_bodies_ = false;
+    bool                              allow_includes_      = false;
+    bool                              allow_mock_includes_ = false;
+    bool                              fallback_header_     = false;
 };
 
 // MSVC cl.exe's module mapping flags that take their value as a separate argument, as spelled in
@@ -3019,6 +3040,41 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
     return argument.starts_with('@') && argument.find(".modmap") != std::string_view::npos;
 }
 
+[[nodiscard]] std::optional<std::size_t> compile_command_delimiter(const clang::tooling::CommandLineArguments &command_line,
+                                                                   std::size_t                                 compiler_index) {
+    if (std::ranges::find(command_line, "--") == command_line.end()) {
+        return std::nullopt;
+    }
+    // Use the driver grammar: a literal '--' can instead be an option's value
+    // (for example, '-include --'), which must remain part of the context.
+    llvm::SmallVector<const char *, 32> arguments;
+    for (std::size_t idx = compiler_index + 1; idx < command_line.size(); ++idx) {
+        arguments.push_back(command_line[idx].c_str());
+    }
+    unsigned missing_index = 0;
+    unsigned missing_count = 0;
+#if CLANG_VERSION_MAJOR >= 22
+    namespace driver_options = clang;
+#else
+    namespace driver_options = clang::driver;
+#endif
+    // Option spellings overlap between drivers: cl's -J is a flag, while
+    // Flang's -J consumes a value. Match the actual driver's grammar.
+    const auto driver_mode = clang::driver::getDriverMode(command_line[compiler_index], arguments);
+    const auto visibility  = llvm::opt::Visibility(clang::driver::IsClangCL(driver_mode) ? driver_options::options::CLOption
+                                                                                         : driver_options::options::ClangOption);
+    const auto parsed      = driver_options::getDriverOptTable().ParseArgs(arguments, missing_index, missing_count, visibility);
+    if (missing_count != 0) {
+        return std::nullopt;
+    }
+    for (const auto *argument : parsed) {
+        if (argument->getSpelling() == "--" && argument->getOption().getKind() == llvm::opt::Option::RemainingArgsClass) {
+            return compiler_index + 1 + argument->getIndex();
+        }
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] std::vector<std::string> normalized_semantic_compile_context(const clang::tooling::CompileCommand &command,
                                                                            std::string_view                      source_file) {
     std::vector<std::string> normalized;
@@ -3028,8 +3084,17 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
     const std::string normalized_source = normalize_compdb_lookup_path(source_file, command.Directory);
     bool              skip_value        = false;
     const std::size_t compiler_index    = compiler_arg_index_for_resource_dir_probe(command.CommandLine).value_or(0);
+    const auto        delimiter         = compile_command_delimiter(command.CommandLine, compiler_index);
     for (std::size_t idx = compiler_index + 1; idx < command.CommandLine.size(); ++idx) {
         const std::string_view argument = command.CommandLine[idx];
+        if (delimiter && idx >= *delimiter) {
+            // The scan rewrites input placement. The separator is not a
+            // semantic option; later tokens are operands, even if option-like.
+            if (idx != *delimiter && normalize_compdb_lookup_path(argument, command.Directory) != normalized_source) {
+                normalized.push_back(fmt::format("operand={}", argument));
+            }
+            continue;
+        }
         if (skip_value) {
             skip_value = false;
             continue;
@@ -3360,24 +3425,6 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             adjusted.emplace_back(std::move(input_path));
         }
     }
-    // Kept commented out rather than deleted: dumping the incoming and outgoing
-    // command lines side by side is how the MSVC driver-mode argument handling
-    // above gets diagnosed, and reconstructing it costs more than it saves.
-    // Uncomment to trace every adjustment.
-    //
-    // if (const auto dbg = get_env_value("GENTEST_CODEGEN_LOG_ADJUSTED_CMD"); dbg.has_value()) {
-    //     auto dump = [](const clang::tooling::CommandLineArguments &args) {
-    //         std::string s;
-    //         for (const auto &a : args) {
-    //             s += a + " | ";
-    //         }
-    //         return s;
-    //     };
-    //     const bool has_cl_mode =
-    //         std::ranges::find(sanitized_command_line, std::string("--driver-mode=cl")) != sanitized_command_line.end();
-    //     gentest::codegen::log_err("DBG-ADJ file=[{}] has_cl_mode={} in=[{}] out=[{}]\n", file.str(), has_cl_mode,
-    //                               dump(command_line), dump(adjusted));
-    // }
     return adjusted;
 }
 
@@ -4080,8 +4127,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory   category{"gentest codegen"};
     static llvm::cl::opt<std::string> output_option{"output", llvm::cl::desc("Removed legacy manifest/single-TU output source file option"),
                                                     llvm::cl::init(""), llvm::cl::cat(category), llvm::cl::Hidden};
-    static llvm::cl::opt<std::string> entry_option{"entry", llvm::cl::desc("Fully qualified entry point symbol"),
-                                                   llvm::cl::init("gentest::run_all_tests"), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> tu_out_dir_option{
         "tu-out-dir", llvm::cl::desc("Emit per-translation-unit generated artifacts into this directory (enables TU mode)"),
         llvm::cl::init(""), llvm::cl::cat(category)};
@@ -4216,7 +4261,6 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     llvm::cl::ParseCommandLineOptions(static_cast<int>(tool_argv.size()), tool_argv.data(), "gentest clang code generator\n");
 
     CollectorOptions opts;
-    opts.entry = entry_option;
     if (!tu_out_dir_option.getValue().empty()) {
         opts.tu_output_dir = std::filesystem::path{tu_out_dir_option.getValue()};
     }
@@ -4744,7 +4788,6 @@ int run_codegen_tool(int argc, const char **argv) {
     std::vector<std::string>                     depfile_dependencies;
 
     const auto syntax_only_adjuster = clang::tooling::getClangSyntaxOnlyAdjuster();
-    const bool skip_function_bodies = !options.discover_mocks;
 
     const std::string compdb_dir =
         options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
@@ -6060,7 +6103,8 @@ int run_codegen_tool(int argc, const char **argv) {
             register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
                                       !mock_manifest_discovery_only);
             MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes, options.discover_mocks,
-                                                    skip_function_bodies};
+                                                    idx < options.scan_slot_kinds.size() &&
+                                                        options.scan_slot_kinds[idx] == "fallback-header"};
 
             ParseResult result;
             result.status             = tool.run(&action_factory);
@@ -6198,7 +6242,7 @@ int run_codegen_tool(int argc, const char **argv) {
         register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
                                   !mock_manifest_discovery_only);
         MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes, options.discover_mocks,
-                                                skip_function_bodies};
+                                                !options.scan_slot_kinds.empty() && options.scan_slot_kinds.front() == "fallback-header"};
 
         const int status = tool.run(&action_factory);
         if (status != 0) {

@@ -117,13 +117,11 @@ struct AttributeCollection {
 };
 
 // Options consumed by the generator tool entry point.
-// - entry: fully qualified function name to emit as the test entry
 // - sources: translation units to scan
 // - clang_args: extra arguments appended to the underlying clang invocation
 // - compilation_database: directory containing compile_commands.json
 // - check_only: validate without emitting any output
 struct CollectorOptions {
-    std::string           entry = "gentest::run_all_tests";
     std::filesystem::path tu_output_dir;
     // Optional explicit per-source TU registration headers. When provided in
     // TU mode, this must stay aligned with `sources` and overrides the legacy

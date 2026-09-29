@@ -96,7 +96,6 @@ libgentest_runtime = static_library(
     'src/bench_stats.cpp',
     'src/context_api.cpp',
     'src/recording.cpp',
-    'src/recording_json.cpp',
     'src/recording_report.cpp',
     'src/log_sink.cpp',
     'src/runtime_context.cpp',

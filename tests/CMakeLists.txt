@@ -19,6 +19,25 @@ add_test(NAME runtime_recording COMMAND ${Python3_EXECUTABLE}
     ${GENTEST_USE_BOOST_JSON})
 set_tests_properties(runtime_recording PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
 
+add_executable(gentest_recording_lifetime_tests recording_lifetime.cpp)
+target_compile_features(gentest_recording_lifetime_tests PRIVATE cxx_std_20)
+target_include_directories(gentest_recording_lifetime_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(gentest_recording_lifetime_tests PRIVATE gentest::gentest)
+add_dependencies(gentest_test_suites gentest_recording_lifetime_tests)
+add_test(NAME runtime_recording_lifetime COMMAND gentest_recording_lifetime_tests)
+set_tests_properties(runtime_recording_lifetime PROPERTIES LABELS "runner;reporting;ci-compat")
+
+gentest_add_manual_regression(
+    TARGET gentest_recording_shared_payloads_tests
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/recording_shared_payloads.cpp)
+add_dependencies(gentest_test_suites gentest_recording_shared_payloads_tests)
+add_test(NAME runtime_recording_shared_payloads COMMAND gentest_recording_shared_payloads_tests)
+set_tests_properties(runtime_recording_shared_payloads PROPERTIES LABELS "runner;reporting;ci-compat")
+
+add_test(NAME runtime_recording_example_verifier
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_check_example_reports.py)
+set_tests_properties(runtime_recording_example_verifier PROPERTIES LABELS "reporting;scripts;ci-compat")
+
 option(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS "Test optional Glaze and cbor_tags recording adapters" OFF)
 if(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS)
     add_subdirectory(recording_adapters)
@@ -87,6 +106,11 @@ add_test(
 set_property(TEST ci_package_lane_contract APPEND PROPERTY LABELS "cmake;scripts;ci-compat")
 
 add_test(
+    NAME manual_ci_contract
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_manual_ci.py)
+set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github;ci-compat")
+
+add_test(
     NAME analyzer_assertions_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_analyzer_assertions.py)
 _gentest_resolve_fmt_target(_gentest_analyzer_fmt_target)
@@ -143,6 +167,10 @@ gentest_add_mocks(gentest_textual_suite_mocks
 
 gentest_link_mocks(gentest_mocking_tests PRIVATE gentest_textual_suite_mocks)
 gentest_link_mocks(gentest_failing_tests PRIVATE gentest_textual_suite_mocks)
+# Generated fixture support must also compile when a helper has no callers in
+# this registration unit; clang-cl /W4 /WX diagnoses such internal functions.
+target_compile_options(gentest_failing_tests PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Werror=unneeded-internal-declaration>)
 if(TARGET ${PROJECT_NAME}_libassert_tests)
     gentest_link_mocks(${PROJECT_NAME}_libassert_tests PRIVATE gentest_textual_suite_mocks)
 endif()
@@ -2089,7 +2117,7 @@ gentest_add_check_inventory(
     ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeBlockedInventoryProgram.cmake --
     EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_blocked_status.list)
 
-gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 10 SKIP 0 BLOCKED 2)
+gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 12 SKIP 0 BLOCKED 2)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
@@ -2296,6 +2324,26 @@ gentest_add_check_death(
     PROG gentest_failing_tests
     REQUIRED_SUBSTRING "comparison detail; lhs=1, rhs=2"
     ARGS --run=failing/comparison/expect_eq_message_values)
+
+string(HEX "null function pointer diagnostic; lhs=false" _null_function_pointer_text)
+gentest_add_cmake_script_test(
+    NAME null_function_pointer_diagnostic
+    PROG gentest_failing_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckNoTimeout.cmake
+    ARGS --run=failing/comparison/null_function_pointer
+    DEFINES EXPECT_RC=1 TIMEOUT_SEC=10
+    ENCODED_DEFINES "REQUIRED_SUBSTRING=${_null_function_pointer_text}")
+unset(_null_function_pointer_text)
+
+string(HEX "nonnull function pointer diagnostic; lhs=true, rhs=false" _nonnull_function_pointer_text)
+gentest_add_cmake_script_test(
+    NAME nonnull_function_pointer_diagnostic
+    PROG gentest_failing_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckNoTimeout.cmake
+    ARGS --run=failing/comparison/nonnull_function_pointer
+    DEFINES EXPECT_RC=1 TIMEOUT_SEC=10
+    ENCODED_DEFINES "REQUIRED_SUBSTRING=${_nonnull_function_pointer_text}")
+unset(_nonnull_function_pointer_text)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Regressions.cmake)
 
@@ -4313,6 +4361,38 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_codegen_synthetic_compile_context APPEND PROPERTY LABELS "codegen")
+
+foreach(_gentest_driver_mode IN ITEMS g++ cl)
+    set(_gentest_driver_suffix "")
+    if(_gentest_driver_mode STREQUAL "cl")
+        set(_gentest_driver_suffix "_clang_cl")
+    endif()
+    _gentest_add_cmake_helper_test(
+        gentest_codegen_compile_command_delimiter${_gentest_driver_suffix}
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenCompileCommandDelimiter.cmake
+        cmake
+        -DDRIVER_MODE=${_gentest_driver_mode})
+    set_property(TEST gentest_codegen_compile_command_delimiter${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen;ci-compat")
+
+    _gentest_add_cmake_helper_test(
+        gentest_codegen_fallback_header_semantics${_gentest_driver_suffix}
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFallbackHeaderSemantics.cmake
+        cmake
+        -DDRIVER_MODE=${_gentest_driver_mode})
+    set_property(TEST gentest_codegen_fallback_header_semantics${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen;ci-compat")
+
+    _gentest_add_cmake_helper_test(
+        gentest_codegen_function_body_diagnostics${_gentest_driver_suffix}
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFunctionBodyDiagnostics.cmake
+        cmake
+        -DDRIVER_MODE=${_gentest_driver_mode})
+    set_property(TEST gentest_codegen_function_body_diagnostics${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen;ci-compat")
+endforeach()
+unset(_gentest_driver_suffix)
+unset(_gentest_driver_mode)
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_header_shared_fixture_visibility

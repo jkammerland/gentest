@@ -1,3 +1,4 @@
+#include "runner_json.h"
 #include "runner_reporting.h"
 
 #include <algorithm>
@@ -11,7 +12,6 @@
 
 namespace gentest::runner {
 namespace {
-using gentest::detail::recording_json_string;
 using gentest::detail::RecordingBag;
 
 std::string properties_json(const std::map<std::string, PropertyValue, std::less<>> &properties) {
@@ -21,9 +21,9 @@ std::string properties_json(const std::map<std::string, PropertyValue, std::less
         if (!first)
             out += ',';
         first = false;
-        out += recording_json_string(key) + ':';
+        out += json_string(key) + ':';
         const auto text = gentest::detail::property_text(value);
-        out += std::holds_alternative<std::string>(value.value) ? recording_json_string(text) : text;
+        out += std::holds_alternative<std::string>(value.value) ? json_string(text) : text;
     }
     return out + '}';
 }
@@ -33,7 +33,7 @@ std::string string_array(const std::vector<std::string> &strings) {
     for (const auto &value : strings) {
         if (out.size() > 1)
             out += ',';
-        out += recording_json_string(value);
+        out += json_string(value);
     }
     return out + ']';
 }
@@ -59,10 +59,13 @@ BagExport export_bag(const RecordingBag &bag, std::size_t scope_id) {
         const auto  filename = fmt::format("runtime-record-{}-{}{}", scope_id, i, extension(record.content_type));
         if (i != 0)
             result.json += ',';
-        result.json += fmt::format("{{\"sequence\":{},\"name\":{},\"contentType\":{},\"schema\":{},\"path\":{}}}", i,
-                                   recording_json_string(record.name), recording_json_string(record.content_type),
-                                   recording_json_string(record.schema), recording_json_string(filename));
-        result.attachments.push_back({record.name, record.content_type, extension(record.content_type), record.bytes, filename});
+        result.json += fmt::format(R"({{"sequence":{},"name":{},"contentType":{},"schema":{},"path":{}}})", i, json_string(record.name),
+                                   json_string(record.content_type), json_string(record.schema), json_string(filename));
+        result.attachments.push_back({.name           = record.name,
+                                      .mime_type      = record.content_type,
+                                      .file_extension = extension(record.content_type),
+                                      .contents       = record.bytes,
+                                      .shared_source  = filename});
     }
     result.json += "]}";
     return result;
@@ -98,30 +101,14 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
     try {
         std::map<const RecordingBag *, BagExport> bags;
         std::size_t                               next_id = 0;
-        auto                                      add_bag = [&](const RecordingBag &bag) -> const BagExport                                      &{
-            return bags.emplace(&bag, export_bag(bag, next_id++)).first->second;
-        };
-        std::string index = "{\"schemaVersion\":1,\"run\":" + add_bag(session.run).json + ",\"suites\":[";
-        bool        first = true;
+        auto add_bag = [&](const RecordingBag &bag) { bags.emplace(&bag, export_bag(bag, next_id++)); };
+        add_bag(session.run);
         for (const auto &[name, bag] : session.suites) {
-            if (!first)
-                index += ',';
-            first = false;
-            index += "{\"name\":" + recording_json_string(name) + ",\"data\":" + add_bag(bag).json + '}';
+            (void)name;
+            add_bag(bag);
         }
-        index += "],\"cases\":[";
-        first = true;
-        for (const auto &c : session.cases) {
-            if (!first)
-                index += ',';
-            first = false;
-            index += fmt::format("{{\"id\":{},\"name\":{},\"suite\":{},\"kind\":{},\"file\":{},\"line\":{},"
-                                 "\"owner\":{},\"requirements\":{},\"tags\":{},\"outcome\":{},\"data\":{}}}",
-                                 c->id, recording_json_string(c->name), recording_json_string(c->suite), recording_json_string(c->kind),
-                                 recording_json_string(c->file), c->line, recording_json_string(c->owner), string_array(c->requirements),
-                                 string_array(c->tags), recording_json_string(c->outcome), add_bag(c->data).json);
-        }
-        index += "],\"errors\":" + string_array(acc.infra_errors) + "}\n";
+        for (const auto &c : session.cases)
+            add_bag(c->data);
 
         bool has_records = false;
         for (const auto &[bag, exported] : bags) {
@@ -131,13 +118,34 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
         std::string index_path;
         try {
             if (records_dir || (junit_path && has_records)) {
+                std::string index = R"({"schemaVersion":1,"run":)" + bags.at(&session.run).json + ",\"suites\":[";
+                bool        first = true;
+                for (const auto &[name, bag] : session.suites) {
+                    if (!first)
+                        index += ',';
+                    first = false;
+                    index += "{\"name\":" + json_string(name) + ",\"data\":" + bags.at(&bag).json + '}';
+                }
+                index += "],\"cases\":[";
+                first = true;
+                for (const auto &c : session.cases) {
+                    if (!first)
+                        index += ',';
+                    first = false;
+                    index += fmt::format("{{\"id\":{},\"name\":{},\"suite\":{},\"kind\":{},\"file\":{},\"line\":{},"
+                                         "\"owner\":{},\"requirements\":{},\"tags\":{},\"outcome\":{},\"data\":{}}}",
+                                         c->id, json_string(c->name), json_string(c->suite), json_string(c->kind), json_string(c->file),
+                                         c->line, json_string(c->owner), string_array(c->requirements), string_array(c->tags),
+                                         json_string(c->outcome), bags.at(&c->data).json);
+                }
+                index += "],\"errors\":" + string_array(acc.infra_errors) + "}\n";
                 const auto root =
                     records_dir ? std::filesystem::path(records_dir) : std::filesystem::path(std::string(junit_path) + ".records");
                 const auto bundle = create_bundle(root);
                 for (const auto &[bag, exported] : bags) {
                     (void)bag;
                     for (const auto &attachment : exported.attachments)
-                        write_file(bundle / attachment.shared_source, attachment.contents);
+                        write_file(bundle / attachment.shared_source, *attachment.contents);
                 }
                 write_file(bundle / "index.json.tmp", index);
                 std::filesystem::rename(bundle / "index.json.tmp", bundle / "index.json");
@@ -158,10 +166,10 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
             item.properties       = gentest::detail::effective_properties(session, c);
             item.record_index     = index_path;
             const auto applicable = gentest::detail::recording_bags(session, c);
-            const bool has_data   = std::any_of(applicable.begin(), applicable.end(),
-                                                [](const RecordingBag *bag) { return !bag->properties.empty() || !bag->records.empty(); });
+            const bool has_data =
+                std::ranges::any_of(applicable, [](const RecordingBag *bag) { return !bag->properties.empty() || !bag->records.empty(); });
             if (allure_dir && has_data) {
-                std::string scopes      = "{\"schemaVersion\":1,\"caseId\":" + std::to_string(c.id) + ",\"scopes\":[";
+                std::string scopes      = R"({"schemaVersion":1,"caseId":)" + std::to_string(c.id) + ",\"scopes\":[";
                 bool        first_scope = true;
                 for (auto bag : applicable) {
                     const auto &exported = bags.at(bag);
@@ -182,13 +190,15 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
                             }
                         }
                     }
-                    scopes += "{\"scope\":" + recording_json_string(scope) + ",\"name\":" + recording_json_string(name) +
-                              ",\"data\":" + exported.json + '}';
+                    scopes += "{\"scope\":" + json_string(scope) + ",\"name\":" + json_string(name) + ",\"data\":" + exported.json + '}';
                     item.attachments.insert(item.attachments.end(), exported.attachments.begin(), exported.attachments.end());
                 }
                 scopes += "]}";
-                item.attachments.push_back({"runtime record index", "application/json", ".json", std::move(scopes),
-                                            fmt::format("runtime-case-{}-index.json", c.id)});
+                item.attachments.push_back({.name           = "runtime record index",
+                                            .mime_type      = "application/json",
+                                            .file_extension = ".json",
+                                            .contents       = std::make_shared<const std::string>(std::move(scopes)),
+                                            .shared_source  = fmt::format("runtime-case-{}-index.json", c.id)});
             }
         }
     } catch (const std::exception &e) { record_runner_level_failure(acc, "gentest/reporting/records", e.what()); }

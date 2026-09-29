@@ -11,12 +11,22 @@
 
 ### Changed
 
+- Recording, inventory, and measured reports share one UTF-8-safe JSON string
+  encoder.
+
 - Transitional release archives are explicitly named as LLVM-bound host
   developer kits and carry a validated, machine-readable artifact contract.
 - Standalone release manifests and SBOMs use artifact-scoped names so future
   source SDK and platform-codegen assets can coexist without collisions.
 
 ### Fixed
+
+- Runs without report exporters release completed synchronous and asynchronous
+  case recordings instead of retaining a history for every repetition.
+- Recording reports share immutable payload storage across cases and Allure
+  writes, avoiding repeated copies of run and suite payloads.
+- JUnit preserves whitespace in recorded property keys and values; recording
+  verification reads UTF-8 consistently across host locales.
 
 - Draft publication resumes through its numeric GitHub release ID, avoiding
   tag-based draft lookups that return 404 after successful creation.
@@ -97,6 +107,23 @@ Unstable inside. No backward compatibility.
 
 ### Fixed
 
+- Generated shared-fixture failure handling stays in its templated caller,
+  avoiding an unneeded internal function under clang-cl `/W4 /WX`.
+- Codegen parses function bodies normally, avoiding false unused-private-field
+  diagnostics under warnings-as-errors while preserving genuine body errors.
+- Function-pointer assertion and mock diagnostics use explicit boolean
+  conversion instead of MSVC's function-to-object pointer extension, preserving
+  stream manipulators and custom insertion operators under warnings-as-errors.
+- Compile-command delimiter parsing follows the selected Clang driver mode,
+  keeping clang-cl flags such as `-J` from consuming the delimiter as an
+  option value from another driver's grammar.
+- Listed-header codegen preserves header semantics when borrowing a source-mode
+  compile command, so `#pragma once` remains effective under clang-cl `-TP`
+  without relaxing warnings-as-errors or changing authored-source parsing.
+- Additive codegen no longer mistakes a compile command's end-of-options
+  delimiter for a lost semantic option, fixing normal CMake/clang-cl commands
+  on Windows. Literal `--` option values remain significant, and the ordered
+  semantic-context preservation check remains enabled.
 - Meson forwards fmt include directories.
 - Codegen strips MSVC `.modmap` module-mapping flags value-aware: a flag
   that takes a separate value argument only consumes the next token when it

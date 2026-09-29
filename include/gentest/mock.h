@@ -285,29 +285,6 @@ template <typename R, typename... Args> struct Expectation<R(Args...)> : Expecta
     }
 };
 
-template <typename... Args> struct Expectation<void(Args...)> : ExpectationCommon<Args...> {
-    std::function<void(const std::decay_t<Args> &...)> action;
-
-    void set_action(std::string_view method_name, std::function<void(const std::decay_t<Args> &...)> next_action) {
-        std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
-        if (!this->allow_mutation(method_name))
-            return;
-        action = std::move(next_action);
-    }
-
-    void invoke(std::string_view method_name, const std::decay_t<Args> &...args) {
-        std::function<void(const std::decay_t<Args> &...)> action_snapshot;
-        {
-            std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
-            action_snapshot = action;
-        }
-        (void)this->check_args(method_name, args...);
-        if (action_snapshot) {
-            action_snapshot(args...);
-        }
-    }
-};
-
 class InstanceState {
   public:
     InstanceState();
@@ -355,7 +332,7 @@ class InstanceState {
     }
 
     template <typename R, typename... Args> R dispatch(const MethodIdentity &id, std::string_view method_name, Args &&...args) {
-        return dispatch_with_fallback<R>(id, id, method_name, std::forward<Args>(args)...);
+        return dispatch_with_fallback<R, Args...>(id, id, method_name, std::forward<Args>(args)...);
     }
 
     template <typename R, typename... Args>
@@ -408,10 +385,6 @@ class InstanceState {
         }
         if (unexpected) {
             ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
-        }
-        if constexpr (std::is_void_v<R>) {
-            expectation->invoke(method_name, std::forward<Args>(args)...);
-            return;
         }
         return expectation->invoke(method_name, std::forward<Args>(args)...);
     }

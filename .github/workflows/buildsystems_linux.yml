@@ -1,17 +1,14 @@
 name: buildsystems-linux
 
-'on':
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: buildsystems-linux-${{ github.ref }}
   cancel-in-progress: true
 
 env:

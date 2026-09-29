@@ -648,6 +648,25 @@ int main() {
         }
     }
 
+    // Raw-string punctuation must not split tuple cells or change their C++ spelling.
+    {
+        auto attrs = parse_attribute_list(
+            R"attrs(test("raw-pack"), parameters_pack((s, n), (R"tag(a",b)tag", 7), (u8R"other(()"[,]>)other", 9)))attrs");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error && diags.empty(), "raw-string pack validates");
+        t.expect(summary.param_packs.size() == 1, "raw-string pack is retained");
+        if (summary.param_packs.size() == 1) {
+            t.expect(summary.param_packs[0].names == std::vector<std::string>{"s", "n"}, "raw-string pack names");
+            const std::vector<std::vector<std::string>> expected{{R"expr(R"tag(a",b)tag")expr", "7"},
+                                                                 {R"expr(u8R"other(()"[,]>)other")expr", "9"}};
+            t.expect(summary.param_packs[0].rows == expected, "raw-string cells retain exact spelling and row boundaries");
+        }
+        auto expressions = gentest::codegen::split_expression_list(R"expr("quoted,cell", R"(raw",cell)", 3)expr");
+        t.expect(expressions == std::vector<std::string>{R"("quoted,cell")", R"expr(R"(raw",cell)")expr", "3"},
+                 "expression splitting preserves ordinary and raw string literals");
+    }
+
     // Regression: parameters_pack tuple splitting must also keep '<...>' intact.
     {
         auto attrs =

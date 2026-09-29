@@ -1,10 +1,15 @@
-#include "recording_internal.h"
+#pragma once
 
+#include <cstdint>
 #include <fmt/format.h>
+#include <iterator>
+#include <string>
+#include <string_view>
 
-namespace gentest::detail {
-std::string recording_json_string(std::string_view value) {
-    fmt::memory_buffer out;
+namespace gentest::runner {
+
+// Emit valid UTF-8 JSON even when caller-owned metadata contains malformed bytes.
+inline void append_json_string(fmt::memory_buffer &out, std::string_view value) {
     out.push_back('"');
     for (std::size_t index = 0; index < value.size();) {
         const auto ch = static_cast<unsigned char>(value[index]);
@@ -92,7 +97,12 @@ std::string recording_json_string(std::string_view value) {
         }
     }
     out.push_back('"');
+}
+
+inline std::string json_string(std::string_view value) {
+    fmt::memory_buffer out;
+    append_json_string(out, value);
     return fmt::to_string(out);
 }
 
-} // namespace gentest::detail
+} // namespace gentest::runner
