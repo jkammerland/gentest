@@ -65,6 +65,53 @@ codegen SBOM assets, and the public key needed to verify them. The script
 verifies all checksums, signatures, artifact-contract fields, CPS fields, SBOM
 coverage, and archive contents before it returns success.
 
+## Publishing a release
+
+`scripts/package_release.sh` builds and validates local archives; it does not
+create a tag or publish to GitHub. Publication is handled by the manually
+dispatched `.github/workflows/release.yml` workflow. For a new version:
+
+1. Merge the version and changelog update to `master`. Run the full CI profile
+   against that exact commit and wait for it to pass. Set `CI_RUN_ID` to the ID
+   printed by `gh run list`:
+
+   ```sh
+   gh workflow run ci.yml --ref master -f profile=full -f base_ref=v1.1.0
+   gh run list --workflow ci.yml --branch master --limit 5
+   : "${CI_RUN_ID:?Set CI_RUN_ID from the list above}"
+   gh run watch "$CI_RUN_ID" --exit-status
+   RELEASE_COMMIT=$(gh run view "$CI_RUN_ID" --json headSha --jq .headSha)
+   ```
+
+2. Fetch the validated commit, create a signed annotated tag using the release
+   key, verify it, and push only that tag. Set `GPG_FINGERPRINT` to the release
+   environment's configured fingerprint. For version 1.2.0:
+
+   ```sh
+   git fetch origin master --tags
+   : "${RELEASE_COMMIT:?Set RELEASE_COMMIT from the full CI run}"
+   : "${GPG_FINGERPRINT:?Set the release-key fingerprint}"
+   test "$(git rev-parse origin/master)" = "$RELEASE_COMMIT"
+   test -z "$(git ls-remote --tags origin refs/tags/v1.2.0)"
+   git -c user.signingkey="$GPG_FINGERPRINT" tag -s v1.2.0 \
+     -m "Gentest v1.2.0" "$RELEASE_COMMIT"
+   git verify-tag v1.2.0
+   git push origin refs/tags/v1.2.0
+   ```
+
+3. Dispatch the release workflow. Its `release` environment may require a
+   reviewer. The workflow verifies the signed tag and exact version, runs the
+   package build and tests, checks the signed assets, then publishes the
+   immutable release. It can resume a matching draft, but will not replace a
+   published release. Set `RELEASE_RUN_ID` to the ID printed by `gh run list`:
+
+   ```sh
+   gh workflow run release.yml --ref master -f tag=v1.2.0
+   gh run list --workflow release.yml --limit 5
+   : "${RELEASE_RUN_ID:?Set RELEASE_RUN_ID from the list above}"
+   gh run watch "$RELEASE_RUN_ID" --exit-status
+   ```
+
 ## License
 
 Gentest is distributed under the Boost Software License 1.0 (`BSL-1.0`). The
