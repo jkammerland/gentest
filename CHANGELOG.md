@@ -2,12 +2,18 @@
 
 ## Unreleased
 
+## 1.2.0 - 2026-09-29
+
 ### Added
 
 - Optional Glaze JSON and cbor_tags CBOR recording adapters, pinned vcpkg
   features, and an executable runtime recording example.
 - Runtime scalar properties and owned structured records with case, suite, and run
   scopes, versioned record bundles, JUnit properties, and Allure attachments.
+- Executable examples for parameterized cases, fixtures, mocks, measured results,
+  and metadata exports.
+- A private local validation runner and report collector for the exhaustive
+  platform suite, with a manually dispatched full GitHub CI profile.
 
 ### Changed
 
@@ -18,6 +24,8 @@
   developer kits and carry a validated, machine-readable artifact contract.
 - Standalone release manifests and SBOMs use artifact-scoped names so future
   source SDK and platform-codegen assets can coexist without collisions.
+- Pull-request CI starts only when manually dispatched; master pushes run a
+  smaller routine bundle.
 
 ### Fixed
 
@@ -32,6 +40,14 @@
   tag-based draft lookups that return 404 after successful creation.
 - Codegen accepts LLVM 23's relocated USR-generation header and component while
   retaining compatibility with LLVM 20–22.
+- Codegen preserves compiler delimiters, fallback-header semantics, and
+  clang-cl/MSVC driver defaults, restoring strict Windows builds.
+- CMake discovery preserves punctuation in case names and rejects death tests
+  whose process could not launch.
+- Mock dispatch preserves declared rvalue-reference argument types, and measured
+  JSON replaces invalid UTF-8 consistently.
+- Xmake resolves the Gentest root even when an earlier prefix candidate is
+  unavailable (for example, from a shallow checkout under `/tmp`).
 
 ## 1.1.0 - 2026-08-26
 

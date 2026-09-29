@@ -4663,6 +4663,18 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_xmake_module_consumer APPEND PROPERTY LABELS "xmake" "modules")
 set_property(TEST gentest_xmake_module_consumer PROPERTY RESOURCE_LOCK "xmake")
 
+if(UNIX)
+    find_program(_gentest_xmake_root_test_program NAMES xmake)
+    if(_gentest_xmake_root_test_program)
+        add_test(NAME gentest_xmake_shallow_root_resolution
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_xmake_root_resolution.py
+                ${_gentest_xmake_root_test_program}
+                ${PROJECT_SOURCE_DIR})
+        set_property(TEST gentest_xmake_shallow_root_resolution APPEND PROPERTY LABELS "xmake;ci-compat")
+    endif()
+endif()
+
 _gentest_add_cmake_helper_test(
     gentest_xmake_xrepo_consumer
     ${PROJECT_SOURCE_DIR}
