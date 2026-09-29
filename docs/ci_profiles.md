@@ -66,15 +66,16 @@ Only logs generated on GitHub runners are uploaded by that workflow.
 
 ## Known Windows Debug limit
 
-With `GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON`, the discovery fixture skips
-only its direct abort sub-probe in the actual Debug configuration and prints:
+With `GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON`, the discovery and recording
+fixtures skip only their direct abort sub-probes in the actual Debug
+configuration and print a known-skip notice. The discovery notice includes:
 
 > Application may suspend for debugger attachment.
 
-Ordinary discovery, non-aborting death checks, and process-launch failure
-checks still run. Release keeps the abort probe. The existing runtime death-test
-skips remain unchanged. We do not change debugger settings or work around the
-Debug CRT behavior.
+Ordinary discovery, recording scope/lifecycle/export checks, non-aborting death
+checks, and process-launch failure checks still run. Release keeps the abort
+probes. The existing runtime death-test skips remain unchanged. We do not
+change debugger settings or work around the Debug CRT behavior.
 
 ## Candidate and merge discipline
 

@@ -3,6 +3,7 @@ include("${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFixtureCommon.cmak
 
 option(GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS "Require real GMock/doctest generated-mock consumers in CMake regressions" OFF)
 option(GENTEST_REQUIRE_TROMPELOEIL_MOCK_CONSUMER "Require real Trompeloeil generated-mock consumer in CMake regressions" OFF)
+option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
 
 if(NOT TARGET gentest_test_suites)
     add_custom_target(gentest_test_suites)
@@ -16,7 +17,8 @@ add_dependencies(gentest_test_suites gentest_recording_tests)
 add_test(NAME runtime_recording COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_runtime_recording.py
     $<TARGET_FILE:gentest_recording_tests> ${CMAKE_CURRENT_BINARY_DIR}/recording-reports
-    ${GENTEST_USE_BOOST_JSON})
+    ${GENTEST_USE_BOOST_JSON}
+    "$<AND:$<BOOL:${GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS}>,$<PLATFORM_ID:Windows>,$<CONFIG:Debug>>")
 set_tests_properties(runtime_recording PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
 
 add_executable(gentest_recording_lifetime_tests recording_lifetime.cpp)
@@ -1062,7 +1064,6 @@ gentest_add_check_counts(
     EXPECT_RC 1
     ARGS --run=async/batch/client)
 
-option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests that hang on CI" OFF)
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(
         concurrency_fail_single_death

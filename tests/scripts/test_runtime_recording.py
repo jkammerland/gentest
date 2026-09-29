@@ -10,6 +10,8 @@ import xml.etree.ElementTree as ET
 exe = Path(sys.argv[1]).resolve()
 root = Path(sys.argv[2]).resolve()
 allure_enabled = sys.argv[3].upper() in ("ON", "TRUE", "1")
+assert len(sys.argv) == 5 and sys.argv[4] in ("0", "1"), "expected explicit Windows Debug abort-probe gate"
+skip_windows_debug_abort = sys.argv[4] == "1"
 if root.exists():
     shutil.rmtree(root)
 root.mkdir(parents=True)
@@ -152,8 +154,11 @@ blocked = root / "not-a-directory"
 blocked.write_text("keep me")
 run("--run=rt_recording/ok/separate", f"--records={blocked}", rc=1)
 assert blocked.read_text(encoding="utf-8") == "keep me"
-for args in [("--record-outside",), ("--run=rt_recording/bad/adopted", "--include-death")]:
-    result = subprocess.run([str(exe), *args], capture_output=True, text=True, encoding="utf-8", timeout=20)
-    assert result.returncode != 0
-    assert "recording" in result.stderr
+if skip_windows_debug_abort:
+    print("GENTEST_KNOWN_SKIP: Windows Debug abort probes may suspend for debugger attachment")
+else:
+    for args in [("--record-outside",), ("--run=rt_recording/bad/adopted", "--include-death")]:
+        result = subprocess.run([str(exe), *args], capture_output=True, text=True, encoding="utf-8", timeout=20)
+        assert result.returncode != 0
+        assert "recording" in result.stderr
 print("runtime recording: scope, lifecycle, ownership, payload and export checks passed")
