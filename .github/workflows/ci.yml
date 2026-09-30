@@ -1,4 +1,4 @@
-name: Run CI
+name: CI
 run-name: CI (${{ inputs.profile || 'pr' }}) — ${{ github.ref_name }}
 
 on:
