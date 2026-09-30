@@ -38,7 +38,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('test "$(jq -r .head_sha <<< "${ci_run}")" = "${release_commit}"', self.workflow)
         self.assertIn('test "${release_commit}" = "$(git rev-parse origin/master)"', self.workflow)
         self.assertIn('tag -s "${RELEASE_TAG}"', self.workflow)
+        self.assertIn('tag -s "${RELEASE_TAG}" -m "${RELEASE_TAG}"', self.workflow)
         self.assertIn('git verify-tag "${RELEASE_TAG}"', self.workflow)
+
+    def test_release_title_matches_tag_for_new_and_resumed_drafts(self) -> None:
+        self.assertEqual(self.workflow.count('-f name="${RELEASE_TAG}"'), 2)
+        self.assertIn(
+            'test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .name)" = "${RELEASE_TAG}"',
+            self.workflow,
+        )
+        self.assertNotIn('Gentest ${RELEASE_TAG}', self.workflow)
 
     def test_only_regular_release_files_are_uploaded(self) -> None:
         self.assertIn("path: ${{ runner.temp }}/gentest-release/*.*", self.workflow)
