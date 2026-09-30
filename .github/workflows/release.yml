@@ -145,7 +145,7 @@ jobs:
               -c user.email='actions@users.noreply.github.com' \
               -c user.signingkey="${GPG_SIGNING_KEY}" \
               -c gpg.program="${signing_program}" \
-              tag -s "${RELEASE_TAG}" -m "Gentest ${RELEASE_TAG}" "${release_commit}"
+              tag -s "${RELEASE_TAG}" -m "${RELEASE_TAG}" "${release_commit}"
             test "$(git ls-remote origin refs/heads/master | awk '{print $1}')" = "${release_commit}"
             git push origin "refs/tags/${RELEASE_TAG}"
           fi
@@ -210,12 +210,15 @@ jobs:
             test "${release_draft}" = true
             test "${release_tag}" = "${RELEASE_TAG}"
             test "${release_target}" = "${RELEASE_COMMIT}"
+            test "$(gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              -f name="${RELEASE_TAG}" --jq .name)" = "${RELEASE_TAG}"
           else
             release_id="$(gh api --method POST \
               "repos/${GITHUB_REPOSITORY}/releases" \
               -f tag_name="${RELEASE_TAG}" \
               -f target_commitish="${RELEASE_COMMIT}" \
-              -f name="Gentest ${RELEASE_TAG}" \
+              -f name="${RELEASE_TAG}" \
               -F draft=true \
               -F generate_release_notes=true \
               --jq .id)"
@@ -225,6 +228,7 @@ jobs:
           test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .draft)" = true
           test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .tag_name)" = "${RELEASE_TAG}"
           test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .target_commitish)" = "${RELEASE_COMMIT}"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .name)" = "${RELEASE_TAG}"
 
           existing_assets="$(gh api --paginate \
             "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" \

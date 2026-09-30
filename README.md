@@ -5,8 +5,7 @@ Release archives, signing, CPS, and SBOM generation are documented in
 
 Gentest is licensed under the [Boost Software License 1.0](LICENSE).
 
-[![lint](https://github.com/jkammerland/gentest/actions/workflows/lint.yml/badge.svg)](https://github.com/jkammerland/gentest/actions/workflows/lint.yml)
-[![coverage](https://github.com/jkammerland/gentest/actions/workflows/coverage.yml/badge.svg)](https://github.com/jkammerland/gentest/actions/workflows/coverage.yml)
+[![CI](https://github.com/jkammerland/gentest/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/jkammerland/gentest/actions/workflows/ci.yml)
 
 `gentest` is an attribute-driven C++ test runner plus a clang-tools-based code generator.
 
