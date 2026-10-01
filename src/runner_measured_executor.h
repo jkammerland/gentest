@@ -35,6 +35,7 @@ struct JitterResult {
     std::size_t                iters_per_epoch    = 0;
     std::size_t                total_iters        = 0;
     bool                       batch_mode         = false;
+    std::size_t                calls_per_sample   = 1;
     double                     min_ns             = 0;
     double                     max_ns             = 0;
     double                     median_ns          = 0;

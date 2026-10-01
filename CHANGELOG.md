@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- Jitter summaries expose sampling mode and calls per sample, label batch
+  maxima and histograms, and warn when averaging can hide individual-call
+  latency spikes. JSON/CSV and Allure exports carry the sampling metadata.
+
 ## 1.2.0 - 2026-09-29
 
 ### Added

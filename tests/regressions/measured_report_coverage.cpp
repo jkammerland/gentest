@@ -163,8 +163,9 @@ void check_jitter_histogram_recompute_and_truncation() {
         samples[i] = static_cast<double>(i);
     }
 
-    auto jitter       = make_jitter_result(std::move(samples), 4);
-    jitter.batch_mode = true;
+    auto jitter             = make_jitter_result(std::move(samples), 4);
+    jitter.batch_mode       = true;
+    jitter.calls_per_sample = 64;
 
     const auto  jitter_case  = make_case("regressions/measured_report/jitter_large", "measured_suite", false, true, false, 4);
     const auto  attachments  = gentest::runner::make_jitter_allure_attachments(jitter_case, jitter, 7);
@@ -239,6 +240,7 @@ void check_mixed_baseline_output() {
 
     auto jitter_delta               = make_jitter_result({8.0, 9.0, 11.0, 12.0}, 2);
     jitter_delta.batch_mode         = true;
+    jitter_delta.calls_per_sample   = 64;
     jitter_delta.median_ns          = 10.0;
     jitter_delta.mean_ns            = 10.0;
     jitter_delta.stddev_ns          = 4.0;
@@ -357,6 +359,117 @@ void check_measured_report_formats_and_items() {
     expect(contains(escaped_json, R"(pipe|quote\"comma,\nline)"), "json output should escape quotes and newlines");
 }
 
+void check_jitter_batch_reporting() {
+    const auto jitter_case  = make_case("jitter/example", "jitter", false, true, false);
+    auto       jitter       = make_jitter_result({10.0, 11.0, 12.0, 20.0}, 2);
+    jitter.batch_mode       = true;
+    jitter.calls_per_sample = 64;
+    std::vector<JitterReportRow> rows{JitterReportRow{.c = &jitter_case, .result = jitter}};
+    CliOptions                   opt{};
+    opt.time_unit_mode        = TimeUnitMode::Ns;
+    const std::string output  = capture_stdout([&] { gentest::runner::print_jitter_report(rows, opt); });
+    const auto        summary = std::string_view(output).substr(0, output.find("Jitter debug"));
+    expect(contains(summary, "Calls/sample"), "jitter summary must expose how many calls form a sample");
+    expect(contains(summary, "batch-average"), "jitter summary must distinguish batch averages from individual calls");
+    expect(contains(summary, "individual-call latency spikes may be hidden"),
+           "batch averaging must warn about hidden individual-call tails");
+    expect(contains(summary, "Max batch avg (ns/item)"), "batch-only summaries must label the maximum as a batch average");
+    expect(contains(summary, "64 calls/sample"), "the warning must include the actual batch size");
+    expect(output.find("WARNING:") != std::string::npos && output.find("WARNING:") == output.rfind("WARNING:"),
+           "table reports must warn once for the affected case");
+    expect(contains(output, "Jitter batch-average histogram (bins=10, name=jitter/example, calls/sample=64)"),
+           "batch histograms must identify their sample type and batch size");
+
+    opt.measured_report_format = gentest::runner::MeasuredReportFormat::Markdown;
+    const std::string markdown = capture_stdout([&] { gentest::runner::print_jitter_report(rows, opt); });
+    expect(contains(markdown, "> **Warning:** jitter/example:"), "markdown must display the batch warning");
+    expect(contains(markdown, "| jitter/example | batch-average | 64 | 4 | 1 |"), "markdown summary must carry batch metadata");
+
+    opt.measured_report_format     = gentest::runner::MeasuredReportFormat::Json;
+    const std::string json         = capture_stdout([&] { gentest::runner::print_jitter_report(rows, opt); });
+    const auto        json_summary = std::string_view(json).substr(0, json.find("jitter.debug"));
+    expect(contains(json_summary, R"("mode":"batch","sample_kind":"batch-average","calls_per_sample":64)"),
+           "JSON summaries must expose typed sampling metadata");
+    expect(contains(json_summary, R"("sampling_warning":"jitter/example:)"), "JSON summaries must include a structured warning");
+    expect(contains(json_summary, R"("max_ns_per_item":20)"), "existing machine timing fields must retain their values");
+    expect(json.starts_with('{') && std::count(json.begin(), json.end(), '\n') == 1 && !contains(json, "WARNING:"),
+           "batch warnings must not pollute JSON stdout");
+
+    opt.measured_report_format = gentest::runner::MeasuredReportFormat::Csv;
+    const std::string csv      = capture_stdout([&] { gentest::runner::print_jitter_report(rows, opt); });
+    expect(csv.starts_with("report,table,row,field,type,value\n"), "batch warnings must preserve the CSV schema");
+    expect(contains(csv, "jitter,jitter.summary,0,sample_kind,string,batch-average\n"), "CSV summaries must expose the sample kind");
+    expect(contains(csv, "jitter,jitter.summary,0,calls_per_sample,number,64\n"), "CSV summaries must expose the batch size");
+    expect(contains(csv, "jitter,jitter.summary,0,sampling_warning,string,\"jitter/example:"), "CSV warnings must be escaped fields");
+    expect(!contains(csv, "WARNING:"), "batch warnings must not add prose records to CSV stdout");
+
+    const auto  attachments = gentest::runner::make_jitter_allure_attachments(jitter_case, jitter, 2);
+    const auto &metrics     = *find_attachment(attachments, "metrics").contents;
+    const auto &samples     = *find_attachment(attachments, "samples").contents;
+    expect(contains(metrics, "sample_kind\tbatch-average\ncalls_per_sample\t64\nsampling_warning\tjitter/example:"),
+           "Allure metrics must include batch metadata and the warning");
+    expect(contains(samples, R"("sample_kind":"batch-average","calls_per_sample":64,"sampling_warning":"jitter/example:)"),
+           "raw samples must identify batch averages and include the warning");
+    expect(contains(*find_attachment(attachments, "histogram-plot").contents, "batch-average jitter histogram (ns/call; 64 calls/sample)"),
+           "Allure plots must identify batch averages");
+
+    rows.push_back(JitterReportRow{.c = &jitter_case, .result = make_jitter_result({10.0, 20.0}, 2)});
+    opt.measured_report_format = gentest::runner::MeasuredReportFormat::Markdown;
+    const std::string mixed    = capture_stdout([&] { gentest::runner::print_jitter_report(rows, opt); });
+    expect(contains(mixed, "Max sample (ns/item)"), "mixed sampling summaries must use a common sample maximum label");
+    expect(contains(mixed, "| jitter/example | per-call | 1 | 2 | 1 |"), "per-call rows must display one call per sample");
+
+    rows.resize(1);
+    rows[0].result.calls_per_sample     = 1;
+    const std::string single_call_batch = capture_stdout([&] { gentest::runner::print_jitter_report(rows, opt); });
+    expect(!contains(single_call_batch, "**Warning:**") && !contains(single_call_batch, "batch-average"),
+           "batches of one call must not warn about averaging or claim averaged samples");
+    expect(contains(single_call_batch, "| jitter/example | per-call | 1 | 4 | 1 |"),
+           "one-call batches must show per-call sample semantics");
+    opt.measured_report_format         = gentest::runner::MeasuredReportFormat::Json;
+    const std::string single_call_json = capture_stdout([&] { gentest::runner::print_jitter_report(rows, opt); });
+    expect(contains(single_call_json, R"("mode":"batch","sample_kind":"per-call","calls_per_sample":1,"sampling_warning":null)"),
+           "one-call batches must retain the executor mode while reporting no averaging warning");
+
+    rows[0].result.batch_mode       = false;
+    const auto per_call_attachments = gentest::runner::make_jitter_allure_attachments(jitter_case, rows[0].result, 2);
+    expect(contains(*find_attachment(per_call_attachments, "samples").contents,
+                    R"("mode":"per-call","sample_kind":"per-call","calls_per_sample":1,"sampling_warning":null)"),
+           "per-call raw samples must carry explicit sample semantics without a warning");
+
+    const auto escaped_case            = make_case("jitter/pipe|quote\"comma,\nline", "jitter", false, true, false);
+    rows[0]                            = JitterReportRow{.c = &escaped_case, .result = jitter};
+    opt.measured_report_format         = gentest::runner::MeasuredReportFormat::Markdown;
+    const std::string escaped_markdown = capture_stdout([&] { gentest::runner::print_jitter_report(rows, opt); });
+    expect(contains(escaped_markdown, R"(> **Warning:** jitter/pipe\|quote"comma,<br>line:)"), "markdown warnings must escape case names");
+    const auto escaped_attachments = gentest::runner::make_jitter_allure_attachments(escaped_case, jitter, 2);
+    expect(contains(*find_attachment(escaped_attachments, "samples").contents, R"(jitter/pipe|quote\"comma,\nline:)"),
+           "raw sample warnings must JSON-escape case names");
+}
+
+void check_jitter_executor_sample_accounting() {
+    auto jitter_case        = make_case("jitter/accounting", "jitter", false, true, false);
+    jitter_case.fn          = [](void *) {};
+    const std::size_t index = 0;
+    CliOptions        opt{};
+    opt.measured_report_format     = gentest::runner::MeasuredReportFormat::Json;
+    opt.bench_cfg.min_epoch_time_s = 0.0001;
+    opt.bench_cfg.max_total_time_s = 0.005;
+    opt.bench_cfg.warmup_epochs    = 0;
+    opt.bench_cfg.measure_epochs   = 1;
+    std::vector<JitterReportRow> rows;
+    const auto                   status = gentest::runner::run_selected_jitters(
+        std::span<const Case>(&jitter_case, 1), std::span<const std::size_t>(&index, 1), opt, false,
+        [](const Case &, const JitterResult &) {}, [](const Case &, const gentest::runner::MeasurementCaseFailure &, std::string_view) {},
+        &rows);
+    expect(status.ok && status.passed == 1 && rows.size() == 1, "the accounting jitter must produce one successful result");
+    const auto &result = rows.front().result;
+    expect(!result.samples_ns.empty() && result.calls_per_sample > 0, "successful jitter results must identify nonempty samples");
+    expect(result.total_iters == result.samples_ns.size() * result.calls_per_sample,
+           "reported calls per sample must account for the actual measured call count");
+    expect(result.batch_mode || result.calls_per_sample == 1, "per-call execution must report exactly one call per sample");
+}
+
 } // namespace
 
 int main() {
@@ -366,6 +479,8 @@ int main() {
         check_zero_and_one_sample_attachments();
         check_mixed_baseline_output();
         check_measured_report_formats_and_items();
+        check_jitter_batch_reporting();
+        check_jitter_executor_sample_accounting();
     } catch (const std::exception &e) {
         std::cerr << e.what() << '\n';
         return 1;
