@@ -837,20 +837,9 @@ behind a suite-wide unit.
 `N` is a positive non-zero decimal integer; prefixes, suffixes, digit
 separators, and leading-zero forms are rejected so the reported item count
 matches the source spelling.
-Jitter reports use timer-overhead estimates and switch to batch sampling for
-very small operations to amortize clock reads. The summary shows `Sampling`
-(`per-call` or `batch-average`) and `Calls/sample`. When a sample averages more
-than one call, the report warns that its histogram, percentiles, standard
-deviation and maximum describe batch averages; individual-call latency spikes
-may be hidden. `Max batch avg` labels the maximum in a batch-only summary;
-mixed sampling summaries use `Max sample`. Adding a timer around each call
-would bring clock overhead back into those very small measurements.
-Main timing columns remain normalized per item; `Calls/sample` counts function
-invocations and is separate from `Items/call`.
-JSON/CSV summary rows and Allure metrics/raw samples include `mode`,
-`sample_kind`, `calls_per_sample`, and `sampling_warning`. JSON uses `null`
-for the warning when samples do not average multiple calls. Existing timing
-field names and values remain compatible.
+Jitter reports identify batch averages and warn when they may hide individual-call
+latency spikes. See [jitter sampling](docs/jitter_sampling.md) for measurement
+and export details.
 
 `--report-format=json` emits one JSON document for the measured selection. JSON
 uses stable, typed fields such as `median_ns_per_item`, `items_per_call`, and
