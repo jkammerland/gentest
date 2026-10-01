@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- Public releases now publish signed source TGZ/ZIP archives for every OS instead
+  of Linux-only LLVM-bound host developer kits. Source archives include the
+  runtime and codegen sources, checksums, and commit/tool provenance. Portable
+  codegen binaries per OS/architecture remain tracked in #136.
+
 ## 1.2.0 - 2026-09-29
 
 ### Added

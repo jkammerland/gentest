@@ -21,16 +21,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
         cls.presets = PRESETS.read_text(encoding="utf-8")
         cls.package_script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
 
-    def test_signing_probe_runs_before_expensive_package_build(self) -> None:
+    def test_signing_probe_runs_before_source_packaging(self) -> None:
         probe = self.workflow.index("- name: Verify release signing operation")
-        package = self.workflow.index("- name: Build, test, package, and verify signatures")
+        package = self.workflow.index("- name: Package source archives and verify signatures")
         self.assertLess(probe, package)
         self.assertIn('--passphrase-file "${GPG_PASSPHRASE_FILE}"', self.workflow)
 
     def test_tag_is_signed_only_after_exact_successful_full_ci(self) -> None:
         ci_gate = self.workflow.index("- name: Verify successful full CI for exact commit")
         signing = self.workflow.index("- name: Sign and verify release tag")
-        package = self.workflow.index("- name: Build, test, package, and verify signatures")
+        package = self.workflow.index("- name: Package source archives and verify signatures")
         self.assertLess(ci_gate, signing)
         self.assertLess(signing, package)
         self.assertIn('test "$(jq -r .conclusion <<< "${ci_run}")" = success', self.workflow)
@@ -99,9 +99,17 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertLess(names, digests)
         self.assertLess(digests, publish)
 
-    def test_transitional_artifact_is_not_named_as_a_portable_sdk(self) -> None:
-        self.assertIn("Signed Linux/LLVM host developer kit", self.workflow)
-        self.assertIn("linux-llvm-host-developer-kit", self.workflow)
+    def test_public_release_uses_source_archives_for_all_platforms(self) -> None:
+        self.assertIn("Signed source release", self.workflow)
+        self.assertIn("scripts/package_source_release.py", self.workflow)
+        self.assertIn('--ref "${RELEASE_COMMIT}"', self.workflow)
+        self.assertIn("gentest-${{ inputs.tag }}-source", self.workflow)
+        self.assertNotIn("scripts/package_release.sh", self.workflow)
+        self.assertNotIn("host-developer-kit", self.workflow)
+        self.assertNotIn("llvm-toolchain", self.workflow)
+        self.assertNotIn("Setup vcpkg", self.workflow)
+
+    def test_local_host_package_keeps_its_explicit_compatibility_label(self) -> None:
         self.assertIn("llvm${_gentest_release_llvm_major}-host-developer-kit", self.cmake_lists)
         self.assertIn('"GENTEST_RELEASE_HOST_DEVELOPER_KIT": "ON"', self.presets)
         self.assertIn('${artifact_dir}/${package_id}.manifest.json', self.package_script)

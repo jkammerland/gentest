@@ -161,7 +161,9 @@ foreach(_activation IN ITEMS
   endif()
 endforeach()
 
-foreach(_workflow_name IN ITEMS cmake release)
+# Only the local host-package CI lane consumes the CPack preset. Public releases
+# archive the validated source commit and do not run CMake or build LLVM tools.
+foreach(_workflow_name IN ITEMS cmake)
   set(_workflow_file "${SOURCE_DIR}/.github/workflows/${_workflow_name}.yml")
   file(READ "${_workflow_file}" _workflow_content)
   foreach(_packaging_tool_contract IN ITEMS
