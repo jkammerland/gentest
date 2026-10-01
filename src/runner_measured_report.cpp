@@ -51,7 +51,24 @@ struct ReportTable {
     std::vector<std::vector<std::string>> rows;
     std::vector<bool>                     right_align;
     std::vector<MachineRow>               machine_rows;
+    std::vector<std::string>              warnings;
 };
+
+bool jitter_averages_calls(const JitterResult &result) { return result.batch_mode && result.calls_per_sample > 1; }
+
+std::string_view jitter_mode(const JitterResult &result) { return result.batch_mode ? "batch" : "per-call"; }
+
+std::string_view jitter_sample_kind(const JitterResult &result) { return jitter_averages_calls(result) ? "batch-average" : "per-call"; }
+
+std::string jitter_sampling_warning(const gentest::Case &c, const JitterResult &result) {
+    // A batch of one call does not average away individual-call latency spikes.
+    if (!jitter_averages_calls(result)) {
+        return {};
+    }
+    return fmt::format("{}: batch sampling active ({} calls/sample). Histogram, percentiles, standard deviation and maximum describe "
+                       "batch averages; individual-call latency spikes may be hidden.",
+                       c.name, result.calls_per_sample);
+}
 
 std::uint64_t case_items_per_call(const gentest::Case &c) { return c.items_per_call == 0 ? 1 : c.items_per_call; }
 
@@ -180,7 +197,11 @@ void print_table_report(std::span<const ReportTable> tables) {
         if (table_idx != 0) {
             std::cout << "\n";
         }
-        std::cout << table_data.title << "\n" << table << "\n";
+        std::cout << table_data.title << "\n";
+        for (const auto &warning : table_data.warnings) {
+            std::cout << "WARNING: " << warning << "\n";
+        }
+        std::cout << table << "\n";
     }
 }
 
@@ -190,7 +211,11 @@ void print_markdown_report(std::span<const ReportTable> tables) {
         if (table_idx != 0) {
             std::cout << "\n";
         }
-        std::cout << "## " << escape_markdown_cell(table.title) << "\n\n|";
+        std::cout << "## " << escape_markdown_cell(table.title) << "\n\n";
+        for (const auto &warning : table.warnings) {
+            std::cout << "> **Warning:** " << escape_markdown_cell(warning) << "\n\n";
+        }
+        std::cout << '|';
         for (const auto &header : table.headers) {
             std::cout << ' ' << escape_markdown_cell(header) << " |";
         }
@@ -426,12 +451,13 @@ std::string make_bench_summary_svg(const gentest::Case &c, const BenchResult &re
         result.p95_ns, result.worst_ns, result.epochs, result.iters_per_epoch, width - right_margin, axis_max);
 }
 
-std::string make_jitter_histogram_svg(const gentest::Case &c, std::span<const gentest::detail::HistogramBin> bins) {
+std::string make_jitter_histogram_svg(const gentest::Case &c, const JitterResult &result,
+                                      std::span<const gentest::detail::HistogramBin> bins) {
     constexpr double width         = 720.0;
     constexpr double height        = 220.0;
     constexpr double left_margin   = 56.0;
     constexpr double right_margin  = 28.0;
-    constexpr double top_margin    = 34.0;
+    constexpr double top_margin    = 54.0; // Leave room for the sampling subtitle above the bars.
     constexpr double bottom_margin = 44.0;
     const double     plot_width    = width - left_margin - right_margin;
     const double     plot_height   = height - top_margin - bottom_margin;
@@ -464,11 +490,14 @@ std::string make_jitter_histogram_svg(const gentest::Case &c, std::span<const ge
                        bar_h);
     }
 
+    const std::string subtitle = jitter_averages_calls(result)
+                                     ? fmt::format("batch-average jitter histogram (ns/call; {} calls/sample)", result.calls_per_sample)
+                                     : "per-call jitter histogram (ns/call)";
     return fmt::format(
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{0}\" height=\"{1}\" viewBox=\"0 0 {0} {1}\">"
         "<rect width=\"100%\" height=\"100%\" fill=\"#ffffff\" stroke=\"#d0d7de\"/>"
         "<text x=\"{2}\" y=\"22\" font-family=\"monospace\" font-size=\"13\" fill=\"#111827\">{3}</text>"
-        "<text x=\"{2}\" y=\"40\" font-family=\"monospace\" font-size=\"11\" fill=\"#4b5563\">jitter histogram (ns/call)</text>"
+        "<text x=\"{2}\" y=\"40\" font-family=\"monospace\" font-size=\"11\" fill=\"#4b5563\">{14}</text>"
         "<line x1=\"{2}\" y1=\"{4:.2f}\" x2=\"{5}\" y2=\"{4:.2f}\" stroke=\"#9ca3af\" stroke-width=\"1\"/>"
         "<line x1=\"{2}\" y1=\"{6}\" x2=\"{5}\" y2=\"{6}\" stroke=\"#111827\" stroke-width=\"1\"/>"
         "{7}"
@@ -477,15 +506,20 @@ std::string make_jitter_histogram_svg(const gentest::Case &c, std::span<const ge
         "<text x=\"{2}\" y=\"{11}\" font-family=\"monospace\" font-size=\"11\" fill=\"#374151\">bins {12}  peak count {13}</text>"
         "</svg>",
         width, height, left_margin, escape_xml_text(c.name), top_margin, width - right_margin, height - bottom_margin, bars, height - 20.0,
-        first_lo, last_hi, height - 6.0, bins.size(), max_count);
+        first_lo, last_hi, height - 6.0, bins.size(), max_count, subtitle);
 }
 
-std::string make_samples_json(std::span<const double> samples_ns) {
+std::string make_samples_json(const gentest::Case &c, const JitterResult &result) {
     constexpr std::size_t kMaxStoredSamples = 2048;
 
-    const std::size_t  stored_count = std::min(samples_ns.size(), kMaxStoredSamples);
-    fmt::memory_buffer out;
-    fmt::format_to(std::back_inserter(out), R"({{"sample_count":{},"stored_count":{},"truncated":{},"samples_ns":[)", samples_ns.size(),
+    const std::span<const double> samples_ns   = result.samples_ns;
+    const std::size_t             stored_count = std::min(samples_ns.size(), kMaxStoredSamples);
+    fmt::memory_buffer            out;
+    const std::string             warning = jitter_sampling_warning(c, result);
+    fmt::format_to(std::back_inserter(out), R"({{"mode":{},"sample_kind":{},"calls_per_sample":{},"sampling_warning":{},)",
+                   json_string(jitter_mode(result)), json_string(jitter_sample_kind(result)), result.calls_per_sample,
+                   warning.empty() ? std::string("null") : json_string(warning));
+    fmt::format_to(std::back_inserter(out), R"("sample_count":{},"stored_count":{},"truncated":{},"samples_ns":[)", samples_ns.size(),
                    stored_count, (samples_ns.size() > stored_count) ? "true" : "false");
     if (stored_count == 0) {
         out.push_back(']');
@@ -601,6 +635,13 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
     append_tsv_metric(metrics, "is_baseline", c.is_baseline ? "true" : "false");
     append_tsv_metric(metrics, "items_per_call", case_items_per_call(c));
     append_tsv_metric(metrics, "batch_mode", result.batch_mode ? "true" : "false");
+    append_tsv_metric(metrics, "mode", jitter_mode(result));
+    append_tsv_metric(metrics, "sample_kind", jitter_sample_kind(result));
+    append_tsv_metric(metrics, "calls_per_sample", result.calls_per_sample);
+    const std::string warning = jitter_sampling_warning(c, result);
+    if (!warning.empty()) {
+        append_tsv_metric(metrics, "sampling_warning", std::string_view(warning));
+    }
     append_tsv_metric(metrics, "epochs", result.epochs);
     append_tsv_metric(metrics, "samples", result.samples_ns.size());
     append_tsv_metric(metrics, "iters_per_epoch", result.iters_per_epoch);
@@ -662,14 +703,14 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
         .name           = "histogram-plot",
         .mime_type      = "image/svg+xml",
         .file_extension = ".svg",
-        .contents       = std::make_shared<const std::string>(make_jitter_histogram_svg(c, hist.bins)),
+        .contents       = std::make_shared<const std::string>(make_jitter_histogram_svg(c, result, hist.bins)),
     });
 
     attachments.push_back(ReportAttachment{
         .name           = "samples",
         .mime_type      = "application/json",
         .file_extension = ".json",
-        .contents       = std::make_shared<const std::string>(make_samples_json(result.samples_ns)),
+        .contents       = std::make_shared<const std::string>(make_samples_json(c, result)),
     });
 
     return attachments;
@@ -830,11 +871,20 @@ static std::vector<ReportTable> build_bench_report_tables(std::span<const BenchR
 }
 
 static std::vector<ReportTable> build_jitter_report_tables(std::span<const JitterReportRow> rows, const CliOptions &opt) {
-    const int                     bins = opt.jitter_bins;
+    const int                     bins                 = opt.jitter_bins;
+    bool                          has_batch_averages   = false;
+    bool                          has_per_call_samples = false;
     std::map<std::string, double> baseline_median_ns;
     std::map<std::string, double> baseline_stddev_ns;
     for (const auto &row : rows) {
-        if (!row.c || !row.c->is_baseline)
+        if (!row.c)
+            continue;
+        if (jitter_averages_calls(row.result)) {
+            has_batch_averages = true;
+        } else {
+            has_per_call_samples = true;
+        }
+        if (!row.c->is_baseline)
             continue;
         const std::string suite(row.c->suite);
         if (baseline_median_ns.find(suite) == baseline_median_ns.end()) {
@@ -843,6 +893,7 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
         }
     }
 
+    const std::string_view   max_label = has_batch_averages ? (has_per_call_samples ? "Max sample" : "Max batch avg") : "Max";
     std::vector<ReportTable> tables;
     ReportTable              summary{
         .title  = "Jitter summary",
@@ -851,6 +902,8 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
         .headers =
             {
                 "Benchmark",
+                "Sampling",
+                "Calls/sample",
                 "Samples",
                 "Items/call",
                 time_header("Median", "item", opt.time_unit_mode),
@@ -859,12 +912,12 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
                 time_header("P05", "item", opt.time_unit_mode),
                 time_header("P95", "item", opt.time_unit_mode),
                 time_header("Min", "item", opt.time_unit_mode),
-                time_header("Max", "item", opt.time_unit_mode),
+                time_header(max_label, "item", opt.time_unit_mode),
                 time_header_s("Total", opt.time_unit_mode),
                 "Baseline Δ%",
                 "Baseline SD Δ%",
             },
-        .right_align = {false, true, true, true, true, true, true, true, true, true, true, true, true},
+        .right_align = {false, false, true, true, true, true, true, true, true, true, true, true, true, true, true},
     };
 
     for (const auto &row : rows) {
@@ -883,8 +936,14 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
         const double      baseline_sd_delta_pct  = has_baseline_sd ? ((sd_item_ns - base_sd) / base_sd * 100.0) : 0.0;
         const std::string baseline_med_cell      = has_baseline_med ? fmt::format("{:+.2f}%", baseline_med_delta_pct) : std::string("-");
         const std::string baseline_sd_cell       = has_baseline_sd ? fmt::format("{:+.2f}%", baseline_sd_delta_pct) : std::string("-");
+        const std::string warning                = jitter_sampling_warning(*row.c, row.result);
+        if (!warning.empty()) {
+            summary.warnings.push_back(warning);
+        }
         summary.rows.push_back({
             std::string(row.c->name),
+            std::string(jitter_sample_kind(row.result)),
+            fmt::format("{}", row.result.calls_per_sample),
             fmt::format("{}", row.result.samples_ns.size()),
             fmt::format("{}", case_items_per_call(*row.c)),
             format_report_time_ns(median_item_ns, opt.time_unit_mode),
@@ -902,6 +961,10 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
             machine_string("benchmark", row.c->name),
             machine_string("suite", row.c->suite),
             machine_bool("is_baseline", row.c->is_baseline),
+            machine_string("mode", jitter_mode(row.result)),
+            machine_string("sample_kind", jitter_sample_kind(row.result)),
+            machine_count("calls_per_sample", row.result.calls_per_sample),
+            warning.empty() ? machine_null("sampling_warning") : machine_string("sampling_warning", warning),
             machine_count("samples", row.result.samples_ns.size()),
             machine_count("items_per_call", case_items_per_call(*row.c)),
             machine_number("median_ns_per_item", median_item_ns),
@@ -926,6 +989,7 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
             {
                 "Benchmark",
                 "Mode",
+                "Calls/sample",
                 "Samples",
                 "Iters/epoch",
                 "Items/call",
@@ -937,13 +1001,13 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
                 time_header_s("Max total", opt.time_unit_mode),
                 time_header_s("Wall", opt.time_unit_mode),
             },
-        .right_align = {false, false, true, true, true, true, true, true, true, true, true, true},
+        .right_align = {false, false, true, true, true, true, true, true, true, true, true, true, true},
     };
 
     for (const auto &row : rows) {
         if (!row.c)
             continue;
-        const std::string mode = row.result.batch_mode ? "batch" : "per-call";
+        const std::string mode = std::string(jitter_mode(row.result));
         const std::string overhead_cell =
             (row.result.overhead_mean_ns > 0.0)
                 ? fmt::format("{} +/- {}", format_report_time_ns(row.result.overhead_mean_ns, opt.time_unit_mode),
@@ -954,6 +1018,7 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
         debug.rows.push_back({
             std::string(row.c->name),
             mode,
+            fmt::format("{}", row.result.calls_per_sample),
             fmt::format("{}", row.result.samples_ns.size()),
             fmt::format("{}", row.result.iters_per_epoch),
             fmt::format("{}", case_items_per_call(*row.c)),
@@ -970,6 +1035,8 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
             machine_string("suite", row.c->suite),
             machine_string("mode", mode),
             machine_bool("batch_mode", row.result.batch_mode),
+            machine_string("sample_kind", jitter_sample_kind(row.result)),
+            machine_count("calls_per_sample", row.result.calls_per_sample),
             machine_count("samples", row.result.samples_ns.size()),
             machine_count("iters_per_epoch", row.result.iters_per_epoch),
             machine_count("items_per_call", case_items_per_call(*row.c)),
@@ -1017,10 +1084,12 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
         }
 
         ReportTable hist{
-            .title       = fmt::format("Jitter histogram (bins={}, name={})", bins, row.c->name),
-            .id          = "jitter.histogram",
-            .report      = "jitter",
-            .headers     = {"Bin", fmt::format("Range ({}/item)", hist_spec.suffix), "Count", "Percent", "Cumulative %"},
+            .title   = jitter_averages_calls(row.result) ? fmt::format("Jitter batch-average histogram (bins={}, name={}, calls/sample={})",
+                                                                       bins, row.c->name, row.result.calls_per_sample)
+                                                         : fmt::format("Jitter histogram (bins={}, name={})", bins, row.c->name),
+            .id      = "jitter.histogram",
+            .report  = "jitter",
+            .headers = {"Bin", fmt::format("Range ({}/item)", hist_spec.suffix), "Count", "Percent", "Cumulative %"},
             .right_align = {true, false, true, true, true},
         };
 
@@ -1034,6 +1103,9 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
             hist.machine_rows.push_back(machine_row({
                 machine_string("benchmark", row.c->name),
                 machine_string("suite", row.c->suite),
+                machine_string("mode", jitter_mode(row.result)),
+                machine_string("sample_kind", jitter_sample_kind(row.result)),
+                machine_count("calls_per_sample", row.result.calls_per_sample),
                 machine_count("bin", i + 1),
                 machine_number("range_lo_ns_per_item", bin.lo),
                 machine_number("range_hi_ns_per_item", bin.hi),

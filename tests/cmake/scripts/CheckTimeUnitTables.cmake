@@ -134,7 +134,8 @@ if(_jitter_header_pos EQUAL -1)
 endif()
 
 _extract_row(_jitter_row "${_jitter_out}" "regressions/jitter_sleep_ms")
-foreach(_col IN ITEMS 4 5 7 8 9 10 11)
+# Sampling and Calls/sample precede the existing summary columns.
+foreach(_col IN ITEMS 6 7 9 10 11 12 13)
   _assert_row_cell_regex("${_jitter_row}" ${_col} "^[0-9]+\\.[0-9][0-9][0-9] ms$" "jitter column ${_col}")
 endforeach()
 

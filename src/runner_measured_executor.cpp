@@ -449,6 +449,7 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
         overhead      = estimate_timer_overhead_batch(kOverheadSamples, batch_iters);
         jr.batch_mode = true;
     }
+    jr.calls_per_sample = batch_iters;
     jr.overhead_mean_ns = overhead.mean_ns;
     jr.overhead_sd_ns   = overhead.stddev_ns;
 

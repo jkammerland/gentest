@@ -13,6 +13,7 @@
 - Value formatting: [`docs/value_formatting.md`](value_formatting.md)
 - Test inventory: [`docs/test_inventory.md`](test_inventory.md)
 - Async tests: [`docs/async.md`](async.md)
+- Jitter sampling: [`docs/jitter_sampling.md`](jitter_sampling.md)
 - Mock generation: [`docs/mock_generation.md`](mock_generation.md)
 - Codegen artifact protocols: [`docs/codegen_artifact_protocols.md`](codegen_artifact_protocols.md)
 - Deprecations: [`DEPRECATIONS.md`](../DEPRECATIONS.md)

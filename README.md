@@ -837,9 +837,9 @@ behind a suite-wide unit.
 `N` is a positive non-zero decimal integer; prefixes, suffixes, digit
 separators, and leading-zero forms are rejected so the reported item count
 matches the source spelling.
-Jitter reports use timer-overhead estimates and switch to batch sampling for
-very small operations, so prefer jitter when comparing sub-10ns work or timing
-variance.
+Jitter reports identify batch averages and warn when they may hide individual-call
+latency spikes. See [jitter sampling](docs/jitter_sampling.md) for measurement
+and export details.
 
 `--report-format=json` emits one JSON document for the measured selection. JSON
 uses stable, typed fields such as `median_ns_per_item`, `items_per_call`, and
