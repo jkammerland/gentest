@@ -98,6 +98,11 @@ add_test(
 set_property(TEST github_release_workflow_contract APPEND PROPERTY LABELS "package;scripts;github;ci-compat")
 
 add_test(
+    NAME source_release_package_contract
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_package_source_release.py)
+set_property(TEST source_release_package_contract APPEND PROPERTY LABELS "package;scripts;github;ci-compat")
+
+add_test(
     NAME cmake_fixture_harness_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_cmake_fixture.py)
 set_property(TEST cmake_fixture_harness_contract APPEND PROPERTY LABELS "cmake;scripts;ci-compat")
