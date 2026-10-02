@@ -1,10 +1,16 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
 
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
+from test_setup_github_release_environment import find_bash
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
@@ -35,7 +41,10 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertLess(signing, package)
         self.assertIn('test "$(jq -r .conclusion <<< "${ci_run}")" = success', self.workflow)
         self.assertIn("= 'CI (full) — master'", self.workflow)
-        self.assertIn('test "$(jq -r .head_sha <<< "${ci_run}")" = "${release_commit}"', self.workflow)
+        self.assertIn(
+            'test "$(jq -r .head_sha <<< "${ci_run}")" = "${release_commit}"',
+            self.workflow,
+        )
         self.assertIn('test "${release_commit}" = "$(git rev-parse origin/master)"', self.workflow)
         self.assertIn('tag -s "${RELEASE_TAG}"', self.workflow)
         self.assertIn('tag -s "${RELEASE_TAG}" -m "${RELEASE_TAG}"', self.workflow)
@@ -47,7 +56,97 @@ class ReleaseWorkflowTests(unittest.TestCase):
             'test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .name)" = "${RELEASE_TAG}"',
             self.workflow,
         )
-        self.assertNotIn('Gentest ${RELEASE_TAG}', self.workflow)
+        self.assertNotIn("Gentest ${RELEASE_TAG}", self.workflow)
+
+    def test_draft_updates_preserve_tag(self) -> None:
+        patches = re.findall(r"gh api --method PATCH \\\n.*?--jq \.\w+", self.workflow, re.DOTALL)
+        self.assertTrue(patches, "release draft updates must be exercised")
+        bash = find_bash()
+        self.assertIsNotNone(bash, "bash is required to exercise the release draft updates")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_file = root / "release.json"
+            state_file.write_text(
+                json.dumps(
+                    {
+                        "tag_name": "v9.8.7",
+                        "name": "v9.8.7",
+                        "target_commitish": "a" * 40,
+                        "draft": True,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            mock = root / "github_api.py"
+            mock.write_text(
+                textwrap.dedent("""\
+                import json
+                import os
+                import sys
+                from pathlib import Path
+
+                args = sys.argv[1:]
+                assert args[0] == "api" and args[args.index("--method") + 1] == "PATCH"
+                fields = {}
+                for index, arg in enumerate(args):
+                    if arg in {"-f", "-F"}:
+                        key, value = args[index + 1].split("=", 1)
+                        fields[key] = json.loads(value) if arg == "-F" else value
+                path = Path(os.environ["MOCK_RELEASE_STATE"])
+                state = json.loads(path.read_text(encoding="utf-8"))
+                # Reproduce the observed GitHub draft behavior for a partial PATCH.
+                state["tag_name"] = fields.get("tag_name", "untagged-placeholder")
+                state.update(fields)
+                path.write_text(json.dumps(state), encoding="utf-8")
+                value = state[args[args.index("--jq") + 1].removeprefix(".")]
+                print(json.dumps(value) if isinstance(value, bool) else value)
+                """),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env.pop("BASH_ENV", None)
+            env.update(
+                {
+                    "MOCK_RELEASE_STATE": str(state_file),
+                    "GITHUB_REPOSITORY": "example/gentest",
+                    "RELEASE_TAG": "v9.8.7",
+                    "RELEASE_COMMIT": "a" * 40,
+                    "release_id": "123",
+                }
+            )
+            launcher = """
+            test_python="$1"
+            mock_script="$2"
+            if command -v cygpath >/dev/null 2>&1; then
+              test_python="$(cygpath -u "$test_python")"
+              mock_script="$(cygpath -u "$mock_script")"
+            fi
+            gh() { "$test_python" "$mock_script" "$@"; }
+            """
+            for patch in patches:
+                result = subprocess.run(
+                    [
+                        bash,
+                        "-c",
+                        launcher + patch,
+                        "gentest-release-update-test",
+                        sys.executable,
+                        str(mock),
+                    ],
+                    env=env,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                state = json.loads(state_file.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    state["tag_name"],
+                    "v9.8.7",
+                    f"draft update cleared its tag: {patch}",
+                )
+                self.assertEqual(state["target_commitish"], "a" * 40)
+            self.assertFalse(state["draft"], "the publication update must be exercised")
 
     def test_only_regular_release_files_are_uploaded(self) -> None:
         self.assertIn("path: ${{ runner.temp }}/gentest-release/*.*", self.workflow)
@@ -112,8 +211,8 @@ class ReleaseWorkflowTests(unittest.TestCase):
     def test_local_host_package_keeps_its_explicit_compatibility_label(self) -> None:
         self.assertIn("llvm${_gentest_release_llvm_major}-host-developer-kit", self.cmake_lists)
         self.assertIn('"GENTEST_RELEASE_HOST_DEVELOPER_KIT": "ON"', self.presets)
-        self.assertIn('${artifact_dir}/${package_id}.manifest.json', self.package_script)
-        self.assertIn('${artifact_dir}/${package_id}-${sbom_role}.spdx.json', self.package_script)
+        self.assertIn("${artifact_dir}/${package_id}.manifest.json", self.package_script)
+        self.assertIn("${artifact_dir}/${package_id}-${sbom_role}.spdx.json", self.package_script)
 
 
 if __name__ == "__main__":

@@ -175,8 +175,11 @@ jobs:
             test "${release_draft}" = true
             test "${release_tag}" = "${RELEASE_TAG}"
             test "${release_target}" = "${RELEASE_COMMIT}"
+            # A partial draft PATCH can reset its tag to an untagged placeholder.
             test "$(gh api --method PATCH \
               "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              -f tag_name="${RELEASE_TAG}" \
+              -f target_commitish="${RELEASE_COMMIT}" \
               -f name="${RELEASE_TAG}" --jq .name)" = "${RELEASE_TAG}"
           else
             release_id="$(gh api --method POST \
@@ -232,5 +235,8 @@ jobs:
 
           test "$(gh api --method PATCH \
             "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -f tag_name="${RELEASE_TAG}" \
+            -f target_commitish="${RELEASE_COMMIT}" \
             -F draft=false --jq .draft)" = false
           test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .draft)" = false
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq .tag_name)" = "${RELEASE_TAG}"
