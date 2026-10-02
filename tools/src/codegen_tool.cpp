@@ -3042,7 +3042,7 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
 
 [[nodiscard]] std::optional<std::size_t> compile_command_delimiter(const clang::tooling::CommandLineArguments &command_line,
                                                                    std::size_t                                 compiler_index) {
-    if (std::ranges::find(command_line, "--") == command_line.end()) {
+    if (std::ranges::find(command_line, std::string_view{"--"}) == command_line.end()) {
         return std::nullopt;
     }
     // Use the driver grammar: a literal '--' can instead be an option's value
