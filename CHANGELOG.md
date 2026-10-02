@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.2.1 - 2026-10-02
+
 ### Changed
 
 - Public releases now publish signed source TGZ/ZIP archives for every OS instead
@@ -11,6 +13,9 @@
 
 ### Fixed
 
+- Codegen builds with GCC 16 in C++26 mode using a typed delimiter lookup.
+- Release titles match their version tags, and the README CI badge tracks the
+  current master workflow.
 - Jitter summaries expose sampling mode and calls per sample, label batch
   maxima and histograms, and warn when averaging can hide individual-call
   latency spikes. JSON/CSV and Allure exports carry the sampling metadata.

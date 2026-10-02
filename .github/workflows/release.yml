@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to sign and publish (for example v1.2.0)
+        description: Release tag to sign and publish (for example v1.2.1)
         required: true
         type: string
       ci_run_id:
