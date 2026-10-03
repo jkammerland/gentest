@@ -1,18 +1,32 @@
 # CI profiles and private validation
 
-Pull requests start CI manually. Pushes to `master` start the routine `pr`
-bundle after merge. Both the Actions button and CLI default to `pr`:
+Every pull request automatically runs Clang Format and Clang Tidy when opened,
+updated, reopened, or marked ready for review. Both checks run for documentation
+changes and draft PRs too; lint has no path filter or planner-based skip.
+Pushes to `master` start the routine `pr` bundle after merge. Both the Actions
+button and CLI default to `pr`:
 
 ```bash
 gh workflow run ci.yml --ref <candidate-branch> -f profile=pr
 ```
 
-Use **Actions → Run CI → Run workflow** to choose a branch. The native button
-lives in Actions; a PR can link to [Run CI](https://github.com/jkammerland/gentest/actions/workflows/ci.yml).
-A newly introduced dispatch workflow becomes available after it reaches the
-repository's default branch. Until then, dispatch the existing `cmake.yml`
-(with `profile=pr`), `lint.yml`, and `recording.yml` individually on the same
-candidate branch.
+Use [Actions → CI → Run workflow](https://github.com/jkammerland/gentest/actions/workflows/ci.yml)
+to choose a PR branch. Select **profile: full** to run the exhaustive bundle.
+For a PR whose branch is in this repository, this command resolves its head
+branch and exact base commit automatically:
+
+```bash
+pr=177 # Replace with the PR number.
+gh workflow run ci.yml --repo jkammerland/gentest \
+  --ref "$(gh pr view "$pr" --repo jkammerland/gentest --json headRefName --jq .headRefName)" \
+  -f profile=full \
+  -f base_ref="$(gh pr view "$pr" --repo jkammerland/gentest --json baseRefOid --jq .baseRefOid)"
+```
+
+The manual run tests that branch's current commit and appears in the PR checks.
+Automatic PR lint uses GitHub's pull-request merge revision. Fork PRs still get
+automatic lint; the Actions branch selector and command above require a branch
+in this repository.
 
 ## Routine GitHub coverage
 
@@ -25,7 +39,7 @@ fallback that silently starts the exhaustive matrix.
 | Ubuntu 25.10, Clang 20 | Debug |
 | Ubuntu 24.04, GCC | Release |
 | Fedora 43, LLVM 22 | ASan + UBSan |
-| Windows, LLVM 22 | Debug, plus the MSVC Debug step |
+| Windows, LLVM 22 | RelWithDebInfo, plus the MSVC RelWithDebInfo step |
 | macOS, Homebrew LLVM 23 | Debug |
 
 All five build the authored targets and run `ci-smoke` tests. This label covers
@@ -50,7 +64,9 @@ gh workflow run ci.yml --ref <candidate-branch> -f profile=full -f base_ref=<bas
 macOS jobs), complete configured CTest inventories, the package workflow, lint,
 coverage, aarch64/riscv64 QEMU, Bazel/Meson/Xmake, measured comparisons, recording,
 and the isolated Clang leak diagnostics. Each suite also has its own manual
-entry point. All reusable workflows check out the caller's commit.
+entry point. All reusable workflows check out the caller's commit. Windows Clang
+and MSVC validation use `RelWithDebInfo`, including explicit build and CTest
+configuration selection.
 
 The two Clang 20 ASan jobs that failed inside libclang are replaced by isolated,
 strict XFAIL probes. Ordinary Clang 20 compatibility and other sanitizer lanes

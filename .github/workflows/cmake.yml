@@ -283,6 +283,7 @@ jobs:
         run: |
           $cmakeArgs = @(
             "--preset=${{ matrix.preset }}",
+            "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
             "-DCMAKE_C_COMPILER=$env:LLVM_BIN\\clang.exe",
             "-DCMAKE_CXX_COMPILER=$env:LLVM_BIN\\clang++.exe",
             "-DCMAKE_MAKE_PROGRAM=$((Get-Command ninja).Source)",
@@ -293,23 +294,20 @@ jobs:
           if ($env:LLVM_DEPENDENCY_PREFIX) {
             $cmakeArgs += "-DCMAKE_PREFIX_PATH=$env:LLVM_DEPENDENCY_PREFIX"
           }
-          if ("${{ matrix.preset }}" -in @("debug-system", "debug-system-cxx23")) {
-            $cmakeArgs += "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON"
-          }
           cmake @cmakeArgs
 
       - name: Build
         shell: pwsh
-        run: cmake --build --preset=${{ matrix.preset }}
+        run: cmake --build --preset=${{ matrix.preset }} --config RelWithDebInfo
 
       - name: Test Bazel helper contract
         shell: pwsh
-        run: ctest --preset=${{ matrix.preset }} --output-on-failure -R '^(gentest_bazel_helpers_use_configured_toolchain)$'
+        run: ctest --preset=${{ matrix.preset }} -C RelWithDebInfo --output-on-failure -R '^(gentest_bazel_helpers_use_configured_toolchain)$'
 
       - name: Test
         shell: pwsh
         run: |
-          $ctestArgs = @("--no-tests=error", "--preset=${{ matrix.preset }}", "--output-on-failure", "--parallel", "4", "-E", "^(gentest_bazel_helpers_use_configured_toolchain)$")
+          $ctestArgs = @("--no-tests=error", "--preset=${{ matrix.preset }}", "-C", "RelWithDebInfo", "--output-on-failure", "--parallel", "4", "-E", "^(gentest_bazel_helpers_use_configured_toolchain)$")
           if ($env:GENTEST_CI_PROFILE -eq "pr") {
             $ctestArgs += @("--label-regex", "^ci-smoke$")
           }
@@ -319,21 +317,20 @@ jobs:
         if: matrix.preset == 'debug-system'
         shell: pwsh
         run: |
-          # Also validate MSVC + LLVM tooling (Debug only).
-          $msvcBuildDir = Join-Path $env:GITHUB_WORKSPACE "build\\debug-system-msvc"
+          # Validate MSVC + LLVM tooling once per LLVM version.
+          $msvcBuildDir = Join-Path $env:GITHUB_WORKSPACE "build\\relwithdebinfo-system-msvc"
           cmake -S . -B $msvcBuildDir -G Ninja `
-            -DCMAKE_BUILD_TYPE=Debug `
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
             -DCMAKE_C_COMPILER=cl `
             -DCMAKE_CXX_COMPILER=cl `
             -Dgentest_BUILD_TESTING=ON `
             -DGENTEST_ENABLE_PACKAGE_TESTS=${{ matrix.enable_package_tests || 'OFF' }} `
-            -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON `
             -DLLVM_DIR="$env:LLVM_DIR" `
             -DClang_DIR="$env:Clang_DIR"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build $msvcBuildDir
+          cmake --build $msvcBuildDir --config RelWithDebInfo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $ctestArgs = @("--no-tests=error", "--test-dir", $msvcBuildDir, "--output-on-failure", "--parallel", "4")
+          $ctestArgs = @("--no-tests=error", "--test-dir", $msvcBuildDir, "-C", "RelWithDebInfo", "--output-on-failure", "--parallel", "4")
           if ($env:GENTEST_CI_PROFILE -eq "pr") {
             $ctestArgs += @("--label-regex", "^ci-smoke$")
           }

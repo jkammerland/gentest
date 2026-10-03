@@ -5,10 +5,9 @@ Actionlint validates YAML and workflow-call schemas; these checks enforce the
 event and concurrency policy across the discovered workflow inventory.
 """
 
-from pathlib import Path
 import re
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -28,13 +27,36 @@ class ManualCiTests(unittest.TestCase):
         cls.reusable = {name: text for name, text in cls.workflows.items()
                         if re.search(r"(?m)^  workflow_call:", events_block(text))}
 
-    def test_pull_requests_do_not_start_workflows(self):
+    def test_only_lint_runs_automatically_on_pull_requests(self):
         self.assertTrue(self.workflows)
+        automatic = set()
         for name, text in self.workflows.items():
             with self.subTest(workflow=name):
                 events = re.findall(r"(?m)^  ([a-z_]+):", events_block(text))
-                self.assertNotIn("pull_request", events)
+                if "pull_request" in events:
+                    automatic.add(name)
                 self.assertNotIn("pull_request_target", events)
+        self.assertEqual(automatic, {"lint.yml"})
+
+    def test_pull_request_lint_is_unconditional_for_both_checks(self):
+        text = self.workflows["lint.yml"]
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review]", events_block(text))
+        self.assertNotRegex(events_block(text), r"(?m)^    (?:paths|paths-ignore|branches|branches-ignore):")
+        jobs = dict(re.findall(r"(?m)^  ([a-z-]+):\n((?:    .*\n|\n)+)", text.split("jobs:\n", 1)[1]))
+        self.assertEqual(set(jobs), {"format", "tidy"})
+        for name, body in jobs.items():
+            with self.subTest(job=name):
+                self.assertNotRegex(body, r"(?m)^    (?:if|needs):")
+        self.assertNotIn("run_lint", text)
+
+    def test_windows_validation_uses_relwithdebinfo(self):
+        text = self.workflows["cmake.yml"].split("  windows:\n", 1)[1].split("  linux:\n", 1)[0]
+        self.assertEqual(text.count("-DCMAKE_BUILD_TYPE=RelWithDebInfo"), 2)
+        self.assertEqual(text.count("--config RelWithDebInfo"), 2)
+        self.assertIn("-C RelWithDebInfo", text)
+        self.assertEqual(text.count('"-C", "RelWithDebInfo"'), 2)
+        self.assertNotIn("-DCMAKE_BUILD_TYPE=Debug", text)
+        self.assertNotIn("GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS", text)
 
     def test_bundle_calls_every_reusable_suite_once_at_the_same_revision(self):
         calls = re.findall(r"(?m)^    uses: \./\.github/workflows/([^\s]+)$", self.workflows["ci.yml"])
