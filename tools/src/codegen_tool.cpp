@@ -4461,6 +4461,18 @@ void diagnose_missing_mock_phase_manifest(MockPhaseCommand mock_phase, const Col
 int run_codegen_tool(int argc, const char **argv) {
     llvm::InitLLVM llvm_init(argc, argv);
 
+    // Dispatch the validator after expanding a response file, just as the
+    // ordinary LLVM option parser does for code generation.
+    if (argc == 2 && argv[1] && argv[1][0] == '@') {
+        auto expanded = read_response_file_arguments(std::filesystem::path{argv[1] + 1});
+        if (!expanded.empty() && expanded.front() == "validate-artifact-manifest") {
+            std::vector<const char *> pointers;
+            for (const auto &arg : expanded)
+                pointers.push_back(arg.c_str());
+            return run_artifact_manifest_validator(static_cast<int>(pointers.size()), pointers.data());
+        }
+    }
+
     if (argc >= 2 && argv[1] != nullptr && std::string_view{argv[1]} == "validate-artifact-manifest") {
         return run_artifact_manifest_validator(argc - 1, argv + 1);
     }

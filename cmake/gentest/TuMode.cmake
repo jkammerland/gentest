@@ -671,6 +671,21 @@ function(_gentest_add_artifact_manifest_validation_command)
     set(multi_value_args COMMAND_LAUNCHER VALIDATION_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
+    if(WIN32)
+        set(_gentest_rsp_content "")
+        foreach(_gentest_arg IN LISTS GENTEST_VALIDATION_ARGS)
+            # Windows response-file quoting: double backslashes before quotes
+            # and before the closing quote, preserving all other backslashes.
+            string(REGEX REPLACE "(\\\\*)\"" "\\1\\1\\\\\"" _gentest_arg "${_gentest_arg}")
+            string(REGEX REPLACE "(\\\\+)$" "\\1\\1" _gentest_arg "${_gentest_arg}")
+            string(APPEND _gentest_rsp_content "\"${_gentest_arg}\"\n")
+        endforeach()
+        set(_gentest_rsp "${GENTEST_STAMP}.$<CONFIG>.rsp")
+        file(GENERATE OUTPUT "${_gentest_rsp}" CONTENT "${_gentest_rsp_content}")
+        set(GENTEST_VALIDATION_ARGS "@${_gentest_rsp}")
+        list(APPEND GENTEST_DEPENDS "${_gentest_rsp}")
+    endif()
+
     add_custom_command(
         OUTPUT "${GENTEST_STAMP}"
         COMMAND ${GENTEST_COMMAND_LAUNCHER} ${GENTEST_VALIDATION_ARGS}
