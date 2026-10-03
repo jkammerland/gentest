@@ -167,9 +167,8 @@ endif()
 # successful validation must preserve the complete final context string.
 set(_response_manifest "${_generated_dir}/response manifest.json")
 set(_response_stamp "${_generated_dir}/response manifest.validated")
-set(_response_file "${_generated_dir}/validation arguments.rsp")
 string(REPEAT "context-" 6000 _long_context)
-string(APPEND _long_context [=[ space "quoted" path\]=])
+string(APPEND _long_context [=[ space "quoted" path\literal \"escaped" trailing\]=])
 string(REPLACE "\\" "\\\\" _json_context "${_long_context}")
 string(REPLACE "\"" "\\\"" _json_context "${_json_context}")
 string(JSON _response_json SET "${_manifest_json}" sources 0 compile_context_id "\"${_json_context}\"")
@@ -177,6 +176,7 @@ string(JSON _response_json SET "${_response_json}" artifacts 0 compile_context_i
 file(WRITE "${_response_manifest}" "${_response_json}")
 set(_response_args ${_validator_args})
 list(REMOVE_AT _response_args 0)
+set(_response_file "${_generated_dir}/validation arguments.rsp")
 set(_response_text "")
 foreach(_argument IN LISTS _response_args)
   if(_argument STREQUAL "${_manifest}")
@@ -207,6 +207,70 @@ execute_process(COMMAND "${PROG}" "@${_response_file}" RESULT_VARIABLE _response
 if(_response_rc EQUAL 0 OR EXISTS "${_response_stamp}" OR NOT _response_error MATCHES "compile_context_id")
   message(FATAL_ERROR "Response-file validation failed to reject a changed context without stamping: ${_response_error}")
 endif()
+
+# CMake lists cannot represent a non-final element ending in a backslash.
+# Keep that tokenizer edge case above; use an interior backslash in the helper.
+string(APPEND _long_context " end")
+string(REPLACE "\\" "\\\\" _json_context "${_long_context}")
+string(REPLACE "\"" "\\\"" _json_context "${_json_context}")
+string(JSON _response_json SET "${_manifest_json}" sources 0 compile_context_id "\"${_json_context}\"")
+string(JSON _response_json SET "${_response_json}" artifacts 0 compile_context_id "\"${_json_context}\"")
+# Exercise the production CMake encoder and the real host codegen tokenizer.
+# LANGUAGES NONE changes the target platform without needing a cross compiler.
+set(_helper_source "${_work_dir}/validation-helper")
+file(MAKE_DIRECTORY "${_helper_source}")
+file(WRITE "${_helper_source}/CMakeLists.txt"
+  "cmake_minimum_required(VERSION 3.31)\nproject(validation_helper LANGUAGES NONE)\n"
+  "include([==[${SOURCE_DIR}/cmake/gentest/TuMode.cmake]==])\n"
+  "set(_args)\n")
+foreach(_argument IN LISTS _response_args)
+  if(_argument STREQUAL "${_manifest}")
+    set(_argument "${_response_manifest}")
+  elseif(_argument STREQUAL "${_validation_stamp}")
+    set(_argument "${_response_stamp}")
+  elseif(_argument STREQUAL "direct_textual:${_owner_source}")
+    set(_argument "${_long_context}")
+  endif()
+  file(APPEND "${_helper_source}/CMakeLists.txt" "list(APPEND _args [==[${_argument}]==])\n")
+endforeach()
+file(APPEND "${_helper_source}/CMakeLists.txt"
+  "_gentest_add_artifact_manifest_validation_command(\n"
+  "  STAMP [==[${_response_stamp}]==]\n"
+  "  COMMAND_LAUNCHER [==[${PROG}]==]\n"
+  "  VALIDATION_ARGS \${_args}\n"
+  "  DEPENDS [==[${_response_manifest}]==]\n"
+  "  COMMENT \"Validate host argument preservation\")\n"
+  "add_custom_target(validate ALL DEPENDS [==[${_response_stamp}]==])\n")
+
+foreach(_target_system IN ITEMS Linux Windows)
+  set(_helper_build "${_work_dir}/validation-${_target_system}")
+  file(REMOVE "${_response_stamp}" "${_response_stamp}.RelWithDebInfo.rsp")
+  file(WRITE "${_response_manifest}" "${_response_json}")
+  gentest_check_run_or_fail(COMMAND "${CMAKE_COMMAND}"
+    -S "${_helper_source}" -B "${_helper_build}" -G Ninja
+    "-DCMAKE_SYSTEM_NAME=${_target_system}" -DCMAKE_BUILD_TYPE=RelWithDebInfo)
+  gentest_check_run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_helper_build}")
+  if(NOT EXISTS "${_response_stamp}")
+    message(FATAL_ERROR "${_target_system}: helper validation did not produce its stamp")
+  endif()
+  # Check the long-command workaround even when arguments happen to survive.
+  if(CMAKE_HOST_WIN32)
+    if(NOT EXISTS "${_response_stamp}.RelWithDebInfo.rsp")
+      message(FATAL_ERROR "${_target_system}: Windows host must use a response file")
+    endif()
+  elseif(EXISTS "${_response_stamp}.RelWithDebInfo.rsp")
+    message(FATAL_ERROR "${_target_system}: non-Windows host must use direct arguments")
+  endif()
+  file(REMOVE "${_response_stamp}")
+  string(JSON _changed_json SET "${_response_json}" sources 0 compile_context_id "\"changed-context\"")
+  file(WRITE "${_response_manifest}" "${_changed_json}")
+  execute_process(COMMAND "${CMAKE_COMMAND}" --build "${_helper_build}"
+    RESULT_VARIABLE _response_rc OUTPUT_VARIABLE _response_out ERROR_VARIABLE _response_error)
+  if(_response_rc EQUAL 0 OR EXISTS "${_response_stamp}" OR
+      NOT "${_response_out}${_response_error}" MATCHES "compile_context_id")
+    message(FATAL_ERROR "${_target_system}: changed context must fail without stamping: ${_response_out}${_response_error}")
+  endif()
+endforeach()
 
 set(_consumer_dir "${_work_dir}/consumer")
 set(_consumer_build_dir "${_work_dir}/consumer-build")

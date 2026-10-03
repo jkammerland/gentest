@@ -671,7 +671,8 @@ function(_gentest_add_artifact_manifest_validation_command)
     set(multi_value_args COMMAND_LAUNCHER VALIDATION_ARGS DEPENDS)
     cmake_parse_arguments(GENTEST "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
-    if(WIN32)
+    # Codegen runs on the host; its response tokenizer follows the host OS.
+    if(CMAKE_HOST_WIN32)
         set(_gentest_rsp_content "")
         foreach(_gentest_arg IN LISTS GENTEST_VALIDATION_ARGS)
             # Windows response-file quoting: double backslashes before quotes
