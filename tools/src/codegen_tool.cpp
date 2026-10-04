@@ -4467,6 +4467,7 @@ int run_codegen_tool(int argc, const char **argv) {
         auto expanded = read_response_file_arguments(std::filesystem::path{argv[1] + 1});
         if (!expanded.empty() && expanded.front() == "validate-artifact-manifest") {
             std::vector<const char *> pointers;
+            pointers.reserve(expanded.size());
             for (const auto &arg : expanded)
                 pointers.push_back(arg.c_str());
             return run_artifact_manifest_validator(static_cast<int>(pointers.size()), pointers.data());

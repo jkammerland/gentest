@@ -117,7 +117,7 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_manual_ci.py)
 set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github;ci-compat")
 
-foreach(_gentest_validation_contract IN ITEMS ci_matrix clang_leak_probes validate_local discovery_skip)
+foreach(_gentest_validation_contract IN ITEMS ci_plan ci_matrix clang_leak_probes validate_local discovery_skip)
     add_test(NAME ${_gentest_validation_contract}_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_${_gentest_validation_contract}.py)
     set_property(TEST ${_gentest_validation_contract}_contract APPEND PROPERTY LABELS "scripts;ci-compat")

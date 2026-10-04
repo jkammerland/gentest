@@ -1,24 +1,25 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "ci_plan.py"
-WORKFLOW_FILES = (
-    ROOT / ".github" / "workflows" / "lint.yml",
-    ROOT / ".github" / "workflows" / "coverage.yml",
-    ROOT / ".github" / "workflows" / "cross_qemu.yml",
-    ROOT / ".github" / "workflows" / "buildsystems_linux.yml",
+WORKFLOW_FILES = tuple(
+    path for path in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+    if "ci_plan_script=" in path.read_text(encoding="utf-8")
 )
 sys.path.insert(0, str(SCRIPT.parent))
 
 import ci_plan  # noqa: E402
+from test_setup_github_release_environment import find_bash  # noqa: E402
 
 
 def expected(*enabled: str) -> dict[str, bool]:
@@ -202,12 +203,75 @@ class GitAndCliTests(unittest.TestCase):
 
 class WorkflowContractTests(unittest.TestCase):
     def test_pull_requests_run_the_base_revision_planner(self) -> None:
-        for workflow in WORKFLOW_FILES:
-            with self.subTest(workflow=workflow.name):
-                contents = workflow.read_text(encoding="utf-8")
-                self.assertIn('if [ "${CI_EVENT_NAME}" = "pull_request" ]; then', contents)
-                self.assertIn('git show "${CI_BASE_SHA}:scripts/ci_plan.py" > "${ci_plan_script}"', contents)
-                self.assertIn('if [ -z "${ci_plan_script}" ] || ! python3 "${ci_plan_script}"', contents)
+        self.assertTrue(WORKFLOW_FILES, "path-selective workflows must be exercised")
+        bash = find_bash()
+        self.assertIsNotNone(bash, "bash is required to exercise the CI planning steps")
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "scripts").mkdir()
+            planner = repo / "scripts" / "ci_plan.py"
+            fixture = """\
+import sys
+from pathlib import Path
+output = Path(sys.argv[sys.argv.index('--github-output') + 1])
+with output.open('a') as stream:
+    stream.write('{marker}=true\\nrun_measured=true\\n')
+"""
+            planner.write_text(fixture.format(marker="base_planner_ran"), encoding="utf-8")
+            subprocess.run(["git", "init", "--quiet", str(repo)], check=True)
+            subprocess.run(["git", "-C", str(repo), "add", "scripts/ci_plan.py"], check=True)
+            subprocess.run(
+                [
+                    "git", "-C", str(repo), "-c", "user.name=CI test", "-c", "user.email=ci@example.invalid",
+                    "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "base planner",
+                ],
+                check=True,
+            )
+            base = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+            planner.write_text(fixture.format(marker="head_planner_ran"), encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "scripts/ci_plan.py"], check=True)
+            subprocess.run(
+                [
+                    "git", "-C", str(repo), "-c", "user.name=CI test", "-c", "user.email=ci@example.invalid",
+                    "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "candidate planner",
+                ],
+                check=True,
+            )
+            head = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+            env = os.environ.copy()
+            env.pop("BASH_ENV", None)
+            env.update({
+                "CI_EVENT_NAME": "pull_request",
+                "CI_REF": "refs/pull/123/merge",
+                "CI_BASE_SHA": base,
+                "CI_HEAD_SHA": head,
+                "RUNNER_TEMP": str(repo),
+                "GITHUB_OUTPUT": str(repo / "outputs"),
+                "CI_TEST_PYTHON": sys.executable,
+            })
+            launcher = """
+            if command -v cygpath >/dev/null 2>&1; then
+              RUNNER_TEMP="$(cygpath -u "$RUNNER_TEMP")"
+              GITHUB_OUTPUT="$(cygpath -u "$GITHUB_OUTPUT")"
+              CI_TEST_PYTHON="$(cygpath -u "$CI_TEST_PYTHON")"
+              export RUNNER_TEMP GITHUB_OUTPUT
+            fi
+            python3() { "$CI_TEST_PYTHON" "$@"; }
+            """
+            for workflow in WORKFLOW_FILES:
+                with self.subTest(workflow=workflow.name):
+                    contents = workflow.read_text(encoding="utf-8").split("- name: Compute CI plan\n", 1)[1]
+                    match = re.search(r"(?m)^        run: \|\n((?:          .*\n|\n)+)", contents)
+                    self.assertIsNotNone(match, "the actual CI planning script must be exercised")
+                    (repo / "outputs").unlink(missing_ok=True)
+                    result = subprocess.run(
+                        [bash, "-c", launcher + textwrap.dedent(match.group(1))],
+                        cwd=repo, env=env, capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    output = (repo / "outputs").read_text(encoding="utf-8")
+                    self.assertIn("base_planner_ran=true", output)
+                    self.assertNotIn("head_planner_ran=true", output)
 
     def test_cmake_selects_smoke_matrices_before_starting_workers(self) -> None:
         contents = (ROOT / ".github" / "workflows" / "cmake.yml").read_text(encoding="utf-8")
