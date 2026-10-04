@@ -4467,6 +4467,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckWindowsDebugDeathSkipGate.cmake
     cmake)
+set_property(TEST gentest_windows_debug_death_skip_gate APPEND PROPERTY LABELS "ci-compat;ci-smoke")
 
 _gentest_add_cmake_helper_test(
     gentest_tsan_death_skip_gate
