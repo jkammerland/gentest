@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 1.2.2 - 2026-10-04
+
+### Changed
+
+- Every pull request automatically runs Clang Format and Clang Tidy, including
+  draft PRs and documentation-only changes. Full CI remains available through
+  the Actions button or a command that selects a PR's branch and base commit.
+- Windows Clang and MSVC CI validation use `RelWithDebInfo` consistently for
+  configure, build, and test steps.
+
+### Fixed
+
+- Artifact-manifest validation uses response files to avoid Windows command-line
+  length limits while preserving quoted paths and arguments.
+- Response-file argument storage reserves its known capacity, fixing the
+  clang-tidy error that caused master CI to fail.
+- Updating or publishing a release draft preserves its version tag and target
+  commit instead of resetting the tag to an untagged placeholder.
+
 ## 1.2.1 - 2026-10-02
 
 ### Changed
