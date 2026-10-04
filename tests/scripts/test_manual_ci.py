@@ -6,6 +6,8 @@ event and concurrency policy across the discovered workflow inventory.
 """
 
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -57,6 +59,61 @@ class ManualCiTests(unittest.TestCase):
         self.assertEqual(text.count('"-C", "RelWithDebInfo"'), 2)
         self.assertNotIn("-DCMAKE_BUILD_TYPE=Debug", text)
         self.assertNotIn("GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS", text)
+
+    def test_windows_contract_rejects_ci_and_runtime_gate_regressions(self):
+        workflow = ".github/workflows/cmake.yml"
+        files = {path: (ROOT / path).read_text(encoding="utf-8") for path in (
+            workflow, "tests/CMakeLists.txt", "tests/cmake/Regressions.cmake",
+        )}
+        mutations = (
+            ("Clang configure", workflow,
+             '"-DCMAKE_BUILD_TYPE=RelWithDebInfo",', '"-DCMAKE_BUILD_TYPE=Debug",'),
+            ("MSVC configure", workflow,
+             "-DCMAKE_BUILD_TYPE=RelWithDebInfo `", "-DCMAKE_BUILD_TYPE=Debug `"),
+            ("Clang build", workflow,
+             "--build --preset=${{ matrix.preset }} --config RelWithDebInfo",
+             "--build --preset=${{ matrix.preset }} --config Debug"),
+            ("MSVC build", workflow,
+             "--build $msvcBuildDir --config RelWithDebInfo", "--build $msvcBuildDir --config Debug"),
+            ("Bazel helper CTest", workflow,
+             "--preset=${{ matrix.preset }} -C RelWithDebInfo", "--preset=${{ matrix.preset }} -C Debug"),
+            ("MSVC CTest", workflow,
+             '"--test-dir", $msvcBuildDir, "-C", "RelWithDebInfo"',
+             '"--test-dir", $msvcBuildDir, "-C", "Debug"'),
+            ("CI death-test skipping", workflow,
+             '"-DCMAKE_BUILD_TYPE=RelWithDebInfo",',
+             '"-DCMAKE_BUILD_TYPE=RelWithDebInfo", "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON",'),
+            ("wrong runtime configuration", "tests/CMakeLists.txt",
+             'PROPERTIES DISABLED "$<CONFIG:Debug>"', 'PROPERTIES DISABLED "$<CONFIG:RelWithDebInfo>"'),
+            ("legacy multi-config gate", "tests/cmake/Regressions.cmake",
+             "if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)",
+             'if(WIN32 AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)'),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp)
+            for path, contents in files.items():
+                destination = fixture / path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text(contents, encoding="utf-8")
+
+            def check_contract():
+                return subprocess.run([
+                    "cmake", f"-DSOURCE_DIR={fixture}", "-P",
+                    str(ROOT / "tests/cmake/scripts/CheckWindowsDebugDeathSkipGate.cmake"),
+                ], check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+            result = check_contract()
+            self.assertEqual(result.returncode, 0, result.stdout)
+            for name, path, before, after in mutations:
+                with self.subTest(regression=name):
+                    self.assertIn(before, files[path], "the regression fixture must change the intended input")
+                    (fixture / path).write_text(files[path].replace(before, after, 1), encoding="utf-8")
+                    try:
+                        result = check_contract()
+                        self.assertNotEqual(result.returncode, 0, result.stdout)
+                        self.assertIn("CMake Error", result.stdout)
+                    finally:
+                        (fixture / path).write_text(files[path], encoding="utf-8")
 
     def test_bundle_calls_every_reusable_suite_once_at_the_same_revision(self):
         calls = re.findall(r"(?m)^    uses: \./\.github/workflows/([^\s]+)$", self.workflows["ci.yml"])

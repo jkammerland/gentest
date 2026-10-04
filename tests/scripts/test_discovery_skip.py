@@ -1,9 +1,9 @@
 """Exercise the discovery harness, including its Windows Debug sub-probe gate."""
-from pathlib import Path
 import os
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -13,10 +13,11 @@ class DiscoverySkipTests(unittest.TestCase):
         # WIN32 is overridden only in the script interpreter. The tiny fixture
         # still compiles for the real host, so this checks the gate on every OS.
         cases = [(True, "Debug", True), (False, "Debug", True),
-                 (True, "Release", True), (True, "Debug", False)]
+                 (True, "Release", True), (True, "RelWithDebInfo", True),
+                 (True, "Debug", False)]
         if os.name == "nt":
             # Do not run the known debugger-attachment hang to test its gate.
-            cases = [(True, "Debug", True), (True, "Release", True)]
+            cases = [(True, "Debug", True), (True, "Release", True), (True, "RelWithDebInfo", True)]
         for windows, config, switch in cases:
             with self.subTest(windows=windows, config=config, switch=switch), tempfile.TemporaryDirectory() as tmp:
                 result = subprocess.run([

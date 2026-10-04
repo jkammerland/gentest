@@ -1,4 +1,4 @@
-# Lints Windows Debug death-test skip gating so it works for multi-config generators.
+# Validates Windows CI configuration and config-aware Windows Debug death-test skip gating.
 
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckWindowsDebugDeathSkipGate.cmake: SOURCE_DIR not set")
@@ -47,19 +47,38 @@ if(NOT EXISTS "${_workflow_file}")
 endif()
 
 file(READ "${_workflow_file}" _workflow_content)
-
-set(_expected_workflow_gate [=[if ("${{ matrix.preset }}" -in @("debug-system", "debug-system-cxx23")) {]=])
-string(FIND "${_workflow_content}" "${_expected_workflow_gate}" _workflow_gate_pos)
-if(_workflow_gate_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected Windows workflow to apply GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS to both debug-system and debug-system-cxx23 presets.\n"
-    "Missing snippet: ${_expected_workflow_gate}")
+string(REPLACE "\r\n" "\n" _workflow_content "${_workflow_content}")
+string(REGEX MATCH "\n  windows:\n(    [^\n]*\n|\n)*" _windows_job "${_workflow_content}")
+if(NOT _windows_job)
+  message(FATAL_ERROR "Expected the CMake workflow to define a Windows job.")
 endif()
 
-string(FIND "${_workflow_content}" "-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON" _workflow_flag_pos)
-if(_workflow_flag_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Expected Windows workflow to pass -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON during configure.")
+# CI runs RelWithDebInfo for both Clang and MSVC; the opt-in Debug skip gate
+# below remains available to local builds and must remain configuration-aware.
+foreach(_snippet IN ITEMS
+    "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+    "--config RelWithDebInfo"
+    [=["-C", "RelWithDebInfo"]=])
+  string(REGEX MATCHALL "${_snippet}" _matches "${_windows_job}")
+  list(LENGTH _matches _match_count)
+  if(NOT _match_count EQUAL 2)
+    message(FATAL_ERROR "Expected both Clang and MSVC Windows validation to use '${_snippet}'.")
+  endif()
+endforeach()
+
+string(FIND "${_windows_job}" "-C RelWithDebInfo" _bazel_ctest_config_pos)
+if(_bazel_ctest_config_pos EQUAL -1)
+  message(FATAL_ERROR "Expected the Windows Bazel helper CTest to select RelWithDebInfo.")
+endif()
+
+string(FIND "${_windows_job}" "GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS" _workflow_skip_pos)
+if(NOT _workflow_skip_pos EQUAL -1)
+  message(FATAL_ERROR "Windows RelWithDebInfo CI must not opt into Debug death-test skips.")
+endif()
+
+string(FIND "${_windows_job}" "-DCMAKE_BUILD_TYPE=Debug" _workflow_debug_pos)
+if(NOT _workflow_debug_pos EQUAL -1)
+  message(FATAL_ERROR "Windows CI validation must configure RelWithDebInfo.")
 endif()
 
 file(READ "${SOURCE_DIR}/tests/CMakeLists.txt" _tests_cmake_content)
