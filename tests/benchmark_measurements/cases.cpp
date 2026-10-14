@@ -187,19 +187,25 @@ void Sample::tearDown() {
 }
 
 void supplied_call(Sample &sample) {
+    ++primary_once_calls[0];
     ++sample.calls;
     sample.mode = "call";
     gentest::setBenchmarkDuration(2s, 1000);
 }
 void supplied_teardown(Sample &sample) {
+    ++primary_once_calls[1];
     ++sample.calls;
     sample.mode = "teardown";
 }
 void static_items(Sample &sample) {
+    ++primary_once_calls[2];
     ++sample.calls;
     gentest::setBenchmarkDuration(2s);
 }
-void runner_once(Sample &sample) { ++sample.calls; }
+void runner_once(Sample &sample) {
+    ++primary_once_calls[3];
+    ++sample.calls;
+}
 void no_warmup(Sample &sample) {
     ++sample.calls;
     sample.mode = "no_warmup";

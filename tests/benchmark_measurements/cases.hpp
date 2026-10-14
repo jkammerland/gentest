@@ -3,6 +3,8 @@
 #include "gentest/benchmark.h"
 #include "gentest/runner.h"
 
+#include <array>
+
 namespace measurement_tests {
 
 extern thread_local int allocations_before_failure;
@@ -12,9 +14,10 @@ struct [[gentest::fixture(global)]] SharedProbe : gentest::FixtureSetup {
     void setUp() override { ++shared_setups; }
 };
 
-inline int independent_failures = 0;
-inline int local_setups         = 0;
-inline int local_teardowns      = 0;
+inline int                independent_failures = 0;
+inline int                local_setups         = 0;
+inline int                local_teardowns      = 0;
+inline std::array<int, 4> primary_once_calls{};
 
 struct Sample : gentest::FixtureSetup, gentest::FixtureTearDown {
     int         calls            = 0;

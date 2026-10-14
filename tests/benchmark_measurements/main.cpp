@@ -1,5 +1,6 @@
 #include "cases.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <vector>
@@ -43,7 +44,9 @@ int main(int argc, char **argv) {
 
     // An intentionally failed occurrence must not mask a broken teardown/preflight probe.
     // Inspect outside the runner because its failure report may contain only the first error.
+    // Persistent counts also catch repeated whole lifecycles with fresh local fixtures.
     if (measurement_tests::independent_failures != 0 || measurement_tests::local_setups != measurement_tests::local_teardowns ||
+        std::ranges::any_of(measurement_tests::primary_once_calls, [](int count) { return count > 1; }) ||
         (measurement_tests::local_setups > 0 && measurement_tests::shared_setups != 1)) {
         (void)std::fputs("independent measurement contract probe failed\n", stderr);
         return 86;

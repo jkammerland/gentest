@@ -20,8 +20,16 @@ def main():
     assert manual.returncode == 0, (manual.stdout, manual.stderr)
     primary, _ = run(binary, "*primary/*", True, "--repeat=3")
     tables = {table["id"]: table for table in primary["tables"]}
+    assert len(tables) == len(primary["tables"]), primary
+
+    # Do not let dictionary construction hide repeated complete benchmark lifecycles.
+    for table_id in ("bench.summary", "bench.debug"):
+        names = [row["benchmark"] for row in tables[table_id]["rows"]]
+        assert len(names) == len(set(names)), (table_id, names)
+
     rows = {row["benchmark"].split("/")[-1]: row for row in tables["bench.summary"]["rows"]}
     debug_rows = {row["benchmark"].split("/")[-1]: row for row in tables["bench.debug"]["rows"]}
+    assert {"call", "teardown", "static_items", "runner"} <= rows.keys(), rows
     for name in ("call", "teardown"):
         assert rows[name]["items_per_call"] == 1000, rows[name]
         assert rows[name]["median_ns_per_item"] == 2e6, rows[name]
