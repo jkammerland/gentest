@@ -978,6 +978,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.is_jitter                    = summary.is_jitter;
         info.is_baseline                  = summary.is_baseline;
         info.items_per_call               = summary.items_per_call;
+        info.benchmark                    = summary.benchmark;
         info.template_args                = tpl_ordered;
         info.call_arguments               = call_args;
         info.is_function_template         = is_function_template;
@@ -999,6 +1000,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                         info.base_name, info.suite_name, info.call_arguments, info.fixture_qualified_name,
                         static_cast<int>(info.fixture_lifetime), info.is_benchmark, info.is_jitter, info.is_baseline, info.returns_value,
                         info.returns_async, info.items_per_call, info.should_skip, info.skip_reason, info.owner);
+        info.semantic_fingerprint +=
+            fmt::format("|bench-once:{}|bench-supplied:{}|bench-warmup:{}", info.benchmark.once, info.benchmark.supplied_time,
+                        info.benchmark.warmup_epochs ? std::to_string(*info.benchmark.warmup_epochs) : "default");
         for (const auto &tag : info.tags) {
             info.semantic_fingerprint += "|tag:" + tag;
         }

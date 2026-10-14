@@ -29,6 +29,7 @@ struct AttributeSummary {
     bool                       is_jitter      = false;
     bool                       is_baseline    = false;
     std::uint64_t              items_per_call = 1;
+    BenchmarkOptionsInfo       benchmark;
     // Template matrix: one candidate list per declared template parameter.
     std::vector<TemplateBindingSet> template_sets;
     // Parameterized tests: named parameters with literal values.

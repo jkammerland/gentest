@@ -45,6 +45,9 @@ inline constexpr std::string_view registration_preamble_light = R"CPP(#include <
     !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
 #error "gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime"
 #endif
+#if !defined(GENTEST_BENCHMARK_API_VERSION) || GENTEST_BENCHMARK_API_VERSION < 1
+#error "gentest_codegen output requires benchmark API version 1; use matching gentest headers/runtime"
+#endif
 )CPP";
 ;
 
@@ -63,6 +66,9 @@ inline constexpr std::string_view registration_preamble_full = R"CPP(#include <a
 #if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 3 || \
     !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
 #error "gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime"
+#endif
+#if !defined(GENTEST_BENCHMARK_API_VERSION) || GENTEST_BENCHMARK_API_VERSION < 1
+#error "gentest_codegen output requires benchmark API version 1; use matching gentest headers/runtime"
 #endif
 )CPP";
 ;
@@ -444,7 +450,12 @@ inline constexpr std::string_view case_entry = R"FMT(    gentest::Case{{
         .async_fn = {async_wrapper},
         .is_async = {is_async},
         .items_per_call = {items_per_call},
-        .owner = {owner}
+        .owner = {owner},
+        .benchmark = {{
+            .execution = {benchmark_execution},
+            .time_source = {benchmark_time_source},
+            .warmup_epochs = {benchmark_warmup}
+        }}
     }},
 
 )FMT";

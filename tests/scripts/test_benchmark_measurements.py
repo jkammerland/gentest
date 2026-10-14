@@ -1,0 +1,68 @@
+"""Exercise generated public contracts, including intentionally failing occurrences."""
+import json
+import subprocess
+import sys
+
+
+def run(binary, name, success=True, *extra):
+    result = subprocess.run(
+        [binary, "--filter=" + name, "--report-format=json", "--bench-epochs=2",
+         "--bench-warmup=3", "--bench-min-total-time-s=0", "--bench-min-epoch-time-s=0", *extra],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == (0 if success else 1), (name, result.stdout, result.stderr)
+    return json.loads(result.stdout), result.stderr
+
+
+def main():
+    binary = sys.argv[1]
+    manual = subprocess.run([binary, "--manual-invalid"], capture_output=True, text=True, timeout=30)
+    assert manual.returncode == 0, (manual.stdout, manual.stderr)
+    primary, _ = run(binary, "*primary/*")
+    tables = {table["id"]: table for table in primary["tables"]}
+    rows = {row["benchmark"].split("/")[-1]: row for row in tables["bench.summary"]["rows"]}
+    debug_rows = {row["benchmark"].split("/")[-1]: row for row in tables["bench.debug"]["rows"]}
+    for name in ("call", "teardown"):
+        assert rows[name]["items_per_call"] == 1000, rows[name]
+        assert rows[name]["median_ns_per_item"] == 2e6, rows[name]
+        assert debug_rows[name]["items_per_sec"] == 500, debug_rows[name]
+    assert rows["static_items"]["items_per_call"] == 16
+
+    # Run another process and select one case: no accidental dependence on earlier publications.
+    run(binary, "*series/valid")
+    failures = {
+        "missing": "duration was not supplied",
+        "duplicate": "duration was already supplied",
+        "zero_duration": "must be positive",
+        "zero_items": "must be positive",
+        "nan": "must be positive",
+        "negative_duration": "must be positive",
+        "infinite_duration": "must be positive",
+        "overflow_duration": "must be positive",
+        "runner_supplied": "once/supplied measured call",
+        "series_negative": "nonnegative",
+        "series_duplicate": "already published",
+        "series_throw": "iteration or allocation failed",
+        "series_phase": "local benchmark/jitter teardown",
+        "series_overflow": "representable",
+        "series_unit": "unit must be positive",
+        "series_nonfinite": "representable",
+        "series_name": "name must not be empty",
+        "series_underflow": "representable",
+        "series_allocation": "iteration or allocation failed",
+        "series_summary_allocation": "summary allocation failed",
+        "teardown_failure": "EXPECT_TRUE",
+    }
+    for name, diagnostic in failures.items():
+        report, stderr = run(binary, "*invalid/" + name, False)
+        assert diagnostic in stderr or diagnostic in json.dumps(report), (name, report, stderr)
+        # Assertions in failing-case teardown are independent probes, not acceptable extra failures.
+        # Otherwise an expected API rejection could mask broken atomicity/preflight/lifetime checks.
+        if name != "teardown_failure":
+            assert "EXPECT_" not in stderr and "ASSERT_" not in stderr, (name, stderr)
+            assert "EXPECT_" not in json.dumps(report) and "ASSERT_" not in json.dumps(report), (name, report)
+    print("benchmark measurement execution and publication contracts passed")
+
+
+if __name__ == "__main__":
+    main()

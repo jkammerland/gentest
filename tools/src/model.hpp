@@ -105,6 +105,14 @@ struct FixtureDeclInfo {
 struct ParsedAttribute {
     std::string              name;
     std::vector<std::string> arguments;
+    // Preserve spelling for attributes whose grammar distinguishes strings from integers.
+    std::vector<std::string> argument_tokens;
+};
+
+struct BenchmarkOptionsInfo {
+    bool                         once          = false;
+    bool                         supplied_time = false;
+    std::optional<std::uint64_t> warmup_epochs;
 };
 
 // Gathered attributes split by namespace context for a declaration.
@@ -211,10 +219,11 @@ struct TestCaseInfo {
     // shared-fixture headers are recorded during fixture resolution.
     std::vector<std::string> registration_headers;
     // Benchmarks: true if discovered via bench("...") attribute
-    bool          is_benchmark   = false;
-    bool          is_jitter      = false;
-    bool          is_baseline    = false;
-    std::uint64_t items_per_call = 1;
+    bool                 is_benchmark   = false;
+    bool                 is_jitter      = false;
+    bool                 is_baseline    = false;
+    std::uint64_t        items_per_call = 1;
+    BenchmarkOptionsInfo benchmark;
     // True when the discovered callable is declared as a function template.
     bool is_function_template = false;
     // True when the test function/method returns a non-void value.

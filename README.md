@@ -783,6 +783,9 @@ Use `t.add(...)` (through the mock object). A direct `Ticker::add(...)` call byp
 
 ### Benchmarks and jitter
 
+For source-declared one-shot execution, supplied end-to-end timing and named CPU/GPU
+timing distributions, see [benchmark measurements](docs/benchmark_measurements.md).
+
 Define microbenchmarks and jitter benchmarks (for timing variance):
 
 ```cpp

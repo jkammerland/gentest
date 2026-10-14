@@ -18,27 +18,52 @@ double percentile_sorted(const std::vector<double> &v, double p) {
     const auto   lo   = static_cast<std::size_t>(idx);
     const auto   hi   = (lo + 1 < v.size()) ? (lo + 1) : lo;
     const double frac = idx - static_cast<double>(lo);
-    return v[lo] + (v[hi] - v[lo]) * frac;
+    return std::lerp(v[lo], v[hi], frac);
 }
 
 double mean_of(const std::vector<double> &v) {
     if (v.empty())
         return 0.0;
-    double s = 0.0;
+    // Preserve ordinary arithmetic; only use scaled accumulation when the sum overflows.
+    double ordinary_sum = 0;
     for (double x : v)
-        s += x;
-    return s / static_cast<double>(v.size());
+        ordinary_sum += x;
+    if (std::isfinite(ordinary_sum))
+        return ordinary_sum / static_cast<double>(v.size());
+
+    const double scale = std::max(std::abs(v.front()), std::abs(v.back()));
+    if (scale == 0)
+        return 0;
+    double      mean  = 0.0;
+    std::size_t count = 0;
+    for (double x : v) {
+        ++count;
+        mean += (x / scale - mean) / static_cast<double>(count);
+    }
+    return std::clamp(mean, -1.0, 1.0) * scale;
 }
 
 double stddev_of(const std::vector<double> &v, double mean) {
     if (v.size() < 2)
         return 0.0;
+    double ordinary_sum = 0;
+    for (double x : v) {
+        const double delta = x - mean;
+        ordinary_sum += delta * delta;
+    }
+    if (std::isfinite(ordinary_sum))
+        return std::sqrt(ordinary_sum / static_cast<double>(v.size()));
+
+    // Large finite samples still have a finite population deviation.
+    const double scale = std::max(std::abs(v.front()), std::abs(v.back()));
+    if (scale == 0)
+        return 0;
     double sum = 0.0;
     for (double x : v) {
-        const double d = x - mean;
-        sum += d * d;
+        const double d = x / scale - mean / scale;
+        sum += (d * d) / static_cast<double>(v.size());
     }
-    return std::sqrt(sum / static_cast<double>(v.size()));
+    return std::sqrt(sum) * scale;
 }
 } // namespace
 

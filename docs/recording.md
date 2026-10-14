@@ -47,6 +47,11 @@ Collect worker data separately, then record it on the owner. Benchmark and jitte
 call phases reject recording; use fixture setup/teardown so serialization and
 allocation stay outside timing loops. Adapter preflight must happen before encoding.
 
+For statistics rather than opaque records, use
+[`recordTimingSamples` and `currentMeasurement`](benchmark_measurements.md) in local
+measured-case teardown. Their summaries are independent of custom JSON/CBOR payloads;
+recording a payload alone does not add benchmark statistics.
+
 Invalid recording arguments report a normal nonfatal failure and retain earlier
 valid data. Measured-call failures follow the runner's existing measured abort
 behavior. Export failures make the runner return failure.

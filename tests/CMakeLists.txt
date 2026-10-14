@@ -1,4 +1,12 @@
 include(GentestTests)
+add_executable(gentest_benchmark_measurement_tests benchmark_measurements/main.cpp benchmark_measurements/cases.cpp
+    benchmark_measurements/cases.hpp benchmark_measurements/allocation.cpp)
+target_link_libraries(gentest_benchmark_measurement_tests PRIVATE gentest::gentest)
+target_compile_features(gentest_benchmark_measurement_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(gentest_benchmark_measurement_tests)
+add_test(NAME benchmark_measurement_contract COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_benchmark_measurements.py $<TARGET_FILE:gentest_benchmark_measurement_tests>)
+set_tests_properties(benchmark_measurement_contract PROPERTIES LABELS "public-api;runner;reporting")
 include("${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFixtureCommon.cmake")
 
 option(GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS "Require real GMock/doctest generated-mock consumers in CMake regressions" OFF)
@@ -8,6 +16,7 @@ option(GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS "Skip Windows Debug death tests th
 if(NOT TARGET gentest_test_suites)
     add_custom_target(gentest_test_suites)
 endif()
+add_dependencies(gentest_test_suites gentest_benchmark_measurement_tests)
 
 add_executable(gentest_recording_tests recording/main.cpp recording/cases.hpp)
 target_link_libraries(gentest_recording_tests PRIVATE gentest::gentest)
@@ -46,6 +55,15 @@ if(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS)
 endif()
 
 add_subdirectory(tool_core)
+
+# Compile actual generated registrations and inspect their benchmark metadata.
+add_executable(gentest_benchmark_codegen_tests benchmark_codegen/main.cpp benchmark_codegen/cases.hpp)
+target_compile_features(gentest_benchmark_codegen_tests PRIVATE cxx_std_20)
+target_link_libraries(gentest_benchmark_codegen_tests PRIVATE gentest::gentest)
+gentest_attach_codegen(gentest_benchmark_codegen_tests)
+add_dependencies(gentest_test_suites gentest_benchmark_codegen_tests)
+add_test(NAME benchmark_codegen_metadata COMMAND gentest_benchmark_codegen_tests)
+set_tests_properties(benchmark_codegen_metadata PROPERTIES LABELS "codegen;benchmarks;public-api;ci-compat")
 
 add_executable(gentest_format_value_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/format_value.cpp)
@@ -1539,6 +1557,25 @@ gentest_add_check_death(
         --compdb ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_attrs.cpp
         -- ${_gentest_codegen_direct_clang_args})
+
+gentest_add_check_death(
+    NAME gentest_codegen_check_invalid_benchmark_options
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    REQUIRED_SUBSTRING "'bench_time(\"supplied\")' requires 'bench_once'"
+    ARGS
+        --check
+        --require-benchmark-api-version=1
+        --compdb ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/invalid_benchmark_options.cpp
+        -- ${_gentest_codegen_direct_clang_args})
+
+gentest_add_check_death(
+    NAME gentest_codegen_reject_unsupported_benchmark_api
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    REQUIRED_SUBSTRING "unsupported required benchmark API version 2; this generator supports version 1"
+    ARGS --check --require-benchmark-api-version=2)
 
 gentest_add_check_death(
     NAME gentest_codegen_check_invalid_duplicate_template_attr
