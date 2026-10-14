@@ -11,7 +11,10 @@ int main(int argc, char **argv) {
         const std::array policies{
             gentest::BenchmarkOptions{.execution = Once, .warmup_epochs = 1},
             gentest::BenchmarkOptions{.time_source = Supplied},
+            // Deliberately invalid descriptors must be rejected before fixture setup.
+            // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
             gentest::BenchmarkOptions{.execution = static_cast<gentest::BenchmarkExecution>(99)},
+            // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
             gentest::BenchmarkOptions{.time_source = static_cast<gentest::BenchmarkTimeSource>(99)},
         };
         for (const auto &policy : policies) {
@@ -28,7 +31,7 @@ int main(int argc, char **argv) {
             const char *options[]{"--kind=bench"};
             const int   result = gentest::run_cases(std::span(&test, 1), options);
             if (result != 1 || measurement_tests::shared_setups != 0 || measurement_tests::independent_failures != 0) {
-                std::fputs("invalid manual benchmark reached fixture setup or call\n", stderr);
+                (void)std::fputs("invalid manual benchmark reached fixture setup or call\n", stderr);
                 return 86;
             }
         }
@@ -42,7 +45,7 @@ int main(int argc, char **argv) {
     // Inspect outside the runner because its failure report may contain only the first error.
     if (measurement_tests::independent_failures != 0 || measurement_tests::local_setups != measurement_tests::local_teardowns ||
         (measurement_tests::local_setups > 0 && measurement_tests::shared_setups != 1)) {
-        std::fputs("independent measurement contract probe failed\n", stderr);
+        (void)std::fputs("independent measurement contract probe failed\n", stderr);
         return 86;
     }
     return result;

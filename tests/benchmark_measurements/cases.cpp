@@ -1,5 +1,7 @@
 #include "cases.hpp"
 
+#include "gentest/analyzer_assertions.h"
+
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -45,6 +47,7 @@ void Sample::tearDown() {
         ASSERT_TRUE(initial.has_value());
         EXPECT_EQ(initial->primary.items_per_call, 1000U);
         EXPECT_EQ(initial->primary.elapsed_seconds, 2.0);
+        ASSERT_TRUE(initial->primary.statistics.duration.has_value());
         EXPECT_EQ(initial->primary.statistics.duration->median_ns, 2e9);
         EXPECT_EQ(initial->primary.measured_calls, 1U);
         EXPECT_EQ(initial->primary.calibration_calls, 0U);
@@ -61,6 +64,8 @@ void Sample::tearDown() {
     }
 
     if (mode == "valid") {
+        ASSERT_TRUE(initial.has_value());
+
         // Unequal/overlapping series are independent observations, not portions to subtract.
         const std::array samples{5ns, 1ns, 3ns, 2ns, 4ns};
         gentest::recordTimingSamples("cpu", samples);
@@ -79,35 +84,45 @@ void Sample::tearDown() {
 
         auto snapshot = gentest::currentMeasurement();
         ASSERT_TRUE(snapshot.has_value());
-        EXPECT_EQ(snapshot->timings.size(), 9U);
+        ASSERT_EQ(snapshot->timings.size(), 9U);
         EXPECT_TRUE(initial->timings.empty());
         EXPECT_EQ(samples.front(), 5ns);
-        const auto &cpu = *snapshot->timings[0].statistics.duration;
+
+        // Require every expected distribution before inspecting its numerical values.
+        auto      &timings  = snapshot->timings;
+        const auto duration = [&timings](std::size_t index) {
+            const auto &statistics = timings.at(index).statistics;
+            ASSERT_TRUE(statistics.duration.has_value());
+            return *statistics.duration;
+        };
+        const auto cpu = duration(0);
         EXPECT_EQ(cpu.mean_ns, 3.0);
         EXPECT_EQ(cpu.median_ns, 3.0);
         EXPECT_TRUE(std::abs(cpu.stddev_ns - std::sqrt(2.0)) < 1e-12);
         EXPECT_TRUE(std::abs(cpu.p05_ns - 1.2) < 1e-12);
         EXPECT_TRUE(std::abs(cpu.p95_ns - 4.8) < 1e-12);
         EXPECT_EQ(snapshot->timings[1].statistics.count, 2U);
-        EXPECT_EQ(snapshot->timings[1].statistics.duration->min_ns, 0.0);
-        EXPECT_EQ(snapshot->timings[1].statistics.duration->max_ns, static_cast<double>(std::numeric_limits<std::uint64_t>::max()));
+        EXPECT_EQ(duration(1).min_ns, 0.0);
+        EXPECT_EQ(duration(1).max_ns, static_cast<double>(std::numeric_limits<std::uint64_t>::max()));
         EXPECT_EQ(snapshot->timings[2].statistics.count, 0U);
         EXPECT_FALSE(snapshot->timings[2].statistics.duration.has_value());
-        EXPECT_EQ(snapshot->timings[3].statistics.duration->mean_ns, 6.0);
+        EXPECT_EQ(duration(3).mean_ns, 6.0);
         EXPECT_EQ(snapshot->timings[4].statistics.count, 3U);
-        EXPECT_TRUE(std::isfinite(snapshot->timings[5].statistics.duration->stddev_ns));
-        EXPECT_EQ(snapshot->timings[5].statistics.duration->mean_ns, std::numeric_limits<double>::max() / 2);
-        EXPECT_EQ(snapshot->timings[5].statistics.duration->stddev_ns, std::numeric_limits<double>::max() / 2);
-        EXPECT_EQ(snapshot->timings[6].statistics.duration->mean_ns, std::numeric_limits<double>::max());
-        EXPECT_EQ(snapshot->timings[6].statistics.duration->stddev_ns, 0.0);
-        EXPECT_EQ(snapshot->timings[7].statistics.duration->mean_ns, 1.0);
-        EXPECT_EQ(snapshot->timings[7].statistics.duration->stddev_ns, 0.0);
-        EXPECT_EQ(snapshot->timings[8].statistics.duration->mean_ns, 1e-200);
-        EXPECT_EQ(snapshot->timings[8].statistics.duration->stddev_ns, 1e-200);
+        EXPECT_TRUE(std::isfinite(duration(5).stddev_ns));
+        EXPECT_EQ(duration(5).mean_ns, std::numeric_limits<double>::max() / 2);
+        EXPECT_EQ(duration(5).stddev_ns, std::numeric_limits<double>::max() / 2);
+        EXPECT_EQ(duration(6).mean_ns, std::numeric_limits<double>::max());
+        EXPECT_EQ(duration(6).stddev_ns, 0.0);
+        EXPECT_EQ(duration(7).mean_ns, 1.0);
+        EXPECT_EQ(duration(7).stddev_ns, 0.0);
+        EXPECT_EQ(duration(8).mean_ns, 1e-200);
+        EXPECT_EQ(duration(8).stddev_ns, 1e-200);
 
         // The API returns independent owning values, never references to mutable runner storage.
         snapshot->timings[0].name = "changed";
-        EXPECT_EQ(gentest::currentMeasurement()->timings[0].name, "cpu");
+        const auto unchanged      = gentest::currentMeasurement();
+        ASSERT_TRUE(unchanged.has_value());
+        EXPECT_EQ(unchanged->timings.at(0).name, "cpu");
     }
 
     if (mode.starts_with("series_")) {
@@ -147,8 +162,10 @@ void Sample::tearDown() {
             independent_failures += allocations_before_failure != -1;
             allocations_before_failure = -1;
         }
-        independent_failures += gentest::currentMeasurement()->timings.size() != 1;
-        EXPECT_EQ(gentest::currentMeasurement()->timings.size(), 1U);
+        const auto retained = gentest::currentMeasurement();
+        independent_failures += !retained || retained->timings.size() != 1;
+        ASSERT_TRUE(retained.has_value());
+        EXPECT_EQ(retained->timings.size(), 1U);
     }
 
     if (mode == "duplicate")
@@ -163,7 +180,9 @@ void Sample::tearDown() {
         if (initial->primary.calls_per_sample == 1)
             EXPECT_EQ(initial->primary.sampling, gentest::MeasurementSampling::PerCall);
         EXPECT_TRUE(initial->timings.empty());
-        EXPECT_EQ(gentest::currentMeasurement()->timings.size(), 1U);
+        const auto published = gentest::currentMeasurement();
+        ASSERT_TRUE(published.has_value());
+        EXPECT_EQ(published->timings.size(), 1U);
     }
 }
 
