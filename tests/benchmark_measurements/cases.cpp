@@ -75,10 +75,11 @@ void Sample::tearDown() {
         gentest::recordTimingSamples("extremes", extremes, 1ns);
         gentest::recordTimingSamples("constant_huge", std::vector<double>(10, std::numeric_limits<double>::max()), 1ns);
         gentest::recordTimingSamples("constant_small", std::vector<double>(10, 1), 1ns);
+        gentest::recordTimingSamples("tiny_variance", std::array{0.0, 2e-200}, 1ns);
 
         auto snapshot = gentest::currentMeasurement();
         ASSERT_TRUE(snapshot.has_value());
-        EXPECT_EQ(snapshot->timings.size(), 8U);
+        EXPECT_EQ(snapshot->timings.size(), 9U);
         EXPECT_TRUE(initial->timings.empty());
         EXPECT_EQ(samples.front(), 5ns);
         const auto &cpu = *snapshot->timings[0].statistics.duration;
@@ -101,6 +102,8 @@ void Sample::tearDown() {
         EXPECT_EQ(snapshot->timings[6].statistics.duration->stddev_ns, 0.0);
         EXPECT_EQ(snapshot->timings[7].statistics.duration->mean_ns, 1.0);
         EXPECT_EQ(snapshot->timings[7].statistics.duration->stddev_ns, 0.0);
+        EXPECT_EQ(snapshot->timings[8].statistics.duration->mean_ns, 1e-200);
+        EXPECT_EQ(snapshot->timings[8].statistics.duration->stddev_ns, 1e-200);
 
         // The API returns independent owning values, never references to mutable runner storage.
         snapshot->timings[0].name = "changed";
@@ -157,6 +160,8 @@ void Sample::tearDown() {
         gentest::recordTimingSamples("callback", std::array{1ns, 2ns});
         ASSERT_TRUE(initial.has_value());
         EXPECT_EQ(initial->primary.kind, gentest::MeasurementKind::Jitter);
+        if (initial->primary.calls_per_sample == 1)
+            EXPECT_EQ(initial->primary.sampling, gentest::MeasurementSampling::PerCall);
         EXPECT_TRUE(initial->timings.empty());
         EXPECT_EQ(gentest::currentMeasurement()->timings.size(), 1U);
     }

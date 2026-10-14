@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace gentest::detail {
 namespace {
@@ -51,10 +52,11 @@ double stddev_of(const std::vector<double> &v, double mean) {
         const double delta = x - mean;
         ordinary_sum += delta * delta;
     }
-    if (std::isfinite(ordinary_sum))
-        return std::sqrt(ordinary_sum / static_cast<double>(v.size()));
+    const double variance = ordinary_sum / static_cast<double>(v.size());
+    if (std::isfinite(variance) && variance >= std::numeric_limits<double>::min())
+        return std::sqrt(variance);
 
-    // Large finite samples still have a finite population deviation.
+    // Avoid both overflow and underflow of intermediate squared deviations.
     const double scale = std::max(std::abs(v.front()), std::abs(v.back()));
     if (scale == 0)
         return 0;

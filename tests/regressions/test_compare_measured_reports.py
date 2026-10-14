@@ -113,10 +113,43 @@ class MeasurementComparisonTests(unittest.TestCase):
                 self.assertEqual(len(self.comparison(before, after).comparisons), 2)
 
         before = self.load([primary(kind="jitter", mode="batch", calls_per_sample=8)])
-        after = self.load([primary(kind="jitter", sampling_kind="batch-average")])
+        after = self.load([primary(kind="jitter", sampling_kind="batch-average", calls_per_sample=8)])
         self.assertEqual(len(self.comparison(before, after).comparisons), 2)
         with self.assertRaisesRegex(ValueError, "incompatible sampling_kind"):
             self.comparison(before, self.load([primary(kind="jitter")]))
+
+    def test_batch_average_primary_requires_matching_known_widths(self):
+        for format in ("json", "csv"):
+            with self.subTest(format=format):
+                before = self.load([primary(kind="jitter", sampling_kind="batch-average", calls_per_sample=8,
+                                            p95_ns_per_item=100, stddev_ns_per_item=40)], format)
+                same = self.load([primary(kind="jitter", sampling_kind="batch-average", calls_per_sample=8,
+                                          p95_ns_per_item=90, stddev_ns_per_item=30)], format)
+                self.assertEqual(len(self.comparison(before, same).improvements), 2)
+
+                # A larger average can suppress variance and tails without improving individual calls.
+                wider = self.load([primary(kind="jitter", sampling_kind="batch-average", calls_per_sample=128,
+                                           p95_ns_per_item=20, stddev_ns_per_item=4)], format)
+                with self.assertRaisesRegex(ValueError, "incompatible calls_per_sample"):
+                    self.comparison(before, wider)
+
+                # Historical missing metadata cannot be filled with an invented batch width.
+                for fields in ({"sampling_kind": "batch-average"}, {"sample_kind": "batch-average"}, {"mode": "batch"}):
+                    with self.subTest(fields=fields):
+                        with self.assertRaisesRegex(ValueError, "calls_per_sample unavailable"):
+                            self.load([primary(kind="jitter", **fields)], format)
+
+    def test_batch_width_is_exact_integer_metadata(self):
+        for format in ("json", "csv"):
+            with self.subTest(format=format):
+                before = self.load([primary(kind="jitter", sampling_kind="batch-average", calls_per_sample=2**53)], format)
+                after = self.load([primary(kind="jitter", sampling_kind="batch-average", calls_per_sample=2**53 + 1)], format)
+                with self.assertRaisesRegex(ValueError, "incompatible calls_per_sample"):
+                    self.comparison(before, after)
+                for width in (0, 1, 1.5, -8):
+                    with self.subTest(width=width):
+                        with self.assertRaisesRegex(ValueError, "calls_per_sample"):
+                            self.load([primary(kind="jitter", sampling_kind="batch-average", calls_per_sample=width)], format)
 
     def test_unavailable_named_statistics_remain_explicit(self):
         for format in ("json", "csv"):

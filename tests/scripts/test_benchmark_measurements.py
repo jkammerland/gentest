@@ -18,7 +18,7 @@ def main():
     binary = sys.argv[1]
     manual = subprocess.run([binary, "--manual-invalid"], capture_output=True, text=True, timeout=30)
     assert manual.returncode == 0, (manual.stdout, manual.stderr)
-    primary, _ = run(binary, "*primary/*")
+    primary, _ = run(binary, "*primary/*", True, "--repeat=3")
     tables = {table["id"]: table for table in primary["tables"]}
     rows = {row["benchmark"].split("/")[-1]: row for row in tables["bench.summary"]["rows"]}
     debug_rows = {row["benchmark"].split("/")[-1]: row for row in tables["bench.debug"]["rows"]}

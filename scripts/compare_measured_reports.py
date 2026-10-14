@@ -35,6 +35,7 @@ class CaseMetrics:
     execution_mode: str = "calibrated"
     time_source: str = "runner"
     sampling_kind: str = "epoch-average"
+    calls_per_sample: int | None = None
 
     def __post_init__(self) -> None:
         if self.metrics is None:
@@ -118,7 +119,20 @@ def _row_identity(kind: str, table_id: str, row: dict[str, Any], path: Path) -> 
 
 def _row_metrics(key: CaseKey, row: dict[str, Any], path: Path) -> CaseMetrics:
     # Old primary reports predate these fields but used calibrated runner timing.
-    legacy_batch = row.get("mode") == "batch" and (_as_float(row.get("calls_per_sample")) or 1) > 1
+    calls_per_sample = None
+    raw_width = row.get("calls_per_sample")
+    if raw_width is not None:
+        try:
+            calls_per_sample = int(raw_width)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError(f"{path}: {_case_label(key)} has invalid calls_per_sample: {raw_width!r}") from None
+        if isinstance(raw_width, bool) or calls_per_sample < 1 or (isinstance(raw_width, float) and raw_width != calls_per_sample):
+            raise ValueError(f"{path}: {_case_label(key)} has invalid calls_per_sample: {raw_width!r}")
+
+    legacy_batch_mode = key.series is None and key.kind == "jitter" and row.get("mode") == "batch"
+    if legacy_batch_mode and calls_per_sample is None and "sampling_kind" not in row and "sample_kind" not in row:
+        raise ValueError(f"{path}: {_case_label(key)}: calls_per_sample unavailable for historical batch sampling")
+    legacy_batch = legacy_batch_mode and calls_per_sample is not None and calls_per_sample > 1
     legacy_jitter_sampling = "batch-average" if legacy_batch else "per-call"
     sampling = "epoch-average" if key.kind == "bench" else row.get("sample_kind", legacy_jitter_sampling)
     if key.series is not None:
@@ -136,7 +150,13 @@ def _row_metrics(key: CaseKey, row: dict[str, Any], path: Path) -> CaseMetrics:
     for field, value in semantics.items():
         if not isinstance(value, str) or value not in allowed[field]:
             raise ValueError(f"{path}: {_case_label(key)} has invalid {field}: {value!r}")
-    case = CaseMetrics(suite=str(row.get("suite", "")), **semantics)
+    if key.series is None and semantics["sampling_kind"] == "batch-average":
+        if calls_per_sample is None:
+            raise ValueError(f"{path}: {_case_label(key)}: calls_per_sample unavailable for batch-average primary")
+        if calls_per_sample <= 1:
+            raise ValueError(f"{path}: {_case_label(key)}: batch-average primary requires calls_per_sample greater than one")
+
+    case = CaseMetrics(suite=str(row.get("suite", "")), calls_per_sample=calls_per_sample, **semantics)
     for field, value in row.items():
         number = _as_float(value)
         if number is not None or value is None:
@@ -195,7 +215,13 @@ def _load_csv_report(path: Path, text: str) -> dict[CaseKey, CaseMetrics]:
             continue
         values: dict[str, Any] = {}
         for field, (field_type, value) in fields.items():
-            values[field] = _as_float(value) if field_type == "number" else None if field_type == "null" else value
+            if field_type == "null":
+                values[field] = None
+            elif field_type == "number" and field != "calls_per_sample":
+                values[field] = _as_float(value)
+            else:
+                # Batch widths are integer semantics; converting through float can merge distinct large widths.
+                values[field] = value
         key = _row_identity(_case_kind(report, table), table, values, path)
         _add_case(cases, key, _row_metrics(key, values, path), path)
     return cases
@@ -245,7 +271,10 @@ def compare_reports(
     unavailable_metrics: list[str] = []
 
     for key in common_keys:
-        for field in ("execution_mode", "time_source", "sampling_kind"):
+        semantic_fields = ["execution_mode", "time_source", "sampling_kind"]
+        if key.series is None and baseline[key].sampling_kind == "batch-average":
+            semantic_fields.append("calls_per_sample")
+        for field in semantic_fields:
             before_semantics = getattr(baseline[key], field)
             after_semantics = getattr(current[key], field)
             if before_semantics != after_semantics:

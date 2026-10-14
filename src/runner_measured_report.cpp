@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <tabulate/table.hpp>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -103,6 +104,18 @@ std::string_view sampling_kind(const BenchResult &result) {
 }
 
 std::string_view sampling_kind(const JitterResult &result) { return jitter_sample_kind(result); }
+
+std::size_t baseline_batch_width(const BenchResult &) { return 0; }
+
+std::size_t baseline_batch_width(const JitterResult &result) { return jitter_averages_calls(result) ? result.calls_per_sample : 0; }
+
+using BaselineKey = std::tuple<std::string, BenchmarkExecution, BenchmarkTimeSource, std::string_view, std::size_t>;
+
+template <typename Result> BaselineKey baseline_key(const gentest::Case &c, const Result &result) {
+    // Timing sources and averaging widths change the measured population, so suite identity alone is insufficient.
+    const auto &primary = result.measurement.primary;
+    return {std::string(c.suite), primary.execution, primary.time_source, sampling_kind(result), baseline_batch_width(result)};
+}
 
 double measured_call_wall_time(const BenchResult &result) { return result.measured_call_wall_time_s; }
 
@@ -837,13 +850,13 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
 }
 
 static std::vector<ReportTable> build_bench_report_tables(std::span<const BenchReportRow> rows, const CliOptions &opt) {
-    std::map<std::string, double> baseline_ns;
+    std::map<BaselineKey, double> baseline_ns;
     for (const auto &row : rows) {
         if (!row.c || !row.c->is_baseline)
             continue;
-        const std::string suite(row.c->suite);
-        if (baseline_ns.find(suite) == baseline_ns.end()) {
-            baseline_ns.emplace(suite, per_item_ns(row.result.median_ns, *row.c, row.result));
+        const auto key = baseline_key(*row.c, row.result);
+        if (baseline_ns.find(key) == baseline_ns.end()) {
+            baseline_ns.emplace(key, per_item_ns(row.result.median_ns, *row.c, row.result));
         }
     }
 
@@ -880,8 +893,7 @@ static std::vector<ReportTable> build_bench_report_tables(std::span<const BenchR
     for (const auto &row : rows) {
         if (!row.c)
             continue;
-        const std::string suite(row.c->suite);
-        const auto        base_it            = baseline_ns.find(suite);
+        const auto        base_it            = baseline_ns.find(baseline_key(*row.c, row.result));
         const double      base_ns            = (base_it == baseline_ns.end()) ? 0.0 : base_it->second;
         const double      median_item_ns     = per_item_ns(row.result.median_ns, *row.c, row.result);
         const bool        has_baseline       = base_ns > 0.0;
@@ -1016,8 +1028,8 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
     const int                     bins                 = opt.jitter_bins;
     bool                          has_batch_averages   = false;
     bool                          has_per_call_samples = false;
-    std::map<std::string, double> baseline_median_ns;
-    std::map<std::string, double> baseline_stddev_ns;
+    std::map<BaselineKey, double> baseline_median_ns;
+    std::map<BaselineKey, double> baseline_stddev_ns;
     for (const auto &row : rows) {
         if (!row.c)
             continue;
@@ -1028,10 +1040,10 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
         }
         if (!row.c->is_baseline)
             continue;
-        const std::string suite(row.c->suite);
-        if (baseline_median_ns.find(suite) == baseline_median_ns.end()) {
-            baseline_median_ns.emplace(suite, per_item_ns(row.result.median_ns, *row.c, row.result));
-            baseline_stddev_ns.emplace(suite, per_item_ns(row.result.stddev_ns, *row.c, row.result));
+        const auto key = baseline_key(*row.c, row.result);
+        if (baseline_median_ns.find(key) == baseline_median_ns.end()) {
+            baseline_median_ns.emplace(key, per_item_ns(row.result.median_ns, *row.c, row.result));
+            baseline_stddev_ns.emplace(key, per_item_ns(row.result.stddev_ns, *row.c, row.result));
         }
     }
 
@@ -1067,9 +1079,9 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
     for (const auto &row : rows) {
         if (!row.c)
             continue;
-        const std::string suite(row.c->suite);
-        const auto        base_med_it            = baseline_median_ns.find(suite);
-        const auto        base_sd_it             = baseline_stddev_ns.find(suite);
+        const auto        key                    = baseline_key(*row.c, row.result);
+        const auto        base_med_it            = baseline_median_ns.find(key);
+        const auto        base_sd_it             = baseline_stddev_ns.find(key);
         const double      base_median            = (base_med_it == baseline_median_ns.end()) ? 0.0 : base_med_it->second;
         const double      base_sd                = (base_sd_it == baseline_stddev_ns.end()) ? 0.0 : base_sd_it->second;
         const double      median_item_ns         = per_item_ns(row.result.median_ns, *row.c, row.result);

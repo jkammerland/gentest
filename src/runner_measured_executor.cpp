@@ -9,6 +9,7 @@
 #include "runner_measured_report.h"
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -523,8 +524,14 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
 PrimaryMeasurement primary_measurement(const BenchResult &result) {
     PrimaryMeasurement primary;
     if (result.epochs != 0) {
-        primary.statistics = {result.epochs, DurationSummary{result.best_ns, result.worst_ns, result.mean_ns, result.median_ns,
-                                                             result.stddev_ns, result.p05_ns, result.p95_ns}};
+        primary.statistics = {.count    = result.epochs,
+                              .duration = DurationSummary{.min_ns    = result.best_ns,
+                                                          .max_ns    = result.worst_ns,
+                                                          .mean_ns   = result.mean_ns,
+                                                          .median_ns = result.median_ns,
+                                                          .stddev_ns = result.stddev_ns,
+                                                          .p05_ns    = result.p05_ns,
+                                                          .p95_ns    = result.p95_ns}};
     }
     primary.measured_calls        = result.total_iters;
     primary.calls_per_sample      = result.iters_per_epoch;
@@ -539,10 +546,16 @@ PrimaryMeasurement primary_measurement(const BenchResult &result) {
 PrimaryMeasurement primary_measurement(const JitterResult &result) {
     PrimaryMeasurement primary;
     primary.kind     = MeasurementKind::Jitter;
-    primary.sampling = result.batch_mode ? MeasurementSampling::BatchAverage : MeasurementSampling::PerCall;
+    primary.sampling = result.batch_mode && result.calls_per_sample > 1 ? MeasurementSampling::BatchAverage : MeasurementSampling::PerCall;
     if (!result.samples_ns.empty()) {
-        primary.statistics = {result.samples_ns.size(), DurationSummary{result.min_ns, result.max_ns, result.mean_ns, result.median_ns,
-                                                                        result.stddev_ns, result.p05_ns, result.p95_ns}};
+        primary.statistics = {.count    = result.samples_ns.size(),
+                              .duration = DurationSummary{.min_ns    = result.min_ns,
+                                                          .max_ns    = result.max_ns,
+                                                          .mean_ns   = result.mean_ns,
+                                                          .median_ns = result.median_ns,
+                                                          .stddev_ns = result.stddev_ns,
+                                                          .p05_ns    = result.p05_ns,
+                                                          .p95_ns    = result.p95_ns}};
     }
     primary.measured_calls        = result.total_iters;
     primary.calls_per_sample      = result.calls_per_sample;
@@ -558,7 +571,9 @@ void apply_measurement(BenchResult &result, MeasurementSnapshot snapshot) {
     const auto &primary             = snapshot.primary;
     result.effective_items_per_call = primary.items_per_call;
     if (primary.time_source == BenchmarkTimeSource::Supplied) {
-        const auto &stats   = *primary.statistics.duration;
+        // Missing publication is rejected before applying a successful measurement.
+        assert(primary.statistics.duration.has_value());
+        const auto &stats   = primary.statistics.duration.value();
         result.best_ns      = stats.min_ns;
         result.worst_ns     = stats.max_ns;
         result.mean_ns      = stats.mean_ns;

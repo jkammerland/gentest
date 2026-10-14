@@ -239,8 +239,6 @@ void check_mixed_baseline_output() {
     jitter_empty_baseline.max_ns    = 8.0;
 
     auto jitter_delta               = make_jitter_result({8.0, 9.0, 11.0, 12.0}, 2);
-    jitter_delta.batch_mode         = true;
-    jitter_delta.calls_per_sample   = 64;
     jitter_delta.median_ns          = 10.0;
     jitter_delta.mean_ns            = 10.0;
     jitter_delta.stddev_ns          = 4.0;
@@ -250,6 +248,8 @@ void check_mixed_baseline_output() {
 
     auto jitter_nobase             = make_jitter_result({30.0}, 1);
     jitter_nobase.overhead_mean_ns = 0.0;
+    jitter_nobase.batch_mode       = true;
+    jitter_nobase.calls_per_sample = 64;
 
     const auto jitter_baseline_case = make_case("regressions/measured_report/jitter_empty_baseline", "suite_a", false, true, true);
     const auto jitter_delta_case    = make_case("regressions/measured_report/jitter_delta_row", "suite_a", false, true, false);
@@ -514,8 +514,8 @@ void check_named_measurements_and_runtime_items() {
            "primary reports must distinguish single-call supplied timing from calibrated timing");
     expect(contains(json, R"("items_per_call":4,"median_ns_per_item":5,"mean_ns_per_item":6)"),
            "runtime item counts must replace static annotation counts for primary normalization");
-    expect(contains(json, R"("measured_call_wall_time_s":0.25,"baseline_delta_pct":0)"),
-           "baseline deltas must use runtime normalization and preserve measured call wall time");
+    expect(contains(json, R"("measured_call_wall_time_s":0.25,"baseline_delta_pct":null)"),
+           "once/supplied timing cannot use a calibrated/runner baseline even when normalized durations match");
     expect(contains(json, R"("total_calls":3,"total_items":12)"), "total items must use the effective runtime item count");
     expect(contains(json, R"("id":"bench.measurements")"), "named benchmark timings must have a separate table");
     expect(contains(json, R"("series":"step|quote\"comma,\nline","count":2)"), "JSON must escape named timing identities");
@@ -557,6 +557,93 @@ void check_named_measurements_and_runtime_items() {
     expect(std::count(mixed.begin(), mixed.end(), '\n') == 1, "combined named reports must produce one machine document");
 }
 
+void check_baseline_sampling_compatibility() {
+    const auto baseline_case           = make_case("baseline", "same_suite", true, false, true, 2);
+    const auto candidate_case          = make_case("candidate", "same_suite", true, false, false, 100);
+    const auto baseline                = make_bench_result(10, 10, 0.1, 3);
+    auto       candidate               = make_bench_result(20, 20, 0.1, 3);
+    candidate.effective_items_per_call = 4;
+
+    CliOptions opt{};
+    opt.measured_report_format = gentest::runner::MeasuredReportFormat::Csv;
+    auto render_bench          = [&](const BenchResult &result) {
+        const std::vector<BenchReportRow> rows{{.c = &baseline_case, .result = baseline}, {.c = &candidate_case, .result = result}};
+        return capture_stdout([&] { gentest::runner::print_bench_report(rows, opt); });
+    };
+    expect(contains(render_bench(candidate), "bench,bench.summary,1,baseline_delta_pct,number,0\n"),
+           "compatible baselines must compare independently normalized effective item counts");
+
+    // Each mismatch independently changes what was measured, despite identical normalized timings.
+    for (int mismatch = 0; mismatch != 3; ++mismatch) {
+        auto incompatible = candidate;
+        if (mismatch == 0)
+            incompatible.measurement.primary.execution = gentest::BenchmarkExecution::Once;
+        if (mismatch == 1)
+            incompatible.measurement.primary.time_source = gentest::BenchmarkTimeSource::Supplied;
+        if (mismatch == 2)
+            incompatible.measurement.primary.sampling = gentest::MeasurementSampling::SingleCall;
+        expect(contains(render_bench(incompatible), "bench,bench.summary,1,baseline_delta_pct,null,\n"),
+               "incompatible benchmark baselines must be unavailable, not reported as zero change");
+        opt.measured_report_format = gentest::runner::MeasuredReportFormat::Markdown;
+        expect(contains(line_containing(render_bench(incompatible), "| candidate |"), "| - |"),
+               "human benchmark output must mark incompatible baselines unavailable");
+        opt.measured_report_format = gentest::runner::MeasuredReportFormat::Csv;
+    }
+
+    const auto jitter_baseline_case   = make_case("jitter_baseline", "same_suite", false, true, true);
+    const auto jitter_candidate_case  = make_case("jitter_candidate", "same_suite", false, true, false);
+    auto       jitter_baseline        = make_jitter_result({8, 12}, 2);
+    jitter_baseline.batch_mode        = true;
+    jitter_baseline.calls_per_sample  = 8;
+    auto jitter_candidate             = make_jitter_result({16, 24}, 2);
+    jitter_candidate.batch_mode       = true;
+    jitter_candidate.calls_per_sample = 8;
+    auto render_jitter                = [&](const JitterResult &result) {
+        const std::vector<JitterReportRow> rows{{.c = &jitter_baseline_case, .result = jitter_baseline},
+                                                {.c = &jitter_candidate_case, .result = result}};
+        return capture_stdout([&] { gentest::runner::print_jitter_report(rows, opt); });
+    };
+    const auto compatible = render_jitter(jitter_candidate);
+    expect(contains(compatible, "jitter,jitter.summary,1,baseline_delta_pct,number,100\n") &&
+               contains(compatible, "jitter,jitter.summary,1,baseline_stddev_delta_pct,number,100\n"),
+           "matching jitter averaging widths must preserve median and standard deviation comparisons");
+
+    // Averaging more calls can hide tails and variance; batch widths must be part of eligibility.
+    for (int mismatch = 0; mismatch != 4; ++mismatch) {
+        auto incompatible = jitter_candidate;
+        if (mismatch == 0)
+            incompatible.measurement.primary.execution = gentest::BenchmarkExecution::Once;
+        if (mismatch == 1)
+            incompatible.measurement.primary.time_source = gentest::BenchmarkTimeSource::Supplied;
+        if (mismatch == 2)
+            incompatible.batch_mode = false;
+        if (mismatch == 3)
+            incompatible.calls_per_sample = 128;
+        const auto csv = render_jitter(incompatible);
+        expect(contains(csv, "jitter,jitter.summary,1,baseline_delta_pct,null,\n") &&
+                   contains(csv, "jitter,jitter.summary,1,baseline_stddev_delta_pct,null,\n"),
+               "incompatible jitter baselines must not publish median or standard deviation improvements");
+        opt.measured_report_format = gentest::runner::MeasuredReportFormat::Markdown;
+        expect(contains(line_containing(render_jitter(incompatible), "| jitter_candidate |"), "| - | - |"),
+               "human jitter output must mark both incompatible baseline statistics unavailable");
+        opt.measured_report_format = gentest::runner::MeasuredReportFormat::Csv;
+    }
+
+    // An earlier incompatible baseline must not hide a later compatible baseline in the same suite.
+    auto wider_baseline              = jitter_candidate;
+    wider_baseline.calls_per_sample  = 128;
+    auto wider_candidate             = make_jitter_result({24, 36}, 2);
+    wider_candidate.batch_mode       = true;
+    wider_candidate.calls_per_sample = 128;
+    const std::vector<JitterReportRow> mixed_rows{{.c = &jitter_baseline_case, .result = jitter_baseline},
+                                                  {.c = &jitter_baseline_case, .result = wider_baseline},
+                                                  {.c = &jitter_candidate_case, .result = wider_candidate}};
+    const auto                         mixed = capture_stdout([&] { gentest::runner::print_jitter_report(mixed_rows, opt); });
+    expect(contains(mixed, "jitter,jitter.summary,2,baseline_delta_pct,number,50\n") &&
+               contains(mixed, "jitter,jitter.summary,2,baseline_stddev_delta_pct,number,50\n"),
+           "baseline selection must retain each compatible sampling population within one suite");
+}
+
 } // namespace
 
 int main() {
@@ -569,6 +656,7 @@ int main() {
         check_jitter_batch_reporting();
         check_jitter_executor_sample_accounting();
         check_named_measurements_and_runtime_items();
+        check_baseline_sampling_compatibility();
     } catch (const std::exception &e) {
         std::cerr << e.what() << '\n';
         return 1;

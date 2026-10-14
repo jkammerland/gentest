@@ -6,7 +6,8 @@
 #include <string>
 #include <vector>
 
-// Checked by generated registrations and consumers of the measurement API.
+// Must remain a macro: generated registrations test this capability with #if.
+// NOLINTNEXTLINE(modernize-macro-to-enum)
 #define GENTEST_BENCHMARK_API_VERSION 1
 
 namespace gentest {

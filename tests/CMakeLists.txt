@@ -6,7 +6,7 @@ target_compile_features(gentest_benchmark_measurement_tests PRIVATE cxx_std_20)
 gentest_attach_codegen(gentest_benchmark_measurement_tests)
 add_test(NAME benchmark_measurement_contract COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_benchmark_measurements.py $<TARGET_FILE:gentest_benchmark_measurement_tests>)
-set_tests_properties(benchmark_measurement_contract PROPERTIES LABELS "public-api;runner;reporting")
+set_tests_properties(benchmark_measurement_contract PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
 include("${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFixtureCommon.cmake")
 
 option(GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS "Require real GMock/doctest generated-mock consumers in CMake regressions" OFF)

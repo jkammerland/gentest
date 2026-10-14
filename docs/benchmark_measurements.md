@@ -123,8 +123,10 @@ publication or scheduling.
 
 All four measured report formats (table, Markdown, JSON and CSV) include named
 summaries. Primary metadata identifies execution, time source and sampling semantics;
-the comparer rejects incompatible primary timings. Named timing tables preserve
-their own series identity and raw nanosecond units.
+the comparer rejects incompatible primary timings, including changed jitter batch
+widths. In-report baseline deltas likewise require compatible execution, timing and
+sampling policies; an incompatible baseline is unavailable, not a zero delta.
+Named timing tables preserve their own series identity and raw nanosecond units.
 
 For raw samples, correlations, device metadata or a timeline, use existing
 [`record_json`, `record_cbor` or `record_data`](recording.md) explicitly in teardown.

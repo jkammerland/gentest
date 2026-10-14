@@ -17,7 +17,14 @@ TimingStatistics timing_statistics(std::span<const double> samples) {
         return {};
     }
     const auto stats = compute_sample_stats(samples);
-    return {stats.count, DurationSummary{stats.min, stats.max, stats.mean, stats.median, stats.stddev, stats.p05, stats.p95}};
+    return {.count    = stats.count,
+            .duration = DurationSummary{.min_ns    = stats.min,
+                                        .max_ns    = stats.max,
+                                        .mean_ns   = stats.mean,
+                                        .median_ns = stats.median,
+                                        .stddev_ns = stats.stddev,
+                                        .p05_ns    = stats.p05,
+                                        .p95_ns    = stats.p95}};
 }
 
 std::string_view validate_benchmark_options(const Case &test) {
@@ -75,7 +82,7 @@ void publish_timing_samples(std::string_view name, std::vector<double> samples, 
     }
     try {
         // Construct completely before publication. No partial series survives a failed conversion/allocation.
-        NamedTimingStatistics entry{std::string(name), timing_statistics(samples)};
+        NamedTimingStatistics entry{.name = std::string(name), .statistics = timing_statistics(samples)};
         measurement_state()->snapshot.timings.push_back(std::move(entry));
     } catch (...) { fail_timing_publication("timing sample summary allocation failed", location); }
 }
@@ -110,8 +117,11 @@ void setBenchmarkDuration(std::chrono::duration<double> elapsed, std::uint64_t c
         detail::fail_timing_publication("benchmark duration and completed items must be positive and representable", location);
         return;
     }
-    auto &primary            = state->snapshot.primary;
-    primary.statistics       = {1, DurationSummary{ns, ns, ns, ns, 0, ns, ns}};
+    auto &primary      = state->snapshot.primary;
+    primary.statistics = {
+        .count = 1,
+        .duration =
+            DurationSummary{.min_ns = ns, .max_ns = ns, .mean_ns = ns, .median_ns = ns, .stddev_ns = 0, .p05_ns = ns, .p95_ns = ns}};
     primary.items_per_call   = completed_items;
     primary.elapsed_seconds  = elapsed.count();
     state->duration_supplied = true;
