@@ -17,13 +17,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-if(NOT CMAKE_HOST_WIN32)
-  gentest_skip_test("external include module resolution regression: requires Windows host")
-  return()
-endif()
-
 set(_work_dir "${BUILD_ROOT}/codegen_external_include_module_resolution")
-set(_external_dir "${_work_dir}/external/gentest")
+set(_external_include "${_work_dir}/external include")
+set(_external_dir "${_external_include}/gentest")
 set(_external_module "${_external_dir}/gentest.cppm")
 
 file(REMOVE_RECURSE "${_work_dir}")
@@ -35,10 +31,15 @@ if(NOT _clang OR NOT _clangxx)
   return()
 endif()
 
-get_filename_component(_clang_dir "${_clangxx}" DIRECTORY)
-set(_clang_cl "${_clang_dir}/clang-cl.exe")
-if(NOT EXISTS "${_clang_cl}")
-  gentest_skip_test("external include module resolution regression: clang-cl.exe not found next to '${_clangxx}'")
+# No platform headers are needed: exercise clang-cl argument handling on every
+# host, including the include-only source lookup before a provider BMI exists.
+execute_process(
+  COMMAND "${_clangxx}" --driver-mode=cl --version
+  RESULT_VARIABLE _driver_mode_rc
+  OUTPUT_QUIET
+  ERROR_QUIET)
+if(NOT _driver_mode_rc EQUAL 0)
+  gentest_skip_test("external include module resolution regression: '${_clangxx}' does not support --driver-mode=cl")
   return()
 endif()
 
@@ -56,7 +57,7 @@ inline auto imported_marker() -> int { return 42; }
 } // namespace gentest
 ]=])
 
-function(_gentest_run_external_include_case case_name include_flag)
+function(_gentest_run_external_include_case case_name)
   set(_case_dir "${_work_dir}/${case_name}")
   set(_generated_dir "${_case_dir}/generated")
   set(_consumer "${_case_dir}/consumer.cppm")
@@ -87,12 +88,14 @@ void resolves_public_module_import() {
     DIRECTORY "${_case_dir}"
     FILE "${_consumer}"
     ARGUMENTS
-      "${_clang_cl}"
+      "${_clangxx}"
+      "--driver-mode=cl"
       "/std:c++20"
-      "${include_flag}"
+      ${ARGN}
       "/c"
-      "${_consumer}"
-      "/Fo${_consumer_obj}")
+      "/Fo${_consumer_obj}"
+      "--"
+      "${_consumer}")
   gentest_fixture_write_compdb("${_compdb}" "${_entry}")
 
   set(_command
@@ -134,8 +137,15 @@ endfunction()
 
 _gentest_run_external_include_case(
   slash
-  "/external:I${_work_dir}/external")
+  "/external:I${_external_include}")
 
 _gentest_run_external_include_case(
   dash
-  "-external:I${_work_dir}/external")
+  "-external:I${_external_include}")
+
+# CMake uses -imsvc for installed system includes under clang-cl. The provider
+# is absent from the compdb, so only the selected include argument can find it.
+_gentest_run_external_include_case(imsvc_joined_absolute "-imsvc${_external_include}")
+_gentest_run_external_include_case(imsvc_split_absolute "-imsvc" "${_external_include}")
+_gentest_run_external_include_case(imsvc_joined_relative "-imsvc../external include")
+_gentest_run_external_include_case(imsvc_split_relative "-imsvc" "../external include")

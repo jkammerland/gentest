@@ -2085,8 +2085,8 @@ std::vector<std::filesystem::path> scan_include_search_paths_from_compile_comman
             continue;
         }
 
-        if (arg == "-I" || arg == "-isystem" || arg == "-iquote" || arg == "-idirafter" || arg == "/I" || arg == "-external:I" ||
-            arg == "/external:I") {
+        if (arg == "-I" || arg == "-isystem" || arg == "-iquote" || arg == "-idirafter" || arg == "-imsvc" || arg == "/I" ||
+            arg == "-external:I" || arg == "/external:I") {
             consume_next = true;
             continue;
         }
@@ -2096,7 +2096,7 @@ std::vector<std::filesystem::path> scan_include_search_paths_from_compile_comman
         }
         bool handled_joined = false;
         for (const auto prefix : {std::string_view{"-isystem"}, std::string_view{"-iquote"}, std::string_view{"-idirafter"},
-                                  std::string_view{"-external:I"}, std::string_view{"/external:I"}}) {
+                                  std::string_view{"-imsvc"}, std::string_view{"-external:I"}, std::string_view{"/external:I"}}) {
             if (llvm::StringRef{arg}.starts_with(prefix) && arg.size() > prefix.size()) {
                 append_include_dir(std::string_view(arg).substr(prefix.size()));
                 handled_joined = true;
