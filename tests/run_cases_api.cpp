@@ -157,6 +157,28 @@ int main(int argc, char **argv) {
     expect(gentest::run_cases(case_table(), empty_filter_args) == 0, "an ordinary filter selecting no cases should return 0");
     expect(g_sequence.load(std::memory_order_relaxed) == 0, "an empty filter selection must not execute cases");
 
+    const char *strict_empty_args[] = {"--filter=embed/not_present", "--kind=test", "--fail-on-empty", "--no-color"};
+    expect(gentest::run_cases(case_table(), strict_empty_args) == 1, "strict empty selection must fail");
+    expect(g_sequence.load(std::memory_order_relaxed) == 0, "strict empty selection must not execute cases");
+    const char *strict_args[] = {"--fail-on-empty", "--no-color"};
+    expect(gentest::run_cases({}, strict_args) == 1, "strict empty registry must fail");
+
+    // A real match which skips is different from a selector matching nothing.
+    auto skipped        = kCases[0];
+    skipped.should_skip = true;
+    skipped.skip_reason = "intentional test skip";
+    expect(gentest::run_cases(std::span(&skipped, 1), strict_args) == 0, "matched skipped cases must retain skip semantics");
+    expect(g_sequence.load(std::memory_order_relaxed) == 0, "skipped cases must not execute");
+
+    auto                   death_case = kCases[0];
+    const std::string_view death_tag[]{"death"};
+    death_case.tags = death_tag;
+    expect(gentest::run_cases(std::span(&death_case, 1), strict_args) == 1, "excluded-only death selection is empty");
+    const char *strict_match_args[] = {"--filter=embed/alpha_*", "--fail-on-empty", "--no-color"};
+    expect(gentest::run_cases(case_table(), strict_match_args) == 0, "strict nonempty selection must succeed");
+    expect(g_alpha_runs.load(std::memory_order_relaxed) == 1, "strict matching selector must execute its case");
+    reset_calls();
+
     const char *missing_case_args[] = {"run-cases-api", "--run=embed/not_present", "--kind=test", "--no-color"};
     expect(gentest::run_cases(case_table(), missing_case_args) == 3, "an exact missing case should retain exit code 3");
     expect(gentest::run_cases(std::span<const gentest::Case>{}, std::span<const char *>{}) == 0,

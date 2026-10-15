@@ -107,6 +107,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
 
     bool wants_help              = false;
     bool wants_list_tests        = false;
+    bool wants_list_selected     = false;
     bool wants_list_meta         = false;
     bool wants_list_json         = false;
     bool wants_list_death        = false;
@@ -292,6 +293,10 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             wants_list_tests = true;
             continue;
         }
+        if (s == "--list-selected") {
+            wants_list_selected = true;
+            continue;
+        }
         if (s == "--list") {
             wants_list_meta = true;
             continue;
@@ -318,6 +323,10 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         }
         if (s == "--fail-fast") {
             opt.fail_fast = true;
+            continue;
+        }
+        if (s == "--fail-on-empty") {
+            opt.fail_on_empty = true;
             continue;
         }
         if (s == "--shuffle") {
@@ -652,8 +661,15 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         return false;
     }
 
+    if (wants_list_selected && (wants_list_tests || wants_list_meta || wants_list_json || wants_list_death || wants_list_benches)) {
+        fmt::print(stderr, "error: --list-selected cannot be combined with another listing mode\n");
+        return false;
+    }
+
     if (wants_help)
         opt.mode = Mode::Help;
+    else if (wants_list_selected)
+        opt.mode = Mode::ListSelected;
     else if (wants_list_tests)
         opt.mode = Mode::ListTests;
     else if (wants_list_meta)

@@ -1,5 +1,13 @@
 include(GentestTests)
 
+add_executable(gentest_selection_tests selection/cases.cpp selection/cases.hpp)
+target_link_libraries(gentest_selection_tests PRIVATE gentest::gentest_main)
+target_compile_features(gentest_selection_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(gentest_selection_tests)
+add_test(NAME selected_cases_contract COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_selected_cases.py $<TARGET_FILE:gentest_selection_tests>)
+set_tests_properties(selected_cases_contract PROPERTIES LABELS "public-api;runner;ci-compat")
+
 # Exercise actual value preservation under optimization even in Debug builds.
 add_executable(gentest_bench_util_value_tests bench_util/values.cpp bench_util/values.hpp)
 target_link_libraries(gentest_bench_util_value_tests PRIVATE gentest::gentest_main)
@@ -60,6 +68,7 @@ endif()
 add_dependencies(gentest_test_suites gentest_benchmark_measurement_tests)
 add_dependencies(gentest_test_suites gentest_bench_util_value_tests)
 add_dependencies(gentest_test_suites gentest_report_stream_tests)
+add_dependencies(gentest_test_suites gentest_selection_tests)
 
 add_executable(gentest_recording_tests recording/main.cpp recording/cases.hpp)
 target_link_libraries(gentest_recording_tests PRIVATE gentest::gentest)
