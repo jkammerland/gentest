@@ -53,6 +53,7 @@ struct CliOptions {
     bool github_annotations = false;
 
     bool        fail_fast      = false;
+    bool        fail_on_empty  = false;
     bool        shuffle        = false;
     std::size_t repeat_n       = 1;
     std::size_t async_log_tail = 5;

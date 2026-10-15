@@ -558,6 +558,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --time-unit=<mode>    Time display unit: auto|ns (default auto)\n");
         fmt::print("  --report-format=<mode> Measured reports: table|markdown|csv|json (default table)\n");
         fmt::print("  --fail-fast           Stop after the first failing case\n");
+        fmt::print("  --fail-on-empty       Fail when execution selects no cases\n");
         fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
         fmt::print("  --async-log-tail=N    Live async log lines per case (default 5, 0 disables)\n");
         fmt::print("  --shuffle             Shuffle tests (respects fixture/grouping)\n");
@@ -608,6 +609,14 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     const auto selection               = gentest::runner::select_cases(kCases, opt);
     const bool has_selection           = selection.has_selection;
     const bool machine_measured_report = is_machine_measured_report(opt);
+
+    // Selection failures happen before fixture setup. Matched skipped cases
+    // still count as selected; excluded death tests do not.
+    if (opt.fail_on_empty && (selection.status == SelectionStatus::ZeroSelected || selection.status == SelectionStatus::DeathExcludedAll)) {
+        fmt::print(stderr, "No cases selected (--kind={}, --filter={}); --fail-on-empty is enabled{}\n", kind_to_string(opt.kind),
+                   opt.filter_pat ? opt.filter_pat : "*", selection.filtered_death ? " (death tests excluded; use --include-death)" : "");
+        return 1;
+    }
 
     switch (selection.status) {
     case SelectionStatus::Ok: break;

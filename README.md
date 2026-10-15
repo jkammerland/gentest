@@ -159,6 +159,11 @@ Run:
 
 `--list-tests` prints only resolved test names (one per line).
 
+Use `--fail-on-empty` in CI to reject a filter/kind selection with no executable
+cases before fixture setup; intentionally skipped matching cases are still
+selected. CTest consumers can opt into the same guard with
+`gentest_discover_tests(my_tests TEST_FILTER "unit/*" FAIL_ON_EMPTY)`.
+
 For measured JSON/CSV reports, stdout contains only the report. The default
 `gentest::log()` sink writes diagnostics to stderr throughout fixture setup,
 execution and teardown. Application-installed sinks are unchanged; applications

@@ -205,6 +205,7 @@ function(gentest_discover_tests_impl)
     TEST_PREFIX
     TEST_SUFFIX
     TEST_FILTER
+    TEST_FAIL_ON_EMPTY
     TEST_LIST
     CTEST_FILE
     TEST_DISCOVERY_TIMEOUT
@@ -285,6 +286,7 @@ function(gentest_discover_tests_impl)
 
   string(JSON case_count LENGTH "${output}")
   set(case_index 0)
+  set(registered_count 0)
   while(case_index LESS case_count)
     string(JSON case_id GET "${output}" ${case_index} name)
     string(JSON skipped GET "${output}" ${case_index} skipped)
@@ -303,6 +305,7 @@ function(gentest_discover_tests_impl)
     if((is_death AND skipped) OR (filter_regex AND NOT case_id MATCHES "${filter_regex}"))
       continue()
     endif()
+    math(EXPR registered_count "${registered_count} + 1")
 
     if(is_death)
       if(NOT DEFINED _gentest_check_death_script)
@@ -353,6 +356,10 @@ function(gentest_discover_tests_impl)
       set(script "")
     endif()
   endwhile()
+  if(arg_TEST_FAIL_ON_EMPTY AND registered_count EQUAL 0)
+    message(FATAL_ERROR
+      "gentest_discover_tests: no cases registered for '${arg_TEST_EXECUTABLE}' (TEST_FILTER='${arg_TEST_FILTER}'); FAIL_ON_EMPTY is enabled")
+  endif()
   _gentest_add_command(set "${arg_TEST_LIST}" "${tests}")
 
   file(${file_write_mode} "${arg_CTEST_FILE}" "${script}")
@@ -366,6 +373,7 @@ if(CMAKE_SCRIPT_MODE_FILE)
     TEST_PREFIX "${TEST_PREFIX}"
     TEST_SUFFIX "${TEST_SUFFIX}"
     TEST_FILTER "${TEST_FILTER}"
+    TEST_FAIL_ON_EMPTY "${TEST_FAIL_ON_EMPTY}"
     TEST_LIST "${TEST_LIST}"
     CTEST_FILE "${CTEST_FILE}"
     TEST_DISCOVERY_TIMEOUT "${TEST_DISCOVERY_TIMEOUT}"
@@ -383,7 +391,7 @@ endif()
 endfunction()
 
 function(gentest_discover_tests target)
-    set(options "")
+    set(options FAIL_ON_EMPTY)
     set(one_value_args
         TEST_PREFIX
         TEST_SUFFIX
@@ -394,7 +402,7 @@ function(gentest_discover_tests target)
         DISCOVERY_MODE
         DEATH_EXPECT_SUBSTRING)
     set(multi_value_args EXTRA_ARGS DISCOVERY_EXTRA_ARGS PROPERTIES)
-    set(_gentest_discover_keyword_args ${one_value_args} ${multi_value_args})
+    set(_gentest_discover_keyword_args ${options} ${one_value_args} ${multi_value_args})
     set(_gentest_in_multi_value_arg FALSE)
     list(LENGTH ARGN _gentest_arg_count)
     set(_gentest_arg_idx 0)
@@ -499,6 +507,7 @@ function(gentest_discover_tests target)
                 -D "TEST_PREFIX=${GENTEST_TEST_PREFIX}"
                 -D "TEST_SUFFIX=${GENTEST_TEST_SUFFIX}"
                 -D "TEST_FILTER=${GENTEST_TEST_FILTER}"
+                -D "TEST_FAIL_ON_EMPTY=${GENTEST_FAIL_ON_EMPTY}"
                 -D "TEST_LIST=${GENTEST_TEST_LIST}"
                 -D "CTEST_FILE=${_gentest_ctest_tests_file}"
                 -D "TEST_DISCOVERY_TIMEOUT=${GENTEST_DISCOVERY_TIMEOUT}"
@@ -536,6 +545,7 @@ function(gentest_discover_tests target)
             TEST_PREFIX "${GENTEST_TEST_PREFIX}"
             TEST_SUFFIX "${GENTEST_TEST_SUFFIX}"
             TEST_FILTER "${GENTEST_TEST_FILTER}"
+            TEST_FAIL_ON_EMPTY "${GENTEST_FAIL_ON_EMPTY}"
             TEST_LIST "${GENTEST_TEST_LIST}"
             CTEST_FILE "${_gentest_ctest_tests_file}"
             TEST_DISCOVERY_TIMEOUT "${GENTEST_DISCOVERY_TIMEOUT}"

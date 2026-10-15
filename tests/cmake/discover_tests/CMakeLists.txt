@@ -12,6 +12,20 @@ set_target_properties(demo_tests PROPERTIES OUTPUT_NAME "demo]=]")
 target_compile_features(demo_tests PRIVATE cxx_std_20)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/demo_program_$<CONFIG>.txt" CONTENT "$<TARGET_FILE:demo_tests>")
 
+# Isolated strict-selection variants reuse the same deterministic inventory.
+if(DEFINED GENTEST_DISCOVER_POLICY_FILTER)
+  set(_policy_extra)
+  if(GENTEST_DISCOVER_POLICY_EMPTY)
+    list(APPEND _policy_extra DISCOVERY_EXTRA_ARGS --empty-inventory)
+  endif()
+  gentest_discover_tests(demo_tests
+    FAIL_ON_EMPTY
+    DISCOVERY_MODE "${GENTEST_DISCOVER_POLICY_MODE}"
+    TEST_FILTER "${GENTEST_DISCOVER_POLICY_FILTER}"
+    ${_policy_extra})
+  return()
+endif()
+
 set(_gentest_death_expect_arg DEATH_EXPECT_SUBSTRING)
 if(GENTEST_DISCOVER_TESTS_USE_LEGACY_EXPECT_SUBSTRING)
   set(_gentest_death_expect_arg EXPECT_SUBSTRING)

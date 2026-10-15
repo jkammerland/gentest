@@ -320,6 +320,10 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             opt.fail_fast = true;
             continue;
         }
+        if (s == "--fail-on-empty") {
+            opt.fail_on_empty = true;
+            continue;
+        }
         if (s == "--shuffle") {
             opt.shuffle = true;
             continue;

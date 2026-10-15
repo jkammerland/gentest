@@ -16,6 +16,7 @@ Optional:
 - `TEST_PREFIX <prefix>`: prepends this string to each discovered test name.
 - `TEST_SUFFIX <suffix>`: appends this string to each discovered test name.
 - `TEST_FILTER <pattern>`: wildcard filter applied to discovered case names (supports `*` and `?`).
+- `FAIL_ON_EMPTY`: fail discovery if no CTest entries are registered after filtering (off by default). Matched skipped ordinary cases still count; skipped death cases are omitted.
 - `WORKING_DIRECTORY <dir>`: working directory used when invoking the test binary (default: `CMAKE_CURRENT_BINARY_DIR`).
 - `TEST_LIST <var>`: CMake variable that receives the list of discovered tests. Names containing square brackets or ending in a backslash are omitted from this variable because CMake lists cannot represent them reliably; they are still registered with CTest.
 - `DISCOVERY_TIMEOUT <seconds>`: timeout for discovery calls (default: `5`).
@@ -67,6 +68,16 @@ Basic:
 ```cmake
 gentest_discover_tests(my_tests)
 ```
+
+For CI, make an accidental empty selection an error:
+
+```cmake
+gentest_discover_tests(my_tests TEST_FILTER "unit/*" FAIL_ON_EMPTY)
+```
+
+The corresponding runner option is `--fail-on-empty`. It rejects an empty
+execution selection before fixture setup; matching a case which intentionally
+skips is not an empty selection. Existing defaults remain unchanged.
 
 Filtered discovery with death-output matching:
 
