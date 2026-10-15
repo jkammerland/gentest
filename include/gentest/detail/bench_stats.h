@@ -15,6 +15,7 @@ struct SampleStats {
     double      stddev = 0.0;
     double      p05    = 0.0;
     double      p95    = 0.0;
+    double      p99    = 0.0;
 };
 
 struct HistogramBin {

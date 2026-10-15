@@ -58,6 +58,10 @@ int main() {
     t.contains(gentest::codegen::tpl::registration_preamble_full, "GENTEST_CASE_API_HAS_OWNER",
                "generated full preamble checks the Case owner capability");
     t.contains(gentest::codegen::tpl::case_entry, ".owner = {owner}", "generated Case initializer includes structured owner metadata");
+    t.contains(gentest::codegen::tpl::registration_preamble_light, "GENTEST_BENCHMARK_API_VERSION",
+               "generated light preamble checks benchmark metadata compatibility");
+    t.contains(gentest::codegen::tpl::registration_preamble_full, "GENTEST_BENCHMARK_API_VERSION",
+               "generated full preamble checks benchmark metadata compatibility");
 
     {
         std::vector<TestCaseInfo> cases(2);
@@ -124,6 +128,20 @@ int main() {
         cases[0].items_per_call    = std::numeric_limits<std::uint64_t>::max();
         const std::string rendered = render_case_entries(cases, {"kTags_0"}, {"kReqs_0"}, "IPC={items_per_call}\n");
         t.contains(rendered, "IPC=18446744073709551615ULL", "render_case_entries suffixes max uint64 item count");
+    }
+
+    {
+        std::vector<TestCaseInfo> cases(2);
+        cases[1].benchmark.once          = true;
+        cases[1].benchmark.supplied_time = true;
+        cases[1].benchmark.warmup_epochs = 0;
+
+        const std::string rendered = render_case_entries(cases, {"kTags_0", "kTags_1"}, {"kReqs_0", "kReqs_1"},
+                                                         "{benchmark_execution}|{benchmark_time_source}|{benchmark_warmup}\n");
+        t.contains(rendered, "gentest::BenchmarkExecution::Calibrated|gentest::BenchmarkTimeSource::Runner|std::nullopt\n",
+                   "default metadata retains unspecified warmup");
+        t.contains(rendered, "gentest::BenchmarkExecution::Once|gentest::BenchmarkTimeSource::Supplied|std::size_t{0ULL}\n",
+                   "once metadata emits public policy types and explicit zero warmup");
     }
 
     {

@@ -1,5 +1,6 @@
 module;
 
+#include "gentest/benchmark.h"
 #include "gentest/runner.h"
 // Installed interfaces have adjacent headers; build-system staging may copy only module files.
 #if __has_include("record.h")
@@ -24,6 +25,20 @@ module;
 export module gentest;
 
 export namespace gentest {
+
+using ::gentest::BenchmarkExecution;
+using ::gentest::BenchmarkOptions;
+using ::gentest::BenchmarkTimeSource;
+using ::gentest::currentMeasurement;
+using ::gentest::DurationSummary;
+using ::gentest::MeasurementKind;
+using ::gentest::MeasurementSampling;
+using ::gentest::MeasurementSnapshot;
+using ::gentest::NamedTimingStatistics;
+using ::gentest::PrimaryMeasurement;
+using ::gentest::recordTimingSamples;
+using ::gentest::setBenchmarkDuration;
+using ::gentest::TimingStatistics;
 
 using ::gentest::add_log_sink;
 using ::gentest::assert_eq;

@@ -1,5 +1,6 @@
 #include "runner_orchestrator.h"
 
+#include "benchmark_internal.h"
 #include "runner_fixture_runtime.h"
 #include "runner_json.h"
 #include "runner_measured_executor.h"
@@ -378,6 +379,14 @@ std::string format_run_summary(const TestCounters &counters, const TimedRunStatu
 }
 
 int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, const SelectionResult &selection, bool has_selection) {
+    // Validate manual registrations as well as generated ones, before shared/local fixture setup.
+    for (const auto index : selection.idxs) {
+        if (const auto error = gentest::detail::validate_benchmark_options(kCases[index]); !error.empty()) {
+            fmt::print(stderr, "invalid benchmark metadata for {}: {}\n", kCases[index].name, error);
+            return 1;
+        }
+    }
+
     const auto &test_idxs   = selection.test_idxs;
     const auto &bench_idxs  = selection.bench_idxs;
     const auto &jitter_idxs = selection.jitter_idxs;

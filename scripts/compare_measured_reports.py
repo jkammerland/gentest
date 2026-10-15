@@ -16,19 +16,26 @@ from typing import Any, Iterable, Sequence
 
 
 DEFAULT_METRICS = ("median_ns_per_item", "p95_ns_per_item", "stddev_ns_per_item")
+NAMED_METRICS = ("median_ns", "p95_ns", "stddev_ns")
 SUMMARY_TABLE_SUFFIX = ".summary"
+MEASUREMENTS_TABLE_SUFFIX = ".measurements"
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True)
 class CaseKey:
     kind: str
     name: str
+    series: str | None = None
 
 
 @dataclass
 class CaseMetrics:
     suite: str = ""
-    metrics: dict[str, float] | None = None
+    metrics: dict[str, float | None] | None = None
+    execution_mode: str = "calibrated"
+    time_source: str = "runner"
+    sampling_kind: str = "epoch-average"
+    calls_per_sample: int | None = None
 
     def __post_init__(self) -> None:
         if self.metrics is None:
@@ -54,6 +61,7 @@ class ComparisonResult:
     missing_cases: list[CaseKey]
     new_cases: list[CaseKey]
     omitted_metrics: list[str]
+    unavailable_metrics: list[str]
 
 
 def _as_float(value: Any) -> float | None:
@@ -83,8 +91,77 @@ def _case_kind(report: str, table_id: str) -> str:
 
 def _add_case(cases: dict[CaseKey, CaseMetrics], key: CaseKey, metrics: CaseMetrics, source: Path) -> None:
     if key in cases:
-        raise ValueError(f"{source}: duplicate summary row for {key.kind}/{key.name}")
+        raise ValueError(f"{source}: duplicate measured row for {_case_label(key)}")
     cases[key] = metrics
+
+
+def _case_label(key: CaseKey) -> str:
+    label = f"{key.kind}/{key.name}"
+    return label if key.series is None else f"{label} [series={key.series!r}]"
+
+
+def _sorted_keys(keys: Iterable[CaseKey]) -> list[CaseKey]:
+    return sorted(keys, key=lambda key: (key.kind, key.name, key.series is not None, key.series or ""))
+
+
+def _is_measured_table(table_id: str) -> bool:
+    return table_id.endswith((SUMMARY_TABLE_SUFFIX, MEASUREMENTS_TABLE_SUFFIX))
+
+
+def _row_identity(kind: str, table_id: str, row: dict[str, Any], path: Path) -> CaseKey:
+    series = None
+    if table_id.endswith(MEASUREMENTS_TABLE_SUFFIX):
+        series = row.get("series")
+        if not isinstance(series, str):
+            raise ValueError(f"{path}: named measurement row must contain a string 'series'")
+    return CaseKey(kind, str(row["benchmark"]), series)
+
+
+def _row_metrics(key: CaseKey, row: dict[str, Any], path: Path) -> CaseMetrics:
+    # Old primary reports predate these fields but used calibrated runner timing.
+    calls_per_sample = None
+    raw_width = row.get("calls_per_sample")
+    if raw_width is not None:
+        try:
+            calls_per_sample = int(raw_width)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError(f"{path}: {_case_label(key)} has invalid calls_per_sample: {raw_width!r}") from None
+        if isinstance(raw_width, bool) or calls_per_sample < 1 or (isinstance(raw_width, float) and raw_width != calls_per_sample):
+            raise ValueError(f"{path}: {_case_label(key)} has invalid calls_per_sample: {raw_width!r}")
+
+    legacy_batch_mode = key.series is None and key.kind == "jitter" and row.get("mode") == "batch"
+    if legacy_batch_mode and calls_per_sample is None and "sampling_kind" not in row and "sample_kind" not in row:
+        raise ValueError(f"{path}: {_case_label(key)}: calls_per_sample unavailable for historical batch sampling")
+    legacy_batch = legacy_batch_mode and calls_per_sample is not None and calls_per_sample > 1
+    legacy_jitter_sampling = "batch-average" if legacy_batch else "per-call"
+    sampling = "epoch-average" if key.kind == "bench" else row.get("sample_kind", legacy_jitter_sampling)
+    if key.series is not None:
+        sampling = "observation"
+    semantics = {
+        "execution_mode": row.get("execution_mode", "calibrated"),
+        "time_source": row.get("time_source", "runner"),
+        "sampling_kind": row.get("sampling_kind", sampling),
+    }
+    allowed = {
+        "execution_mode": {"calibrated", "once"},
+        "time_source": {"runner", "supplied"},
+        "sampling_kind": {"epoch-average", "per-call", "batch-average", "single-call", "observation"},
+    }
+    for field, value in semantics.items():
+        if not isinstance(value, str) or value not in allowed[field]:
+            raise ValueError(f"{path}: {_case_label(key)} has invalid {field}: {value!r}")
+    if key.series is None and semantics["sampling_kind"] == "batch-average":
+        if calls_per_sample is None:
+            raise ValueError(f"{path}: {_case_label(key)}: calls_per_sample unavailable for batch-average primary")
+        if calls_per_sample <= 1:
+            raise ValueError(f"{path}: {_case_label(key)}: batch-average primary requires calls_per_sample greater than one")
+
+    case = CaseMetrics(suite=str(row.get("suite", "")), calls_per_sample=calls_per_sample, **semantics)
+    for field, value in row.items():
+        number = _as_float(value)
+        if number is not None or value is None:
+            case.metrics[field] = number
+    return case
 
 
 def _load_json_report(path: Path, payload: dict[str, Any]) -> dict[CaseKey, CaseMetrics]:
@@ -97,7 +174,7 @@ def _load_json_report(path: Path, payload: dict[str, Any]) -> dict[CaseKey, Case
         if not isinstance(table, dict):
             continue
         table_id = str(table.get("id", ""))
-        if not table_id.endswith(SUMMARY_TABLE_SUFFIX):
+        if not _is_measured_table(table_id):
             continue
         rows = table.get("rows")
         if not isinstance(rows, list):
@@ -106,13 +183,8 @@ def _load_json_report(path: Path, payload: dict[str, Any]) -> dict[CaseKey, Case
         for row in rows:
             if not isinstance(row, dict) or "benchmark" not in row:
                 continue
-            name = str(row["benchmark"])
-            case = CaseMetrics(suite=str(row.get("suite", "")))
-            for field, value in row.items():
-                number = _as_float(value)
-                if number is not None:
-                    case.metrics[field] = number
-            _add_case(cases, CaseKey(kind, name), case, path)
+            key = _row_identity(kind, table_id, row, path)
+            _add_case(cases, key, _row_metrics(key, row, path), path)
     return cases
 
 
@@ -128,24 +200,30 @@ def _load_csv_report(path: Path, text: str) -> dict[CaseKey, CaseMetrics]:
             raise ValueError(f"{path}: malformed CSV record at line {reader.line_num}")
         report = record["report"]
         table = record["table"]
-        if not table.endswith(SUMMARY_TABLE_SUFFIX):
+        if not _is_measured_table(table):
             continue
         row = record["row"]
-        grouped.setdefault((report, table, row), {})[record["field"]] = (record["type"], record["value"])
+        fields = grouped.setdefault((report, table, row), {})
+        if record["field"] in fields:
+            raise ValueError(f"{path}: duplicate CSV field at line {reader.line_num}")
+        fields[record["field"]] = (record["type"], record["value"])
 
     cases: dict[CaseKey, CaseMetrics] = {}
     for (report, table, _row), fields in grouped.items():
         benchmark = fields.get("benchmark")
         if benchmark is None:
             continue
-        case = CaseMetrics(suite=fields.get("suite", ("", ""))[1])
+        values: dict[str, Any] = {}
         for field, (field_type, value) in fields.items():
-            if field_type != "number":
-                continue
-            number = _as_float(value)
-            if number is not None:
-                case.metrics[field] = number
-        _add_case(cases, CaseKey(_case_kind(report, table), benchmark[1]), case, path)
+            if field_type == "null":
+                values[field] = None
+            elif field_type == "number" and field != "calls_per_sample":
+                values[field] = _as_float(value)
+            else:
+                # Batch widths are integer semantics; converting through float can merge distinct large widths.
+                values[field] = value
+        key = _row_identity(_case_kind(report, table), table, values, path)
+        _add_case(cases, key, _row_metrics(key, values, path), path)
     return cases
 
 
@@ -178,35 +256,54 @@ def _unique_metrics(metrics: Sequence[str]) -> list[str]:
 def compare_reports(
     baseline: dict[CaseKey, CaseMetrics],
     current: dict[CaseKey, CaseMetrics],
-    metrics: Sequence[str],
+    metrics: Sequence[str] | None,
     fail_regression_pct: float,
     min_regression_delta: float,
 ) -> ComparisonResult:
     baseline_keys = set(baseline)
     current_keys = set(current)
-    common_keys = sorted(baseline_keys & current_keys)
-    metric_names = _unique_metrics(metrics)
+    common_keys = _sorted_keys(baseline_keys & current_keys)
 
     comparisons: list[MetricComparison] = []
     regressions: list[MetricComparison] = []
     improvements: list[MetricComparison] = []
     omitted_metrics: list[str] = []
+    unavailable_metrics: list[str] = []
 
     for key in common_keys:
+        semantic_fields = ["execution_mode", "time_source", "sampling_kind"]
+        if key.series is None and baseline[key].sampling_kind == "batch-average":
+            semantic_fields.append("calls_per_sample")
+        for field in semantic_fields:
+            before_semantics = getattr(baseline[key], field)
+            after_semantics = getattr(current[key], field)
+            if before_semantics != after_semantics:
+                raise ValueError(
+                    f"{_case_label(key)}: incompatible {field}: baseline={before_semantics!r}, current={after_semantics!r}"
+                )
+
         baseline_metrics = baseline[key].metrics or {}
         current_metrics = current[key].metrics or {}
+        defaults = NAMED_METRICS if key.series is not None else DEFAULT_METRICS
+        metric_names = _unique_metrics(metrics if metrics is not None else defaults)
         for metric in metric_names:
             in_baseline = metric in baseline_metrics
             in_current = metric in current_metrics
             if in_baseline != in_current:
                 missing_from = "current" if in_baseline else "baseline"
-                raise ValueError(f"{key.kind}/{key.name}: requested metric '{metric}' is missing from the {missing_from} report")
+                raise ValueError(f"{_case_label(key)}: requested metric '{metric}' is missing from the {missing_from} report")
             if not in_baseline:
-                omitted = f"{key.kind}/{key.name}:{metric}"
+                omitted = f"{_case_label(key)}:{metric}"
                 omitted_metrics.append(omitted)
                 continue
             before = baseline_metrics[metric]
             after = current_metrics[metric]
+            if before is None or after is None:
+                sides = "baseline" if before is None else "current"
+                if before is None and after is None:
+                    sides = "baseline and current"
+                unavailable_metrics.append(f"{_case_label(key)}:{metric}: unavailable in {sides}")
+                continue
             delta = after - before
             if before == 0.0:
                 delta_pct = 0.0 if delta == 0.0 else math.copysign(math.inf, delta)
@@ -237,9 +334,10 @@ def compare_reports(
         comparisons=comparisons,
         regressions=regressions,
         improvements=improvements,
-        missing_cases=sorted(baseline_keys - current_keys),
-        new_cases=sorted(current_keys - baseline_keys),
+        missing_cases=_sorted_keys(baseline_keys - current_keys),
+        new_cases=_sorted_keys(current_keys - baseline_keys),
         omitted_metrics=omitted_metrics,
+        unavailable_metrics=unavailable_metrics,
     )
 
 
@@ -274,14 +372,14 @@ def _append_comparison_table(lines: list[str], title: str, rows: Iterable[Metric
         return
     lines.extend(
         [
-            "| Status | Kind | Benchmark | Metric | Baseline | Current | Delta | Delta % |",
-            "|--------|------|-----------|--------|----------|---------|-------|---------|",
+            "| Status | Kind | Benchmark | Series | Metric | Baseline | Current | Delta | Delta % |",
+            "|--------|------|-----------|--------|--------|----------|---------|-------|---------|",
         ]
     )
     for row in rows:
         lines.append(
             f"| {_markdown_text(row.status)} | {_markdown_text(row.key.kind)} | "
-            f"{_markdown_code(row.key.name)} | {_markdown_code(row.metric)} | "
+            f"{_markdown_code(row.key.name)} | {_markdown_series(row.key)} | {_markdown_code(row.metric)} | "
             f"{_format_number(row.baseline)} | {_format_number(row.current)} | "
             f"{_format_number(row.delta)} | {_format_delta_pct(row.delta_pct)} |"
         )
@@ -294,16 +392,20 @@ def _append_case_table(lines: list[str], title: str, rows: Iterable[CaseKey]) ->
     if not rows:
         lines.extend(["None.", ""])
         return
-    lines.extend(["| Kind | Benchmark |", "|------|-----------|"])
+    lines.extend(["| Kind | Benchmark | Series |", "|------|-----------|--------|"])
     for row in rows:
-        lines.append(f"| {_markdown_text(row.kind)} | {_markdown_code(row.name)} |")
+        lines.append(f"| {_markdown_text(row.kind)} | {_markdown_code(row.name)} | {_markdown_series(row)} |")
     lines.append("")
+
+
+def _markdown_series(key: CaseKey) -> str:
+    return "(primary)" if key.series is None else _markdown_code(key.series)
 
 
 def render_markdown(
     baseline_path: Path,
     current_path: Path,
-    metrics: Sequence[str],
+    metrics: Sequence[str] | None,
     result: ComparisonResult,
     fail_regression_pct: float,
     min_regression_delta: float,
@@ -311,12 +413,20 @@ def render_markdown(
     fail_on_missing: bool,
 ) -> str:
     stable_count = sum(1 for comparison in result.comparisons if comparison.status == "stable")
+    if metrics is None:
+        metric_description = (
+            "primary " + ", ".join(_markdown_code(metric) for metric in DEFAULT_METRICS)
+            + "; named series " + ", ".join(_markdown_code(metric) for metric in NAMED_METRICS)
+        )
+    else:
+        metric_description = ", ".join(_markdown_code(metric) for metric in metrics)
+
     lines = [
         "# Measured Report Comparison",
         "",
         f"Baseline: {_markdown_code(baseline_path)}",
         f"Current: {_markdown_code(current_path)}",
-        f"Metrics: {', '.join(_markdown_code(metric) for metric in metrics)}",
+        f"Metrics: {metric_description}",
         "Failure threshold: "
         f"> {_format_number(fail_regression_pct)}% regression "
         f"and > {_format_number(min_regression_delta)} absolute delta.",
@@ -332,6 +442,7 @@ def render_markdown(
         f"| New benchmarks | {len(result.new_cases)} |",
         f"| Missing benchmarks | {len(result.missing_cases)} |",
         f"| Omitted metric values | {len(result.omitted_metrics)} |",
+        f"| Unavailable metric values | {len(result.unavailable_metrics)} |",
         "",
     ]
     if fail_on_new:
@@ -350,6 +461,12 @@ def render_markdown(
             lines.append(f"- {_markdown_code(item)}")
         lines.append("")
 
+    if result.unavailable_metrics:
+        lines.extend(["## Unavailable Statistics", ""])
+        for item in result.unavailable_metrics:
+            lines.append(f"- {_markdown_code(item)}")
+        lines.append("")
+
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -361,7 +478,8 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--metric",
         action="append",
         dest="metrics",
-        help=f"Metric to compare. May be repeated. Defaults to: {', '.join(DEFAULT_METRICS)}.",
+        help=f"Metric to compare for every row. May be repeated. Defaults: primary {', '.join(DEFAULT_METRICS)}; "
+        f"named series {', '.join(NAMED_METRICS)}.",
     )
     parser.add_argument(
         "--fail-regression-pct",
@@ -384,7 +502,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         parser.error("--fail-regression-pct must be finite and non-negative")
     if not math.isfinite(args.min_regression_delta) or args.min_regression_delta < 0.0:
         parser.error("--min-regression-delta must be finite and non-negative")
-    args.metrics = _unique_metrics(args.metrics or list(DEFAULT_METRICS))
+    args.metrics = _unique_metrics(args.metrics) if args.metrics else None
     return args
 
 

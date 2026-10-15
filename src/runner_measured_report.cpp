@@ -5,6 +5,7 @@
 #include "runner_measured_format.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <fmt/format.h>
@@ -15,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <tabulate/table.hpp>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -72,10 +74,55 @@ std::string jitter_sampling_warning(const gentest::Case &c, const JitterResult &
 
 std::uint64_t case_items_per_call(const gentest::Case &c) { return c.items_per_call == 0 ? 1 : c.items_per_call; }
 
-double per_item_ns(double ns_per_call, const gentest::Case &c) { return ns_per_call / static_cast<double>(case_items_per_call(c)); }
+std::uint64_t result_items_per_call(const gentest::Case &c, const BenchResult &result) {
+    // Runtime item counts replace the annotation; zero preserves manually constructed legacy results.
+    return result.effective_items_per_call == 0 ? case_items_per_call(c) : result.effective_items_per_call;
+}
+
+std::uint64_t result_items_per_call(const gentest::Case &c, const JitterResult &) { return case_items_per_call(c); }
+
+template <typename Result> double per_item_ns(double ns_per_call, const gentest::Case &c, const Result &result) {
+    return ns_per_call / static_cast<double>(result_items_per_call(c, result));
+}
+
+std::string_view execution_mode(const PrimaryMeasurement &primary) {
+    return primary.execution == BenchmarkExecution::Once ? "once" : "calibrated";
+}
+
+std::string_view time_source(const PrimaryMeasurement &primary) {
+    return primary.time_source == BenchmarkTimeSource::Supplied ? "supplied" : "runner";
+}
+
+std::string_view sampling_kind(const BenchResult &result) {
+    switch (result.measurement.primary.sampling) {
+    case MeasurementSampling::EpochAverage: return "epoch-average";
+    case MeasurementSampling::PerCall: return "per-call";
+    case MeasurementSampling::BatchAverage: return "batch-average";
+    case MeasurementSampling::SingleCall: return "single-call";
+    }
+    return "epoch-average";
+}
+
+std::string_view sampling_kind(const JitterResult &result) { return jitter_sample_kind(result); }
+
+std::size_t baseline_batch_width(const BenchResult &) { return 0; }
+
+std::size_t baseline_batch_width(const JitterResult &result) { return jitter_averages_calls(result) ? result.calls_per_sample : 0; }
+
+using BaselineKey = std::tuple<std::string, BenchmarkExecution, BenchmarkTimeSource, std::string_view, std::size_t>;
+
+template <typename Result> BaselineKey baseline_key(const gentest::Case &c, const Result &result) {
+    // Timing sources and averaging widths change the measured population, so suite identity alone is insufficient.
+    const auto &primary = result.measurement.primary;
+    return {std::string(c.suite), primary.execution, primary.time_source, sampling_kind(result), baseline_batch_width(result)};
+}
+
+double measured_call_wall_time(const BenchResult &result) { return result.measured_call_wall_time_s; }
+
+double measured_call_wall_time(const JitterResult &result) { return result.measurement.primary.measured_wall_seconds; }
 
 double total_items(const BenchResult &result, const gentest::Case &c) {
-    return static_cast<double>(result.total_iters) * static_cast<double>(case_items_per_call(c));
+    return static_cast<double>(result.total_iters) * static_cast<double>(result_items_per_call(c, result));
 }
 
 double total_items(const JitterResult &result, const gentest::Case &c) {
@@ -567,6 +614,81 @@ std::vector<gentest::detail::HistogramBin> per_item_histogram_bins(std::span<con
     return scaled;
 }
 
+ReportTable make_measurements_table(std::string_view kind, TimeUnitMode mode) {
+    return ReportTable{
+        .title       = kind == "bench" ? "Benchmark measurements" : "Jitter measurements",
+        .id          = fmt::format("{}.measurements", kind),
+        .report      = std::string(kind),
+        .headers     = {"Benchmark", "Suite", "Series", "Count", time_header_s("Min", mode), time_header_s("Max", mode),
+                        time_header_s("Mean", mode), time_header_s("Median", mode), time_header_s("StdDev (population)", mode),
+                        time_header_s("P05", mode), time_header_s("P95", mode), time_header_s("P99", mode)},
+        .right_align = {false, false, false, true, true, true, true, true, true, true, true, true},
+    };
+}
+
+void append_measurements(ReportTable &table, const gentest::Case &c, const MeasurementSnapshot &snapshot, TimeUnitMode mode) {
+    constexpr std::array<std::pair<std::string_view, double DurationSummary::*>, 8> statistics{{
+        {"min_ns", &DurationSummary::min_ns},
+        {"max_ns", &DurationSummary::max_ns},
+        {"mean_ns", &DurationSummary::mean_ns},
+        {"median_ns", &DurationSummary::median_ns},
+        {"stddev_ns", &DurationSummary::stddev_ns},
+        {"p05_ns", &DurationSummary::p05_ns},
+        {"p95_ns", &DurationSummary::p95_ns},
+        {"p99_ns", &DurationSummary::p99_ns},
+    }};
+
+    // Each series contains independent observations. Overlap is valid, so do not sum or normalize them.
+    for (const auto &timing : snapshot.timings) {
+        std::vector<std::string> cells{std::string(c.name), std::string(c.suite), timing.name, fmt::format("{}", timing.statistics.count)};
+        auto        machine  = machine_row({machine_string("benchmark", c.name), machine_string("suite", c.suite),
+                                            machine_string("series", timing.name), machine_count("count", timing.statistics.count),
+                                            machine_string("execution_mode", execution_mode(snapshot.primary)),
+                                            machine_string("time_source", time_source(snapshot.primary)),
+                                            machine_string("sampling_kind", std::string_view("observation"))});
+        const auto *duration = timing.statistics.count != 0 && timing.statistics.duration ? &*timing.statistics.duration : nullptr;
+        for (const auto &[name, member] : statistics) {
+            cells.push_back(duration ? format_report_time_ns(duration->*member, mode) : "-");
+            machine.fields.push_back(duration ? machine_number(std::string(name), duration->*member) : machine_null(std::string(name)));
+        }
+        table.rows.push_back(std::move(cells));
+        table.machine_rows.push_back(std::move(machine));
+    }
+}
+
+void append_measurement_attachment(std::vector<ReportAttachment> &attachments, const gentest::Case &c,
+                                   const MeasurementSnapshot &snapshot) {
+    if (snapshot.timings.empty()) {
+        return;
+    }
+    auto table = make_measurements_table(c.is_jitter ? "jitter" : "bench", TimeUnitMode::Ns);
+    append_measurements(table, c, snapshot, TimeUnitMode::Ns);
+
+    std::string text;
+    for (const auto &field : table.machine_rows.front().fields) {
+        if (!text.empty()) {
+            text += '\t';
+        }
+        text += field.key;
+    }
+    text += '\n';
+    for (const auto &row : table.machine_rows) {
+        bool first = true;
+        for (const auto &field : row.fields) {
+            if (!first) {
+                text += '\t';
+            }
+            first = false;
+            text += field.kind == MachineValueKind::Null ? "null" : escape_tsv_cell(field.value);
+        }
+        text += '\n';
+    }
+    attachments.push_back(ReportAttachment{.name           = "measurements",
+                                           .mime_type      = "text/tab-separated-values",
+                                           .file_extension = ".tsv",
+                                           .contents       = std::make_shared<const std::string>(std::move(text))});
+}
+
 } // namespace
 
 std::vector<ReportAttachment> make_bench_allure_attachments(const gentest::Case &c, const BenchResult &result) {
@@ -576,30 +698,36 @@ std::vector<ReportAttachment> make_bench_allure_attachments(const gentest::Case 
     append_tsv_metric(metrics, "name", std::string_view(c.name));
     append_tsv_metric(metrics, "suite", std::string_view(c.suite));
     append_tsv_metric(metrics, "is_baseline", c.is_baseline ? "true" : "false");
-    append_tsv_metric(metrics, "items_per_call", case_items_per_call(c));
+    append_tsv_metric(metrics, "items_per_call", result_items_per_call(c, result));
+    append_tsv_metric(metrics, "execution_mode", execution_mode(result.measurement.primary));
+    append_tsv_metric(metrics, "time_source", time_source(result.measurement.primary));
+    append_tsv_metric(metrics, "sampling_kind", sampling_kind(result));
     append_tsv_metric(metrics, "epochs", result.epochs);
     append_tsv_metric(metrics, "iters_per_epoch", result.iters_per_epoch);
     append_tsv_metric(metrics, "total_iters", result.total_iters);
     append_tsv_metric(metrics, "total_items", total_items(result, c));
     append_tsv_metric(metrics, "best_ns_per_op", result.best_ns);
     append_tsv_metric(metrics, "best_ns_per_call", result.best_ns);
-    append_tsv_metric(metrics, "best_ns_per_item", per_item_ns(result.best_ns, c));
+    append_tsv_metric(metrics, "best_ns_per_item", per_item_ns(result.best_ns, c, result));
     append_tsv_metric(metrics, "median_ns_per_op", result.median_ns);
     append_tsv_metric(metrics, "median_ns_per_call", result.median_ns);
-    append_tsv_metric(metrics, "median_ns_per_item", per_item_ns(result.median_ns, c));
+    append_tsv_metric(metrics, "median_ns_per_item", per_item_ns(result.median_ns, c, result));
     append_tsv_metric(metrics, "mean_ns_per_op", result.mean_ns);
     append_tsv_metric(metrics, "mean_ns_per_call", result.mean_ns);
-    append_tsv_metric(metrics, "mean_ns_per_item", per_item_ns(result.mean_ns, c));
+    append_tsv_metric(metrics, "mean_ns_per_item", per_item_ns(result.mean_ns, c, result));
+    append_tsv_metric(metrics, "stddev_ns_per_call", result.stddev_ns);
+    append_tsv_metric(metrics, "stddev_ns_per_item", per_item_ns(result.stddev_ns, c, result));
     append_tsv_metric(metrics, "p05_ns_per_op", result.p05_ns);
     append_tsv_metric(metrics, "p05_ns_per_call", result.p05_ns);
-    append_tsv_metric(metrics, "p05_ns_per_item", per_item_ns(result.p05_ns, c));
+    append_tsv_metric(metrics, "p05_ns_per_item", per_item_ns(result.p05_ns, c, result));
     append_tsv_metric(metrics, "p95_ns_per_op", result.p95_ns);
     append_tsv_metric(metrics, "p95_ns_per_call", result.p95_ns);
-    append_tsv_metric(metrics, "p95_ns_per_item", per_item_ns(result.p95_ns, c));
+    append_tsv_metric(metrics, "p95_ns_per_item", per_item_ns(result.p95_ns, c, result));
     append_tsv_metric(metrics, "worst_ns_per_op", result.worst_ns);
     append_tsv_metric(metrics, "worst_ns_per_call", result.worst_ns);
-    append_tsv_metric(metrics, "worst_ns_per_item", per_item_ns(result.worst_ns, c));
+    append_tsv_metric(metrics, "worst_ns_per_item", per_item_ns(result.worst_ns, c, result));
     append_tsv_metric(metrics, "total_time_s", result.total_time_s);
+    append_tsv_metric(metrics, "measured_call_wall_time_s", measured_call_wall_time(result));
     append_tsv_metric(metrics, "warmup_time_s", result.warmup_time_s);
     append_tsv_metric(metrics, "wall_time_s", result.wall_time_s);
     append_tsv_metric(metrics, "calibration_time_s", result.calibration_time_s);
@@ -607,7 +735,7 @@ std::vector<ReportAttachment> make_bench_allure_attachments(const gentest::Case 
     const double calls_per_sec =
         (result.total_time_s > 0.0 && result.total_iters != 0) ? (static_cast<double>(result.total_iters) / result.total_time_s) : 0.0;
     append_tsv_metric(metrics, "calls_per_sec", calls_per_sec);
-    append_tsv_metric(metrics, "items_per_sec", calls_per_sec * static_cast<double>(case_items_per_call(c)));
+    append_tsv_metric(metrics, "items_per_sec", calls_per_sec * static_cast<double>(result_items_per_call(c, result)));
 
     attachments.push_back(ReportAttachment{
         .name           = "metrics",
@@ -623,6 +751,7 @@ std::vector<ReportAttachment> make_bench_allure_attachments(const gentest::Case 
         .contents       = std::make_shared<const std::string>(make_bench_summary_svg(c, result)),
     });
 
+    append_measurement_attachment(attachments, c, result.measurement);
     return attachments;
 }
 
@@ -634,6 +763,9 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
     append_tsv_metric(metrics, "suite", std::string_view(c.suite));
     append_tsv_metric(metrics, "is_baseline", c.is_baseline ? "true" : "false");
     append_tsv_metric(metrics, "items_per_call", case_items_per_call(c));
+    append_tsv_metric(metrics, "execution_mode", execution_mode(result.measurement.primary));
+    append_tsv_metric(metrics, "time_source", time_source(result.measurement.primary));
+    append_tsv_metric(metrics, "sampling_kind", sampling_kind(result));
     append_tsv_metric(metrics, "batch_mode", result.batch_mode ? "true" : "false");
     append_tsv_metric(metrics, "mode", jitter_mode(result));
     append_tsv_metric(metrics, "sample_kind", jitter_sample_kind(result));
@@ -649,28 +781,29 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
     append_tsv_metric(metrics, "total_items", total_items(result, c));
     append_tsv_metric(metrics, "min_ns_per_op", result.min_ns);
     append_tsv_metric(metrics, "min_ns_per_call", result.min_ns);
-    append_tsv_metric(metrics, "min_ns_per_item", per_item_ns(result.min_ns, c));
+    append_tsv_metric(metrics, "min_ns_per_item", per_item_ns(result.min_ns, c, result));
     append_tsv_metric(metrics, "max_ns_per_op", result.max_ns);
     append_tsv_metric(metrics, "max_ns_per_call", result.max_ns);
-    append_tsv_metric(metrics, "max_ns_per_item", per_item_ns(result.max_ns, c));
+    append_tsv_metric(metrics, "max_ns_per_item", per_item_ns(result.max_ns, c, result));
     append_tsv_metric(metrics, "median_ns_per_op", result.median_ns);
     append_tsv_metric(metrics, "median_ns_per_call", result.median_ns);
-    append_tsv_metric(metrics, "median_ns_per_item", per_item_ns(result.median_ns, c));
+    append_tsv_metric(metrics, "median_ns_per_item", per_item_ns(result.median_ns, c, result));
     append_tsv_metric(metrics, "mean_ns_per_op", result.mean_ns);
     append_tsv_metric(metrics, "mean_ns_per_call", result.mean_ns);
-    append_tsv_metric(metrics, "mean_ns_per_item", per_item_ns(result.mean_ns, c));
+    append_tsv_metric(metrics, "mean_ns_per_item", per_item_ns(result.mean_ns, c, result));
     append_tsv_metric(metrics, "stddev_ns_per_op", result.stddev_ns);
     append_tsv_metric(metrics, "stddev_ns_per_call", result.stddev_ns);
-    append_tsv_metric(metrics, "stddev_ns_per_item", per_item_ns(result.stddev_ns, c));
+    append_tsv_metric(metrics, "stddev_ns_per_item", per_item_ns(result.stddev_ns, c, result));
     append_tsv_metric(metrics, "p05_ns_per_op", result.p05_ns);
     append_tsv_metric(metrics, "p05_ns_per_call", result.p05_ns);
-    append_tsv_metric(metrics, "p05_ns_per_item", per_item_ns(result.p05_ns, c));
+    append_tsv_metric(metrics, "p05_ns_per_item", per_item_ns(result.p05_ns, c, result));
     append_tsv_metric(metrics, "p95_ns_per_op", result.p95_ns);
     append_tsv_metric(metrics, "p95_ns_per_call", result.p95_ns);
-    append_tsv_metric(metrics, "p95_ns_per_item", per_item_ns(result.p95_ns, c));
+    append_tsv_metric(metrics, "p95_ns_per_item", per_item_ns(result.p95_ns, c, result));
     append_tsv_metric(metrics, "overhead_mean_ns_per_iter", result.overhead_mean_ns);
     append_tsv_metric(metrics, "overhead_sd_ns_per_iter", result.overhead_sd_ns);
     append_tsv_metric(metrics, "overhead_ratio_pct", result.overhead_ratio_pct);
+    append_tsv_metric(metrics, "measured_call_wall_time_s", measured_call_wall_time(result));
     append_tsv_metric(metrics, "total_time_s", result.total_time_s);
     append_tsv_metric(metrics, "warmup_time_s", result.warmup_time_s);
     append_tsv_metric(metrics, "wall_time_s", result.wall_time_s);
@@ -713,17 +846,18 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
         .contents       = std::make_shared<const std::string>(make_samples_json(c, result)),
     });
 
+    append_measurement_attachment(attachments, c, result.measurement);
     return attachments;
 }
 
 static std::vector<ReportTable> build_bench_report_tables(std::span<const BenchReportRow> rows, const CliOptions &opt) {
-    std::map<std::string, double> baseline_ns;
+    std::map<BaselineKey, double> baseline_ns;
     for (const auto &row : rows) {
         if (!row.c || !row.c->is_baseline)
             continue;
-        const std::string suite(row.c->suite);
-        if (baseline_ns.find(suite) == baseline_ns.end()) {
-            baseline_ns.emplace(suite, per_item_ns(row.result.median_ns, *row.c));
+        const auto key = baseline_key(*row.c, row.result);
+        if (baseline_ns.find(key) == baseline_ns.end()) {
+            baseline_ns.emplace(key, per_item_ns(row.result.median_ns, *row.c, row.result));
         }
     }
 
@@ -750,17 +884,19 @@ static std::vector<ReportTable> build_bench_report_tables(std::span<const BenchR
                 time_header("Worst", "item", opt.time_unit_mode),
                 time_header_s("Total", opt.time_unit_mode),
                 "Baseline Δ%",
+                "Execution",
+                "Time source",
+                "Sampling",
             },
-        .right_align = {false, true, true, true, true, true, true, true, true, true, true},
+        .right_align = {false, true, true, true, true, true, true, true, true, true, true, false, false, false},
     };
 
     for (const auto &row : rows) {
         if (!row.c)
             continue;
-        const std::string suite(row.c->suite);
-        const auto        base_it            = baseline_ns.find(suite);
+        const auto        base_it            = baseline_ns.find(baseline_key(*row.c, row.result));
         const double      base_ns            = (base_it == baseline_ns.end()) ? 0.0 : base_it->second;
-        const double      median_item_ns     = per_item_ns(row.result.median_ns, *row.c);
+        const double      median_item_ns     = per_item_ns(row.result.median_ns, *row.c, row.result);
         const bool        has_baseline       = base_ns > 0.0;
         const double      baseline_delta_pct = has_baseline ? ((median_item_ns - base_ns) / base_ns * 100.0) : 0.0;
         const std::string baseline_cell      = has_baseline ? fmt::format("{:+.2f}%", baseline_delta_pct) : std::string("-");
@@ -768,28 +904,35 @@ static std::vector<ReportTable> build_bench_report_tables(std::span<const BenchR
             std::string(row.c->name),
             fmt::format("{}", row.result.epochs),
             fmt::format("{}", row.result.iters_per_epoch),
-            fmt::format("{}", case_items_per_call(*row.c)),
+            fmt::format("{}", result_items_per_call(*row.c, row.result)),
             format_report_time_ns(median_item_ns, opt.time_unit_mode),
-            format_report_time_ns(per_item_ns(row.result.mean_ns, *row.c), opt.time_unit_mode),
-            format_report_time_ns(per_item_ns(row.result.p05_ns, *row.c), opt.time_unit_mode),
-            format_report_time_ns(per_item_ns(row.result.p95_ns, *row.c), opt.time_unit_mode),
-            format_report_time_ns(per_item_ns(row.result.worst_ns, *row.c), opt.time_unit_mode),
+            format_report_time_ns(per_item_ns(row.result.mean_ns, *row.c, row.result), opt.time_unit_mode),
+            format_report_time_ns(per_item_ns(row.result.p05_ns, *row.c, row.result), opt.time_unit_mode),
+            format_report_time_ns(per_item_ns(row.result.p95_ns, *row.c, row.result), opt.time_unit_mode),
+            format_report_time_ns(per_item_ns(row.result.worst_ns, *row.c, row.result), opt.time_unit_mode),
             format_report_time_s(row.result.wall_time_s, opt.time_unit_mode),
             baseline_cell,
+            std::string(execution_mode(row.result.measurement.primary)),
+            std::string(time_source(row.result.measurement.primary)),
+            std::string(sampling_kind(row.result)),
         });
         summary.machine_rows.push_back(machine_row({
             machine_string("benchmark", row.c->name),
             machine_string("suite", row.c->suite),
             machine_bool("is_baseline", row.c->is_baseline),
+            machine_string("execution_mode", execution_mode(row.result.measurement.primary)),
+            machine_string("time_source", time_source(row.result.measurement.primary)),
+            machine_string("sampling_kind", sampling_kind(row.result)),
             machine_count("samples", row.result.epochs),
             machine_count("iters_per_epoch", row.result.iters_per_epoch),
-            machine_count("items_per_call", case_items_per_call(*row.c)),
+            machine_count("items_per_call", result_items_per_call(*row.c, row.result)),
             machine_number("median_ns_per_item", median_item_ns),
-            machine_number("mean_ns_per_item", per_item_ns(row.result.mean_ns, *row.c)),
-            machine_number("p05_ns_per_item", per_item_ns(row.result.p05_ns, *row.c)),
-            machine_number("p95_ns_per_item", per_item_ns(row.result.p95_ns, *row.c)),
-            machine_number("worst_ns_per_item", per_item_ns(row.result.worst_ns, *row.c)),
+            machine_number("mean_ns_per_item", per_item_ns(row.result.mean_ns, *row.c, row.result)),
+            machine_number("p05_ns_per_item", per_item_ns(row.result.p05_ns, *row.c, row.result)),
+            machine_number("p95_ns_per_item", per_item_ns(row.result.p95_ns, *row.c, row.result)),
+            machine_number("worst_ns_per_item", per_item_ns(row.result.worst_ns, *row.c, row.result)),
             machine_number("wall_time_s", row.result.wall_time_s),
+            machine_number("measured_call_wall_time_s", measured_call_wall_time(row.result)),
             machine_optional_pct("baseline_delta_pct", has_baseline, baseline_delta_pct),
         }));
     }
@@ -816,20 +959,21 @@ static std::vector<ReportTable> build_bench_report_tables(std::span<const BenchR
                 time_header_s("Max total", opt.time_unit_mode),
                 "Calls/sec",
                 "Items/sec",
+                time_header_s("Measured call wall", opt.time_unit_mode),
             },
-        .right_align = {false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true},
+        .right_align = {false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true},
     };
 
     for (const auto &row : rows) {
         if (!row.c)
             continue;
         const double calls_per_sec = bench_calls_per_sec(row.result);
-        const double items_per_sec = calls_per_sec * static_cast<double>(case_items_per_call(*row.c));
+        const double items_per_sec = calls_per_sec * static_cast<double>(result_items_per_call(*row.c, row.result));
         debug.rows.push_back({
             std::string(row.c->name),
             fmt::format("{}", row.result.epochs),
             fmt::format("{}", row.result.iters_per_epoch),
-            fmt::format("{}", case_items_per_call(*row.c)),
+            fmt::format("{}", result_items_per_call(*row.c, row.result)),
             fmt::format("{}", row.result.total_iters),
             fmt::format("{:.0f}", total_items(row.result, *row.c)),
             format_report_time_s(row.result.total_time_s, opt.time_unit_mode),
@@ -842,16 +986,18 @@ static std::vector<ReportTable> build_bench_report_tables(std::span<const BenchR
             format_report_time_s(opt.bench_cfg.max_total_time_s, opt.time_unit_mode),
             fmt::format("{:.3f}", calls_per_sec),
             fmt::format("{:.3f}", items_per_sec),
+            format_report_time_s(measured_call_wall_time(row.result), opt.time_unit_mode),
         });
         debug.machine_rows.push_back(machine_row({
             machine_string("benchmark", row.c->name),
             machine_string("suite", row.c->suite),
             machine_count("epochs", row.result.epochs),
             machine_count("iters_per_epoch", row.result.iters_per_epoch),
-            machine_count("items_per_call", case_items_per_call(*row.c)),
+            machine_count("items_per_call", result_items_per_call(*row.c, row.result)),
             machine_count("total_calls", row.result.total_iters),
             machine_number("total_items", total_items(row.result, *row.c)),
             machine_number("measured_time_s", row.result.total_time_s),
+            machine_number("measured_call_wall_time_s", measured_call_wall_time(row.result)),
             machine_number("wall_time_s", row.result.wall_time_s),
             machine_number("warmup_time_s", row.result.warmup_time_s),
             machine_count("calibration_iters", row.result.calibration_iters),
@@ -867,6 +1013,15 @@ static std::vector<ReportTable> build_bench_report_tables(std::span<const BenchR
     std::vector<ReportTable> tables;
     tables.push_back(std::move(summary));
     tables.push_back(std::move(debug));
+    auto measurements = make_measurements_table("bench", opt.time_unit_mode);
+    for (const auto &row : rows) {
+        if (row.c) {
+            append_measurements(measurements, *row.c, row.result.measurement, opt.time_unit_mode);
+        }
+    }
+    if (!measurements.rows.empty()) {
+        tables.push_back(std::move(measurements));
+    }
     return tables;
 }
 
@@ -874,8 +1029,8 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
     const int                     bins                 = opt.jitter_bins;
     bool                          has_batch_averages   = false;
     bool                          has_per_call_samples = false;
-    std::map<std::string, double> baseline_median_ns;
-    std::map<std::string, double> baseline_stddev_ns;
+    std::map<BaselineKey, double> baseline_median_ns;
+    std::map<BaselineKey, double> baseline_stddev_ns;
     for (const auto &row : rows) {
         if (!row.c)
             continue;
@@ -886,10 +1041,10 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
         }
         if (!row.c->is_baseline)
             continue;
-        const std::string suite(row.c->suite);
-        if (baseline_median_ns.find(suite) == baseline_median_ns.end()) {
-            baseline_median_ns.emplace(suite, per_item_ns(row.result.median_ns, *row.c));
-            baseline_stddev_ns.emplace(suite, per_item_ns(row.result.stddev_ns, *row.c));
+        const auto key = baseline_key(*row.c, row.result);
+        if (baseline_median_ns.find(key) == baseline_median_ns.end()) {
+            baseline_median_ns.emplace(key, per_item_ns(row.result.median_ns, *row.c, row.result));
+            baseline_stddev_ns.emplace(key, per_item_ns(row.result.stddev_ns, *row.c, row.result));
         }
     }
 
@@ -916,20 +1071,22 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
                 time_header_s("Total", opt.time_unit_mode),
                 "Baseline Δ%",
                 "Baseline SD Δ%",
+                "Execution",
+                "Time source",
             },
-        .right_align = {false, false, true, true, true, true, true, true, true, true, true, true, true, true, true},
+        .right_align = {false, false, true, true, true, true, true, true, true, true, true, true, true, true, true, false, false},
     };
 
     for (const auto &row : rows) {
         if (!row.c)
             continue;
-        const std::string suite(row.c->suite);
-        const auto        base_med_it            = baseline_median_ns.find(suite);
-        const auto        base_sd_it             = baseline_stddev_ns.find(suite);
+        const auto        key                    = baseline_key(*row.c, row.result);
+        const auto        base_med_it            = baseline_median_ns.find(key);
+        const auto        base_sd_it             = baseline_stddev_ns.find(key);
         const double      base_median            = (base_med_it == baseline_median_ns.end()) ? 0.0 : base_med_it->second;
         const double      base_sd                = (base_sd_it == baseline_stddev_ns.end()) ? 0.0 : base_sd_it->second;
-        const double      median_item_ns         = per_item_ns(row.result.median_ns, *row.c);
-        const double      sd_item_ns             = per_item_ns(row.result.stddev_ns, *row.c);
+        const double      median_item_ns         = per_item_ns(row.result.median_ns, *row.c, row.result);
+        const double      sd_item_ns             = per_item_ns(row.result.stddev_ns, *row.c, row.result);
         const bool        has_baseline_med       = base_median > 0.0;
         const bool        has_baseline_sd        = base_sd > 0.0;
         const double      baseline_med_delta_pct = has_baseline_med ? ((median_item_ns - base_median) / base_median * 100.0) : 0.0;
@@ -945,36 +1102,42 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
             std::string(jitter_sample_kind(row.result)),
             fmt::format("{}", row.result.calls_per_sample),
             fmt::format("{}", row.result.samples_ns.size()),
-            fmt::format("{}", case_items_per_call(*row.c)),
+            fmt::format("{}", result_items_per_call(*row.c, row.result)),
             format_report_time_ns(median_item_ns, opt.time_unit_mode),
-            format_report_time_ns(per_item_ns(row.result.mean_ns, *row.c), opt.time_unit_mode),
+            format_report_time_ns(per_item_ns(row.result.mean_ns, *row.c, row.result), opt.time_unit_mode),
             format_report_time_ns(sd_item_ns, opt.time_unit_mode),
-            format_report_time_ns(per_item_ns(row.result.p05_ns, *row.c), opt.time_unit_mode),
-            format_report_time_ns(per_item_ns(row.result.p95_ns, *row.c), opt.time_unit_mode),
-            format_report_time_ns(per_item_ns(row.result.min_ns, *row.c), opt.time_unit_mode),
-            format_report_time_ns(per_item_ns(row.result.max_ns, *row.c), opt.time_unit_mode),
+            format_report_time_ns(per_item_ns(row.result.p05_ns, *row.c, row.result), opt.time_unit_mode),
+            format_report_time_ns(per_item_ns(row.result.p95_ns, *row.c, row.result), opt.time_unit_mode),
+            format_report_time_ns(per_item_ns(row.result.min_ns, *row.c, row.result), opt.time_unit_mode),
+            format_report_time_ns(per_item_ns(row.result.max_ns, *row.c, row.result), opt.time_unit_mode),
             format_report_time_s(row.result.wall_time_s, opt.time_unit_mode),
             baseline_med_cell,
             baseline_sd_cell,
+            std::string(execution_mode(row.result.measurement.primary)),
+            std::string(time_source(row.result.measurement.primary)),
         });
         summary.machine_rows.push_back(machine_row({
             machine_string("benchmark", row.c->name),
             machine_string("suite", row.c->suite),
             machine_bool("is_baseline", row.c->is_baseline),
+            machine_string("execution_mode", execution_mode(row.result.measurement.primary)),
+            machine_string("time_source", time_source(row.result.measurement.primary)),
+            machine_string("sampling_kind", sampling_kind(row.result)),
             machine_string("mode", jitter_mode(row.result)),
             machine_string("sample_kind", jitter_sample_kind(row.result)),
             machine_count("calls_per_sample", row.result.calls_per_sample),
             warning.empty() ? machine_null("sampling_warning") : machine_string("sampling_warning", warning),
             machine_count("samples", row.result.samples_ns.size()),
-            machine_count("items_per_call", case_items_per_call(*row.c)),
+            machine_count("items_per_call", result_items_per_call(*row.c, row.result)),
             machine_number("median_ns_per_item", median_item_ns),
-            machine_number("mean_ns_per_item", per_item_ns(row.result.mean_ns, *row.c)),
+            machine_number("mean_ns_per_item", per_item_ns(row.result.mean_ns, *row.c, row.result)),
             machine_number("stddev_ns_per_item", sd_item_ns),
-            machine_number("p05_ns_per_item", per_item_ns(row.result.p05_ns, *row.c)),
-            machine_number("p95_ns_per_item", per_item_ns(row.result.p95_ns, *row.c)),
-            machine_number("min_ns_per_item", per_item_ns(row.result.min_ns, *row.c)),
-            machine_number("max_ns_per_item", per_item_ns(row.result.max_ns, *row.c)),
+            machine_number("p05_ns_per_item", per_item_ns(row.result.p05_ns, *row.c, row.result)),
+            machine_number("p95_ns_per_item", per_item_ns(row.result.p95_ns, *row.c, row.result)),
+            machine_number("min_ns_per_item", per_item_ns(row.result.min_ns, *row.c, row.result)),
+            machine_number("max_ns_per_item", per_item_ns(row.result.max_ns, *row.c, row.result)),
             machine_number("wall_time_s", row.result.wall_time_s),
+            machine_number("measured_call_wall_time_s", measured_call_wall_time(row.result)),
             machine_optional_pct("baseline_delta_pct", has_baseline_med, baseline_med_delta_pct),
             machine_optional_pct("baseline_stddev_delta_pct", has_baseline_sd, baseline_sd_delta_pct),
         }));
@@ -1021,7 +1184,7 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
             fmt::format("{}", row.result.calls_per_sample),
             fmt::format("{}", row.result.samples_ns.size()),
             fmt::format("{}", row.result.iters_per_epoch),
-            fmt::format("{}", case_items_per_call(*row.c)),
+            fmt::format("{}", result_items_per_call(*row.c, row.result)),
             overhead_cell,
             overhead_pct,
             format_report_time_s(row.result.total_time_s, opt.time_unit_mode),
@@ -1039,11 +1202,12 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
             machine_count("calls_per_sample", row.result.calls_per_sample),
             machine_count("samples", row.result.samples_ns.size()),
             machine_count("iters_per_epoch", row.result.iters_per_epoch),
-            machine_count("items_per_call", case_items_per_call(*row.c)),
+            machine_count("items_per_call", result_items_per_call(*row.c, row.result)),
             machine_number("overhead_mean_ns_per_call", row.result.overhead_mean_ns),
             machine_number("overhead_sd_ns_per_call", row.result.overhead_sd_ns),
             machine_number("overhead_ratio_pct", row.result.overhead_ratio_pct),
             machine_number("measured_time_s", row.result.total_time_s),
+            machine_number("measured_call_wall_time_s", measured_call_wall_time(row.result)),
             machine_number("warmup_time_s", row.result.warmup_time_s),
             machine_number("min_total_time_s", opt.bench_cfg.min_total_time_s),
             machine_number("max_total_time_s", opt.bench_cfg.max_total_time_s),
@@ -1052,12 +1216,22 @@ static std::vector<ReportTable> build_jitter_report_tables(std::span<const Jitte
     }
     tables.push_back(std::move(debug));
 
+    auto measurements = make_measurements_table("jitter", opt.time_unit_mode);
+    for (const auto &row : rows) {
+        if (row.c) {
+            append_measurements(measurements, *row.c, row.result.measurement, opt.time_unit_mode);
+        }
+    }
+    if (!measurements.rows.empty()) {
+        tables.push_back(std::move(measurements));
+    }
+
     for (const auto &row : rows) {
         if (!row.c)
             continue;
         gentest::detail::Histogram fallback_histogram;
         const auto                &hist_data   = select_jitter_histogram(row.result, bins, fallback_histogram);
-        const auto                 scaled_bins = per_item_histogram_bins(hist_data.bins, case_items_per_call(*row.c));
+        const auto                 scaled_bins = per_item_histogram_bins(hist_data.bins, result_items_per_call(*row.c, row.result));
 
         double hist_abs_max_ns = 0.0;
         for (const auto &bin : scaled_bins) {

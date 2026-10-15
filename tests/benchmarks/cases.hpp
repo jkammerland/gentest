@@ -4,6 +4,7 @@
 #include "gentest/bench_util.h"
 #include "gentest/runner.h"
 
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <complex>
@@ -92,8 +93,18 @@ template <typename Mutex> inline void lock_guard_small() {
 }
 } // namespace spacing
 
+// Inputs are constructed outside timing; one call produces three complete
+// strings. Output replacement is part of the measured work, validation is not.
+struct ConcatFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    std::array<std::array<std::string, 3>, 3> inputs;
+    std::array<std::string, 3>                outputs;
+
+    void setUp() override;
+    void tearDown() override;
+};
+
 [[using gentest: bench("string/concat_small"), baseline, items_per_call(3)]]
-void bench_concat_small();
+void bench_concat_small(ConcatFixture &fixture);
 
 [[using gentest: bench("escaping/csv,comma")]]
 void bench_csv_comma_name();

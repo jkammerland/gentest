@@ -14,20 +14,25 @@
 namespace gentest::runner {
 
 struct BenchResult {
-    std::size_t epochs             = 0;
-    std::size_t iters_per_epoch    = 0;
-    std::size_t total_iters        = 0;
-    double      best_ns            = 0;
-    double      worst_ns           = 0;
-    double      median_ns          = 0;
-    double      mean_ns            = 0;
-    double      p05_ns             = 0;
-    double      p95_ns             = 0;
-    double      total_time_s       = 0;
-    double      warmup_time_s      = 0;
-    double      wall_time_s        = 0;
-    double      calibration_time_s = 0;
-    std::size_t calibration_iters  = 0;
+    std::size_t         epochs             = 0;
+    std::size_t         iters_per_epoch    = 0;
+    std::size_t         total_iters        = 0;
+    double              best_ns            = 0;
+    double              worst_ns           = 0;
+    double              median_ns          = 0;
+    double              mean_ns            = 0;
+    double              p05_ns             = 0;
+    double              p95_ns             = 0;
+    double              p99_ns             = 0;
+    double              total_time_s       = 0;
+    double              warmup_time_s      = 0;
+    double              wall_time_s        = 0;
+    double              calibration_time_s = 0;
+    std::size_t         calibration_iters  = 0;
+    MeasurementSnapshot measurement;
+    std::uint64_t       effective_items_per_call  = 0;
+    double              measured_call_wall_time_s = 0;
+    double              stddev_ns                 = 0;
 };
 
 struct JitterResult {
@@ -43,6 +48,7 @@ struct JitterResult {
     double                     stddev_ns          = 0;
     double                     p05_ns             = 0;
     double                     p95_ns             = 0;
+    double                     p99_ns             = 0;
     double                     overhead_mean_ns   = 0;
     double                     overhead_sd_ns     = 0;
     double                     overhead_ratio_pct = 0;
@@ -54,6 +60,7 @@ struct JitterResult {
     int                        histogram_bins     = 0;
     gentest::detail::Histogram histogram;
     std::vector<double>        samples_ns;
+    MeasurementSnapshot        measurement;
 };
 
 struct BenchReportRow {

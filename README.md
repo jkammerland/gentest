@@ -783,21 +783,40 @@ Use `t.add(...)` (through the mock object). A direct `Ticker::add(...)` call byp
 
 ### Benchmarks and jitter
 
+For source-declared one-shot execution, supplied end-to-end timing and named CPU/GPU
+timing distributions, see [benchmark measurements](docs/benchmark_measurements.md).
+
 Define microbenchmarks and jitter benchmarks (for timing variance):
 
 ```cpp
 #include "gentest/attributes.h"
 #include "gentest/bench_util.h"
+#include "gentest/runner.h"
+#include "gentest/test.h"
 
 #include <cmath>
 #include <string>
 
+struct ConcatInputs : gentest::FixtureSetup, gentest::FixtureTearDown {
+    std::string left, right, result;
+
+    void setUp() override {
+        left = "hello";
+        right = " world";
+    }
+
+    void tearDown() override {
+        gentest::asserts::EXPECT_EQ(result, "hello world");
+    }
+};
+
+// One logical item is one complete concatenation, including output replacement.
+// Fixture setup and result checking happen outside the timed calls.
 [[gentest::bench("bench/concat")]]
-[[gentest::items_per_call(2)]]
-inline void bench_concat() {
-    std::string s = "hello";
-    s += " world";
-    gentest::doNotOptimizeAway(s);
+inline void bench_concat(ConcatInputs &inputs) {
+    inputs.result = inputs.left + inputs.right;
+    gentest::doNotOptimizeAway(inputs.result.data());
+    gentest::clobberMemory();
 }
 
 [[gentest::jitter("bench/sin")]]
@@ -837,6 +856,21 @@ behind a suite-wide unit.
 `N` is a positive non-zero decimal integer; prefixes, suffixes, digit
 separators, and leading-zero forms are rejected so the reported item count
 matches the source spelling.
+
+For very small workloads, perform several real operations inside one call and
+set `items_per_call` to that count to amortize invocation overhead. Do not count
+inputs as completed operations: three pieces concatenated into one string are
+one item. Timings include the call wrapper and any work left inside the body;
+the runner does not subtract a synthetic empty-loop cost.
+
+`doNotOptimizeAway` preserves the complete object supplied to it, not everything
+reachable through its pointers. Escape separately owned result storage and use
+`clobberMemory` where needed. Neither helper prevents constant folding of known
+inputs, makes a workload representative, or synchronizes threads. Native MSVC
+uses an opaque call rather than inline assembly: consumers must link the matching
+Gentest runtime (automatic with `gentest::gentest`). That call and any required
+object materialization contribute to measured time.
+
 Jitter reports identify batch averages and warn when they may hide individual-call
 latency spikes. See [jitter sampling](docs/jitter_sampling.md) for measurement
 and export details.

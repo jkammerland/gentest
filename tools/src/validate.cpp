@@ -71,6 +71,9 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
     bool                       saw_bench          = false;
     bool                       saw_jitter         = false;
     bool                       saw_items_per_call = false;
+    bool                       saw_bench_once     = false;
+    bool                       saw_bench_warmup   = false;
+    bool                       saw_bench_time     = false;
     std::set<std::string>      seen_flags;
     std::optional<std::string> seen_owner;
 
@@ -151,6 +154,48 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             summary.items_per_call = items_per_call;
+        } else if (lowered == "bench_once") {
+            if (saw_bench_once) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'bench_once'");
+                continue;
+            }
+            saw_bench_once = true;
+            if (!attr.arguments.empty()) {
+                summary.had_error = true;
+                report("'bench_once' does not take arguments");
+                continue;
+            }
+            summary.benchmark.once = true;
+        } else if (lowered == "bench_warmup") {
+            if (saw_bench_warmup) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'bench_warmup'");
+                continue;
+            }
+            saw_bench_warmup     = true;
+            std::uint64_t warmup = 0;
+            const auto   &tokens = attr.argument_tokens.empty() ? attr.arguments : attr.argument_tokens;
+            if (tokens.size() != 1 || (trim_copy(tokens.front()) != "0" && !parse_positive_u64(trim_copy(tokens.front()), warmup))) {
+                summary.had_error = true;
+                report("'bench_warmup' requires exactly one non-negative canonical decimal integer argument");
+                continue;
+            }
+            summary.benchmark.warmup_epochs = warmup;
+        } else if (lowered == "bench_time") {
+            if (saw_bench_time) {
+                summary.had_error = true;
+                report("duplicate gentest attribute 'bench_time'");
+                continue;
+            }
+            saw_bench_time     = true;
+            const auto &tokens = attr.argument_tokens.empty() ? attr.arguments : attr.argument_tokens;
+            if (tokens.size() != 1 || (tokens.front() != "\"runner\"" && tokens.front() != "\"supplied\"")) {
+                summary.had_error = true;
+                report("'bench_time' requires exactly one string argument: 'runner' or 'supplied'");
+                continue;
+            }
+            summary.benchmark.supplied_time = attr.arguments.front() == "supplied";
         } else if (lowered == "req" || lowered == "requires") {
             if (attr.arguments.empty()) {
                 summary.had_error = true;
@@ -399,6 +444,20 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
     if (saw_items_per_call && !summary.is_benchmark && !summary.is_jitter) {
         summary.had_error = true;
         report("'items_per_call'/'ops_per_call' requires 'bench' or 'jitter' on the same declaration");
+    }
+
+    // These policies describe benchmark execution, never ordinary tests or jitter sampling.
+    if ((saw_bench_once || saw_bench_warmup || saw_bench_time) && (!summary.is_benchmark || saw_test || summary.is_jitter)) {
+        summary.had_error = true;
+        report("'bench_once', 'bench_warmup', and 'bench_time' require 'bench' without 'test' or 'jitter' on the same declaration");
+    }
+    if (summary.benchmark.supplied_time && !summary.benchmark.once) {
+        summary.had_error = true;
+        report("'bench_time(\"supplied\")' requires 'bench_once'");
+    }
+    if (summary.benchmark.once && summary.benchmark.warmup_epochs.value_or(0) != 0) {
+        summary.had_error = true;
+        report("'bench_once' cannot be combined with positive 'bench_warmup'");
     }
 
     summary.is_case = saw_case;

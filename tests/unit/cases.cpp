@@ -164,8 +164,8 @@ void assert_no_throw_simple() {
 namespace unit {
 
 void bench_stats_known() {
-    std::vector<double> samples{1, 2, 3, 4, 5};
-    const auto          stats = gentest::detail::compute_sample_stats(samples);
+    const std::vector<double> samples{5, 1, 3, 2, 4};
+    const auto                stats = gentest::detail::compute_sample_stats(samples);
     EXPECT_EQ(stats.count, std::size_t{5});
     EXPECT_EQ(stats.min, 1.0);
     EXPECT_EQ(stats.max, 5.0);
@@ -174,7 +174,19 @@ void bench_stats_known() {
     using gentest::approx::Approx;
     EXPECT_EQ(stats.p05, Approx(1.2).abs(0.001));
     EXPECT_EQ(stats.p95, Approx(4.8).abs(0.001));
+    EXPECT_EQ(stats.p99, Approx(4.96).abs(1e-12));
     EXPECT_EQ(stats.stddev, Approx(std::sqrt(2.0)).abs(0.0001));
+
+    // Sorting is private scratch work, and endpoint populations need no interpolation.
+    EXPECT_EQ(samples.front(), 5.0);
+    const auto empty = gentest::detail::compute_sample_stats({});
+    EXPECT_EQ(empty.count, std::size_t{0});
+    EXPECT_EQ(empty.p99, 0.0);
+
+    const std::vector<double> singleton{7};
+    const auto                single = gentest::detail::compute_sample_stats(singleton);
+    EXPECT_EQ(single.count, std::size_t{1});
+    EXPECT_EQ(single.p99, 7.0);
 }
 
 } // namespace unit

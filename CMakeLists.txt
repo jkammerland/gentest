@@ -127,6 +127,15 @@ if(${PROJECT_NAME}_INSTALL)
         NO_DEFAULT_PATH)
     set(_gentest_fmt_public_dependency "fmt ${GENTEST_FMT_VERSION} EXACT CONFIG REQUIRED")
 
+    # Imported module BMIs must use the same CRT as the installed carrier.
+    set(_gentest_module_runtime_hook)
+    if(GENTEST_PUBLIC_MODULES_ENABLED AND WIN32
+       AND (MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"))
+        include(GentestModuleRuntime)
+        set(_gentest_module_runtime_hook "${PROJECT_BINARY_DIR}/GentestImportedModuleRuntime.cmake")
+        gentest_configure_module_runtime(${PROJECT_NAME} "${_gentest_module_runtime_hook}")
+    endif()
+
     set(_gentest_package_metadata_args)
     if(GENTEST_ENABLE_CPS)
         list(APPEND _gentest_package_metadata_args
@@ -170,6 +179,7 @@ if(${PROJECT_NAME}_INSTALL)
         INCLUDE_ON_FIND_PACKAGE
             "${PROJECT_SOURCE_DIR}/cmake/GentestFmtDependency.cmake"
             "${PROJECT_SOURCE_DIR}/cmake/GentestCodegen.cmake"
+            ${_gentest_module_runtime_hook}
         PUBLIC_DEPENDENCIES "${_gentest_fmt_public_dependency}"
         ${_gentest_package_metadata_args})
 

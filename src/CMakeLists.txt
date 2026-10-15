@@ -11,6 +11,8 @@ endif()
 add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/async.cpp
     ${PROJECT_SOURCE_DIR}/src/bench_stats.cpp
+    ${PROJECT_SOURCE_DIR}/src/bench_util.cpp
+    ${PROJECT_SOURCE_DIR}/src/benchmark.cpp
     ${PROJECT_SOURCE_DIR}/src/context_api.cpp
     ${PROJECT_SOURCE_DIR}/src/recording.cpp
     ${PROJECT_SOURCE_DIR}/src/recording_report.cpp
@@ -34,6 +36,12 @@ add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/runner_test_executor.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_test_plan.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_impl.cpp)
+
+# The fallback escape must remain opaque even in unity and IPO-enabled builds.
+# Source options follow target options, overriding inherited /GL or -flto.
+set_source_files_properties(${PROJECT_SOURCE_DIR}/src/bench_util.cpp PROPERTIES
+    SKIP_UNITY_BUILD_INCLUSION ON
+    COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:MSVC>:/GL->;$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-fno-lto>")
 
 add_library(gentest_main STATIC
     ${PROJECT_SOURCE_DIR}/src/gentest_main.cpp)
@@ -163,18 +171,6 @@ else()
             $<$<COMPILE_LANG_AND_ID:CXX,AppleClang>:-Wno-unknown-attributes;-Wno-attributes>
             $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-Wno-attributes>
             $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/wd5030>)
-endif()
-
-if(GENTEST_PUBLIC_MODULES_ENABLED AND WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    if(NOT DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT
-       OR NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-        # CMake's imported-module synth targets on Windows GNU-style clang add
-        # _DLL by default, which makes downstream module consumers emit
-        # RuntimeLibrary=MD* even when the rest of the build is static-runtime.
-        # Export -U_DLL with the public module surface so the synthesized
-        # package-consumer BMI compiles stay in the same CRT family.
-        target_compile_options(${PROJECT_NAME} PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-U_DLL>)
-    endif()
 endif()
 
 if(NOT TARGET gentest::gentest)

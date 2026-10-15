@@ -325,6 +325,68 @@ int main() {
     }
 
     {
+        auto attrs = parse_attribute_list(R"(benchmark("x"), bench_once, bench_warmup(0), bench_time("supplied"), fast, owner("qa"))");
+        std::vector<std::string> diags;
+        auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error && diags.empty(), "once supplied benchmark metadata is valid with explicit zero warmup");
+        t.expect(summary.is_benchmark && summary.benchmark.once && summary.benchmark.supplied_time,
+                 "benchmark alias records once execution and supplied timing");
+        t.expect(summary.benchmark.warmup_epochs == 0, "explicit zero warmup remains distinct from omitted warmup");
+        t.expect(summary.tags == std::vector<std::string>{"fast", "owner=qa"}, "benchmark controls do not become generic tags");
+    }
+
+    {
+        const auto attrs   = parse_attribute_list(R"(bench("x"))");
+        const auto summary = validate_attributes(attrs, [&](const std::string &) { t.expect(false, "default benchmark is valid"); });
+        t.expect(!summary.benchmark.once && !summary.benchmark.supplied_time && !summary.benchmark.warmup_epochs,
+                 "ordinary benchmarks preserve calibrated runner timing with unspecified warmup");
+    }
+
+    {
+        const auto attrs   = parse_attribute_list(R"(bench_time("runner"), bench_warmup(7), bench("x"))");
+        const auto summary = validate_attributes(attrs, [&](const std::string &) { t.expect(false, "calibrated warmup is valid"); });
+        t.expect(!summary.benchmark.once && !summary.benchmark.supplied_time && summary.benchmark.warmup_epochs == 7,
+                 "warmup and explicit runner timing are order independent");
+    }
+
+    {
+        const std::vector<std::string> invalid_benchmark_options{
+            R"(test("x"), bench_once)",
+            R"(jitter("x"), bench_once)",
+            R"(bench_once)",
+            R"(test("x"), bench_warmup(0))",
+            R"(jitter("x"), bench_time("runner"))",
+            R"(bench("x"), test("x"), bench_once)",
+            R"(bench("x"), jitter("x"), bench_once)",
+            R"(bench("x"), bench_time("supplied"))",
+            R"(bench("x"), bench_once, bench_warmup(1))",
+            R"(bench("x"), bench_once, bench_once)",
+            R"(bench("x"), bench_once(0))",
+            R"(bench("x"), bench_warmup(0), bench_warmup(0))",
+            R"(bench("x"), bench_warmup())",
+            R"(bench("x"), bench_warmup(1, 2))",
+            R"(bench("x"), bench_warmup(-1))",
+            R"(bench("x"), bench_warmup(01))",
+            R"(bench("x"), bench_warmup(0x10))",
+            R"(bench("x"), bench_warmup(1.5))",
+            R"(bench("x"), bench_warmup(1u))",
+            R"(bench("x"), bench_warmup("1"))",
+            R"(bench("x"), bench_warmup(18446744073709551616))",
+            R"(bench("x"), bench_time())",
+            R"(bench("x"), bench_time("cpu"))",
+            R"(bench("x"), bench_time(runner))",
+            R"(bench("x"), bench_time("runner", "supplied"))",
+            R"(bench("x"), bench_time("runner"), bench_time("runner"))",
+        };
+        for (const auto &source : invalid_benchmark_options) {
+            const auto               attrs = parse_attribute_list(source);
+            std::vector<std::string> diags;
+            const auto               summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+            t.expect(summary.had_error && !diags.empty(), "invalid benchmark metadata reports an error: " + source);
+        }
+    }
+
+    {
         auto                     attrs = parse_attribute_list(R"(bench)");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });

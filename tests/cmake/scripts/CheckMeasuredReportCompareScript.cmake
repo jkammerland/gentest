@@ -13,6 +13,18 @@ if(NOT EXISTS "${_script}")
   message(FATAL_ERROR "Missing measured report comparison script: ${_script}")
 endif()
 
+execute_process(
+  COMMAND "${Python3_EXECUTABLE}" -B "${SOURCE_DIR}/tests/regressions/test_compare_measured_reports.py"
+  RESULT_VARIABLE _named_tests_rc
+  OUTPUT_VARIABLE _named_tests_out
+  ERROR_VARIABLE _named_tests_err)
+if(NOT _named_tests_rc EQUAL 0)
+  message(FATAL_ERROR
+    "Named measurement comparison tests failed.\n"
+    "stdout:\n${_named_tests_out}\n"
+    "stderr:\n${_named_tests_err}")
+endif()
+
 set(_work_dir "${BUILD_ROOT}/measured_report_compare")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")

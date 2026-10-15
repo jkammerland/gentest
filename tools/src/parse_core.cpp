@@ -543,9 +543,6 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
                     if (depth == 0) {
                         auto inside = list.substr(args_start, index - args_start);
                         args        = split_expression_list(inside);
-                        for (auto &arg : args) {
-                            arg = unquote(arg);
-                        }
                         ++index; // consume ')'
                         break;
                     }
@@ -553,7 +550,12 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
             }
         }
 
-        attributes.push_back(ParsedAttribute{.name = std::move(name), .arguments = std::move(args)});
+        auto argument_tokens = args;
+        for (auto &arg : args) {
+            arg = unquote(arg);
+        }
+        attributes.push_back(
+            ParsedAttribute{.name = std::move(name), .arguments = std::move(args), .argument_tokens = std::move(argument_tokens)});
 
         while (index < list.size() && list[index] != ',') {
             if (!std::isspace(static_cast<unsigned char>(list[index]))) {

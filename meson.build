@@ -89,6 +89,21 @@ gentest_textual_mock_anchor_template = files('meson/textual/mock_anchor.cpp.in')
 gentest_third_party_include = include_directories('third_party/include')
 gentest_third_party_include_path = join_paths(meson.current_source_dir(), 'third_party', 'include')
 
+# Compile the fallback escape separately, even when the runtime enables unity/LTO.
+bench_escape_cargs = []
+if cpp.get_id() == 'msvc'
+  bench_escape_cargs = ['/GL-']
+elif cpp.get_id() in ['gcc', 'clang', 'apple-clang', 'clang-cl']
+  bench_escape_cargs = ['-fno-lto']
+endif
+libgentest_bench_escape = static_library(
+  'gentest_bench_escape',
+  'src/bench_util.cpp',
+  include_directories: gentest_public_include,
+  cpp_args: bench_escape_cargs,
+  override_options: ['b_lto=false', 'unity=off'],
+)
+
 libgentest_runtime = static_library(
   'gentest_runtime',
   [
@@ -118,6 +133,7 @@ libgentest_runtime = static_library(
     'src/runner_test_executor.cpp',
     'src/runner_test_plan.cpp',
   ],
+  objects: libgentest_bench_escape.extract_all_objects(recursive: false),
   include_directories: project_includes,
   cpp_args: runtime_cargs,
   dependencies: runtime_deps,

@@ -52,6 +52,7 @@ target("gentest_runtime")
     add_packages("fmt")
     add_files("src/async.cpp")
     add_files("src/bench_stats.cpp")
+    add_files("src/bench_util.cpp", {unity_ignored = true})
     add_files("src/context_api.cpp")
     add_files("src/recording.cpp", "src/recording_report.cpp")
     add_files("src/log_sink.cpp")
@@ -77,6 +78,16 @@ target("gentest_runtime")
     add_includedirs(incdirs)
     add_defines(gentest_common_defines)
     add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
+
+    -- Source flags follow target flags, so the escape stays opaque under LTO.
+    on_config(function (target)
+        local _, compiler = target:tool("cxx")
+        if compiler == "cl" then
+            target:fileconfig_add("src/bench_util.cpp", {force = {cxxflags = {"/GL-"}}})
+        elseif compiler == "gcc" or compiler == "gxx" or compiler == "clang" or compiler == "clangxx" or compiler == "clang_cl" then
+            target:fileconfig_add("src/bench_util.cpp", {force = {cxxflags = {"-fno-lto"}}})
+        end
+    end)
 
 if enable_module_targets then
     target("gentest")

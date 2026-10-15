@@ -1,5 +1,6 @@
 #include "runner_measured_executor.h"
 
+#include "benchmark_internal.h"
 #include "gentest/detail/bench_stats.h"
 #include "runner_case_invoker.h"
 #include "runner_context_scope.h"
@@ -8,6 +9,7 @@
 #include "runner_measured_report.h"
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -31,10 +33,12 @@ struct OverheadEstimate {
 };
 
 struct CalibratedEpoch {
-    std::size_t iterations = 1;
-    std::size_t completed  = 0;
-    double      elapsed_s  = 0.0;
-    bool        had_assert = false;
+    std::size_t iterations      = 1;
+    std::size_t completed       = 0;
+    double      elapsed_s       = 0.0;
+    bool        had_assert      = false;
+    std::size_t total_calls     = 0;
+    double      total_elapsed_s = 0;
 };
 
 void record_runtime_skip_or_default(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string_view default_reason) {
@@ -174,6 +178,8 @@ CalibratedEpoch calibrate_epoch_iterations(const gentest::Case &c, void *ctx, co
     CalibratedEpoch calibration{};
     while (true) {
         calibration.elapsed_s = run_epoch_calls(c, ctx, calibration.iterations, calibration.completed, calibration.had_assert, failure);
+        calibration.total_calls += calibration.completed;
+        calibration.total_elapsed_s += calibration.elapsed_s;
         if (calibration.had_assert || calibration.elapsed_s >= cfg.min_epoch_time_s) {
             return calibration;
         }
@@ -370,15 +376,29 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
 
 BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg, MeasurementCaseFailure &failure) {
     BenchResult br{};
-    auto        calibration = calibrate_epoch_iterations(c, ctx, cfg, failure);
-    auto        iters       = calibration.iterations;
-    auto        done        = calibration.completed;
-    auto        had_assert  = calibration.had_assert;
-    const auto  calib_s     = calibration.elapsed_s;
-    br.calibration_time_s   = calib_s;
-    br.calibration_iters    = iters;
+
+    // Source-declared once cases never enter calibration, warmup or repeated epochs.
+    if (c.benchmark.execution == BenchmarkExecution::Once) {
+        bool had_assert              = false;
+        br.total_time_s              = run_epoch_calls(c, ctx, 1, br.total_iters, had_assert, failure);
+        br.measured_call_wall_time_s = br.total_time_s;
+        br.wall_time_s               = br.total_time_s;
+        br.epochs                    = had_assert ? 0 : 1;
+        br.iters_per_epoch           = 1;
+        br.best_ns = br.worst_ns = br.median_ns = br.mean_ns = br.p05_ns = br.p95_ns = br.p99_ns = ns_from_s(br.total_time_s);
+        return br;
+    }
+
+    auto       calibration = calibrate_epoch_iterations(c, ctx, cfg, failure);
+    auto       iters       = calibration.iterations;
+    auto       done        = calibration.completed;
+    auto       had_assert  = calibration.had_assert;
+    const auto calib_s     = calibration.total_elapsed_s;
+    br.calibration_time_s  = calib_s;
+    br.calibration_iters   = calibration.total_calls;
     if (!had_assert) {
-        br.warmup_time_s = run_warmup_epochs(c, ctx, iters, cfg.warmup_epochs, done, had_assert, failure);
+        br.warmup_time_s =
+            run_warmup_epochs(c, ctx, iters, c.benchmark.warmup_epochs.value_or(cfg.warmup_epochs), done, had_assert, failure);
     }
 
     std::vector<double> epoch_ns;
@@ -412,10 +432,13 @@ BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg,
         br.worst_ns        = stats.max;
         br.median_ns       = stats.median;
         br.mean_ns         = stats.mean;
+        br.stddev_ns       = stats.stddev;
         br.p05_ns          = stats.p05;
         br.p95_ns          = stats.p95;
+        br.p99_ns          = stats.p99;
     }
-    br.wall_time_s = br.warmup_time_s + br.total_time_s + br.calibration_time_s;
+    br.wall_time_s               = br.warmup_time_s + br.total_time_s + br.calibration_time_s;
+    br.measured_call_wall_time_s = br.total_time_s;
     return br;
 }
 
@@ -427,8 +450,8 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
     std::size_t  done        = calibration.completed;
     std::size_t  epoch_count = 0;
     const double calib_s     = calibration.elapsed_s;
-    jr.calibration_time_s    = calib_s;
-    jr.calibration_iters     = iters;
+    jr.calibration_time_s    = calibration.total_elapsed_s;
+    jr.calibration_iters     = calibration.total_calls;
 
     const std::size_t      calib_iters        = done ? done : iters;
     const double           real_ns_per_iter   = (calib_iters > 0) ? (ns_from_s(calib_s) / static_cast<double>(calib_iters)) : 0.0;
@@ -491,6 +514,7 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
         jr.stddev_ns     = stats.stddev;
         jr.p05_ns        = stats.p05;
         jr.p95_ns        = stats.p95;
+        jr.p99_ns        = stats.p99;
     }
     if (jr.median_ns > 0.0) {
         jr.overhead_ratio_pct = (jr.overhead_mean_ns / jr.median_ns) * 100.0;
@@ -499,9 +523,89 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
     return jr;
 }
 
+PrimaryMeasurement primary_measurement(const BenchResult &result) {
+    PrimaryMeasurement primary;
+    if (result.epochs != 0) {
+        primary.statistics = {.count    = result.epochs,
+                              .duration = DurationSummary{.min_ns    = result.best_ns,
+                                                          .max_ns    = result.worst_ns,
+                                                          .mean_ns   = result.mean_ns,
+                                                          .median_ns = result.median_ns,
+                                                          .stddev_ns = result.stddev_ns,
+                                                          .p05_ns    = result.p05_ns,
+                                                          .p95_ns    = result.p95_ns,
+                                                          .p99_ns    = result.p99_ns}};
+    }
+    primary.measured_calls        = result.total_iters;
+    primary.calls_per_sample      = result.iters_per_epoch;
+    primary.elapsed_seconds       = result.total_time_s;
+    primary.measured_wall_seconds = result.measured_call_wall_time_s;
+    primary.warmup_seconds        = result.warmup_time_s;
+    primary.calibration_seconds   = result.calibration_time_s;
+    primary.calibration_calls     = result.calibration_iters;
+    return primary;
+}
+
+PrimaryMeasurement primary_measurement(const JitterResult &result) {
+    PrimaryMeasurement primary;
+    primary.kind     = MeasurementKind::Jitter;
+    primary.sampling = result.batch_mode && result.calls_per_sample > 1 ? MeasurementSampling::BatchAverage : MeasurementSampling::PerCall;
+    if (!result.samples_ns.empty()) {
+        primary.statistics = {.count    = result.samples_ns.size(),
+                              .duration = DurationSummary{.min_ns    = result.min_ns,
+                                                          .max_ns    = result.max_ns,
+                                                          .mean_ns   = result.mean_ns,
+                                                          .median_ns = result.median_ns,
+                                                          .stddev_ns = result.stddev_ns,
+                                                          .p05_ns    = result.p05_ns,
+                                                          .p95_ns    = result.p95_ns,
+                                                          .p99_ns    = result.p99_ns}};
+    }
+    primary.measured_calls        = result.total_iters;
+    primary.calls_per_sample      = result.calls_per_sample;
+    primary.elapsed_seconds       = result.total_time_s;
+    primary.measured_wall_seconds = result.total_time_s;
+    primary.warmup_seconds        = result.warmup_time_s;
+    primary.calibration_seconds   = result.calibration_time_s;
+    primary.calibration_calls     = result.calibration_iters;
+    return primary;
+}
+
+void apply_measurement(BenchResult &result, MeasurementSnapshot snapshot) {
+    const auto &primary             = snapshot.primary;
+    result.effective_items_per_call = primary.items_per_call;
+    if (primary.time_source == BenchmarkTimeSource::Supplied) {
+        // Missing publication is rejected before applying a successful measurement.
+        assert(primary.statistics.duration.has_value());
+        const auto &stats   = primary.statistics.duration.value();
+        result.best_ns      = stats.min_ns;
+        result.worst_ns     = stats.max_ns;
+        result.mean_ns      = stats.mean_ns;
+        result.median_ns    = stats.median_ns;
+        result.stddev_ns    = stats.stddev_ns;
+        result.p05_ns       = stats.p05_ns;
+        result.p95_ns       = stats.p95_ns;
+        result.p99_ns       = stats.p99_ns;
+        result.total_time_s = primary.elapsed_seconds;
+    }
+    result.measurement = std::move(snapshot);
+}
+
+void apply_measurement(JitterResult &result, MeasurementSnapshot snapshot) { result.measurement = std::move(snapshot); }
+
 template <typename Result, typename CallFn>
-bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_result, MeasurementCaseFailure &out_failure) {
+bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn &&run_call, Result &out_result,
+                       MeasurementCaseFailure &out_failure) {
     using clock = std::chrono::steady_clock;
+
+    if (const auto error = gentest::detail::validate_benchmark_options(c); !error.empty()) {
+        out_failure.reason = error;
+        out_failure.phase  = "metadata";
+        return false;
+    }
+
+    gentest::detail::MeasurementState measurement{.test = c};
+    gentest::detail::MeasurementScope measurement_scope(measurement);
 
     const auto case_start         = clock::now();
     const auto stamp_failure_time = [&] {
@@ -603,6 +707,25 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
     out_result         = run_call(c, ctx, out_failure);
     out_failure.time_s = out_result.wall_time_s;
 
+    // Primary results are observable during local teardown, before final case success.
+    auto primary           = primary_measurement(out_result);
+    primary.execution      = c.benchmark.execution;
+    primary.time_source    = c.benchmark.time_source;
+    primary.items_per_call = c.items_per_call;
+    primary.warmup_epochs =
+        c.benchmark.execution == BenchmarkExecution::Once ? 0 : c.benchmark.warmup_epochs.value_or(config.warmup_epochs);
+    if (c.benchmark.execution == BenchmarkExecution::Once) {
+        primary.sampling = MeasurementSampling::SingleCall;
+    }
+    if (measurement.duration_supplied) {
+        primary.statistics      = measurement.snapshot.primary.statistics;
+        primary.elapsed_seconds = measurement.snapshot.primary.elapsed_seconds;
+        primary.items_per_call  = measurement.snapshot.primary.items_per_call;
+    }
+    measurement.primary_ready =
+        primary.time_source == BenchmarkTimeSource::Supplied ? measurement.duration_supplied : primary.statistics.count != 0;
+    measurement.snapshot.primary = primary;
+
     std::string call_error;
     if (gentest::detail::has_bench_error()) {
         call_error = gentest::detail::take_bench_error();
@@ -647,6 +770,13 @@ bool run_measured_case(const gentest::Case &c, CallFn &&run_call, Result &out_re
         return false;
     }
 
+    if (measurement.publication_failed || !measurement.primary_ready) {
+        out_failure.reason = measurement.publication_failed ? "measurement publication failed" : "benchmark duration was not supplied";
+        out_failure.phase  = "measurement";
+        stamp_failure_time();
+        return false;
+    }
+    apply_measurement(out_result, std::move(measurement.snapshot));
     return true;
 }
 
@@ -695,8 +825,8 @@ void report_measured_case_blocked(const gentest::Case &c, std::string_view reaso
 
 template <typename Result, typename CallFn, typename SuccessFn>
 TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::span<const std::size_t> idxs, std::string_view kind_label,
-                                  bool fail_fast, bool machine_report, CallFn run_call, const SuccessFn &on_success,
-                                  const MeasurementFailureFn &on_failure) {
+                                  bool fail_fast, bool machine_report, const BenchConfig &config, CallFn run_call,
+                                  const SuccessFn &on_success, const MeasurementFailureFn &on_failure) {
     TimedRunStatus status{};
     for (auto i : idxs) {
         const auto                           &c = kCases[i];
@@ -704,7 +834,7 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
         Result                                result{};
         MeasurementCaseFailure                failure{};
         ++status.total;
-        if (!run_measured_case(c, run_call, result, failure)) {
+        if (!run_measured_case(c, config, run_call, result, failure)) {
             if (failure.skipped) {
                 if (failure.infra_failure) {
                     report_measured_case_blocked(c, failure.reason, failure.time_s, machine_report);
@@ -762,7 +892,7 @@ TimedRunStatus run_selected_benches(std::span<const gentest::Case> kCases, std::
     rows.reserve(rows.size() + idxs.size());
     const bool           machine_report  = is_machine_measured_report(opt.measured_report_format);
     const TimedRunStatus measured_status = run_measured_cases<BenchResult>(
-        kCases, idxs, "benchmark", fail_fast, machine_report,
+        kCases, idxs, "benchmark", fail_fast, machine_report, opt.bench_cfg,
         [&](const gentest::Case &measured, void *measured_ctx, MeasurementCaseFailure &failure) {
             return run_bench(measured, measured_ctx, opt.bench_cfg, failure);
         },
@@ -793,7 +923,7 @@ TimedRunStatus run_selected_jitters(std::span<const gentest::Case> kCases, std::
     rows.reserve(rows.size() + idxs.size());
     const bool           machine_report  = is_machine_measured_report(opt.measured_report_format);
     const TimedRunStatus measured_status = run_measured_cases<JitterResult>(
-        kCases, idxs, "jitter", fail_fast, machine_report,
+        kCases, idxs, "jitter", fail_fast, machine_report, opt.bench_cfg,
         [&](const gentest::Case &measured, void *measured_ctx, MeasurementCaseFailure &failure) {
             return run_jitter(measured, measured_ctx, opt.bench_cfg, failure);
         },

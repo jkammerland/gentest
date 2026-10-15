@@ -2085,8 +2085,8 @@ std::vector<std::filesystem::path> scan_include_search_paths_from_compile_comman
             continue;
         }
 
-        if (arg == "-I" || arg == "-isystem" || arg == "-iquote" || arg == "-idirafter" || arg == "/I" || arg == "-external:I" ||
-            arg == "/external:I") {
+        if (arg == "-I" || arg == "-isystem" || arg == "-iquote" || arg == "-idirafter" || arg == "-imsvc" || arg == "/I" ||
+            arg == "-external:I" || arg == "/external:I") {
             consume_next = true;
             continue;
         }
@@ -2096,7 +2096,7 @@ std::vector<std::filesystem::path> scan_include_search_paths_from_compile_comman
         }
         bool handled_joined = false;
         for (const auto prefix : {std::string_view{"-isystem"}, std::string_view{"-iquote"}, std::string_view{"-idirafter"},
-                                  std::string_view{"-external:I"}, std::string_view{"/external:I"}}) {
+                                  std::string_view{"-imsvc"}, std::string_view{"-external:I"}, std::string_view{"/external:I"}}) {
             if (llvm::StringRef{arg}.starts_with(prefix) && arg.size() > prefix.size()) {
                 append_include_dir(std::string_view(arg).substr(prefix.size()));
                 handled_joined = true;
@@ -4125,6 +4125,9 @@ struct ParsedArguments {
 
 ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::OptionCategory   category{"gentest codegen"};
+    static llvm::cl::opt<unsigned>    benchmark_api_version_option{"require-benchmark-api-version",
+                                                                   llvm::cl::desc("Require the generator's benchmark metadata API version"),
+                                                                   llvm::cl::init(1), llvm::cl::cat(category)};
     static llvm::cl::opt<std::string> output_option{"output", llvm::cl::desc("Removed legacy manifest/single-TU output source file option"),
                                                     llvm::cl::init(""), llvm::cl::cat(category), llvm::cl::Hidden};
     static llvm::cl::opt<std::string> tu_out_dir_option{
@@ -4305,6 +4308,11 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     opts.jobs              = static_cast<std::size_t>(jobs_option.getValue());
     opts.discover_mocks    = discover_mocks_option.getValue() || mock_phase == MockPhaseCommand::InspectMocks;
     bool invalid_arguments = false;
+    if (benchmark_api_version_option.getValue() != 1) {
+        gentest::codegen::log_err("gentest_codegen: unsupported required benchmark API version {}; this generator supports version 1\n",
+                                  benchmark_api_version_option.getValue());
+        invalid_arguments = true;
+    }
     if (const auto parsed_backend = parse_mock_backend(mock_backend_option.getValue()); parsed_backend.has_value()) {
         opts.mock_backend = *parsed_backend;
     } else {

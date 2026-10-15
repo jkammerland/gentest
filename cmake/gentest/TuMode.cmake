@@ -399,6 +399,9 @@ function(_gentest_prepare_tu_mode)
     !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
 #error \"gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime\"
 #endif
+#if !defined(GENTEST_BENCHMARK_API_VERSION) || GENTEST_BENCHMARK_API_VERSION < 1
+#error \"gentest_codegen output requires benchmark API version 1; use matching gentest headers/runtime\"
+#endif
 
 ")
                 set(_gentest_registration_guard_begin "#define GENTEST_TU_REGISTRATION_HEADER_NO_PREAMBLE 1\n")
@@ -1485,6 +1488,7 @@ function(gentest_attach_codegen target)
     endif()
 
     set(_command ${_command_launcher}
+        --require-benchmark-api-version=1
         --depfile ${_gentest_depfile}
         --source-root ${CMAKE_SOURCE_DIR})
     if(_gentest_codegen_compdb_dir)

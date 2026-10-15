@@ -1,5 +1,8 @@
 module;
 
+#include <array>
+#include <chrono>
+#include <cmath>
 #include <coroutine>
 #include <fmt/format.h>
 #include <ostream>
@@ -37,6 +40,29 @@ static_assert(std::is_same_v<decltype(gentest::get_current_context().stop_token(
 static_assert(std::is_same_v<decltype(gentest::get_current_context().stop_requested()), bool>);
 
 export namespace public_module_surface {
+
+struct BenchmarkFixture : gentest::FixtureTearDown {
+    int  calls = 0;
+    void tearDown() override {
+        gentest::expect_eq(calls, 1);
+        gentest::recordTimingSamples("device", std::array{std::chrono::nanoseconds{0}, std::chrono::nanoseconds{10}});
+        auto snapshot = gentest::currentMeasurement();
+        gentest::require(snapshot.has_value());
+        gentest::expect_eq(snapshot->primary.items_per_call, 1000U);
+        gentest::require(snapshot->primary.statistics.duration.has_value());
+        gentest::expect_eq(snapshot->primary.statistics.duration->p99_ns, 2e9);
+        gentest::require(snapshot->timings.size() == 1);
+        gentest::require(snapshot->timings[0].statistics.duration.has_value());
+        gentest::expect_eq(snapshot->timings[0].statistics.duration->mean_ns, 5.0);
+        gentest::expect_true(std::abs(snapshot->timings[0].statistics.duration->p99_ns - 9.9) < 1e-12);
+    }
+};
+
+[[using gentest: bench("measurement"), bench_once, bench_time("supplied")]]
+void benchmark_measurement(BenchmarkFixture &sample) {
+    ++sample.calls;
+    gentest::setBenchmarkDuration(std::chrono::seconds{2}, 1000);
+}
 
 [[using gentest: test("expect_true")]]
 void expect_true_case() {
