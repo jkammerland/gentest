@@ -1,4 +1,23 @@
 include(GentestTests)
+
+# Optimized code is the observable behavior of an anti-optimization helper.
+gentest_add_cmake_script_test(
+    NAME bench_util_optimization
+    NO_EMULATOR
+    PROG ${CMAKE_COMMAND}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBenchUtilOptimization.cmake"
+    DEFINES
+        "BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
+        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
+        "CXX_COMPILER_ARG1=${CMAKE_CXX_COMPILER_ARG1}"
+        "CXX_COMPILER_TARGET=${CMAKE_CXX_COMPILER_TARGET}"
+        "CXX_SYSROOT=${CMAKE_SYSROOT}"
+        "CXX_FLAGS=${CMAKE_CXX_FLAGS}"
+        "PYTHON=${Python3_EXECUTABLE}")
+set_tests_properties(bench_util_optimization PROPERTIES LABELS "benchmarks;public-api;ci-compat")
+
 add_executable(gentest_benchmark_measurement_tests benchmark_measurements/main.cpp benchmark_measurements/cases.cpp
     benchmark_measurements/cases.hpp benchmark_measurements/allocation.cpp)
 target_link_libraries(gentest_benchmark_measurement_tests PRIVATE gentest::gentest)

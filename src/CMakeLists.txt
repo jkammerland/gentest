@@ -11,6 +11,7 @@ endif()
 add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/async.cpp
     ${PROJECT_SOURCE_DIR}/src/bench_stats.cpp
+    ${PROJECT_SOURCE_DIR}/src/bench_util.cpp
     ${PROJECT_SOURCE_DIR}/src/benchmark.cpp
     ${PROJECT_SOURCE_DIR}/src/context_api.cpp
     ${PROJECT_SOURCE_DIR}/src/recording.cpp
@@ -35,6 +36,12 @@ add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/runner_test_executor.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_test_plan.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_impl.cpp)
+
+# The fallback escape must remain opaque even in unity and IPO-enabled builds.
+# Source options follow target options, overriding inherited /GL or -flto.
+set_source_files_properties(${PROJECT_SOURCE_DIR}/src/bench_util.cpp PROPERTIES
+    SKIP_UNITY_BUILD_INCLUSION ON
+    COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:MSVC>:/GL->;$<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-fno-lto>")
 
 add_library(gentest_main STATIC
     ${PROJECT_SOURCE_DIR}/src/gentest_main.cpp)

@@ -1,127 +1,63 @@
 #pragma once
 
-#include <cstddef>
+#include "gentest/detail/runtime_export.h"
+
 #include <type_traits>
 
-// Cross‑platform utilities to inhibit compiler optimizations in microbenchmarks.
-//
-// - doNotOptimizeAway(x): Pretend to use x so the compiler keeps computations
-//   that produced it. Overloads handle const and non‑const references.
-// - clobberMemory(): Acts as a compiler barrier on memory so the compiler
-//   cannot reorder memory operations across it.
-//
-// These are intended for hot loops inside [[using gentest: bench(...)]] or
-// [[using gentest: jitter(...)]] bodies.
+#if !defined(__GNUC__) && !defined(__clang__)
+#include <atomic>
+#include <memory>
+#endif
 
+// Compiler barriers for benchmark bodies, not thread synchronization.
+// doNotOptimizeAway observes the complete object, not memory reached through
+// its pointers. It does not prevent constant folding of known computations.
+// Use runtime inputs and escape separately owned result storage when needed.
 namespace gentest {
 
-#if defined(_MSC_VER)
+namespace detail {
 
-// MSVC/clang-cl: use compiler barriers. Inline asm is not supported on x64.
-// _ReadWriteBarrier prevents reordering of loads/stores across the barrier.
-extern "C" void _ReadWriteBarrier();
-#pragma intrinsic(_ReadWriteBarrier)
+// Native MSVC has no GNU-style operands. The runtime defines this opaque call
+// in a separate, non-LTO translation unit; it never retains or dereferences pointers.
+GENTEST_RUNTIME_API void escape_benchmark_value(void const volatile *value) noexcept;
 
-template <class T> inline void doNotOptimizeAway(T const &value) {
-    // Create a volatile read to an address derived from value so that
-    // the compiler must assume value is needed.
-    auto p = reinterpret_cast<char const volatile *>(&value);
-    (void)*p;
-    _ReadWriteBarrier();
-}
-
-template <class T> inline void doNotOptimizeAway(T &value) {
-    auto p = reinterpret_cast<char volatile *>(&value);
-    *p     = *p; // self read/write through volatile to inhibit SROA
-    _ReadWriteBarrier();
-}
-
-template <class T> inline void doNotOptimizeAway(T &&value) {
-    auto p = reinterpret_cast<char const volatile *>(&value);
-    (void)*p;
-    _ReadWriteBarrier();
-}
-
-inline void clobberMemory() { _ReadWriteBarrier(); }
-
-#elif defined(__GNUC__) || defined(__clang__)
-
+template <class T> inline void observe_benchmark_value(T &value) {
+#if defined(__GNUC__) || defined(__clang__)
+    // clang-cl supports GNU-style asm too: do not select MSVC's fallback first.
+    if constexpr (std::is_scalar_v<T> && !std::is_const_v<T>) {
 #if defined(__clang__)
-
-template <class T> inline void doNotOptimizeAway(T const &value) { asm volatile("" : : "r,m"(value) : "memory"); }
-
-template <class T> inline void doNotOptimizeAway(T &value) { asm volatile("" : "+r,m"(value) : : "memory"); }
-
-template <class T> inline void doNotOptimizeAway(T &&value) { asm volatile("" : "+r,m"(value) : : "memory"); }
-
-inline void clobberMemory() { asm volatile("" : : : "memory"); }
-
-#elif (__GNUC__ >= 5)
-
-template <class T>
-inline typename std::enable_if<std::is_trivially_copyable<T>::value && (sizeof(T) <= sizeof(T *))>::type doNotOptimizeAway(T const &value) {
-    asm volatile("" : : "r,m"(value) : "memory");
-}
-
-template <class T>
-inline typename std::enable_if<!std::is_trivially_copyable<T>::value || (sizeof(T) > sizeof(T *))>::type doNotOptimizeAway(T const &value) {
-    asm volatile("" : : "m"(value) : "memory");
-}
-
-template <class T>
-inline typename std::enable_if<std::is_trivially_copyable<T>::value && (sizeof(T) <= sizeof(T *))>::type doNotOptimizeAway(T &value) {
-    asm volatile("" : "+m,r"(value) : : "memory");
-}
-
-template <class T>
-inline typename std::enable_if<!std::is_trivially_copyable<T>::value || (sizeof(T) > sizeof(T *))>::type doNotOptimizeAway(T &value) {
-    asm volatile("" : "+m"(value) : : "memory");
-}
-
-template <class T>
-inline typename std::enable_if<std::is_trivially_copyable<T>::value && (sizeof(T) <= sizeof(T *))>::type doNotOptimizeAway(T &&value) {
-    asm volatile("" : "+m,r"(value) : : "memory");
-}
-
-template <class T>
-inline typename std::enable_if<!std::is_trivially_copyable<T>::value || (sizeof(T) > sizeof(T *))>::type doNotOptimizeAway(T &&value) {
-    asm volatile("" : "+m"(value) : : "memory");
-}
-
-inline void clobberMemory() { asm volatile("" : : : "memory"); }
-
+        asm volatile("" : "+r,m"(value) : : "memory");
 #else
-
-template <class T> inline void doNotOptimizeAway(T const &value) { asm volatile("" : : "r,m"(value) : "memory"); }
-
-template <class T> inline void doNotOptimizeAway(T &value) { asm volatile("" : "+m,r"(value) : : "memory"); }
-
-template <class T> inline void doNotOptimizeAway(T &&value) { asm volatile("" : "+m,r"(value) : : "memory"); }
-
-inline void clobberMemory() { asm volatile("" : : : "memory"); }
-
+        asm volatile("" : "+m,r"(value) : : "memory");
 #endif
-
+    } else {
+        // A complete memory operand preserves every member without pretending
+        // to assign to const members, nonassignable objects, or their arrays.
+        asm volatile("" : : "m"(value) : "memory");
+    }
 #else
-
-// Fallbacks: best‑effort volatile tricks.
-template <class T> inline void doNotOptimizeAway(T const &value) {
-    auto p = reinterpret_cast<char const volatile *>(&value);
-    (void)*p;
-}
-
-template <class T> inline void doNotOptimizeAway(T &value) {
-    auto p = reinterpret_cast<char volatile *>(&value);
-    *p     = *p;
-}
-
-template <class T> inline void doNotOptimizeAway(T &&value) {
-    auto p = reinterpret_cast<char const volatile *>(&value);
-    (void)*p;
-}
-
-inline void clobberMemory() { (void)0; }
-
+    // Escaping the address to an unknown callee preserves the entire object.
+    // Reading only its first byte would allow other value dependencies to die.
+    escape_benchmark_value(std::addressof(value));
+    std::atomic_signal_fence(std::memory_order_acq_rel);
 #endif
+}
+
+} // namespace detail
+
+template <class T> inline void doNotOptimizeAway(T const &value) { detail::observe_benchmark_value(value); }
+
+template <class T> inline void doNotOptimizeAway(T &value) { detail::observe_benchmark_value(value); }
+
+template <class T> inline void doNotOptimizeAway(T &&value) { detail::observe_benchmark_value(value); }
+
+// Prevent compiler movement of memory operations; this is not a CPU fence.
+inline void clobberMemory() {
+#if defined(__GNUC__) || defined(__clang__)
+    asm volatile("" : : : "memory");
+#else
+    std::atomic_signal_fence(std::memory_order_acq_rel);
+#endif
+}
 
 } // namespace gentest

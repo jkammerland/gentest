@@ -148,6 +148,23 @@ alias(
     visibility = ['//visibility:public'],
 )
 
+# Keep the escape implementation opaque when the runtime or its consumers use LTO.
+cc_library(
+    name = 'gentest_bench_escape',
+    srcs = ['src/bench_util.cpp'],
+    hdrs = [
+        'include/gentest/bench_util.h',
+        'include/gentest/detail/runtime_export.h',
+    ],
+    copts = _gentest_public_copts + select({
+        '@rules_cc//cc/compiler:msvc-cl': ['/GL-'],
+        '//conditions:default': ['-fno-lto'],
+    }),
+    features = ['-thin_lto', '-lto'],
+    includes = ['include'],
+    visibility = ['//visibility:private'],
+)
+
 cc_library(
     name = 'gentest_runtime',
     srcs = [
@@ -210,7 +227,7 @@ cc_library(
     copts = _gentest_public_copts,
     includes = ['include', 'third_party/include'],
     linkopts = _gentest_linkopts,
-    deps = ['@fmt//:fmt'],
+    deps = [':gentest_bench_escape', '@fmt//:fmt'],
     visibility = ['//visibility:public'],
 )
 

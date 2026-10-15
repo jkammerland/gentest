@@ -1,5 +1,7 @@
 #include "cases.hpp"
 
+#include "gentest/test.h"
+
 namespace benchmarks {
 
 void bench_struct_params(demo::Blob p) {
@@ -11,13 +13,27 @@ void bench_struct_params(demo::Blob p) {
 
 namespace benchmarks {
 
-void bench_concat_small() {
-    // Minimal work; harness repeats this function many times
-    std::string a = "hello";
-    std::string b = " ";
-    std::string c = "world";
-    auto        s = a + b + c;
-    gentest::doNotOptimizeAway(s);
+void ConcatFixture::setUp() { inputs = {{{"hello", " ", "world"}, {"small", " ", "string"}, {"three", " ", "parts"}}}; }
+
+void ConcatFixture::tearDown() {
+    // Independently check completed work after calibration and timed calls.
+    gentest::asserts::EXPECT_EQ(outputs[0], "hello world");
+    gentest::asserts::EXPECT_EQ(outputs[1], "small string");
+    gentest::asserts::EXPECT_EQ(outputs[2], "three parts");
+}
+
+void bench_concat_small(ConcatFixture &fixture) {
+    for (std::size_t i = 0; i < fixture.inputs.size(); ++i) {
+        const auto &parts  = fixture.inputs[i];
+        fixture.outputs[i] = parts[0] + parts[1] + parts[2];
+    }
+
+    // Escape actual character storage, not only std::string's bookkeeping.
+    // Teardown also observes every result; no assertions run inside timing.
+    for (const auto &output : fixture.outputs) {
+        gentest::doNotOptimizeAway(output.data());
+    }
+    gentest::clobberMemory();
 }
 
 } // namespace benchmarks
