@@ -4374,6 +4374,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_public_module_gcc_tsan_fallback APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_imported_module_runtime
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckImportedModuleRuntime.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_imported_module_runtime APPEND PROPERTY LABELS "modules")
+
+_gentest_add_cmake_helper_test(
     gentest_public_module_surface
     ${PROJECT_SOURCE_DIR}/tests/cmake/public_module_surface
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPublicModuleSurface.cmake
@@ -5093,6 +5101,7 @@ set(_gentest_ci_compat_tests
     gentest_header_declaration_registration
     gentest_explicit_mock_target_surface
     gentest_module_registration_manifest
+    gentest_imported_module_runtime
     gentest_public_module_surface
     gentest_runtime_shared_context_exports
     gentest_codegen_msvc_modmap_external_module

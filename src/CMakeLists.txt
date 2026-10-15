@@ -166,18 +166,6 @@ else()
             $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/wd5030>)
 endif()
 
-if(GENTEST_PUBLIC_MODULES_ENABLED AND WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    if(NOT DEFINED CMAKE_CXX_COMPILER_FRONTEND_VARIANT
-       OR NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-        # CMake's imported-module synth targets on Windows GNU-style clang add
-        # _DLL by default, which makes downstream module consumers emit
-        # RuntimeLibrary=MD* even when the rest of the build is static-runtime.
-        # Export -U_DLL with the public module surface so the synthesized
-        # package-consumer BMI compiles stay in the same CRT family.
-        target_compile_options(${PROJECT_NAME} PUBLIC $<$<COMPILE_LANGUAGE:CXX>:-U_DLL>)
-    endif()
-endif()
-
 if(NOT TARGET gentest::gentest)
     add_library(gentest::gentest ALIAS ${PROJECT_NAME})
 endif()
