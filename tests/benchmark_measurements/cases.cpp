@@ -4,7 +4,9 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <ranges>
 #include <sstream>
@@ -14,6 +16,40 @@
 namespace measurement_tests {
 using namespace std::chrono_literals;
 using namespace gentest::asserts;
+
+namespace {
+
+// Inject a failure after one sample without depending on transform_view's conditional
+// iter_move noexcept, which Clang-Tidy 21 misdiagnoses for a throwing projection.
+struct ThrowingSampleIterator {
+    using value_type       = int;
+    using difference_type  = std::ptrdiff_t;
+    using iterator_concept = std::input_iterator_tag;
+
+    int  position = 0;
+    int *reads    = nullptr;
+
+    int operator*() const {
+        ++*reads;
+        if (position == 1) {
+            throw std::runtime_error("iterator failure");
+        }
+        return position;
+    }
+
+    ThrowingSampleIterator &operator++() noexcept {
+        ++position;
+        return *this;
+    }
+    void operator++(int) noexcept { ++*this; }
+
+    bool operator==(std::default_sentinel_t) const noexcept { return position == 2; }
+};
+
+static_assert(std::input_iterator<ThrowingSampleIterator>);
+static_assert(std::sentinel_for<std::default_sentinel_t, ThrowingSampleIterator>);
+
+} // namespace
 
 void Sample::setUp() {
     ++setups;
@@ -164,12 +200,13 @@ void Sample::tearDown() {
             independent_failures += lazy_evaluations != 0;
             EXPECT_EQ(lazy_evaluations, 0);
         } else if (mode == "series_throw") {
-            auto lazy = std::views::iota(0, 2) | std::views::transform([](int n) {
-                            if (n == 1)
-                                throw std::runtime_error("iterator failure");
-                            return n;
-                        });
+            int  reads = 0;
+            auto lazy  = std::ranges::subrange(ThrowingSampleIterator{.reads = &reads}, std::default_sentinel);
             gentest::recordTimingSamples("bad", lazy, 1ns);
+
+            // An expected case failure must not hide an unexercised exception path.
+            independent_failures += reads != 2;
+            EXPECT_EQ(reads, 2);
         } else if (mode == "series_overflow") {
             gentest::recordTimingSamples("bad", std::array{std::numeric_limits<double>::max()}, 2ns);
         } else if (mode == "series_unit") {
