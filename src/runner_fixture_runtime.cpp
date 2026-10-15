@@ -96,6 +96,9 @@ bool end_shared_fixture_run(gentest::runner::detail::SharedFixtureRuntimeSession
         return false;
     }
     if (gate.active) {
+        // All fixture/context users have drained; restore logging before another
+        // invocation can acquire the run gate.
+        session.diagnostic_log_route.reset();
         gate.active = false;
         gate.owner  = std::thread::id{};
     }
@@ -585,10 +588,24 @@ bool acquire_case_fixture(const gentest::Case &c, void *&ctx, std::string &reaso
 
 namespace gentest::runner::detail {
 
-bool setup_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtureRuntimeSession &session) {
+bool setup_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtureRuntimeSession &session, bool machine_report) {
     errors.clear();
     if (!begin_shared_fixture_run(errors, session)) {
         return false;
+    }
+
+    // Only the accepted run may change the default writer. Rejected nested or
+    // concurrent runs must not disturb its route, and custom sinks stay intact.
+    if (machine_report) {
+        session.diagnostic_log_route.emplace(
+            stderr, +[](void *stream, std::string_view message) noexcept {
+                try {
+                    fmt::print(static_cast<FILE *>(stream), "{}\n", message);
+                } catch (...) {
+                    // Logging is best-effort, matching the default sink.
+                    return;
+                }
+            });
     }
 
     bool setup_ok = false;

@@ -14,6 +14,14 @@ gentest_attach_codegen(gentest_bench_util_value_tests)
 add_test(NAME bench_util_values COMMAND gentest_bench_util_value_tests --kind=test --no-color)
 set_tests_properties(bench_util_values PROPERTIES LABELS "benchmarks;public-api;ci-compat")
 
+add_executable(gentest_report_stream_tests report_stream/main.cpp report_stream/cases.cpp report_stream/cases.hpp)
+target_link_libraries(gentest_report_stream_tests PRIVATE gentest::gentest)
+target_compile_features(gentest_report_stream_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(gentest_report_stream_tests)
+add_test(NAME report_stream_contract COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_report_stream.py $<TARGET_FILE:gentest_report_stream_tests>)
+set_tests_properties(report_stream_contract PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
+
 # Optimized code is the observable behavior of an anti-optimization helper.
 gentest_add_cmake_script_test(
     NAME bench_util_optimization
@@ -51,6 +59,7 @@ if(NOT TARGET gentest_test_suites)
 endif()
 add_dependencies(gentest_test_suites gentest_benchmark_measurement_tests)
 add_dependencies(gentest_test_suites gentest_bench_util_value_tests)
+add_dependencies(gentest_test_suites gentest_report_stream_tests)
 
 add_executable(gentest_recording_tests recording/main.cpp recording/cases.hpp)
 target_link_libraries(gentest_recording_tests PRIVATE gentest::gentest)
