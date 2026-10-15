@@ -51,6 +51,10 @@ def main():
     inventory = json.loads(run(binary, "--list-json").stdout)
     assert [case["name"] for case in inventory] == all_names, inventory
 
+    # Execution must reject an empty selection before constructing Probe too.
+    result = run(binary, "--kind=test", "--filter=missing/*", "--fail-on-empty", code=1)
+    assert result.stdout == "" and "No cases selected" in result.stderr, result
+
     # The same selector really executes the promised case; a matched skip is
     # successful under fail-on-empty without executing its failure body.
     result = run(binary, "--kind=test", "--filter=*/?lpha", "--fail-on-empty")
