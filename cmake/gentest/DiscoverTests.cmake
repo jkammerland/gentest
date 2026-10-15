@@ -280,7 +280,7 @@ function(gentest_discover_tests_impl)
   endif()
 
   set(filter_regex "")
-  if(arg_TEST_FILTER)
+  if(NOT "${arg_TEST_FILTER}" STREQUAL "")
     _gentest_wildcard_to_regex(filter_regex "${arg_TEST_FILTER}")
   endif()
 

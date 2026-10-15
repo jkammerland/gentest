@@ -230,7 +230,7 @@ endif()
 # Both entry paths must reject genuinely empty inventories, not merely an empty
 # TEST_LIST: unmatched-bracket names still produce real CTest registrations.
 foreach(_mode IN ITEMS POST_BUILD PRE_TEST)
-  foreach(_policy IN ITEMS missing empty bracket skipped)
+  foreach(_policy IN ITEMS missing empty bracket skipped false_like skipped_death)
     set(_policy_dir "${_work_dir}/strict-${_mode}-${_policy}")
     set(_filter "demo/not-present")
     set(_empty OFF)
@@ -244,6 +244,10 @@ foreach(_mode IN ITEMS POST_BUILD PRE_TEST)
     elseif(_policy STREQUAL "skipped")
       set(_filter "demo/skip")
       set(_expect_failure FALSE)
+    elseif(_policy STREQUAL "false_like")
+      set(_filter "OFF")
+    elseif(_policy STREQUAL "skipped_death")
+      set(_filter "demo/death_skip")
     endif()
     # Use direct argv here: the unmatched bracket is not a CMake-list value.
     execute_process(
