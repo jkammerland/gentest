@@ -159,6 +159,13 @@ Run:
 
 `--list-tests` prints only resolved test names (one per line).
 
+Use `--list-selected --kind=test --filter="suite/*"` to preview the names that
+the same execution selector would run, without constructing fixtures or running
+cases. It also honors `--run`, `--include-death` and `--fail-on-empty`. Matching
+skipped cases remain visible. Output is always names only, in inventory order
+(not shuffled); the existing `--list-tests`/`--list-json` modes still show the full
+inventory regardless of selection flags.
+
 Use `--fail-on-empty` in CI to reject a filter/kind selection with no executable
 cases before fixture setup; intentionally skipped matching cases are still
 selected. CTest consumers can opt into the same guard with

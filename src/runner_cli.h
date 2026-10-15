@@ -10,6 +10,7 @@ enum class Mode {
     Execute,
     Help,
     ListTests,
+    ListSelected,
     ListMeta,
     ListJson,
     ListDeath,

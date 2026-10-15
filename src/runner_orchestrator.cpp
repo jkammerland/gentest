@@ -542,6 +542,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("Usage: [options]\n");
         fmt::print("  --help                Show this help\n");
         fmt::print("  --list-tests          List test names (one per line)\n");
+        fmt::print("  --list-selected       Preview selected names without running fixtures/cases\n");
         fmt::print("  --list                List tests with metadata\n");
         fmt::print("  --list-json           List test inventory as JSON\n");
         fmt::print("  --records=DIR         Export runtime records to a fresh run bundle\n");
@@ -558,7 +559,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --time-unit=<mode>    Time display unit: auto|ns (default auto)\n");
         fmt::print("  --report-format=<mode> Measured reports: table|markdown|csv|json (default table)\n");
         fmt::print("  --fail-fast           Stop after the first failing case\n");
-        fmt::print("  --fail-on-empty       Fail when execution selects no cases\n");
+        fmt::print("  --fail-on-empty       Fail when execution/preview selects no cases\n");
         fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
         fmt::print("  --async-log-tail=N    Live async log lines per case (default 5, 0 disables)\n");
         fmt::print("  --shuffle             Shuffle tests (respects fixture/grouping)\n");
@@ -603,6 +604,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
             if (t.is_benchmark || t.is_jitter)
                 fmt::print("{}\n", t.name);
         return 0;
+    case Mode::ListSelected:
     case Mode::Execute: break;
     }
 
@@ -639,6 +641,8 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print(stderr, "hint: use --list-benches to see available names\n");
         return 1;
     case SelectionStatus::ZeroSelected:
+        if (opt.mode == Mode::ListSelected)
+            return 0;
         if (machine_measured_report) {
             switch (opt.kind) {
             case KindFilter::Test: return reject_machine_measured_report_unmeasured_selection(opt);
@@ -658,6 +662,8 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print(stderr, "Case '{}' is tagged as a death test; rerun with --include-death\n", opt.run_exact);
         return 1;
     case SelectionStatus::DeathExcludedAll:
+        if (opt.mode == Mode::ListSelected)
+            return 0;
         if (machine_measured_report) {
             CliOptions death_included_opt       = opt;
             death_included_opt.include_death    = true;
@@ -674,6 +680,14 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
             return 0;
         }
         fmt::print("Executed 0 case(s). (death tests excluded; use --include-death)\n");
+        return 0;
+    }
+
+    // Use the execution selector, but stop before fixture construction, report
+    // handling, shuffle or execution-only notices. stdout remains names only.
+    if (opt.mode == Mode::ListSelected) {
+        for (const auto index : selection.idxs)
+            fmt::print("{}\n", kCases[index].name);
         return 0;
     }
 
