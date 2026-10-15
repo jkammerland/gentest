@@ -61,11 +61,11 @@ int main() {
         int  messages;
     };
     const std::array probes{
-        Probe{"passing", passing, false, 0},
-        Probe{"true_without_message", failing<true, false>, true, 0},
-        Probe{"true_with_message", failing<true, true>, true, 1},
-        Probe{"false_without_message", failing<false, false>, true, 0},
-        Probe{"false_with_message", failing<false, true>, true, 1},
+        Probe{.name = "passing", .run = passing, .fails = false, .messages = 0},
+        Probe{.name = "true_without_message", .run = failing<true, false>, .fails = true, .messages = 0},
+        Probe{.name = "true_with_message", .run = failing<true, true>, .fails = true, .messages = 1},
+        Probe{.name = "false_without_message", .run = failing<false, false>, .fails = true, .messages = 0},
+        Probe{.name = "false_with_message", .run = failing<false, true>, .fails = true, .messages = 1},
     };
 
     // Run real owner contexts; inspect counters outside the assertion machinery.
