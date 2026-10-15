@@ -158,6 +158,11 @@ Run:
 ```
 
 `--list-tests` prints only resolved test names (one per line).
+
+For measured JSON/CSV reports, stdout contains only the report. The default
+`gentest::log()` sink writes diagnostics to stderr throughout fixture setup,
+execution and teardown. Application-installed sinks are unchanged; applications
+must keep their own stdout writes out of machine reports.
 `--list` prints the richer listing format (name plus metadata such as tags/owner when present).
 `--kind` restricts execution/filtering to `all|test|bench|jitter` (default `all`).
 Examples below use the concise `[[gentest::...]]` spelling for single attributes and `[[using gentest: ...]]` for multi-attribute lists.

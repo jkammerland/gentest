@@ -35,7 +35,9 @@ struct SharedFixtureRunGuard {
     std::vector<std::string>                             setup_errors;
     std::vector<std::string>                             teardown_errors;
 
-    SharedFixtureRunGuard() { setup_ok = gentest::runner::detail::setup_shared_fixture_runtime(setup_errors, session); }
+    explicit SharedFixtureRunGuard(bool machine_report) {
+        setup_ok = gentest::runner::detail::setup_shared_fixture_runtime(setup_errors, session, machine_report);
+    }
 
     void finalize() {
         if (!finalized) {
@@ -396,7 +398,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
     state.record_results = (opt.junit_path != nullptr) || (opt.allure_dir != nullptr) || (opt.records_dir != nullptr);
     gentest::detail::RecordingRunScope recording_run(state.record_results);
 
-    SharedFixtureRunGuard fixture_guard;
+    SharedFixtureRunGuard fixture_guard(is_machine_measured_report(opt));
     TestCounters          counters;
 
     if (!fixture_guard.setup_ok) {
