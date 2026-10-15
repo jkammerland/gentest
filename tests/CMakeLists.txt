@@ -1,5 +1,19 @@
 include(GentestTests)
 
+# Exercise actual value preservation under optimization even in Debug builds.
+add_executable(gentest_bench_util_value_tests bench_util/values.cpp bench_util/values.hpp)
+target_link_libraries(gentest_bench_util_value_tests PRIVATE gentest::gentest_main)
+target_compile_features(gentest_bench_util_value_tests PRIVATE cxx_std_20)
+if(MSVC)
+    # Native MSVC Debug enables /RTC1, which is incompatible with /O2.
+    target_compile_options(gentest_bench_util_value_tests PRIVATE "$<$<NOT:$<CONFIG:Debug>>:/O2>")
+else()
+    target_compile_options(gentest_bench_util_value_tests PRIVATE -O2)
+endif()
+gentest_attach_codegen(gentest_bench_util_value_tests)
+add_test(NAME bench_util_values COMMAND gentest_bench_util_value_tests --kind=test --no-color)
+set_tests_properties(bench_util_values PROPERTIES LABELS "benchmarks;public-api;ci-compat")
+
 # Optimized code is the observable behavior of an anti-optimization helper.
 gentest_add_cmake_script_test(
     NAME bench_util_optimization
@@ -36,6 +50,7 @@ if(NOT TARGET gentest_test_suites)
     add_custom_target(gentest_test_suites)
 endif()
 add_dependencies(gentest_test_suites gentest_benchmark_measurement_tests)
+add_dependencies(gentest_test_suites gentest_bench_util_value_tests)
 
 add_executable(gentest_recording_tests recording/main.cpp recording/cases.hpp)
 target_link_libraries(gentest_recording_tests PRIVATE gentest::gentest)

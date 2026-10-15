@@ -28,7 +28,13 @@ template <class T> inline void observe_benchmark_value(T &value) {
 #if defined(__clang__)
         asm volatile("" : "+r,m"(value) : : "memory");
 #else
-        asm volatile("" : "+m,r"(value) : : "memory");
+        // GCC's general-register alternative is unsafe for floating-point
+        // operands: it can omit the input store before reloading from memory.
+        if constexpr (std::is_floating_point_v<T>) {
+            asm volatile("" : "+m"(value) : : "memory");
+        } else {
+            asm volatile("" : "+m,r"(value) : : "memory");
+        }
 #endif
     } else {
         // A complete memory operand preserves every member without pretending
