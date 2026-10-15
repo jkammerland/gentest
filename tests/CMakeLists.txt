@@ -206,6 +206,17 @@ set_property(TEST analyzer_assertions_contract APPEND PROPERTY ENVIRONMENT
 set_property(TEST analyzer_assertions_contract APPEND PROPERTY LABELS "public-api;scripts;ci-compat")
 unset(_gentest_analyzer_fmt_target)
 
+gentest_add_manual_regression(
+    TARGET gentest_analyzer_assertion_tests
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/analyzer_assertions.cpp)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    # Keep exercising the preprocessor mode that rejected __VA_OPT__.
+    target_compile_options(gentest_analyzer_assertion_tests PRIVATE /Zc:preprocessor-)
+endif()
+add_dependencies(gentest_test_suites gentest_analyzer_assertion_tests)
+add_test(NAME analyzer_assertions_runtime COMMAND gentest_analyzer_assertion_tests)
+set_tests_properties(analyzer_assertions_runtime PROPERTIES LABELS "public-api;ci-compat;ci-smoke")
+
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
 target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)
