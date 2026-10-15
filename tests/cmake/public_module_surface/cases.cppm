@@ -2,6 +2,7 @@ module;
 
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <coroutine>
 #include <fmt/format.h>
 #include <ostream>
@@ -48,8 +49,12 @@ struct BenchmarkFixture : gentest::FixtureTearDown {
         auto snapshot = gentest::currentMeasurement();
         gentest::require(snapshot.has_value());
         gentest::expect_eq(snapshot->primary.items_per_call, 1000U);
-        gentest::expect_eq(snapshot->timings.size(), 1U);
+        gentest::require(snapshot->primary.statistics.duration.has_value());
+        gentest::expect_eq(snapshot->primary.statistics.duration->p99_ns, 2e9);
+        gentest::require(snapshot->timings.size() == 1);
+        gentest::require(snapshot->timings[0].statistics.duration.has_value());
         gentest::expect_eq(snapshot->timings[0].statistics.duration->mean_ns, 5.0);
+        gentest::expect_true(std::abs(snapshot->timings[0].statistics.duration->p99_ns - 9.9) < 1e-12);
     }
 };
 

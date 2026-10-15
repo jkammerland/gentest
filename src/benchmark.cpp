@@ -24,7 +24,8 @@ TimingStatistics timing_statistics(std::span<const double> samples) {
                                         .median_ns = stats.median,
                                         .stddev_ns = stats.stddev,
                                         .p05_ns    = stats.p05,
-                                        .p95_ns    = stats.p95}};
+                                        .p95_ns    = stats.p95,
+                                        .p99_ns    = stats.p99}};
 }
 
 std::string_view validate_benchmark_options(const Case &test) {
@@ -117,11 +118,16 @@ void setBenchmarkDuration(std::chrono::duration<double> elapsed, std::uint64_t c
         detail::fail_timing_publication("benchmark duration and completed items must be positive and representable", location);
         return;
     }
-    auto &primary      = state->snapshot.primary;
-    primary.statistics = {
-        .count = 1,
-        .duration =
-            DurationSummary{.min_ns = ns, .max_ns = ns, .mean_ns = ns, .median_ns = ns, .stddev_ns = 0, .p05_ns = ns, .p95_ns = ns}};
+    auto &primary            = state->snapshot.primary;
+    primary.statistics       = {.count    = 1,
+                                .duration = DurationSummary{.min_ns    = ns,
+                                                            .max_ns    = ns,
+                                                            .mean_ns   = ns,
+                                                            .median_ns = ns,
+                                                            .stddev_ns = 0,
+                                                            .p05_ns    = ns,
+                                                            .p95_ns    = ns,
+                                                            .p99_ns    = ns}};
     primary.items_per_call   = completed_items;
     primary.elapsed_seconds  = elapsed.count();
     state->duration_supplied = true;

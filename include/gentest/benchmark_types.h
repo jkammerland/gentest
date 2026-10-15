@@ -32,6 +32,7 @@ struct DurationSummary {
     double stddev_ns = 0; // Population standard deviation.
     double p05_ns    = 0;
     double p95_ns    = 0;
+    double p99_ns    = 0;
 };
 
 struct TimingStatistics {

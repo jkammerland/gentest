@@ -100,13 +100,20 @@ Zero-duration observations are valid. Negative, non-finite or unrepresentable
 observations are not. An empty range means **unavailable**: count zero with absent
 statistics, represented as null in JSON/CSV and `-` in human reports, not fake zero
 latency. Summaries use linear percentile interpolation and population standard
-deviation. Exact statistics may use temporary storage; raw observations are not
+deviation. P05, P95 and P99 use the same sorted observations: for `{1, 2, 3, 4, 5}`
+nanoseconds, P99 is `4.96 ns`. A singleton's P99 equals its only observation.
+Exact statistics may use temporary storage; raw observations are not
 retained or exported automatically.
 
 Series have independent cardinalities and are never divided by primary item count.
 CPU latency, partial GPU observations, transfer and compute can overlap. They are
 not assumed to partition end-to-end time; Gentest does not invent an “unattributed”
 residual by subtracting them.
+
+Percentiles describe the supplied population: named packet-latency samples yield
+packet P99, while a calibrated primary benchmark's P99 describes epoch averages.
+P99 is available in `DurationSummary::p99_ns` and named timing reports; default
+regression-comparison metrics are unchanged.
 
 `currentMeasurement()` is valid only in local benchmark/jitter teardown. It returns
 nullopt until a primary result is available, otherwise an independent owning

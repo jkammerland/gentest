@@ -23,6 +23,7 @@ struct BenchResult {
     double              mean_ns            = 0;
     double              p05_ns             = 0;
     double              p95_ns             = 0;
+    double              p99_ns             = 0;
     double              total_time_s       = 0;
     double              warmup_time_s      = 0;
     double              wall_time_s        = 0;
@@ -47,6 +48,7 @@ struct JitterResult {
     double                     stddev_ns          = 0;
     double                     p05_ns             = 0;
     double                     p95_ns             = 0;
+    double                     p99_ns             = 0;
     double                     overhead_mean_ns   = 0;
     double                     overhead_sd_ns     = 0;
     double                     overhead_ratio_pct = 0;

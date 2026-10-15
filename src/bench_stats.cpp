@@ -82,6 +82,7 @@ SampleStats compute_sample_stats(std::span<const double> samples) {
     stats.median = percentile_sorted(sorted, 0.5);
     stats.p05    = percentile_sorted(sorted, 0.05);
     stats.p95    = percentile_sorted(sorted, 0.95);
+    stats.p99    = percentile_sorted(sorted, 0.99);
     stats.mean   = mean_of(sorted);
     stats.stddev = stddev_of(sorted, stats.mean);
     return stats;

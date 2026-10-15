@@ -385,7 +385,7 @@ BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg,
         br.wall_time_s               = br.total_time_s;
         br.epochs                    = had_assert ? 0 : 1;
         br.iters_per_epoch           = 1;
-        br.best_ns = br.worst_ns = br.median_ns = br.mean_ns = br.p05_ns = br.p95_ns = ns_from_s(br.total_time_s);
+        br.best_ns = br.worst_ns = br.median_ns = br.mean_ns = br.p05_ns = br.p95_ns = br.p99_ns = ns_from_s(br.total_time_s);
         return br;
     }
 
@@ -435,6 +435,7 @@ BenchResult run_bench(const gentest::Case &c, void *ctx, const BenchConfig &cfg,
         br.stddev_ns       = stats.stddev;
         br.p05_ns          = stats.p05;
         br.p95_ns          = stats.p95;
+        br.p99_ns          = stats.p99;
     }
     br.wall_time_s               = br.warmup_time_s + br.total_time_s + br.calibration_time_s;
     br.measured_call_wall_time_s = br.total_time_s;
@@ -513,6 +514,7 @@ JitterResult run_jitter(const gentest::Case &c, void *ctx, const BenchConfig &cf
         jr.stddev_ns     = stats.stddev;
         jr.p05_ns        = stats.p05;
         jr.p95_ns        = stats.p95;
+        jr.p99_ns        = stats.p99;
     }
     if (jr.median_ns > 0.0) {
         jr.overhead_ratio_pct = (jr.overhead_mean_ns / jr.median_ns) * 100.0;
@@ -531,7 +533,8 @@ PrimaryMeasurement primary_measurement(const BenchResult &result) {
                                                           .median_ns = result.median_ns,
                                                           .stddev_ns = result.stddev_ns,
                                                           .p05_ns    = result.p05_ns,
-                                                          .p95_ns    = result.p95_ns}};
+                                                          .p95_ns    = result.p95_ns,
+                                                          .p99_ns    = result.p99_ns}};
     }
     primary.measured_calls        = result.total_iters;
     primary.calls_per_sample      = result.iters_per_epoch;
@@ -555,7 +558,8 @@ PrimaryMeasurement primary_measurement(const JitterResult &result) {
                                                           .median_ns = result.median_ns,
                                                           .stddev_ns = result.stddev_ns,
                                                           .p05_ns    = result.p05_ns,
-                                                          .p95_ns    = result.p95_ns}};
+                                                          .p95_ns    = result.p95_ns,
+                                                          .p99_ns    = result.p99_ns}};
     }
     primary.measured_calls        = result.total_iters;
     primary.calls_per_sample      = result.calls_per_sample;
@@ -581,6 +585,7 @@ void apply_measurement(BenchResult &result, MeasurementSnapshot snapshot) {
         result.stddev_ns    = stats.stddev_ns;
         result.p05_ns       = stats.p05_ns;
         result.p95_ns       = stats.p95_ns;
+        result.p99_ns       = stats.p99_ns;
         result.total_time_s = primary.elapsed_seconds;
     }
     result.measurement = std::move(snapshot);

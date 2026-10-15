@@ -621,13 +621,13 @@ ReportTable make_measurements_table(std::string_view kind, TimeUnitMode mode) {
         .report      = std::string(kind),
         .headers     = {"Benchmark", "Suite", "Series", "Count", time_header_s("Min", mode), time_header_s("Max", mode),
                         time_header_s("Mean", mode), time_header_s("Median", mode), time_header_s("StdDev (population)", mode),
-                        time_header_s("P05", mode), time_header_s("P95", mode)},
-        .right_align = {false, false, false, true, true, true, true, true, true, true, true},
+                        time_header_s("P05", mode), time_header_s("P95", mode), time_header_s("P99", mode)},
+        .right_align = {false, false, false, true, true, true, true, true, true, true, true, true},
     };
 }
 
 void append_measurements(ReportTable &table, const gentest::Case &c, const MeasurementSnapshot &snapshot, TimeUnitMode mode) {
-    constexpr std::array<std::pair<std::string_view, double DurationSummary::*>, 7> statistics{{
+    constexpr std::array<std::pair<std::string_view, double DurationSummary::*>, 8> statistics{{
         {"min_ns", &DurationSummary::min_ns},
         {"max_ns", &DurationSummary::max_ns},
         {"mean_ns", &DurationSummary::mean_ns},
@@ -635,6 +635,7 @@ void append_measurements(ReportTable &table, const gentest::Case &c, const Measu
         {"stddev_ns", &DurationSummary::stddev_ns},
         {"p05_ns", &DurationSummary::p05_ns},
         {"p95_ns", &DurationSummary::p95_ns},
+        {"p99_ns", &DurationSummary::p99_ns},
     }};
 
     // Each series contains independent observations. Overlap is valid, so do not sum or normalize them.
