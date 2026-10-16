@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Event, revision, permission, and completion policy for the discovered CI inventory."""
 
+import copy
 import json
 import os
 from pathlib import Path
@@ -257,6 +258,75 @@ class ManualCiTests(unittest.TestCase):
         package_pr_steps = workflow_presets["package-pr"]["steps"]
         self.assertEqual([step["type"] for step in package_pr_steps], ["configure", "build", "test", "package"])
         self.assertEqual(package_pr_steps[2]["name"], "release-package-pr")
+
+    def test_qemu_contract_rejects_inherited_and_command_line_limits(self):
+        presets = json.loads((ROOT / "CMakePresets.json").read_text())
+        workflow = self.workflows["cross_qemu.yml"]
+        for key in ("BAZELISK_VERSION", "XMAKE_VERSION"):
+            pattern = rf'(?m)^  {key}: "([^"]+)"$'
+            cross_version = re.search(pattern, workflow)
+            native_version = re.search(pattern, self.workflows["buildsystems_linux.yml"])
+            self.assertIsNotNone(cross_version)
+            self.assertIsNotNone(native_version)
+            self.assertEqual(cross_version[1], native_version[1])
+        full_builds = [preset for preset in presets["buildPresets"] if preset["name"].endswith("-qemu-full")]
+        self.assertTrue(full_builds)
+        first = full_builds[0]["name"]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            (fixture / ".github/workflows").mkdir(parents=True)
+
+            def check(data, text):
+                (fixture / "CMakePresets.json").write_text(json.dumps(data))
+                (fixture / ".github/workflows/cross_qemu.yml").write_text(text)
+                return subprocess.run(["cmake", f"-DSOURCE_DIR={fixture}", "-P",
+                                       str(ROOT / "tests/cmake/scripts/CheckQemuWorkflowPresets.cmake")],
+                                      capture_output=True, text=True)
+
+            baseline = check(presets, workflow)
+            self.assertEqual(baseline.returncode, 0, baseline.stdout + baseline.stderr)
+
+            # The configure preset may itself be inherited through a hidden parent.
+            inherited_config = copy.deepcopy(presets)
+            selected = next(p for p in inherited_config["buildPresets"] if p["name"] == first)
+            inherited_config["buildPresets"].append({"name": "contract-config", "hidden": True,
+                                                    "configurePreset": selected.pop("configurePreset")})
+            selected["inherits"] = ["contract-config", selected["inherits"]]
+            result = check(inherited_config, workflow)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            for group, base, field, value in (
+                ("buildPresets", "build-base", "targets", ["gentest_unit_tests"]),
+                ("testPresets", "test-base", "filter", {"include": {"label": "public-api"}}),
+            ):
+                with self.subTest(inherited_limit=field):
+                    data = copy.deepcopy(presets)
+                    parent = next(p for p in data[group] if p["name"] == base)
+                    parent["inherits"] = ["contract-empty", "contract-middle"]
+                    data[group].extend([
+                        {"name": "contract-empty", "hidden": True},
+                        {"name": "contract-middle", "hidden": True, "inherits": "contract-limited"},
+                        {"name": "contract-limited", "hidden": True, field: value},
+                    ])
+                    result = check(data, workflow)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("must not restrict", result.stderr)
+
+            build_command = "cmake --build --preset=" + first
+            test_command = "ctest --preset=" + first
+            mutations = (
+                ("smoke build", workflow.replace(build_command, build_command.removesuffix("-full"), 1)),
+                ("explicit build target", workflow.replace(build_command, build_command + " --target gentest_unit_tests", 1)),
+                ("continued build target", workflow.replace(build_command, build_command + " \\\n            --target gentest_unit_tests", 1)),
+                ("CTest label filter", workflow.replace(test_command, test_command + " -L public-api", 1)),
+                ("empty inventory accepted", workflow.replace(" --no-tests=error", "", 1)),
+            )
+            for name, text in mutations:
+                with self.subTest(workflow_limit=name):
+                    self.assertNotEqual(text, workflow)
+                    result = check(presets, text)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

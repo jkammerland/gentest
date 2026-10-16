@@ -92,15 +92,19 @@ CTest configuration selection, including representative package consumers.
 
 Primary LLVM 23 coverage includes full Debug CTest with Allure and Boost.JSON,
 ASan/LSan/UBSan, TSan, and a separate libassert configuration without exceptions.
+TSan death tests run normally. The guard on the configured CTest inventory fails
+if the death inventory is empty or any death test is disabled.
 The complete bundle also includes the package workflow, lint, coverage,
 aarch64/riscv64 QEMU, Bazel/Meson/Xmake, measured comparisons against the frozen
 base, recording with real serializers, and strict Clang 20 leak diagnostics.
 No native worker uses the former `ci-smoke` label filter.
 
-The QEMU jobs currently retain their existing smoke presets. Expanding them to
-all cross-compatible cases requires a successful full-preset probe on both
-architectures; until that probe passes, they do not constitute full cross-suite
-coverage. Native workers run the complete configured CTest inventory.
+The QEMU jobs build every configured target and run the complete configured CTest
+inventory with the `aarch64-qemu-full` and `riscv64-qemu-full` build/test presets.
+They provision Meson, system fmt headers, Bazelisk, and Xmake so backend consumer
+checks execute as well. Missing optional tools are reported as CTest skips in
+local environments. Manual smoke presets remain available for focused diagnosis.
+Native workers also run their complete configured CTest inventory.
 
 Clang 20 ASan integration remains a documented upstream coverage gap. Its two
 isolated strict XFAIL probes reproduce specific libclang ownership leaks; they

@@ -27,6 +27,13 @@ concurrency:
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
 
+  # Match the versions used by the native backend workflow.
+  BAZELISK_VERSION: "v1.29.0"
+  XMAKE_VERSION: "3.0.8"
+
+  # Both workers run as root in disposable Ubuntu containers.
+  XMAKE_ROOT: "y"
+
 jobs:
   linux-aarch64-qemu:
     name: Linux • aarch64 (QEMU)
@@ -69,6 +76,8 @@ jobs:
             python3 \
             python3-pip \
             pkg-config \
+            meson \
+            libfmt-dev \
             curl \
             zip \
             unzip \
@@ -91,6 +100,47 @@ jobs:
       - name: Setup LLVM toolchain
         uses: ./.github/actions/setup-llvm
 
+      - &install_backend_tools
+        name: Install backend validation tools
+        run: |
+          set -euxo pipefail
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) bazelisk_arch="amd64" ;;
+            aarch64) bazelisk_arch="arm64" ;;
+            *) echo "Unsupported arch: $arch"; exit 1 ;;
+          esac
+
+          asset="bazelisk-linux-${bazelisk_arch}"
+          base_url="https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}"
+          work_dir="$(mktemp -d)"
+          trap 'rm -rf "${work_dir}"' EXIT
+          cd "${work_dir}"
+
+          curl --fail --location --show-error --retry 5 --retry-all-errors \
+            -o "${asset}" "${base_url}/${asset}"
+          curl --fail --location --show-error --retry 5 --retry-all-errors \
+            -o "${asset}.sha256" "${base_url}/${asset}.sha256"
+          expected_sha256="$(tr -d '[:space:]' < "${asset}.sha256")"
+          actual_sha256="$(sha256sum "${asset}")"
+          actual_sha256="${actual_sha256%% *}"
+          if [[ ! "${expected_sha256}" =~ ^[0-9a-fA-F]{64}$ ]] || [[ "${actual_sha256}" != "${expected_sha256,,}" ]]; then
+            echo "Bazelisk checksum mismatch for ${asset}" >&2
+            echo "expected: ${expected_sha256}" >&2
+            echo "actual:   ${actual_sha256}" >&2
+            exit 1
+          fi
+
+          install -m 0755 "${asset}" /usr/local/bin/bazelisk
+          ln -sf /usr/local/bin/bazelisk /usr/local/bin/bazel
+          (cd "${GITHUB_WORKSPACE}" && bazel --version)
+
+          curl --fail --location --show-error --retry 5 --retry-all-errors \
+            -o "${work_dir}/xmake" \
+            "https://github.com/xmake-io/xmake/releases/download/v${XMAKE_VERSION}/xmake-bundle-v${XMAKE_VERSION}.linux.x86_64"
+          install -m 0755 "${work_dir}/xmake" /usr/local/bin/xmake
+          xmake --version
+
       - name: Checkout candidate
         uses: actions/checkout@v6
         with:
@@ -109,6 +159,10 @@ jobs:
           set -euxo pipefail
           cmake --version
           ninja --version
+          meson --version
+          bazel --version
+          xmake --version
+          pkg-config --modversion fmt
           ${HOST_CLANG} --version
           aarch64-linux-gnu-gcc --version | head -n 1
           qemu-aarch64 --version | head -n 1
@@ -145,12 +199,12 @@ jobs:
       - name: Build cross target (Linux/aarch64)
         run: |
           set -euxo pipefail
-          cmake --build --preset=aarch64-qemu --parallel
+          cmake --build --preset=aarch64-qemu-full --parallel
 
-      - name: Test (QEMU smoke)
+      - name: Test (QEMU full suite)
         run: |
           set -euxo pipefail
-          ctest --preset=aarch64-qemu --output-on-failure
+          ctest --preset=aarch64-qemu-full --output-on-failure --no-tests=error
 
   linux-riscv64-qemu:
     name: Linux • riscv64 (QEMU)
@@ -193,6 +247,8 @@ jobs:
             python3 \
             python3-pip \
             pkg-config \
+            meson \
+            libfmt-dev \
             curl \
             zip \
             unzip \
@@ -215,6 +271,8 @@ jobs:
       - name: Setup LLVM toolchain
         uses: ./.github/actions/setup-llvm
 
+      - *install_backend_tools
+
       - name: Checkout candidate
         uses: actions/checkout@v6
         with:
@@ -233,6 +291,10 @@ jobs:
           set -euxo pipefail
           cmake --version
           ninja --version
+          meson --version
+          bazel --version
+          xmake --version
+          pkg-config --modversion fmt
           ${HOST_CLANG} --version
           riscv64-linux-gnu-gcc --version | head -n 1
           qemu-riscv64 --version | head -n 1
@@ -297,9 +359,9 @@ jobs:
       - name: Build cross target (Linux/riscv64)
         run: |
           set -euxo pipefail
-          cmake --build --preset=riscv64-qemu --parallel
+          cmake --build --preset=riscv64-qemu-full --parallel
 
-      - name: Test (QEMU smoke)
+      - name: Test (QEMU full suite)
         run: |
           set -euxo pipefail
-          ctest --preset=riscv64-qemu --output-on-failure
+          ctest --preset=riscv64-qemu-full --output-on-failure --no-tests=error
