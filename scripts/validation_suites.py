@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 
-from llvm_tools import LLVM_MAJOR, resolve_tool
+from llvm_tools import LLVM_MAJOR, select_toolchain
 
 
 @dataclass
@@ -122,14 +122,14 @@ def main() -> int:
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
-    args.cc = resolve_tool("clang", args.cc)
-    args.cxx = resolve_tool("clang++", args.cxx)
+    toolchain = select_toolchain(cc=args.cc, cxx=args.cxx)
+    args.cc, args.cxx = toolchain.tools["clang"], toolchain.tools["clang++"]
     args.work.mkdir(parents=True, exist_ok=True)
     commands = suite_commands(args.suite, args.source, args.work, jobs=args.jobs, codegen=args.codegen,
                               serializers=args.serializers, cc=args.cc, cxx=args.cxx)
     for command in commands:
         print("+", subprocess.list2cmdline(command.args), flush=True)
-        subprocess.run(command.args, cwd=command.cwd, env=os.environ | command.env, check=True)
+        subprocess.run(command.args, cwd=command.cwd, env=os.environ | command.env | toolchain.environment(), check=True)
     return 0
 
 

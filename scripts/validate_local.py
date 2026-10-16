@@ -21,7 +21,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
-from llvm_tools import LLVM_MAJOR, resolve_tool
+from llvm_tools import LLVM_MAJOR, select_toolchain
 from validation_suites import Command, suite_commands
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,23 +88,20 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
     stages: list[Stage] = []
     presets = json.loads((source / "CMakePresets.json").read_text(encoding="utf-8"))
     by_name = {p["name"]: p for p in presets["configurePresets"]}
+    selection_error = ""
+    try:
+        toolchain = select_toolchain()
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        # A plan may describe unavailable capabilities, but it must never turn
+        # an invalid explicit selection into an executable fallback configure.
+        toolchain = None
+        selection_error = str(error)
+
     def primary_tool(name: str, override: str = "") -> str:
-        try:
-            return resolve_tool(name, override)
-        except (ValueError, OSError, subprocess.CalledProcessError):
-            # Keep plan construction possible on hosts missing a capability.
-            # Execution checks the version before configuring any build.
-            return override or f"{name}-{LLVM_MAJOR}"
+        return toolchain.tools[name] if toolchain else override or f"{name}-{LLVM_MAJOR}"
 
     clang = primary_tool("clang", os.environ.get("GENTEST_CLANG", ""))
     clangxx = primary_tool("clang++", os.environ.get("GENTEST_CLANGXX", ""))
-    if host == "Darwin":
-        # Homebrew's LLVM is keg-only. An explicit prefix is private runtime
-        # configuration, never a hostname/path inventory in this repository.
-        prefix = os.environ.get("GENTEST_LLVM_PREFIX", "")
-        if prefix:
-            clang, clangxx = str(Path(prefix) / "bin/clang"), str(Path(prefix) / "bin/clang++")
-    clang, clangxx = shutil.which(clang) or clang, shutil.which(clangxx) or clangxx
 
     def cmake_stage(name: str, preset: str, cc: str, cxx: str, *, origin: Path = source,
                     extra: tuple[str, ...] = (), targets: tuple[str, ...] = (), tests: bool = True,
@@ -119,7 +116,9 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         args = [cmake, "--preset=" + preset, "-B", str(build)]
         if cc:
             args += ["-DCMAKE_C_COMPILER=" + cc, "-DCMAKE_CXX_COMPILER=" + cxx]
-        args += ["-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO", "-DGENTEST_USE_BOOST_JSON=ON", *extra]
+        args += ["-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO", "-DGENTEST_USE_BOOST_JSON=ON",
+                 "-DGENTEST_CODEGEN_HOST_CLANG=" + clangxx,
+                 "-DGENTEST_CODEGEN_CLANG_SCAN_DEPS=" + primary_tool("clang-scan-deps"), *extra]
         boost_include = os.environ.get("GENTEST_BOOST_JSON_INCLUDE_DIR", "")
         if boost_include and "-DGENTEST_USE_BOOST_JSON=OFF" not in extra:
             args.append("-DGENTEST_BOOST_JSON_INCLUDE_DIR=" + boost_include)
@@ -195,23 +194,16 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
                 if host == "Darwin" and compiler == "llvm" and Path(cxx).resolve() == Path("/usr/bin/clang++").resolve():
                     stage.missing = "Select Homebrew LLVM with GENTEST_LLVM_PREFIX (AppleClang is a separate lane)"
     assert [stage.name for stage in stages] == required_stages(host)
-    llvm_prefix = os.environ.get("GENTEST_LLVM_PREFIX", "")
-    if not llvm_prefix and Path(clangxx).is_file():
-        llvm_prefix = str(Path(clangxx).resolve().parent.parent)
-
     for stage in stages:
-        if stage.name not in {"appleclang-debug", "appleclang-release"}:
-            stage.commands.insert(0, Command([sys.executable, str(source / "scripts/llvm_tools.py"), "check", clang, clangxx], source))
+        stage.commands.insert(0, Command([sys.executable, str(source / "scripts/llvm_tools.py"), "check-toolchain"], source))
+        if selection_error:
+            stage.missing = "; ".join(filter(None, (selection_error, stage.missing)))
         if stage.name == "lint":
             stage.tools = ["bash", primary_tool("clang-format"), primary_tool("clang-tidy")]
-        if llvm_prefix:
+        if toolchain:
             for command in stage.commands:
-                command.env["PATH"] = str(Path(llvm_prefix) / "bin") + os.pathsep + os.environ.get("PATH", "")
-                for libdir in ("lib", "lib64"):
-                    cmake_dir = Path(llvm_prefix) / libdir / "cmake"
-                    if (cmake_dir / "llvm/LLVMConfig.cmake").is_file() and (cmake_dir / "clang/ClangConfig.cmake").is_file():
-                        command.env.update(LLVM_DIR=str(cmake_dir / "llvm"), Clang_DIR=str(cmake_dir / "clang"))
-                        break
+                command.env.update(toolchain.environment())
+                command.env["GENTEST_CODEGEN_HOST_CLANG"] = clangxx
     return stages
 
 

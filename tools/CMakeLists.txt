@@ -9,6 +9,13 @@ find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
 gentest_require_llvm_package_minimum(LLVM 19)
 gentest_require_llvm_package_minimum(Clang 19)
+gentest_get_llvm_package_major(_gentest_llvm_major LLVM)
+gentest_get_llvm_package_major(_gentest_clang_major Clang)
+if(NOT _gentest_llvm_major STREQUAL _gentest_clang_major)
+    message(FATAL_ERROR "gentest requires matching LLVM and Clang package majors; found LLVM ${_gentest_llvm_major}, Clang ${_gentest_clang_major}")
+endif()
+unset(_gentest_llvm_major)
+unset(_gentest_clang_major)
 
 gentest_patch_llvm_missing_diaguids(LLVMDebugInfoPDB)
 

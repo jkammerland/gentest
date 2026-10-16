@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 import llvm_tools
+from llvm_tool_fixture import fake_toolchain
 
 
 @unittest.skipIf(os.name == "nt", "Fake executables use POSIX shell scripts")
@@ -82,6 +84,72 @@ class ToolSelectionTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"Expected LLVM {llvm_tools.LLVM_MAJOR}", result.stderr)
                 self.assertNotIn("compile_commands.json", result.stderr)
+
+    def test_complete_selection_keeps_symlinked_tools_packages_and_overrides(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = fake_toolchain(Path(temp) / "llvm", llvm_tools.LLVM_MAJOR)
+            link = Path(temp) / "current"
+            link.symlink_to(prefix, target_is_directory=True)
+            override = self.fake_tool(Path(temp), "custom-cov", f"LLVM version {llvm_tools.LLVM_MAJOR}.1.0")
+            with patch.dict(os.environ, {"PATH": str(link / "bin"), "GENTEST_LLVM_PREFIX": str(link),
+                                         "GENTEST_LLVM_COV": str(override)}, clear=True):
+                selected = llvm_tools.select_toolchain()
+            self.assertEqual(selected.tools["clang++"], str(prefix / "bin/clang++"))
+            self.assertEqual(selected.tools["clang-scan-deps"], str(prefix / "bin/clang-scan-deps"))
+            self.assertEqual(selected.tools["llvm-cov"], str(override))
+            self.assertEqual(selected.tools["llvm-config"], str(prefix / "bin/llvm-config"))
+            self.assertEqual(selected.llvm_dir, str(prefix / "lib/cmake/llvm"))
+            self.assertEqual(selected.clang_dir, str(prefix / "lib/cmake/clang"))
+
+    def test_package_major_mismatch_and_stale_explicit_packages_fail(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = fake_toolchain(Path(temp) / "llvm", llvm_tools.LLVM_MAJOR)
+            stale = fake_toolchain(Path(temp) / "stale", 21)
+            env = {"PATH": str(prefix / "bin"), "GENTEST_LLVM_PREFIX": str(prefix)}
+            for overrides, expected in (({"Clang_DIR": str(stale / "lib/cmake/clang")}, "must agree"),
+                                        ({"LLVM_DIR": str(stale / "lib/cmake/llvm"),
+                                          "Clang_DIR": str(stale / "lib/cmake/clang")}, "Expected LLVM/Clang")):
+                with self.subTest(overrides=overrides), patch.dict(os.environ, env | overrides, clear=True):
+                    with self.assertRaisesRegex(ValueError, expected):
+                        llvm_tools.select_toolchain()
+
+    def test_cmake_rejects_mismatched_host_packages_independently_of_target_compiler(self):
+        cmake = shutil.which("cmake")
+        self.assertIsNotNone(cmake, "CMake is required for the repository tooling checks")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            llvm = fake_toolchain(root / "llvm", 23)
+            clang = fake_toolchain(root / "clang", 22)
+            (llvm / "lib/cmake/llvm/LLVMConfig.cmake").write_text("set(LLVM_VERSION_MAJOR 23)\n")
+            (clang / "lib/cmake/clang/ClangConfig.cmake").write_text("set(CLANG_VERSION_MAJOR 22)\n")
+            (root / "CMakeLists.txt").write_text(
+                f'cmake_minimum_required(VERSION 3.25)\nproject(package_check LANGUAGES NONE)\n'
+                f'include("{ROOT.as_posix()}/tools/CMakeLists.txt")\n')
+            result = subprocess.run([cmake, "-S", str(root), "-B", str(root / "build"),
+                                     f"-DLLVM_DIR={llvm / 'lib/cmake/llvm'}", f"-DClang_DIR={clang / 'lib/cmake/clang'}"],
+                                    text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertRegex(result.stderr, r"matching LLVM and Clang package majors; found LLVM 23,\s+Clang 22")
+
+    def test_missing_or_stale_selected_scan_deps_and_cov_cannot_fall_back(self):
+        with tempfile.TemporaryDirectory() as temp:
+            prefix = fake_toolchain(Path(temp) / "llvm", llvm_tools.LLVM_MAJOR)
+            other = fake_toolchain(Path(temp) / "other", llvm_tools.LLVM_MAJOR)
+            old = self.fake_tool(Path(temp), "old", "LLVM version 21.1.0")
+            env = {"PATH": str(other / "bin"), "GENTEST_LLVM_PREFIX": str(prefix)}
+            for name, variable in (("clang-scan-deps", "GENTEST_CODEGEN_CLANG_SCAN_DEPS"),
+                                   ("llvm-cov", "GENTEST_LLVM_COV")):
+                with self.subTest(tool=name), patch.dict(os.environ, env | {variable: str(old)}, clear=True):
+                    with self.assertRaisesRegex(ValueError, "Expected LLVM"):
+                        llvm_tools.select_toolchain()
+                with patch.dict(os.environ, env, clear=True):
+                    selected = prefix / "bin" / name
+                    selected.rename(selected.with_suffix(".saved"))
+                    try:
+                        with self.assertRaisesRegex(ValueError, "not found"):
+                            llvm_tools.select_toolchain()
+                    finally:
+                        selected.with_suffix(".saved").rename(selected)
 
 
 if __name__ == "__main__":
