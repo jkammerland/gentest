@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import subprocess
 import tempfile
@@ -159,6 +160,56 @@ file(WRITE "${{CMAKE_BINARY_DIR}}/args.txt" "${{_args}}")
                                         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stdout)
                 self.assertEqual((root / "build/args.txt").read_text(), "-I" + include.as_posix())
+
+
+class CompileProbeTargetTests(unittest.TestCase):
+    def test_compile_only_probes_forward_targets_only_to_clang(self):
+        scripts = Path(__file__).resolve().parents[1] / "cmake/scripts"
+        for script in ("CheckBenchUtilOptimization.cmake", "CheckVendoredIndicatorsCompile.cmake"):
+            for identity, target_expected in (("GNU", False), ("Clang", True), ("AppleClang", True), ("Unknown", False)):
+                for target in ("configured-target", ""):
+                    with self.subTest(script=script, identity=identity, target=target), tempfile.TemporaryDirectory() as tmp:
+                        root = Path(tmp) / "probe with spaces"
+                        source = root / "source"
+                        source.mkdir(parents=True)
+                        log = root / "compiler.jsonl"
+                        driver = root / "compiler.py"
+
+                        # Isolate argument forwarding from platform compiler availability.
+                        # Real optimization/header contracts are exercised by their CTests.
+                        driver.write_text("""import json
+from pathlib import Path
+import sys
+log, expected = sys.argv[1:3]
+args = sys.argv[3:]
+targets = [arg for arg in args if arg.startswith('--target=')]
+assert targets == ([] if expected == 'none' else [expected]), targets
+assert '--sysroot=configured-sysroot' in args, args
+assert '-DGENTEST_COMPILE_PROBE=1' in args, args
+assert Path(args[args.index('-c') + 1]).is_file(), args
+Path(args[args.index('-o') + 1]).write_text('compiler fixture output')
+with Path(log).open('a') as stream:
+    stream.write(json.dumps(args) + '\\n')
+""", encoding="utf-8")
+                        if script == "CheckBenchUtilOptimization.cmake":
+                            probe = source / "tests/bench_util/optimization.cpp"
+                            probe.parent.mkdir(parents=True)
+                            probe.write_text("// Argument-forwarding fixture.\n", encoding="utf-8")
+                            checker = source / "tests/scripts/check_bench_util_assembly.py"
+                            checker.parent.mkdir(parents=True)
+                            checker.write_text("from pathlib import Path\nimport sys\n"
+                                               "assert Path(sys.argv[1]).read_text() == 'compiler fixture output'\n", encoding="utf-8")
+
+                        expected = "--target=" + target if target_expected and target else "none"
+                        arg1 = subprocess.list2cmdline([str(driver), str(log), expected])
+                        result = subprocess.run(["cmake", f"-DBUILD_ROOT={root / 'build'}", f"-DSOURCE_DIR={source}",
+                            f"-DCXX_COMPILER={sys.executable}", f"-DCXX_COMPILER_ARG1={arg1}", f"-DCXX_COMPILER_ID={identity}",
+                            f"-DCXX_COMPILER_TARGET={target}", "-DCXX_SYSROOT=configured-sysroot",
+                            "-DCXX_FLAGS=-DGENTEST_COMPILE_PROBE=1", f"-DPYTHON={sys.executable}", "-P", str(scripts / script)],
+                            capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        invocations = [json.loads(line) for line in log.read_text().splitlines()]
+                        self.assertEqual(len(invocations), 1 if script == "CheckBenchUtilOptimization.cmake" else 2)
 
 
 if __name__ == "__main__":
