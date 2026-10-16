@@ -14,6 +14,8 @@ import shutil
 import subprocess
 import sys
 
+from llvm_tools import LLVM_MAJOR, resolve_tool
+
 
 @dataclass
 class Command:
@@ -24,7 +26,7 @@ class Command:
 
 def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
                    codegen: Path | None = None, serializers: str = "",
-                   cc: str = "clang", cxx: str = "clang++") -> list[Command]:
+                   cc: str = f"clang-{LLVM_MAJOR}", cxx: str = f"clang++-{LLVM_MAJOR}") -> list[Command]:
     source, work = source.resolve(), work.resolve()
     common = {"CC": cc, "CXX": cxx, "CCACHE_DISABLE": "1"}
     if codegen:
@@ -115,15 +117,16 @@ def main() -> int:
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--codegen", type=Path)
     parser.add_argument("--serializers", default=os.environ.get("GENTEST_SERIALIZER_PREFIX", ""))
-    parser.add_argument("--cc", default=os.environ.get("CC", "clang"))
-    parser.add_argument("--cxx", default=os.environ.get("CXX", "clang++"))
+    parser.add_argument("--cc", default=os.environ.get("CC", ""))
+    parser.add_argument("--cxx", default=os.environ.get("CXX", ""))
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
+    args.cc = resolve_tool("clang", args.cc)
+    args.cxx = resolve_tool("clang++", args.cxx)
     args.work.mkdir(parents=True, exist_ok=True)
     commands = suite_commands(args.suite, args.source, args.work, jobs=args.jobs, codegen=args.codegen,
-                              serializers=args.serializers, cc=shutil.which(args.cc) or args.cc,
-                              cxx=shutil.which(args.cxx) or args.cxx)
+                              serializers=args.serializers, cc=args.cc, cxx=args.cxx)
     for command in commands:
         print("+", subprocess.list2cmdline(command.args), flush=True)
         subprocess.run(command.args, cwd=command.cwd, env=os.environ | command.env, check=True)

@@ -14,10 +14,6 @@ concurrency:
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   GENTEST_CMAKE_PRESET: coverage-system
-  LLVM_DIR: /usr/lib64/cmake/llvm
-  Clang_DIR: /usr/lib64/cmake/clang
-  CC: clang
-  CXX: clang++
 
 jobs:
   plan:
@@ -62,7 +58,7 @@ jobs:
   coverage:
     needs: plan
     if: ${{ needs.plan.outputs.run_coverage == 'true' }}
-    name: Fedora 43 • Clang 21 • coverage
+    name: Fedora 43 • LLVM 23 • coverage
     runs-on: ubuntu-24.04
     container: fedora:43
     defaults:
@@ -86,11 +82,6 @@ jobs:
             curl \
             zip \
             unzip \
-            clang \
-            clang-libs \
-            clang-devel \
-            clang-tools-extra \
-            llvm-devel \
             fmt-devel \
             zlib-ng-compat-devel \
             libunwind-devel \
@@ -112,6 +103,9 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Setup LLVM toolchain
+        uses: ./.github/actions/setup-llvm
 
       - name: Configure environment variables
         run: |

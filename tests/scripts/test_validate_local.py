@@ -170,24 +170,54 @@ class ExecutionTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
+    def commands_without_preflight(self, stage):
+        return [command.args for command in stage.commands if "check" not in command.args[:3]]
+
+    def test_explicit_llvm_prefix_keeps_compilers_libraries_and_coverage_together(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            prefix = output / "llvm"
+            for package in ("llvm", "clang"):
+                config = prefix / "lib/cmake" / package / ("LLVMConfig.cmake" if package == "llvm" else "ClangConfig.cmake")
+                config.parent.mkdir(parents=True)
+                config.write_text("# fixture package\n")
+
+            with patch.dict(os.environ, {"GENTEST_LLVM_PREFIX": str(prefix)}, clear=True), \
+                    patch.object(validator, "resolve_tool", side_effect=lambda name, override="": str(prefix / "bin" / name)):
+                stages = validator.make_plan("Linux", ROOT, output, output / "base", 2)
+
+            for stage in stages:
+                for command in stage.commands:
+                    self.assertEqual(command.env["LLVM_DIR"], str(prefix / "lib/cmake/llvm"))
+                    self.assertEqual(command.env["Clang_DIR"], str(prefix / "lib/cmake/clang"))
+                    self.assertTrue(command.env["PATH"].startswith(str(prefix / "bin") + os.pathsep))
+            coverage = next(stage for stage in stages if stage.name == "coverage")
+            gcov_commands = [command.args for command in coverage.commands if "--gcov" in command.args]
+            self.assertEqual(len(gcov_commands), 2)
+            for command in gcov_commands:
+                self.assertEqual(command[command.index("--gcov") + 1], str(prefix / "bin/llvm-cov"))
+
     def test_full_native_lanes_and_windows_skip(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=True):
             output = Path(temp)
             linux = validator.make_plan("Linux", ROOT, output, output / "base", 2)
             self.assertEqual(len(linux), 16)
             stages = {s.name: s for s in linux}
-            self.assertIn("--preset=alusan-system", stages["asan-ubsan"].commands[0].args)
-            self.assertIn("--preset=tsan-system", stages["tsan"].commands[0].args)
-            self.assertIn("--parallel", stages["coverage"].commands[2].args)
+            for stage in linux:
+                self.assertEqual(stage.commands[0].args[1:3], [str(ROOT / "scripts/llvm_tools.py"), "check"])
+            self.assertIn("--preset=alusan-system", self.commands_without_preflight(stages["asan-ubsan"])[0])
+            self.assertIn("--preset=tsan-system", self.commands_without_preflight(stages["tsan"])[0])
+            self.assertIn("--parallel", self.commands_without_preflight(stages["coverage"])[2])
             self.assertTrue(stages["recording"].missing)
-            self.assertIn("gentest_benchmarks_tests", stages["measured"].commands[1].args)
+            self.assertIn("gentest_benchmarks_tests", self.commands_without_preflight(stages["measured"])[1])
             for stage in linux[:6]:
-                self.assertNotIn("--label-regex", stage.commands[2].args)
-                self.assertIn("--no-tests=error", stage.commands[2].args)
+                self.assertNotIn("--label-regex", self.commands_without_preflight(stage)[2])
+                self.assertIn("--no-tests=error", self.commands_without_preflight(stage)[2])
             windows = validator.make_plan("Windows", ROOT, output, output / "base", 2)
             self.assertEqual([s.name for s in windows], ["clang-debug", "clang-release", "msvc-debug", "msvc-release"])
             for stage in windows:
-                self.assertEqual("-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON" in stage.commands[0].args, stage.name.endswith("-debug"))
+                self.assertEqual(stage.commands[0].args[1:3], [str(ROOT / "scripts/llvm_tools.py"), "check"])
+                self.assertEqual("-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON" in self.commands_without_preflight(stage)[0], stage.name.endswith("-debug"))
             mac = validator.make_plan("Darwin", ROOT, output, output / "base", 2)
             self.assertEqual([s.name for s in mac], ["appleclang-debug", "appleclang-release", "llvm-debug", "llvm-release"])
 
@@ -197,7 +227,7 @@ class PlanTests(unittest.TestCase):
             output = Path(temp)
             stages = validator.make_plan("Windows", ROOT, output, output / "base", 2)
             for stage in stages:
-                configure = stage.commands[0].args
+                configure = self.commands_without_preflight(stage)[0]
                 self.assertIn("-DGENTEST_USE_BOOST_JSON=ON", configure)
                 self.assertIn("-DGENTEST_BOOST_JSON_INCLUDE_DIR=/installed/boost/include", configure)
 

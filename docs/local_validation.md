@@ -6,9 +6,14 @@ directory outside the checkout. It has no upload, PR-comment, status-posting,
 remote-execution, or telemetry feature. Hostnames, addresses, SSH aliases, and
 local machine inventories are not configuration inputs.
 
+Repository tooling follows `scripts/llvm_toolchain.json`. Select an LLVM 23
+installation with `GENTEST_LLVM_PREFIX`, or use `GENTEST_CLANG` and
+`GENTEST_CLANGXX` for its compilers. Version checks run before native builds;
+GCC, MSVC, and AppleClang remain separate target-compiler coverage.
+
 ## Run
 
-Use Python 3.11+ and a clean tracked checkout at the commit being validated.
+Use Python 3.11+, LLVM 23, and a clean tracked checkout at the commit being validated.
 Untracked work is preserved and is not copied into the validation worktrees.
 Supply a baseline commit available in the same local Git repository:
 

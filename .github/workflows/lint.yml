@@ -22,81 +22,50 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Install dependencies
+      - &build_dependencies
+        name: Install build dependencies
         run: |
           set -euxo pipefail
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates curl git gnupg
-          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          printf '%s\n' \
-            'Types: deb' \
-            'URIs: https://apt.llvm.org/noble/' \
-            'Suites: llvm-toolchain-noble-22' \
-            'Components: main' \
-            'Signed-By: /etc/apt/trusted.gpg.d/apt.llvm.org.asc' \
-            >/etc/apt/sources.list.d/apt-llvm-22.sources
-          apt-get update
-          apt-get install -y --no-install-recommends clang-format-22
+          apt-get install -y --no-install-recommends \
+            git python3 python3-pip ninja-build build-essential pkg-config \
+            libfmt-dev libffi-dev libxml2-dev zlib1g-dev libzstd-dev \
+            libcurl4-openssl-dev libunwind-dev
+          python3 -m pip install --break-system-packages --upgrade cmake
 
-      - name: Checkout
+      - &checkout
+        name: Checkout
         uses: actions/checkout@v6
 
+      - &setup_llvm
+        name: Setup LLVM toolchain
+        uses: ./.github/actions/setup-llvm
+
       - name: Check C++ formatting
-        run: CLANG_FORMAT_BIN=clang-format-22 scripts/check_clang_format.sh
+        run: scripts/check_clang_format.sh
 
   tidy:
     name: Clang Tidy
     runs-on: ubuntu-24.04
-    container: fedora:43
+    container: ubuntu:24.04
     defaults:
       run:
         shell: bash
     steps:
-      - name: Install dependencies
-        run: |
-          set -euxo pipefail
-          dnf -y upgrade --refresh
-          dnf -y install \
-            git \
-            which \
-            tar \
-            xz \
-            ninja-build \
-            python3 \
-            python3-pip \
-            pkg-config \
-            clang \
-            clang-libs \
-            clang-devel \
-            clang-tools-extra \
-            llvm-devel \
-            fmt-devel \
-            zlib-ng-compat-devel \
-            libunwind-devel \
-            libcurl-devel \
-            libffi-devel \
-            libxml2-devel \
-            gcc \
-            gcc-c++ \
-            make \
-            ca-certificates
-          python3 -m pip install --upgrade pip cmake
-
-      - name: Checkout
-        uses: actions/checkout@v6
+      - *build_dependencies
+      - *checkout
+      - *setup_llvm
 
       - name: Configure
         run: |
-          cmake \
-            --preset=debug-system \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
+          cmake --preset=debug-system \
+            -DCMAKE_C_COMPILER="${CC}" \
+            -DCMAKE_CXX_COMPILER="${CXX}" \
             -DCMAKE_MAKE_PROGRAM="$(command -v ninja)" \
-            -DLLVM_DIR=/usr/lib64/cmake/llvm \
-            -DClang_DIR=/usr/lib64/cmake/clang \
+            -DLLVM_DIR="${LLVM_DIR}" \
+            -DClang_DIR="${Clang_DIR}" \
             -DGENTEST_ENABLE_PACKAGE_TESTS=OFF
 
       - name: Check clang-tidy (configured TUs)
-        run: |
-          CLANG_TIDY_JOBS=4 scripts/check_clang_tidy.sh build/debug-system
+        run: CLANG_TIDY_JOBS=4 scripts/check_clang_tidy.sh build/debug-system

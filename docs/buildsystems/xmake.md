@@ -217,13 +217,13 @@ enabled:
 
 ```powershell
 $env:GENTEST_XREPO_PREFIX = "C:/gentest"
-$env:GENTEST_CODEGEN_HOST_CLANG = "C:/Tools/llvm-21.1.4/bin/clang++.exe"
-$env:GENTEST_CODEGEN_CLANG_SCAN_DEPS = "C:/Tools/llvm-21.1.4/bin/clang-scan-deps.exe"
+$env:GENTEST_CODEGEN_HOST_CLANG = "C:/Tools/llvm-23.1.0/bin/clang++.exe"
+$env:GENTEST_CODEGEN_CLANG_SCAN_DEPS = "C:/Tools/llvm-23.1.0/bin/clang-scan-deps.exe"
 
 xmake f -c -y -m debug -o build/xmake-downstream `
   --toolchain=llvm `
-  --cc=C:/Tools/llvm-21.1.4/bin/clang.exe `
-  --cxx=C:/Tools/llvm-21.1.4/bin/clang++.exe
+  --cc=C:/Tools/llvm-23.1.0/bin/clang.exe `
+  --cxx=C:/Tools/llvm-23.1.0/bin/clang++.exe
 xmake b gentest_xrepo_module
 ```
 

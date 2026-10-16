@@ -88,7 +88,8 @@ class PathClassificationTests(unittest.TestCase):
                 self.assertEqual(ci_plan.classify_paths([path]), ci_plan.all_enabled())
 
     def test_planner_and_workflow_changes_enable_every_lane(self) -> None:
-        for path in ["scripts/ci_plan.py", ".github/workflows/new.yml"]:
+        for path in ["scripts/ci_plan.py", ".github/workflows/new.yml", ".github/actions/setup-llvm/action.yml",
+                     "scripts/llvm_toolchain.json", "scripts/llvm_tools.py", "scripts/setup_llvm.sh"]:
             with self.subTest(path=path):
                 self.assertEqual(ci_plan.classify_paths([path]), ci_plan.all_enabled())
 

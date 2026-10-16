@@ -79,13 +79,13 @@ jobs:
           elif [ "${{ matrix.compiler }}" = "llvm@21" ] || [ "${{ matrix.compiler }}" = "llvm@23" ]; then
             brew install "${{ matrix.compiler }}" ninja ccache googletest doctest
           else
-            brew install llvm ninja ccache googletest doctest
+            brew install llvm@23 ninja ccache googletest doctest
           fi
-          if [ "${{ matrix.compiler }}" = "llvm@21" ] && [ "${{ matrix.build-type }}" = "debug" ] && [ "${{ matrix.variant }}" = "default" ]; then
+          if [ "${{ matrix.compiler }}" = "llvm@23" ] && [ "${{ matrix.build-type }}" = "debug" ] && [ "${{ matrix.variant }}" = "default" ]; then
             brew install bazelisk
           fi
           echo "$(brew --prefix ninja)/bin" >> $GITHUB_PATH
-          if [ "${{ matrix.compiler }}" = "llvm@21" ] && [ "${{ matrix.build-type }}" = "debug" ] && [ "${{ matrix.variant }}" = "default" ]; then
+          if [ "${{ matrix.compiler }}" = "llvm@23" ] && [ "${{ matrix.build-type }}" = "debug" ] && [ "${{ matrix.variant }}" = "default" ]; then
             echo "$(brew --prefix)/bin" >> $GITHUB_PATH
           fi
 
@@ -96,7 +96,7 @@ jobs:
           elif [ "${{ matrix.compiler }}" = "llvm@21" ] || [ "${{ matrix.compiler }}" = "llvm@23" ]; then
             LLVM_PREFIX="$(brew --prefix "${{ matrix.compiler }}")"
           else
-            LLVM_PREFIX="$(brew --prefix llvm)"
+            LLVM_PREFIX="$(brew --prefix llvm@23)"
           fi
           echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
           echo "Clang_DIR=${LLVM_PREFIX}/lib/cmake/clang" >> $GITHUB_ENV
@@ -110,6 +110,10 @@ jobs:
           echo "SDKROOT=$(xcrun --show-sdk-path)" >> $GITHUB_ENV
           echo "CCACHE_DISABLE=1" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
+
+      - name: Verify primary LLVM version
+        if: matrix.primary == true
+        run: python3 scripts/llvm_tools.py check "${LLVM_BIN}/clang++"
 
       - name: Show tool versions
         run: |
@@ -161,7 +165,7 @@ jobs:
         run: cmake --build --preset=${{ matrix.build-type }}
 
       - name: Test Bazel Bzlmod Consumer
-        if: matrix.compiler == 'llvm@21' && matrix.build-type == 'debug' && matrix.variant == 'default'
+        if: matrix.compiler == 'llvm@23' && matrix.build-type == 'debug' && matrix.variant == 'default'
         run: ctest --preset=${{ matrix.build-type }} --output-on-failure -R '^(gentest_bazel_bzlmod_consumer)$'
 
       - name: Test
@@ -243,6 +247,11 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+
+      - name: Verify primary LLVM version
+        if: matrix.primary == true
+        shell: pwsh
+        run: python scripts/llvm_tools.py check "$env:LLVM_BIN\clang++.exe"
 
       - name: Setup LLVM 23 package dependencies
         if: matrix.llvm-version == '23.1.0'
@@ -584,6 +593,10 @@ jobs:
           echo "GENTEST_CMAKE_PRESET=${{ matrix.preset || (matrix.build_type == 'debug' && 'debug-system' || 'release-system') }}" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
           echo "PATH=/usr/local/bin:$PATH" >> $GITHUB_ENV
+      - name: Verify primary LLVM version
+        if: matrix.primary == true
+        run: python3 scripts/llvm_tools.py check "${GENTEST_CODEGEN_HOST_CLANG}"
+
       - name: Show tool versions
         run: |
           set -euxo pipefail
@@ -710,21 +723,6 @@ jobs:
             libcurl4-openssl-dev \
             libunwind-dev \
             libfmt-dev
-          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
-          printf '%s\n' \
-            'Types: deb' \
-            'URIs: https://apt.llvm.org/noble/' \
-            'Suites: llvm-toolchain-noble-20' \
-            'Components: main' \
-            'Signed-By: /etc/apt/trusted.gpg.d/apt.llvm.org.asc' \
-            | sudo tee /etc/apt/sources.list.d/apt-llvm-20.sources >/dev/null
-          apt_update
-          apt_install \
-            clang-20 \
-            clang-tools-20 \
-            libclang-20-dev \
-            libclang-cpp20-dev \
-            llvm-20-dev
           # The release-package preset pins CMake 4.3 experimental CPS/SBOM
           # activation UUIDs, so keep this lane on the matching CMake release.
           python3 -m pip install --break-system-packages cmake==4.3.4 ninja
@@ -732,11 +730,8 @@ jobs:
           import sysconfig
           print(sysconfig.get_path("scripts"))
           PY
-          echo "/usr/lib/llvm-20/bin" >> "$GITHUB_PATH"
-          echo "LLVM_DIR=/usr/lib/llvm-20/lib/cmake/llvm" >> "$GITHUB_ENV"
-          echo "Clang_DIR=/usr/lib/llvm-20/lib/cmake/clang" >> "$GITHUB_ENV"
-          echo "CC=clang-20" >> "$GITHUB_ENV"
-          echo "CXX=clang++-20" >> "$GITHUB_ENV"
+      - name: Setup LLVM toolchain
+        uses: ./.github/actions/setup-llvm
 
       - name: Setup vcpkg
         run: bash scripts/setup-vcpkg.sh
@@ -754,8 +749,8 @@ jobs:
           set -euxo pipefail
           cmake --version
           ninja --version
-          clang-20 --version
-          clang++-20 --version
+          "${CC}" --version
+          "${CXX}" --version
 
       - name: Run package workflow
         run: |

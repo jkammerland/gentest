@@ -18,6 +18,9 @@ endif()
 
 include("${SOURCE_DIR}/tests/cmake/scripts/CheckFixtureWriteHelpers.cmake")
 
+file(READ "${SOURCE_DIR}/scripts/llvm_toolchain.json" _llvm_policy)
+string(JSON _llvm_major GET "${_llvm_policy}" major)
+
 set(_work_dir "${BUILD_ROOT}/clang_tidy_arguments_materialization")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
@@ -43,6 +46,7 @@ gentest_fixture_write_file(
 gentest_fixture_write_file(
   "${_fake_tidy}"
   "#!/bin/sh\n"
+  "if [ \"$1\" = --version ]; then printf 'LLVM version ${_llvm_major}.0.0\\n'; exit 0; fi\n"
   "if [ ! -f '${_generated_public_dir}/gentest_textual_suite_mocks.hpp' ]; then\n"
   "  echo 'missing materialized generated surface' >&2\n"
   "  exit 3\n"

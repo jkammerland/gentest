@@ -4,7 +4,7 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "${script_dir}/.." && pwd)"
-clang_format_bin="${CLANG_FORMAT_BIN:-clang-format}"
+clang_format_bin="$(python3 "${script_dir}/llvm_tools.py" resolve clang-format "${CLANG_FORMAT_BIN:-}")"
 
 should_skip_lint_path() {
     local rel_path="$1"

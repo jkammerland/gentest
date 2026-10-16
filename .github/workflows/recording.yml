@@ -19,7 +19,7 @@ jobs:
       - name: Install toolchain
         run: |
           dnf -y install git tar unzip zip curl ninja-build python3 python3-pip make \
-            clang clang-devel llvm-devel gcc-c++ fmt-devel boost-devel autoconf automake libtool pkgconf-pkg-config \
+            gcc-c++ fmt-devel boost-devel autoconf automake libtool pkgconf-pkg-config \
             zlib-ng-compat-devel libxml2-devel libzstd-devel libffi-devel libunwind-devel
           python3 -m pip install --upgrade cmake ninja
           python3 - <<'PY' >> "$GITHUB_PATH"
@@ -27,6 +27,9 @@ jobs:
           print(sysconfig.get_path("scripts"))
           PY
       - uses: actions/checkout@v6
+      - name: Setup LLVM toolchain
+        uses: ./.github/actions/setup-llvm
+
       - uses: actions/checkout@v6
         with:
           repository: microsoft/vcpkg
@@ -38,12 +41,9 @@ jobs:
           .deps/vcpkg/vcpkg install --x-feature=record-glaze --x-feature=record-cbor \
             --x-install-root=build/recording-vcpkg
       - name: Exercise recording and installed serializers
-        env:
-          LLVM_DIR: /usr/lib64/cmake/llvm
-          Clang_DIR: /usr/lib64/cmake/clang
         run: |
           python3 scripts/validation_suites.py recording --work build/recording \
-            --serializers "$PWD/build/recording-vcpkg/x64-linux" --cc clang --cxx clang++
+            --serializers "$PWD/build/recording-vcpkg/x64-linux" --cc "${CC}" --cxx "${CXX}"
       - name: Upload recording evidence
         if: always()
         uses: actions/upload-artifact@v4

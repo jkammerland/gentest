@@ -307,8 +307,8 @@
     {
       "name": "tidy",
       "inherits": "base-debug",
-      "displayName": "Clang-Tidy",
-      "description": "Debug build with clang-tidy static analysis",
+      "displayName": "Clang-Tidy (LLVM 23)",
+      "description": "Debug build with clang-tidy from the repository LLVM policy",
       "cacheVariables": {
         "gentest_ENABLE_CLANG_TIDY_CMAKE": "ON",
         "CMAKE_CXX_CLANG_TIDY": "clang-tidy"
@@ -317,8 +317,8 @@
     {
       "name": "tidy-fix",
       "inherits": "base-debug",
-      "displayName": "Clang-Tidy Fix",
-      "description": "Debug build with clang-tidy auto-fixing enabled",
+      "displayName": "Clang-Tidy Fix (LLVM 23)",
+      "description": "Debug build with clang-tidy from the repository LLVM policy and auto-fixing enabled",
       "cacheVariables": {
         "gentest_ENABLE_CLANG_TIDY_CMAKE": "ON",
         "CMAKE_CXX_CLANG_TIDY": "clang-tidy;-fix;-fix-errors"

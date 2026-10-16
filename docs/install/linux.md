@@ -8,6 +8,12 @@
 
 ## Build this repo (recommended)
 
+Repository validation and lint use LLVM 23. On Ubuntu or Fedora,
+`bash scripts/setup_llvm.sh` installs the toolchain selected by
+`scripts/llvm_toolchain.json` and requires root or sudo. Select the installation
+with `GENTEST_LLVM_PREFIX` when using the lint scripts; configure the compiler
+and LLVM/Clang package directories from the same installation.
+
 ```bash
 cmake --preset=debug-system
 cmake --build --preset=debug-system

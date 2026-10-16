@@ -7,6 +7,9 @@ repo_root="$(cd -- "${script_dir}/.." && pwd)"
 build_dir="${1:-build/debug-system}"
 mode="${2:-check}"
 
+# Reject stale tools before code generation or compilation starts.
+clang_tidy_bin="$(python3 "${script_dir}/llvm_tools.py" resolve clang-tidy "${CLANG_TIDY_BIN:-}")"
+
 if [[ "${build_dir}" != /* ]]; then
     build_dir="${repo_root}/${build_dir}"
 fi
@@ -16,7 +19,6 @@ if [ ! -f "${build_dir}/compile_commands.json" ]; then
     exit 1
 fi
 
-clang_tidy_bin="${CLANG_TIDY_BIN:-clang-tidy}"
 default_jobs() {
     local jobs=""
     if command -v getconf >/dev/null 2>&1; then

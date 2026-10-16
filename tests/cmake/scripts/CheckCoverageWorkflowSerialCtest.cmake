@@ -22,19 +22,16 @@ if(_coverage_preset_env_pos EQUAL -1)
 endif()
 
 foreach(_required_token IN ITEMS
-    "name: Fedora 43 • Clang 21 • coverage"
+    "name: Fedora 43 • LLVM 23 • coverage"
     "container: fedora:43"
-    "LLVM_DIR: /usr/lib64/cmake/llvm"
-    "Clang_DIR: /usr/lib64/cmake/clang"
-    "CC: clang"
-    "CXX: clang++"
+    "uses: ./.github/actions/setup-llvm"
     "dnf -y install"
-    "clang-tools-extra"
-    "llvm-devel")
+    "\${CC}"
+    "\${CXX}")
   string(FIND "${_content}" "${_required_token}" _required_token_pos)
   if(_required_token_pos EQUAL -1)
     message(FATAL_ERROR
-      "Coverage workflow must stay on the Fedora 43 system Clang lane. Missing token '${_required_token}'.")
+      "Coverage workflow must use the shared LLVM toolchain on Fedora 43. Missing token '${_required_token}'.")
   endif()
 endforeach()
 

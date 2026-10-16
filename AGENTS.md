@@ -35,7 +35,7 @@
 - There is no interleaving across fixture groups.
 
 ## Build, Test, and Development Commands
-- Preferred (system LLVM/Clang 20+):
+- Preferred (repository LLVM/Clang 23):
   - `cmake --preset=debug-system`
   - `cmake --build --preset=debug-system`
   - `ctest --preset=debug-system --output-on-failure`
@@ -61,8 +61,8 @@
   - Connect: `ssh ai-dev1@windows-11`
   - Repo path: `B:\repos\gentest`
 - Windows (Clang/LLVM release packages + Ninja):
-  - Pick the LLVM you want (examples use `C:\Tools\llvm-21.1.4` / `C:\Tools\llvm-20.1.8`), then from `B:\repos\gentest` in PowerShell:
-    - `$llvm = 'C:\Tools\llvm-21.1.4'`
+  - Pick the LLVM you want (examples use `C:\Tools\llvm-23.1.0`), then from `B:\repos\gentest` in PowerShell:
+    - `$llvm = 'C:\Tools\llvm-23.1.0'`
     - `$env:LLVM_BIN = "$llvm\bin"; $env:PATH = "$env:LLVM_BIN;$env:PATH"`
     - `$env:LLVM_DIR = "$llvm\lib\cmake\llvm"; $env:Clang_DIR = "$llvm\lib\cmake\clang"`
     - `cmake --preset=debug-system -B build/relwithdebinfo-system -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER="$env:LLVM_BIN\clang.exe" -DCMAKE_CXX_COMPILER="$env:LLVM_BIN\clang++.exe" -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"`
@@ -84,8 +84,9 @@
 - List tests: run the generated executable (e.g., `gentest_unit_tests --list`).
 
 ## Coding Style & Naming Conventions
+- Repository compiler and lint tooling use LLVM 23, selected by `scripts/llvm_toolchain.json`. Lint scripts and tidy presets reject other majors. Select an LLVM 23 installation with `GENTEST_LLVM_PREFIX` or the explicit tool overrides. Older full-CI matrix rows are compatibility tests.
 - Follow `.clang-format` (LLVM-derived): 4-space indent, 140-column limit.
-- Format edited C/C++ files explicitly with `clang-format -i <paths...>`; there is no dedicated format preset in this repo today.
+- Format edited C/C++ files explicitly with `"$(python3 scripts/llvm_tools.py resolve clang-format)" -i <paths...>`; there is no dedicated format preset in this repo today.
 - Run the CI-aligned format gate with `scripts/check_clang_format.sh` when you want the same repo-wide dry-run check used by the lint workflow.
 - Run the same clang-tidy script CI uses with `scripts/check_clang_tidy.sh build/debug-system` after configuring a Clang-based `debug-system` build, for example `cmake --preset=debug-system -DGENTEST_ENABLE_PACKAGE_TESTS=OFF -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`. If CMake cannot discover the matching LLVM/Clang packages automatically, also pass `-DLLVM_DIR=... -DClang_DIR=...`. The script checks direct authored repository translation units from the active compile database, so the CI-aligned `debug-system` lane covers the configured `src/`, `tools/`, `tests/`, and public module units. It also surfaces diagnostics from matching repo headers included by those translation units, while still excluding generated fixture outputs outside the active preset. When the active compile database references generated explicit mock/codegen surfaces, `scripts/check_clang_tidy.sh` materializes any generated mock/codegen targets referenced by the active compile database before running clang-tidy, so a configure-only build dir is sufficient for the lint lane.
 - Run the repo-owned coverage report with `python3 scripts/coverage_report.py --build-dir build/coverage-system` after a coverage-instrumented serial test pass. It reads the same `scripts/coverage_hygiene.toml` policy as the hygiene gate, scopes totals to repo-owned implementation files under `src/` and `tools/src/`, includes internal headers in those trees, excludes intentional exemptions, writes a Markdown summary for GitHub Actions, and emits the detailed HTML report under `build/<preset>/coverage-report/`.

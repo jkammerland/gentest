@@ -12,12 +12,27 @@ cmake --build --preset=debug-system
 ctest --preset=debug-system --output-on-failure
 ```
 
+## Repository LLVM toolchain
+
+Repository builds and lint use LLVM 23, selected by
+`scripts/llvm_toolchain.json`. CI provisions that compiler, clang-tidy,
+clang-format, clang-scan-deps, and LLVM/Clang libraries together with
+`scripts/setup_llvm.sh`. On Linux this script supports Ubuntu packages and a
+checksum-verified upstream archive on Fedora x86_64. It installs packages and requires
+root or sudo. The full CI matrix retains explicit older-toolchain compatibility
+jobs; the supported consumer minimum remains LLVM 19.
+
+The lint scripts resolve versioned tools first and verify the actual major.
+`CLANG_TIDY_BIN`, `CLANG_FORMAT_BIN`, and `GENTEST_LLVM_PREFIX` can select an
+installation, but an incompatible override fails immediately. The `tidy` and
+`tidy-fix` presets enforce the same policy at configure time.
+
 ## Formatting
 
 Format edited C/C++ files explicitly:
 
 ```bash
-clang-format -i path/to/file.cpp path/to/file.hpp
+"$(python3 scripts/llvm_tools.py resolve clang-format)" -i path/to/file.cpp path/to/file.hpp
 ```
 
 Run the CI-aligned format gate:
@@ -32,7 +47,8 @@ Run the same `clang-tidy` script CI uses after configuring a Clang-based `debug-
 
 ```bash
 cmake --preset=debug-system -DGENTEST_ENABLE_PACKAGE_TESTS=OFF \
-  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+  -DCMAKE_C_COMPILER="$(python3 scripts/llvm_tools.py resolve clang)" \
+  -DCMAKE_CXX_COMPILER="$(python3 scripts/llvm_tools.py resolve clang++)"
 scripts/check_clang_tidy.sh build/debug-system
 ```
 
@@ -55,7 +71,7 @@ cmake --build --preset=tidy-fix
 
 ## Coverage
 
-The dedicated GitHub `coverage` workflow runs on Fedora 43 with system Clang and the `coverage-system` preset. The local CI-aligned flow is:
+The dedicated GitHub `coverage` workflow runs on Fedora 43 with LLVM 23 and the `coverage-system` preset. The local CI-aligned flow is:
 
 ```bash
 python3 -m pip install --upgrade gcovr==8.6

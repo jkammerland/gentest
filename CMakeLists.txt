@@ -33,6 +33,32 @@ include(GentestDependencies)
 include(GentestCompilerChecks)
 include(GentestPublicModules)
 
+# The maintainer tidy presets must use the same LLVM policy as CI and shell lint.
+option(gentest_ENABLE_CLANG_TIDY_CMAKE "Enable repository clang-tidy analysis" OFF)
+if(gentest_ENABLE_CLANG_TIDY_CMAKE)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set(_gentest_tidy_command ${CMAKE_CXX_CLANG_TIDY})
+    set(_gentest_tidy_override "")
+    if(_gentest_tidy_command)
+        list(POP_FRONT _gentest_tidy_command _gentest_tidy_override)
+        if(_gentest_tidy_override STREQUAL "clang-tidy")
+            set(_gentest_tidy_override "")
+        endif()
+    endif()
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/llvm_tools.py"
+            resolve clang-tidy "${_gentest_tidy_override}"
+        RESULT_VARIABLE _gentest_tidy_rc
+        OUTPUT_VARIABLE _gentest_tidy_binary
+        ERROR_VARIABLE _gentest_tidy_error
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT _gentest_tidy_rc EQUAL 0)
+        message(FATAL_ERROR "${_gentest_tidy_error}")
+    endif()
+    list(PREPEND _gentest_tidy_command "${_gentest_tidy_binary}")
+    set(CMAKE_CXX_CLANG_TIDY "${_gentest_tidy_command}")
+endif()
+
 option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
 option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" OFF)
 option(GENTEST_ENABLE_CPS "Install experimental Common Package Specification metadata (requires CMake 4.3+)" OFF)

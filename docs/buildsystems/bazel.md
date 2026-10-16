@@ -69,7 +69,7 @@ gentest_codegen_toolchain(
     # Linux only: ordered markers for Clang's resource headers and every C
     # system include root. The corresponding trees remain in runtime_files.
     system_include_roots = [
-        "@llvm_exec_bundle//:lib/clang/22/include/gentest_root.marker",
+        "@llvm_exec_bundle//:lib/clang/23/include/gentest_root.marker",
         "@llvm_exec_bundle//:sysroot/usr/include/gentest_root.marker",
     ],
 )
