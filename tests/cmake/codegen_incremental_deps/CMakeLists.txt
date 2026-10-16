@@ -8,7 +8,11 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(DEP_SWITCH "0" CACHE STRING "Compile-definition toggle for incremental codegen dependency coverage")
 set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
+if(GENTEST_CODEGEN_EXECUTABLE)
+    set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
+else()
+    set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
+endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 
@@ -29,6 +33,8 @@ gentest_attach_codegen(dep_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
     CLANG_ARGS
         -I${CMAKE_CURRENT_SOURCE_DIR})
+
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/dep_emulator_$<CONFIG>.txt" CONTENT "$<TARGET_PROPERTY:dep_tests,CROSSCOMPILING_EMULATOR>")
 
 get_target_property(_dep_mocks_codegen_id dep_mocks GENTEST_CODEGEN_TARGET_ID)
 get_target_property(_dep_mocks_codegen_target dep_mocks GENTEST_CODEGEN_DEP_TARGET)

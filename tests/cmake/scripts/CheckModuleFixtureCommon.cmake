@@ -4,6 +4,30 @@ function(gentest_skip_test reason)
   message(STATUS "${GENTEST_SKIP_TEST_PREFIX} ${reason}")
 endfunction()
 
+function(gentest_append_external_codegen_cache_args out_var executable)
+  if("${executable}" STREQUAL "" OR NOT EXISTS "${executable}" OR IS_DIRECTORY "${executable}")
+    message(FATAL_ERROR "Nested fixture requires an existing host gentest_codegen executable: '${executable}'")
+  endif()
+
+  # A cross consumer must run the external host tool, never link target code to host LLVM.
+  set(_args ${${out_var}})
+  list(APPEND _args
+    "-DGENTEST_BUILD_CODEGEN=OFF"
+    "-DGENTEST_CODEGEN_EXECUTABLE=${executable}")
+  if(DEFINED HOST_CLANG AND NOT "${HOST_CLANG}" STREQUAL "")
+    list(APPEND _args "-DGENTEST_CODEGEN_HOST_CLANG=${HOST_CLANG}")
+  endif()
+  set(${out_var} "${_args}" PARENT_SCOPE)
+endfunction()
+
+function(gentest_read_fixture_emulator out_var path)
+  if(NOT EXISTS "${path}")
+    message(FATAL_ERROR "Missing generated fixture emulator metadata: ${path}")
+  endif()
+  file(READ "${path}" _emulator)
+  set(${out_var} "${_emulator}" PARENT_SCOPE)
+endfunction()
+
 function(gentest_read_cache_value cache_file key out_found out_value)
   if(NOT EXISTS "${cache_file}")
     set(${out_found} FALSE PARENT_SCOPE)

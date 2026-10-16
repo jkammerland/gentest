@@ -129,10 +129,18 @@ if(_config STREQUAL "")
   set(_config "${BUILD_TYPE}")
 endif()
 file(READ "${_build_dir}/demo_program_${_config}.txt" _program)
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+gentest_read_fixture_emulator(_fixture_emu "${_build_dir}/demo_emulator_${_config}.txt")
 set(_harness "${_build_dir}/GentestCheckDeath.cmake")
 function(check_death_result program args expected_message)
+  # Only the built target uses QEMU; missing/non-executable controls test host launch errors.
+  set(_emu_def)
+  if("${program}" STREQUAL "${_program}" AND NOT "${_fixture_emu}" STREQUAL "")
+    string(REPLACE ";" "\\;" _emu_escaped "${_fixture_emu}")
+    set(_emu_def "-DEMU:STRING=${_emu_escaped}")
+  endif()
   execute_process(
-    COMMAND "${CMAKE_COMMAND}" "-DPROG=${program}" "-DARGS=${args}" -P "${_harness}"
+    COMMAND "${CMAKE_COMMAND}" "-DPROG=${program}" "-DARGS=${args}" ${_emu_def} -P "${_harness}"
     RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _err)
   set(_all "${_out}\n${_err}")
   string(FIND "${_all}" "${expected_message}" _found)

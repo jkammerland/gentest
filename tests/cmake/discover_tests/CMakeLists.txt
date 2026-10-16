@@ -11,6 +11,7 @@ add_executable(demo_tests "${CMAKE_CURRENT_LIST_DIR}/main.cpp")
 set_target_properties(demo_tests PROPERTIES OUTPUT_NAME "demo]=]")
 target_compile_features(demo_tests PRIVATE cxx_std_20)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/demo_program_$<CONFIG>.txt" CONTENT "$<TARGET_FILE:demo_tests>")
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/demo_emulator_$<CONFIG>.txt" CONTENT "$<TARGET_PROPERTY:demo_tests,CROSSCOMPILING_EMULATOR>")
 
 # Isolated strict-selection variants reuse the same deterministic inventory.
 if(DEFINED GENTEST_DISCOVER_POLICY_FILTER)
