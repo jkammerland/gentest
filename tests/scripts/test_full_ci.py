@@ -175,6 +175,14 @@ class RequestTests(unittest.TestCase):
         self.assertIn("changed", full_ci.request_run(api, api.command(), 900)["message"])
         self.assertEqual(api.state()["run_id"], 0)
 
+    def test_checkbox_accepts_crlf_payloads_but_rejects_ambiguous_task_lines(self):
+        event = self.api.checkbox()
+        event["comment"]["body"] = event["comment"]["body"].replace("\n", "\r\n")
+        event["changes"]["body"]["from"] = event["changes"]["body"]["from"].replace("\n", "\r\n")
+        self.api.stored_comments[event["comment"]["id"]] = copy.deepcopy(event["comment"])
+        self.assertEqual(full_ci.request_run(self.api, event, 900)["ready"], "true")
+        self.assertIsNone(full_ci.checked(f"- [ ] {full_ci.CHECKBOX}\n- [x] {full_ci.CHECKBOX}"))
+
     def test_conflict_unknown_mergeability_and_wrong_parents_refuse(self):
         for mergeable in (False, None):
             with self.subTest(mergeable=mergeable):

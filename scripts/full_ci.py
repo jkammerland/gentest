@@ -72,6 +72,7 @@ def snapshot(pr: dict) -> tuple[str, str]:
 
 
 def parse_state(body: str) -> dict | None:
+    body = body.replace("\r\n", "\n")
     if not body.startswith(MARKER):
         return None
     try:
@@ -164,7 +165,7 @@ def prompt(api: GitHub, event: dict) -> str:
 
 
 def checked(body: str) -> bool | None:
-    matches = re.findall(rf"^- \[([ xX])\] {CHECKBOX}$", body, re.MULTILINE)
+    matches = re.findall(rf"^- \[([ xX])\] {CHECKBOX}$", body.replace("\r\n", "\n"), re.MULTILINE)
     if len(matches) != 1:
         return None
     return matches[0].lower() == "x"
