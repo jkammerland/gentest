@@ -15,7 +15,9 @@ set(_conditions
     "0 && (1 % 0)"
     "1 || (0 && ((1 / 0) + (1 >> -1)))"
     "0 && (1 || (1 / 0)) || 7"
+    "(1ULL << 0) == 1"
     "(1ULL << 62) != 0"
+    "(1ULL << 63) != 0"
     "(-1 >> 63) == -1")
 
 set(_index 0)
@@ -23,16 +25,16 @@ foreach(_condition IN LISTS _conditions)
     math(EXPR _index "${_index} + 1")
     set(_prefix "#define WIDTH 64\n#if ${_condition}\n")
     set(_plain "${_work}/plain.cpp")
-    file(WRITE "${_plain}" "${_prefix}gentest_true\n#else\ngentest_false\n#endif\n")
+    file(WRITE "${_plain}" "${_prefix}gentest_selected\n#else\ngentest_unselected\n#endif\n")
     execute_process(COMMAND "${CXX_COMPILER}" -E -P "${_plain}"
         RESULT_VARIABLE _rc OUTPUT_VARIABLE _oracle ERROR_VARIABLE _error OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(NOT _rc EQUAL 0 OR NOT _oracle MATCHES "^gentest_(true|false)$")
+    if(NOT _rc EQUAL 0 OR NOT _oracle MATCHES "^gentest_(selected|unselected)$")
         message(FATAL_ERROR "Compiler oracle failed for '${_condition}': ${_oracle}\n${_error}")
     endif()
     string(REPLACE "gentest_" "lazy.case${_index}." _expected "${_oracle}")
 
     set(_module "${_work}/conditional.cppm")
-    file(WRITE "${_module}" "${_prefix}export module lazy.case${_index}.true;\n#else\nexport module lazy.case${_index}.false;\n#endif\n")
+    file(WRITE "${_module}" "${_prefix}export module lazy.case${_index}.selected;\n#else\nexport module lazy.case${_index}.unselected;\n#endif\n")
     execute_process(COMMAND "${PROG}" --inspect-source "${_module}"
         RESULT_VARIABLE _rc OUTPUT_VARIABLE _inspect ERROR_VARIABLE _error)
     if(NOT _rc EQUAL 0 OR NOT _inspect MATCHES "module_name=${_expected}([\r\n]|$)" OR _error MATCHES "warning:")
@@ -42,14 +44,14 @@ endforeach()
 
 # Entire inactive conditions are ignored, even if their operands are malformed.
 set(_plain "${_work}/plain.cpp")
-set(_directives "#if 0\n#if (1 /)\nwrong\n#endif\n#endif\n#if 1\ngentest_true\n#elif (1 %)\nwrong\n#endif\n")
+set(_directives "#if 0\n#if (1 /)\nwrong\n#endif\n#endif\n#if 1\ngentest_selected\n#elif (1 %)\nwrong\n#endif\n")
 file(WRITE "${_plain}" "${_directives}")
 execute_process(COMMAND "${CXX_COMPILER}" -E -P "${_plain}"
     RESULT_VARIABLE _rc OUTPUT_VARIABLE _oracle ERROR_VARIABLE _error OUTPUT_STRIP_TRAILING_WHITESPACE)
-if(NOT _rc EQUAL 0 OR NOT _oracle STREQUAL "gentest_true")
+if(NOT _rc EQUAL 0 OR NOT _oracle STREQUAL "gentest_selected")
     message(FATAL_ERROR "Compiler inactive-branch oracle failed: ${_oracle}\n${_error}")
 endif()
-string(REPLACE "gentest_true" "export module lazy.inactive;" _module_text "${_directives}")
+string(REPLACE "gentest_selected" "export module lazy.inactive;" _module_text "${_directives}")
 file(WRITE "${_work}/conditional.cppm" "${_module_text}")
 execute_process(COMMAND "${PROG}" --inspect-source "${_work}/conditional.cppm"
     RESULT_VARIABLE _rc OUTPUT_VARIABLE _inspect ERROR_VARIABLE _error)

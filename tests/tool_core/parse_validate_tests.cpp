@@ -72,7 +72,9 @@ int main() {
         t.expect(!evaluate("1 || (1 <<)").has_value(), "skipped operand still needs a shift count");
         t.expect(!evaluate("0 || (1 << WIDTH)").has_value(), "evaluated or operand rejects an invalid shift");
         t.expect(!evaluate("1 && (1 >> -1)").has_value(), "evaluated and operand rejects a negative shift");
+        t.expect(evaluate("(1ULL << 0) == 1") == 1, "left shift accepts zero count");
         t.expect(evaluate("(1ULL << 62) != 0") == 1, "largest positive signed shift remains supported");
+        t.expect(evaluate("(1ULL << 63) != 0") == 1, "left shift accepts the final bit position");
         t.expect(evaluate("(-1 >> 63) == -1") == 1, "right shift accepts the final bit position");
         t.expect(!evaluate("1 >> 65").has_value(), "shift counts beyond the width remain rejected");
     }
