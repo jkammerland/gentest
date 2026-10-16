@@ -1,16 +1,18 @@
 name: CI
-run-name: CI (${{ inputs.profile || 'pr' }}) — ${{ github.ref_name }}
+run-name: CI (${{ inputs.profile || 'full' }}) — ${{ github.ref_name }}
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [master]
   workflow_dispatch:
     inputs:
       profile:
-        description: Test profile (pr is routine smoke validation; full is the exhaustive fallback)
+        description: Test profile (full runs automatically for PRs; pr is an optional manual smoke run)
         type: choice
         options: [full, pr]
-        default: pr
+        default: full
       base_ref:
         description: Base branch, tag, or commit for the measured comparison
         type: string
@@ -33,7 +35,7 @@ jobs:
       - name: Validate requested profile
         id: profile
         env:
-          CI_PROFILE: ${{ inputs.profile || 'pr' }}
+          CI_PROFILE: ${{ inputs.profile || 'full' }}
         run: |
           case "$CI_PROFILE" in
             pr|full) echo "profile=$CI_PROFILE" >> "$GITHUB_OUTPUT" ;;
@@ -64,7 +66,7 @@ jobs:
     if: ${{ needs.profile.outputs.profile == 'full' }}
     uses: ./.github/workflows/measured_reports.yml
     with:
-      base_ref: ${{ inputs.base_ref || github.event.before }}
+      base_ref: ${{ inputs.base_ref || github.event.pull_request.base.sha || github.event.before }}
   recording:
     needs: profile
     uses: ./.github/workflows/recording.yml
@@ -72,3 +74,26 @@ jobs:
     needs: profile
     if: ${{ needs.profile.outputs.profile == 'full' }}
     uses: ./.github/workflows/clang_leaks.yml
+  full-ci:
+    # A manual smoke run must not emit the full-validation check name.
+    name: ${{ inputs.profile == 'pr' && 'Smoke CI' || 'Full CI' }}
+    if: ${{ always() && (github.event_name == 'pull_request' || inputs.profile != 'pr') }}
+    needs: [profile, cmake, lint, coverage, cross-qemu, buildsystems, measured, recording, clang-leaks]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every suite to pass
+        env:
+          CI_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          # Skips and cancellations cannot satisfy the full validation gate.
+          results = json.loads(os.environ["CI_RESULTS"])
+          failed = {name: job["result"] for name, job in results.items() if job["result"] != "success"}
+          if failed:
+              print("Full CI did not pass: " + json.dumps(failed, sort_keys=True), file=sys.stderr)
+              sys.exit(1)
+          PY

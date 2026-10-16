@@ -361,7 +361,8 @@ def compute_plan(
     event_name = event_name.strip()
     ref = ref.strip()
 
-    if event_name == "workflow_dispatch":
+    # Every PR runs the complete bundle, including documentation-only changes.
+    if event_name in {"pull_request", "workflow_dispatch"}:
         return all_enabled()
     if event_name == "push" and ref in {"master", "refs/heads/master"}:
         return all_enabled()

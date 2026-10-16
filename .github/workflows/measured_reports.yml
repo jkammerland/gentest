@@ -33,7 +33,8 @@ jobs:
     name: Measured reports • plan
     runs-on: ubuntu-24.04
     outputs:
-      run_measured: ${{ steps.plan.outputs.run_measured }}
+      # A PR target may still contain an older path-selective planner.
+      run_measured: ${{ github.event_name == 'pull_request' || steps.plan.outputs.run_measured == 'true' }}
       base_sha: ${{ steps.base.outputs.sha }}
     steps:
       - name: Checkout planner and history

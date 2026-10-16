@@ -19,7 +19,8 @@ jobs:
     name: Cross-QEMU • plan
     runs-on: ubuntu-24.04
     outputs:
-      run_cross_qemu: ${{ steps.plan.outputs.run_cross_qemu }}
+      # A PR target may still contain an older path-selective planner.
+      run_cross_qemu: ${{ github.event_name == 'pull_request' || steps.plan.outputs.run_cross_qemu == 'true' }}
     steps:
       - name: Checkout planner and history
         uses: actions/checkout@v6

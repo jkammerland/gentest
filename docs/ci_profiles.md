@@ -1,17 +1,16 @@
 # CI profiles and private validation
 
-Every pull request automatically runs Clang Format and Clang Tidy when opened,
-updated, reopened, or marked ready for review. Both checks run for documentation
-changes and draft PRs too; lint has no path filter or planner-based skip.
-Pushes to `master` start the routine `pr` bundle after merge. Both the Actions
-button and CLI default to `pr`:
+Every pull request automatically runs the full CI bundle when opened, updated,
+reopened, or marked ready for review, including documentation changes and draft
+PRs. Every planner lane is enabled for PRs; path classification cannot skip a
+suite. Pushes to `master`, the Actions button, and CLI also default to `full`:
 
 ```bash
-gh workflow run ci.yml --ref <candidate-branch> -f profile=pr
+gh workflow run ci.yml --ref <candidate-branch>
 ```
 
 Use [Actions → CI → Run workflow](https://github.com/jkammerland/gentest/actions/workflows/ci.yml)
-to choose a PR branch. Select **profile: full** to run the exhaustive bundle.
+to choose a PR branch. The default **profile: full** runs the exhaustive bundle.
 For a PR whose branch is in this repository, this command resolves its head
 branch and exact base commit automatically:
 
@@ -23,12 +22,22 @@ gh workflow run ci.yml --repo jkammerland/gentest \
   -f base_ref="$(gh pr view "$pr" --repo jkammerland/gentest --json baseRefOid --jq .baseRefOid)"
 ```
 
-The manual run tests that branch's current commit and appears in the PR checks.
-Automatic PR lint uses GitHub's pull-request merge revision. Fork PRs still get
-automatic lint; the Actions branch selector and command above require a branch
-in this repository.
+The manual run tests that branch's current commit. It does not replace the
+automatic PR check; see [GitHub's required-check event rules](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#checks-from-some-workflow-jobs-are-not-evaluated).
+Automatic PR validation tests GitHub's pull-request merge revision, including
+fork PRs, and compares measured reports against the PR's exact base commit.
+Clang Format and Clang Tidy run once inside the same bundle. The Actions branch
+selector and command above require a branch in this repository.
 
-## Routine GitHub coverage
+The `Full CI` job succeeds only when every suite succeeds. A failed, skipped,
+or cancelled suite fails that job. Set `Full CI` as a required status check in
+the target branch's ruleset to prevent merging before the complete run passes.
+Manual smoke runs do not produce a passing `Full CI` result.
+
+## Optional manual smoke profile
+
+Use `-f profile=pr` only for an additional manual smoke run. It does not replace
+the automatic full PR run.
 
 The matrix selector runs before creating platform jobs. Unknown profiles,
 invalid matrix data, and selector failures fail the planning job. There is no
@@ -49,12 +58,12 @@ regressions. Empty selections fail. Package consumers are disabled in these
 five jobs. Lint and recording with both real serializers remain in the routine
 bundle.
 
-Exhaustive CMake/package/mock/module/shared-library acceptance, coverage,
-QEMU, alternate build systems, and measured comparisons run locally by default.
-See [private local validation](local_validation.md) for the single run/report
-command. Local evidence is never sent to GitHub by these scripts.
+The automatic full bundle also exercises exhaustive CMake/package/mock/module/
+shared-library acceptance, coverage, QEMU, alternate build systems, and measured
+comparisons. See [private local validation](local_validation.md) for the local
+run/report command. Local evidence is never sent to GitHub by these scripts.
 
-## Explicit full GitHub fallback
+## Full GitHub validation
 
 ```bash
 gh workflow run ci.yml --ref <candidate-branch> -f profile=full -f base_ref=<base-commit>

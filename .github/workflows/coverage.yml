@@ -24,7 +24,8 @@ jobs:
     name: Coverage • plan
     runs-on: ubuntu-24.04
     outputs:
-      run_coverage: ${{ steps.plan.outputs.run_coverage }}
+      # A PR target may still contain an older path-selective planner.
+      run_coverage: ${{ github.event_name == 'pull_request' || steps.plan.outputs.run_coverage == 'true' }}
     steps:
       - name: Checkout planner and history
         uses: actions/checkout@v6

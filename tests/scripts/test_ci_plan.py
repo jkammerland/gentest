@@ -112,6 +112,14 @@ class PathClassificationTests(unittest.TestCase):
 
 
 class EventTests(unittest.TestCase):
+    def test_pull_requests_enable_every_lane_without_classifying_paths(self) -> None:
+        for paths in (["docs/index.md"], ["BUILD.bazel"], [], None):
+            with self.subTest(paths=paths):
+                self.assertEqual(
+                    ci_plan.compute_plan(event_name="pull_request", paths=paths),
+                    ci_plan.all_enabled(),
+                )
+
     def test_push_to_master_and_dispatch_enable_every_lane(self) -> None:
         docs = ["docs/index.md"]
         self.assertEqual(
@@ -174,7 +182,9 @@ class GitAndCliTests(unittest.TestCase):
                     sys.executable,
                     str(SCRIPT),
                     "--event",
-                    "pull_request",
+                    "push",
+                    "--ref",
+                    "refs/heads/feature",
                     "--repo",
                     str(repo),
                     "--base",
@@ -194,6 +204,24 @@ class GitAndCliTests(unittest.TestCase):
             self.assertEqual(result.stdout, expected_output)
             self.assertEqual(output_file.read_text(encoding="utf-8"), expected_output)
 
+    def test_pull_request_cli_writes_enabled_outputs_for_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output_file = Path(temporary_directory) / "github-output.txt"
+            result = subprocess.run(
+                [
+                    sys.executable, str(SCRIPT), "--event", "pull_request",
+                    "--paths", "docs/index.md", "--github-output", str(output_file),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            outputs = dict(line.split("=", 1) for line in output_file.read_text(encoding="utf-8").splitlines())
+            self.assertTrue(outputs, "a full PR plan must emit lane decisions")
+            self.assertEqual(set(outputs), {f"run_{lane}" for lane in ci_plan.LANES})
+            self.assertEqual(set(outputs.values()), {"true"})
+            self.assertEqual(result.stdout, output_file.read_text(encoding="utf-8"))
+
     def test_unresolvable_diff_enables_every_lane(self) -> None:
         self.assertEqual(
             ci_plan.compute_plan(base="missing", head="also-missing", repo=ROOT),
@@ -202,6 +230,19 @@ class GitAndCliTests(unittest.TestCase):
 
 
 class WorkflowContractTests(unittest.TestCase):
+    def test_pr_lanes_override_old_base_planners(self) -> None:
+        self.assertTrue(WORKFLOW_FILES, "exercise every workflow that uses a base-revision planner")
+        for workflow in WORKFLOW_FILES:
+            with self.subTest(workflow=workflow.name):
+                contents = workflow.read_text(encoding="utf-8")
+                lanes = re.findall(r"(?m)^      (run_[a-z_]+): (.+)$", contents)
+                self.assertTrue(lanes, "the planner must expose lane decisions")
+                for lane, expression in lanes:
+                    self.assertEqual(
+                        expression,
+                        "${{ github.event_name == 'pull_request' || steps.plan.outputs." + lane + " == 'true' }}",
+                    )
+
     def test_pull_requests_run_the_base_revision_planner(self) -> None:
         self.assertTrue(WORKFLOW_FILES, "path-selective workflows must be exercised")
         bash = find_bash()
@@ -307,10 +348,13 @@ with output.open('a') as stream:
         self.assertIn('set(_gentest_ci_compat_tests', tests_cmake)
         self.assertEqual(tests_cmake.count('PROPERTY RESOURCE_LOCK "xmake"'), 4)
 
-    def test_measured_reports_are_path_scoped(self) -> None:
+    def test_measured_reports_retain_base_planning_with_full_pr_override(self) -> None:
         contents = (ROOT / ".github" / "workflows" / "measured_reports.yml").read_text(encoding="utf-8")
         self.assertIn("name: Measured reports • plan", contents)
-        self.assertIn("run_measured: ${{ steps.plan.outputs.run_measured }}", contents)
+        self.assertIn(
+            "run_measured: ${{ github.event_name == 'pull_request' || steps.plan.outputs.run_measured == 'true' }}",
+            contents,
+        )
         self.assertIn('git show "${CI_BASE_SHA}:scripts/ci_plan.py"', contents)
         self.assertIn("Base-revision CI planner predates the measured lane", contents)
         self.assertIn("needs.plan.outputs.run_measured == 'true'", contents)

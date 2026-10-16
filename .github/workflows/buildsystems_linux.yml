@@ -21,9 +21,10 @@ jobs:
     name: Buildsystems • plan
     runs-on: ubuntu-24.04
     outputs:
-      run_bazel: ${{ steps.plan.outputs.run_bazel }}
-      run_meson: ${{ steps.plan.outputs.run_meson }}
-      run_xmake: ${{ steps.plan.outputs.run_xmake }}
+      # A PR target may still contain an older path-selective planner.
+      run_bazel: ${{ github.event_name == 'pull_request' || steps.plan.outputs.run_bazel == 'true' }}
+      run_meson: ${{ github.event_name == 'pull_request' || steps.plan.outputs.run_meson == 'true' }}
+      run_xmake: ${{ github.event_name == 'pull_request' || steps.plan.outputs.run_xmake == 'true' }}
     steps:
       - name: Checkout planner and history
         uses: actions/checkout@v6

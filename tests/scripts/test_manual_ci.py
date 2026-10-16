@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Contract checks for the repository's manual CI entry points.
+"""Contract checks for automatic and manual CI entry points.
 
 Actionlint validates YAML and workflow-call schemas; these checks enforce the
 event and concurrency policy across the discovered workflow inventory.
 """
 
+import json
+import os
 import re
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
+
+from test_setup_github_release_environment import find_bash
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -29,7 +34,7 @@ class ManualCiTests(unittest.TestCase):
         cls.reusable = {name: text for name, text in cls.workflows.items()
                         if re.search(r"(?m)^  workflow_call:", events_block(text))}
 
-    def test_only_lint_runs_automatically_on_pull_requests(self):
+    def test_one_full_ci_bundle_runs_automatically_on_pull_requests(self):
         self.assertTrue(self.workflows)
         automatic = set()
         for name, text in self.workflows.items():
@@ -38,18 +43,93 @@ class ManualCiTests(unittest.TestCase):
                 if "pull_request" in events:
                     automatic.add(name)
                 self.assertNotIn("pull_request_target", events)
-        self.assertEqual(automatic, {"lint.yml"})
+        self.assertEqual(automatic, {"ci.yml"})
 
-    def test_pull_request_lint_is_unconditional_for_both_checks(self):
+    def test_pull_requests_select_full_without_path_or_draft_filters(self):
+        text = self.workflows["ci.yml"]
+        pull_request = re.search(r"(?m)^  pull_request:\n((?:    .*\n|\n)+)", events_block(text))
+        self.assertIsNotNone(pull_request)
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review]", pull_request.group(1))
+        self.assertNotRegex(pull_request.group(1), r"(?m)^    (?:paths|paths-ignore|branches|branches-ignore):")
+        self.assertIn("CI_PROFILE: ${{ inputs.profile || 'full' }}", text)
+        self.assertIn("profile: ${{ needs.profile.outputs.profile }}", text)
+        self.assertNotIn("github.event.pull_request.draft", text)
+
+        jobs = dict(re.findall(r"(?m)^  ([a-z-]+):\n((?:    .*\n|\n)+)", text.split("jobs:\n", 1)[1]))
+        self.assertNotRegex(jobs["profile"], r"(?m)^    (?:if|needs):")
+        self.assertNotRegex(jobs["lint"], r"(?m)^    if:")
+
+    def test_profile_step_emits_selected_profile_and_rejects_unknown_values(self):
+        text = self.workflows["ci.yml"].split("jobs:\n", 1)[1].split("\n  cmake:\n", 1)[0] + "\n"
+        match = re.search(r"(?m)^        run: \|\n((?:          .*\n|\n)+)", text)
+        self.assertIsNotNone(match, "exercise the actual profile validation step")
+        bash = find_bash()
+        self.assertIsNotNone(bash, "bash is required to exercise CI profile selection")
+
+        for profile in ("full", "pr", "unknown"):
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as tmp:
+                env = os.environ.copy()
+                env.pop("BASH_ENV", None)
+                env.update(CI_PROFILE=profile, GITHUB_OUTPUT="outputs")
+                result = subprocess.run(
+                    [bash, "-c", textwrap.dedent(match.group(1))],
+                    cwd=tmp, env=env, capture_output=True, text=True,
+                )
+                output = Path(tmp) / "outputs"
+                if profile == "unknown":
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Unknown CI profile", result.stderr)
+                    self.assertFalse(output.exists())
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(output.read_text(encoding="utf-8"), f"profile={profile}\n")
+
+    def test_reused_lint_is_unconditional_for_both_checks(self):
         text = self.workflows["lint.yml"]
-        self.assertIn("types: [opened, synchronize, reopened, ready_for_review]", events_block(text))
-        self.assertNotRegex(events_block(text), r"(?m)^    (?:paths|paths-ignore|branches|branches-ignore):")
         jobs = dict(re.findall(r"(?m)^  ([a-z-]+):\n((?:    .*\n|\n)+)", text.split("jobs:\n", 1)[1]))
         self.assertEqual(set(jobs), {"format", "tidy"})
         for name, body in jobs.items():
             with self.subTest(job=name):
                 self.assertNotRegex(body, r"(?m)^    (?:if|needs):")
         self.assertNotIn("run_lint", text)
+
+    def test_full_gate_covers_every_job_and_rejects_unsuccessful_results(self):
+        text = self.workflows["ci.yml"]
+        jobs = dict(re.findall(r"(?m)^  ([a-z-]+):\n((?:    .*\n|\n)+)", text.split("jobs:\n", 1)[1]))
+        gate = jobs["full-ci"]
+        self.assertIn("name: ${{ inputs.profile == 'pr' && 'Smoke CI' || 'Full CI' }}", gate)
+        self.assertIn("always() && (github.event_name == 'pull_request' || inputs.profile != 'pr')", gate)
+        dependencies = re.search(r"(?m)^    needs: \[([^\]]+)\]$", gate)
+        self.assertIsNotNone(dependencies)
+        required = {name.strip() for name in dependencies.group(1).split(",")}
+        self.assertEqual(required, set(jobs) - {"full-ci"})
+        self.assertIn("CI_RESULTS: ${{ toJSON(needs) }}", gate)
+
+        match = re.search(r"(?m)^        run: \|\n((?:          .*\n|\n)+)", gate)
+        self.assertIsNotNone(match, "exercise the actual full-CI gate script")
+        bash = find_bash()
+        self.assertIsNotNone(bash)
+        passed = {name: {"result": "success"} for name in required}
+        scenarios = [("all passed", passed, "")]
+        for name in sorted(required):
+            for outcome in ("failure", "cancelled", "skipped"):
+                results = {**passed, name: {"result": outcome}}
+                scenarios.append((f"{name}: {outcome}", results, name))
+
+        for name, results, failed_job in scenarios:
+            with self.subTest(scenario=name):
+                env = os.environ.copy()
+                env.pop("BASH_ENV", None)
+                env["CI_RESULTS"] = json.dumps(results)
+                result = subprocess.run(
+                    [bash, "-c", textwrap.dedent(match.group(1))],
+                    env=env, capture_output=True, text=True,
+                )
+                if failed_job:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(failed_job, result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_windows_validation_uses_relwithdebinfo(self):
         text = self.workflows["cmake.yml"].split("  windows:\n", 1)[1].split("  linux:\n", 1)[0]
@@ -134,10 +214,10 @@ class ManualCiTests(unittest.TestCase):
         self.assertEqual(automatic, {"ci.yml"})
         self.assertIn("branches: [master]", events_block(self.workflows["ci.yml"]))
 
-    def test_routine_bundle_keeps_expensive_suites_behind_full(self):
+    def test_optional_smoke_profile_keeps_expensive_suites_behind_full(self):
         text = self.workflows["ci.yml"]
-        self.assertIn("default: pr", events_block(text))
-        self.assertIn("CI_PROFILE: ${{ inputs.profile || 'pr' }}", text)
+        self.assertIn("default: full", events_block(text))
+        self.assertIn("CI_PROFILE: ${{ inputs.profile || 'full' }}", text)
         jobs = dict(re.findall(r"(?m)^  ([a-z-]+):\n((?:    .*\n|\n)+)", text.split("jobs:\n", 1)[1]))
         full_only = {name for name, body in jobs.items() if "profile == 'full'" in body}
         self.assertEqual(full_only, {"coverage", "cross-qemu", "buildsystems", "measured", "clang-leaks"})
@@ -168,7 +248,10 @@ class ManualCiTests(unittest.TestCase):
         self.assertNotIn("github.event.pull_request.base", text)
         self.assertIn('git fetch --no-tags -- origin "${CI_BASE_REF}"', text)
         self.assertIn('git worktree add --detach "${GENTEST_MEASURED_BASE_SOURCE}" "${CI_BASE_SHA}"', text)
-        self.assertIn("base_ref: ${{ inputs.base_ref || github.event.before }}", self.workflows["ci.yml"])
+        self.assertIn(
+            "base_ref: ${{ inputs.base_ref || github.event.pull_request.base.sha || github.event.before }}",
+            self.workflows["ci.yml"],
+        )
 
 
 if __name__ == "__main__":
