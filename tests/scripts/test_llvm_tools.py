@@ -151,6 +151,20 @@ class ToolSelectionTests(unittest.TestCase):
                     finally:
                         selected.with_suffix(".saved").rename(selected)
 
+    def test_compiler_symlinks_infer_the_installation_and_explicit_host_override_is_validated(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prefix = fake_toolchain(root / "llvm", llvm_tools.LLVM_MAJOR)
+            public = root / "public"
+            public.mkdir()
+            (public / f"clang++-{llvm_tools.LLVM_MAJOR}").symlink_to(prefix / "bin/clang++")
+            with patch.dict(os.environ, {"PATH": str(public)}, clear=True):
+                self.assertEqual(llvm_tools.select_toolchain().tools["clang"], str(prefix / "bin/clang"))
+            old = self.fake_tool(root, "old-host", "clang version 21.1.0")
+            with patch.dict(os.environ, {"PATH": str(public), "GENTEST_CODEGEN_HOST_CLANG": str(old)}, clear=True):
+                with self.assertRaisesRegex(ValueError, "Expected LLVM"):
+                    llvm_tools.select_toolchain()
+
 
 if __name__ == "__main__":
     unittest.main()

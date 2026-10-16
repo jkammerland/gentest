@@ -74,18 +74,22 @@ class Toolchain:
     tools: dict[str, str]
     llvm_dir: str
     clang_dir: str
+    host_clang: str = ""
 
     def environment(self) -> dict[str, str]:
         # Preserve every selected tool directory, including explicit overrides.
         directories = list(dict.fromkeys(str(Path(tool).parent) for tool in self.tools.values()))
         return {"PATH": os.pathsep.join([*directories, os.environ.get("PATH", "")]),
                 "LLVM_DIR": self.llvm_dir, "Clang_DIR": self.clang_dir,
+                "GENTEST_CODEGEN_HOST_CLANG": self.host_clang or self.tools["clang++"],
                 **{variable: self.tools[name] for name, variable in TOOL_OVERRIDES.items()}}
 
 
 def select_toolchain(*, cc: str = "", cxx: str = "") -> Toolchain:
     """Select host LLVM once; target compilers belong to individual build lanes."""
     overrides = {"clang": cc, "clang++": cxx}
+    host_override = os.environ.get("GENTEST_CODEGEN_HOST_CLANG", "")
+    host_clang = str(Path(check_tool(host_override)).resolve()) if host_override else ""
     clangxx = Path(resolve_tool("clang++", cxx)).resolve()
     prefix = Path(os.environ.get("GENTEST_LLVM_PREFIX") or clangxx.parent.parent).resolve()
     tools = {}
@@ -109,7 +113,7 @@ def select_toolchain(*, cc: str = "", cxx: str = "") -> Toolchain:
         raise ValueError(f"LLVM and Clang package majors must agree: LLVM {llvm_major}, Clang {clang_major}")
     if llvm_major != LLVM_MAJOR:
         raise ValueError(f"Expected LLVM/Clang {LLVM_MAJOR} packages; found {llvm_major}")
-    return Toolchain(tools, str(llvm_dir), str(clang_dir))
+    return Toolchain(tools, str(llvm_dir), str(clang_dir), host_clang or tools["clang++"])
 
 
 def main() -> int:
