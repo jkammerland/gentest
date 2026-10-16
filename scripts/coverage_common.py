@@ -82,14 +82,40 @@ def parse_cmake_cache(cache_path: Path) -> Dict[str, str]:
     return entries
 
 
+def active_cxx_compiler_id(build_dir: Path, cache: Dict[str, str]) -> Optional[str]:
+    """None means absent metadata; an empty ID means unusable/ambiguous metadata."""
+    files = list(build_dir.glob("CMakeFiles/*/CMakeCXXCompiler.cmake"))
+    version = [cache.get(f"CMAKE_CACHE_{part}_VERSION", "") for part in ("MAJOR", "MINOR", "PATCH")]
+    if any(version):
+        if not all(re.fullmatch(r"\d+", part) for part in version):
+            return ""
+        compiler_file = build_dir / "CMakeFiles" / ".".join(version) / "CMakeCXXCompiler.cmake"
+        if not compiler_file.is_file():
+            # Never select a stale version directory in place of the active one.
+            return "" if files else None
+    else:
+        # Without the cache's active version, even one file could be stale.
+        return "" if files else None
+
+    matches = re.findall(r'^\s*set\(CMAKE_CXX_COMPILER_ID\s+"([^"]*)"\s*\)\s*$',
+                         compiler_file.read_text(encoding="utf-8"), re.MULTILINE)
+    return matches[0] if len(matches) == 1 else ""
+
+
 def compiler_family(build_dir: Path) -> str:
     cache = parse_cmake_cache(build_dir / "CMakeCache.txt")
-    compiler_id = cache.get("CMAKE_CXX_COMPILER_ID", "") or cache.get("CMAKE_C_COMPILER_ID", "")
-    compiler = cache.get("CMAKE_CXX_COMPILER", "") or cache.get("CMAKE_C_COMPILER", "")
-    compiler_text = f"{compiler_id} {compiler}".lower()
-    if "clang" in compiler_text:
+    compiler_id = active_cxx_compiler_id(build_dir, cache)
+    if compiler_id is None:
+        compiler_id = cache.get("CMAKE_CXX_COMPILER_ID")
+    if compiler_id is not None:
+        # A known foreign compiler must not inherit an exemption from its path.
+        return {"Clang": "clang", "AppleClang": "clang", "GNU": "gcc"}.get(compiler_id, "")
+
+    # Only unambiguous executable names are usable without CMake's identity.
+    compiler = re.split(r"[\\/]", cache.get("CMAKE_CXX_COMPILER", ""))[-1].lower()
+    if re.fullmatch(r"clang(?:\+\+|-cl)?(?:-\d+(?:\.\d+)*)?(?:\.exe)?", compiler):
         return "clang"
-    if "gnu" in compiler_text or re.search(r"(^|[\\/])(g\+\+|gcc|cc|c\+\+)([.-]|$)", compiler_text):
+    if re.fullmatch(r"(?:g\+\+|gcc)(?:-\d+(?:\.\d+)*)?(?:\.exe)?", compiler):
         return "gcc"
     return ""
 

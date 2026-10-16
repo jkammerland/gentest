@@ -13,7 +13,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
-from coverage_common import intentional_sources, read_policy_config
+from coverage_common import compiler_family, intentional_sources, read_policy_config
 
 
 class CoveragePolicyTests(unittest.TestCase):
@@ -29,8 +29,20 @@ class CoveragePolicyTests(unittest.TestCase):
         self.build.mkdir()
         self.policy = read_policy_config(self.scripts / "coverage_hygiene.toml")
 
-    def compiler(self, name):
-        (self.build / "CMakeCache.txt").write_text(f"CMAKE_CXX_COMPILER_ID:STRING={name}\n", encoding="utf-8")
+    def compiler(self, name, executable=""):
+        identity = f"CMAKE_CXX_COMPILER_ID:STRING={name}\n" if name is not None else ""
+        (self.build / "CMakeCache.txt").write_text(identity + f"CMAKE_CXX_COMPILER:FILEPATH={executable}\n", encoding="utf-8")
+
+    def compiler_file(self, version, identity):
+        path = self.build / "CMakeFiles" / version / "CMakeCXXCompiler.cmake"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f'set(CMAKE_CXX_COMPILER_ID "{identity}")\n', encoding="utf-8")
+        return path
+
+    def cmake_version(self, version):
+        with (self.build / "CMakeCache.txt").open("a", encoding="utf-8") as cache:
+            for part, value in zip(("MAJOR", "MINOR", "PATCH"), version.split("."), strict=True):
+                cache.write(f"CMAKE_CACHE_{part}_VERSION:INTERNAL={value}\n")
 
     def test_only_inline_barrier_compilers_exempt_the_native_fallback(self):
         for family in ("Clang", "AppleClang", "GNU", "MSVC", "Unknown"):
@@ -40,6 +52,70 @@ class CoveragePolicyTests(unittest.TestCase):
                 self.assertEqual("src/bench_util.cpp" in paths, family in {"Clang", "AppleClang", "GNU"})
                 self.assertNotIn("src/benchmark.cpp", paths)
                 self.assertIn("missing_gcda", self.policy["fail_on"].split(","))
+
+    def test_known_cache_identity_precedes_a_misleading_compiler_path(self):
+        for identity, expected in (("MSVC", ""), ("IntelLLVM", ""), ("Unknown", ""), ("", ""),
+                                   ("Clang", "clang"), ("AppleClang", "clang"), ("GNU", "gcc")):
+            with self.subTest(identity=identity):
+                self.compiler(identity, "C:/clang-sdk/bin/cl.exe")
+                self.assertEqual(compiler_family(self.build), expected)
+                self.assertEqual("src/bench_util.cpp" in intentional_sources(self.policy, self.build), bool(expected))
+
+    def test_current_cmake_compiler_file_precedes_cached_identity_and_stale_directories(self):
+        self.compiler_file("3.31.8", "Clang")
+        for identity, expected in (("GNU", "gcc"), ("Clang", "clang"), ("AppleClang", "clang"),
+                                   ("MSVC", ""), ("IntelLLVM", "")):
+            with self.subTest(identity=identity):
+                self.compiler("Clang", "C:/clang-sdk/bin/clang++.exe")
+                self.cmake_version("4.4.4")
+                self.compiler_file("4.4.4", identity)
+                self.assertEqual(compiler_family(self.build), expected)
+
+    def test_ambiguous_missing_and_malformed_active_metadata_cannot_exempt_sources(self):
+        self.compiler(None, "clang++")
+        self.compiler_file("3.31.8", "Clang")
+        self.assertEqual(compiler_family(self.build), "", "An unversioned cache cannot identify an active compiler file")
+        self.compiler_file("4.4.3", "Clang")
+        self.assertEqual(compiler_family(self.build), "")
+
+        self.cmake_version("4.4.4")
+        self.assertEqual(compiler_family(self.build), "", "A stale directory is not the active compiler")
+        active = self.compiler_file("4.4.4", "Clang")
+        for contents in ('set(CMAKE_CXX_COMPILER_ID)\n',
+                         'set(CMAKE_CXX_COMPILER_ID "Clang")\nset(CMAKE_CXX_COMPILER_ID "GNU")\n'):
+            with self.subTest(contents=contents):
+                active.write_text(contents, encoding="utf-8")
+                self.assertEqual(compiler_family(self.build), "")
+                self.assertNotIn("src/bench_util.cpp", intentional_sources(self.policy, self.build))
+
+    def test_path_fallback_uses_unambiguous_executable_names_only(self):
+        for executable, expected in (("/sdk/bin/clang++-23", "clang"), (r"C:\sdk\clang-cl.exe", "clang"),
+                                     ("/clang-sdk/bin/g++-14", "gcc"), (r"C:\clang-sdk\cl.exe", ""),
+                                     ("/sdk/bin/clang-wrapper", ""), ("/sdk/bin/c++", "")):
+            with self.subTest(executable=executable):
+                self.compiler(None, executable)
+                self.assertEqual(compiler_family(self.build), expected)
+
+    def test_real_cmake_metadata_remains_authoritative_with_a_misleading_cache_path(self):
+        project = self.repo / "compiler-project"
+        project.mkdir()
+        (project / "CMakeLists.txt").write_text(
+            'cmake_minimum_required(VERSION 3.31)\nproject(coverage_identity LANGUAGES CXX)\n'
+            'file(WRITE "${CMAKE_BINARY_DIR}/identity.txt" "${CMAKE_CXX_COMPILER_ID}")\n', encoding="utf-8")
+        configured = self.repo / "configured"
+        result = subprocess.run(["cmake", "-S", str(project), "-B", str(configured)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        identity = (configured / "identity.txt").read_text(encoding="utf-8")
+        expected = {"Clang": "clang", "AppleClang": "clang", "GNU": "gcc"}.get(identity, "")
+
+        # Real CMake normally stores the ID in its versioned compiler file.
+        cache_path = configured / "CMakeCache.txt"
+        cache = re.sub(r"(?m)^CMAKE_CXX_COMPILER:[^=]+=.*$", "CMAKE_CXX_COMPILER:FILEPATH=C:/clang-sdk/bin/cl.exe",
+                       cache_path.read_text(encoding="utf-8"))
+        cache_path.write_text(cache + "\nCMAKE_CXX_COMPILER_ID:STRING=MSVC\n", encoding="utf-8")
+        self.assertEqual(compiler_family(configured), expected)
+        self.assertEqual("src/bench_util.cpp" in intentional_sources(self.policy, configured), bool(expected))
 
     def test_invalid_compiler_exemption_is_rejected(self):
         for extra in ('clang = "src"', 'unknown = ["src"]', 'gcc = [7]'):
@@ -98,7 +174,7 @@ class CoveragePolicyTests(unittest.TestCase):
 
     def test_native_compiler_does_not_inherit_the_fallback_exemption(self):
         _, frontend = self.hygiene_fixture()
-        self.compiler("MSVC")
+        self.compiler("MSVC", "C:/clang-sdk/bin/cl.exe")
         result = self.run_hygiene(frontend)
         self.assertNotEqual(result.returncode, 0)
         self.assertRegex(result.stdout, r"src/bench_util\.cpp\s+missing_gcda")
@@ -120,7 +196,7 @@ class CoveragePolicyTests(unittest.TestCase):
         env = os.environ | {"PYTHONPATH": str(self.repo), "GCOVR_ARGS": str(arguments)}
         for compiler in ("Clang", "MSVC"):
             with self.subTest(compiler=compiler):
-                self.compiler(compiler)
+                self.compiler(compiler, "C:/clang-sdk/bin/cl.exe")
                 result = subprocess.run([sys.executable, str(self.scripts / "coverage_report.py"),
                                          "--build-dir", str(self.build), "--gcov", sys.executable],
                                         env=env, capture_output=True, text=True)
