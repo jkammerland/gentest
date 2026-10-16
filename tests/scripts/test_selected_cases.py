@@ -3,9 +3,11 @@ import json
 import subprocess
 import sys
 
+from target_command import target_command
+
 
 def run(binary, *args, code=0):
-    result = subprocess.run([binary, "--no-color", *args],
+    result = subprocess.run(target_command(binary, "--no-color", *args),
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == code, result
     return result

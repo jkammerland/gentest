@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+
+from target_command import target_command
 from pathlib import Path
 
 
@@ -16,7 +18,7 @@ def main() -> int:
     expected_name = "embed/malformed-\ufffd-é-€-😀-" + "\ufffd" * 2 + "-" + "\ufffd" * 3 + "-" + "\ufffd" * 4 + "-" + "\ufffd" * 2
     for mode, expected_status in (("--list-json-malformed", 0), ("--measured-json-malformed", 0), ("--measured-json-malformed-failure", 1)):
         result = subprocess.run(
-            [str(Path(sys.argv[1])), mode],
+            target_command(Path(sys.argv[1]), mode),
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

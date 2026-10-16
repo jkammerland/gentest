@@ -11,9 +11,13 @@ set(CMAKE_CROSSCOMPILING_EMULATOR
     "--cpu"
     "cortex-a53")
 
+# Use a target identity so the host-tool exemption cannot hide a missing NO_EMULATOR.
+add_executable(probe_program IMPORTED)
+set_property(TARGET probe_program PROPERTY IMPORTED_LOCATION "@CMAKE_COMMAND@")
+
 gentest_add_check_exit_code(
     NAME exit_code_no_emulator_probe
     NO_EMULATOR
-    PROG "@CMAKE_COMMAND@"
+    PROG probe_program
     EXPECT_RC 0
     ARGS -P "${CMAKE_CURRENT_LIST_DIR}/ProbeScript.cmake")
