@@ -54,6 +54,41 @@ int main() {
         t.expect(!evaluate("1 >> 64").has_value(), "preprocessor rejects overflowing right-shift counts");
     }
 
+    // Logical short circuiting still parses skipped operands for valid grammar.
+    {
+        const std::unordered_map<std::string, std::string> macros{{"WIDTH", "64"}, {"BAD", "1 / 0"}};
+        auto                                               evaluate = [&](std::string_view expression) {
+            return gentest::codegen::scan::ScanPpExpressionParser(expression, macros).parse();
+        };
+        t.expect(evaluate("WIDTH == 64 || (1ULL << WIDTH)") == 1, "logical or skips an invalid shift");
+        t.expect(evaluate("WIDTH != 64 && (1ULL << WIDTH)") == 0, "logical and skips an invalid shift");
+        t.expect(evaluate("1 || (1 / 0)") == 1, "logical or skips division by zero");
+        t.expect(evaluate("0 && (1 % 0)") == 0, "logical and skips remainder by zero");
+        t.expect(evaluate("1 || (18446744073709551615ULL * 2)") == 1, "parse-only integer operands do not overflow");
+        t.expect(evaluate("1 || (0 && (BAD + (1 >> -1)))") == 1, "nested skipped operands do not evaluate macros or shifts");
+        t.expect(evaluate("0 && (1 || (1 / 0)) || 7") == 1, "outer evaluation resumes after nested skipped operands");
+        t.expect(!evaluate("1 || (1 /)").has_value(), "skipped or operand still needs a divisor");
+        t.expect(!evaluate("0 && (1 +)").has_value(), "skipped and operand still needs an addend");
+        t.expect(!evaluate("1 || (1 <<)").has_value(), "skipped operand still needs a shift count");
+        t.expect(!evaluate("0 || (1 << WIDTH)").has_value(), "evaluated or operand rejects an invalid shift");
+        t.expect(!evaluate("1 && (1 >> -1)").has_value(), "evaluated and operand rejects a negative shift");
+        t.expect(evaluate("(1ULL << 62) != 0") == 1, "largest positive signed shift remains supported");
+        t.expect(evaluate("(-1 >> 63) == -1") == 1, "right shift accepts the final bit position");
+        t.expect(!evaluate("1 >> 65").has_value(), "shift counts beyond the width remain rejected");
+    }
+
+    // Dead outer branches and an already selected elif never evaluate a condition.
+    {
+        gentest::codegen::scan::ScanStreamState state;
+        std::size_t                             warnings = 0;
+        state.unknown_condition_warning_sink             = [&](auto &&...) { ++warnings; };
+        for (const std::string_view line : {"#if 0", "#if 1 / 0", "#elif 1 << -1", "#endif", "#endif", "#if 1", "#elif 1 % 0", "#endif"}) {
+            gentest::codegen::scan::handle_preprocessor_logical_line(line, state, 1);
+        }
+        t.expect(warnings == 0, "inactive and already selected conditions do not produce evaluation warnings");
+        t.expect(state.current_branch_active && state.conditionals.empty(), "skipped conditions preserve branch stack balance");
+    }
+
     {
         auto                     attrs = parse_attribute_list(R"(test("suite/a"), slow, linux, req("#1"), owner("bar"))");
         std::vector<std::string> diags;

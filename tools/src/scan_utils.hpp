@@ -466,7 +466,7 @@ inline void populate_scan_macros_from_command_line(ScanStreamState &state, std::
     }
 }
 
-inline std::optional<long long> parse_scan_integer_literal(std::string_view text) {
+inline std::optional<long long> parse_scan_integer_literal(std::string_view text, bool evaluate = true) {
     text = trim_ascii_view(text);
     if (text.empty()) {
         return std::nullopt;
@@ -520,6 +520,10 @@ inline std::optional<long long> parse_scan_integer_literal(std::string_view text
     }
     if (digits_end == 0 || !is_valid_suffix(text.substr(digits_end))) {
         return std::nullopt;
+    }
+
+    if (!evaluate) {
+        return 0LL;
     }
 
     long long value = 0;
@@ -689,11 +693,12 @@ class ScanPpExpressionParser {
                            std::size_t depth = 0)
         : tokens_(tokenize_scan_preprocessor_expression(text)), object_like_macros_(object_like_macros), depth_(depth) {}
 
-    std::optional<long long> parse() {
+    // Parse skipped operands for syntax, without evaluating their arithmetic.
+    std::optional<long long> parse(bool evaluate = true) {
         if (tokens_.empty()) {
             return std::nullopt;
         }
-        const auto value = parse_logical_or();
+        const auto value = parse_logical_or(evaluate);
         if (!value.has_value() || current().kind != ScanPpTokenKind::End) {
             return std::nullopt;
         }
@@ -717,86 +722,86 @@ class ScanPpExpressionParser {
         return true;
     }
 
-    std::optional<long long> parse_logical_or() {
-        auto lhs = parse_logical_and();
+    std::optional<long long> parse_logical_or(bool evaluate) {
+        auto lhs = parse_logical_and(evaluate);
         while (lhs.has_value() && consume(ScanPpTokenKind::LogicalOr)) {
-            auto rhs = parse_logical_and();
+            auto rhs = parse_logical_and(evaluate && *lhs == 0);
             if (!rhs.has_value()) {
                 return std::nullopt;
             }
-            lhs = ((*lhs != 0) || (*rhs != 0)) ? 1LL : 0LL;
+            lhs = evaluate && ((*lhs != 0) || (*rhs != 0)) ? 1LL : 0LL;
         }
         return lhs;
     }
 
-    std::optional<long long> parse_logical_and() {
-        auto lhs = parse_bitwise_or();
+    std::optional<long long> parse_logical_and(bool evaluate) {
+        auto lhs = parse_bitwise_or(evaluate);
         while (lhs.has_value() && consume(ScanPpTokenKind::LogicalAnd)) {
-            auto rhs = parse_bitwise_or();
+            auto rhs = parse_bitwise_or(evaluate && *lhs != 0);
             if (!rhs.has_value()) {
                 return std::nullopt;
             }
-            lhs = ((*lhs != 0) && (*rhs != 0)) ? 1LL : 0LL;
+            lhs = evaluate && ((*lhs != 0) && (*rhs != 0)) ? 1LL : 0LL;
         }
         return lhs;
     }
 
-    std::optional<long long> parse_bitwise_or() {
-        auto lhs = parse_bitwise_xor();
+    std::optional<long long> parse_bitwise_or(bool evaluate) {
+        auto lhs = parse_bitwise_xor(evaluate);
         while (lhs.has_value() && consume(ScanPpTokenKind::BitOr)) {
-            auto rhs = parse_bitwise_xor();
+            auto rhs = parse_bitwise_xor(evaluate);
             if (!rhs.has_value()) {
                 return std::nullopt;
             }
             // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
-            lhs = *lhs | *rhs;
+            lhs = evaluate ? *lhs | *rhs : 0LL;
         }
         return lhs;
     }
 
-    std::optional<long long> parse_bitwise_xor() {
-        auto lhs = parse_bitwise_and();
+    std::optional<long long> parse_bitwise_xor(bool evaluate) {
+        auto lhs = parse_bitwise_and(evaluate);
         while (lhs.has_value() && consume(ScanPpTokenKind::BitXor)) {
-            auto rhs = parse_bitwise_and();
+            auto rhs = parse_bitwise_and(evaluate);
             if (!rhs.has_value()) {
                 return std::nullopt;
             }
             // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
-            lhs = *lhs ^ *rhs;
+            lhs = evaluate ? *lhs ^ *rhs : 0LL;
         }
         return lhs;
     }
 
-    std::optional<long long> parse_bitwise_and() {
-        auto lhs = parse_equality();
+    std::optional<long long> parse_bitwise_and(bool evaluate) {
+        auto lhs = parse_equality(evaluate);
         while (lhs.has_value() && consume(ScanPpTokenKind::BitAnd)) {
-            auto rhs = parse_equality();
+            auto rhs = parse_equality(evaluate);
             if (!rhs.has_value()) {
                 return std::nullopt;
             }
             // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
-            lhs = *lhs & *rhs;
+            lhs = evaluate ? *lhs & *rhs : 0LL;
         }
         return lhs;
     }
 
-    std::optional<long long> parse_equality() {
-        auto lhs = parse_relational();
+    std::optional<long long> parse_equality(bool evaluate) {
+        auto lhs = parse_relational(evaluate);
         while (lhs.has_value()) {
             if (consume(ScanPpTokenKind::Equal)) {
-                auto rhs = parse_relational();
+                auto rhs = parse_relational(evaluate);
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs == *rhs) ? 1LL : 0LL;
+                lhs = evaluate && (*lhs == *rhs) ? 1LL : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::NotEqual)) {
-                auto rhs = parse_relational();
+                auto rhs = parse_relational(evaluate);
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs != *rhs) ? 1LL : 0LL;
+                lhs = evaluate && (*lhs != *rhs) ? 1LL : 0LL;
                 continue;
             }
             break;
@@ -804,39 +809,39 @@ class ScanPpExpressionParser {
         return lhs;
     }
 
-    std::optional<long long> parse_relational() {
-        auto lhs = parse_shift();
+    std::optional<long long> parse_relational(bool evaluate) {
+        auto lhs = parse_shift(evaluate);
         while (lhs.has_value()) {
             if (consume(ScanPpTokenKind::Less)) {
-                auto rhs = parse_shift();
+                auto rhs = parse_shift(evaluate);
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs < *rhs) ? 1LL : 0LL;
+                lhs = evaluate && (*lhs < *rhs) ? 1LL : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::LessEqual)) {
-                auto rhs = parse_shift();
+                auto rhs = parse_shift(evaluate);
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs <= *rhs) ? 1LL : 0LL;
+                lhs = evaluate && (*lhs <= *rhs) ? 1LL : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::Greater)) {
-                auto rhs = parse_shift();
+                auto rhs = parse_shift(evaluate);
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs > *rhs) ? 1LL : 0LL;
+                lhs = evaluate && (*lhs > *rhs) ? 1LL : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::GreaterEqual)) {
-                auto rhs = parse_shift();
+                auto rhs = parse_shift(evaluate);
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = (*lhs >= *rhs) ? 1LL : 0LL;
+                lhs = evaluate && (*lhs >= *rhs) ? 1LL : 0LL;
                 continue;
             }
             break;
@@ -844,25 +849,25 @@ class ScanPpExpressionParser {
         return lhs;
     }
 
-    std::optional<long long> parse_shift() {
-        auto lhs = parse_additive();
+    std::optional<long long> parse_shift(bool evaluate) {
+        auto lhs = parse_additive(evaluate);
         while (lhs.has_value()) {
             if (consume(ScanPpTokenKind::ShiftLeft)) {
-                auto rhs = parse_additive();
-                if (!rhs.has_value() || *rhs < 0 || *rhs >= std::numeric_limits<unsigned long long>::digits) {
+                auto rhs = parse_additive(evaluate);
+                if (!rhs.has_value() || (evaluate && (*rhs < 0 || *rhs >= std::numeric_limits<unsigned long long>::digits))) {
                     return std::nullopt;
                 }
                 // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
-                lhs = *lhs << *rhs;
+                lhs = evaluate ? *lhs << *rhs : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::ShiftRight)) {
-                auto rhs = parse_additive();
-                if (!rhs.has_value() || *rhs < 0 || *rhs >= std::numeric_limits<unsigned long long>::digits) {
+                auto rhs = parse_additive(evaluate);
+                if (!rhs.has_value() || (evaluate && (*rhs < 0 || *rhs >= std::numeric_limits<unsigned long long>::digits))) {
                     return std::nullopt;
                 }
                 // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
-                lhs = *lhs >> *rhs;
+                lhs = evaluate ? *lhs >> *rhs : 0LL;
                 continue;
             }
             break;
@@ -870,23 +875,23 @@ class ScanPpExpressionParser {
         return lhs;
     }
 
-    std::optional<long long> parse_additive() {
-        auto lhs = parse_multiplicative();
+    std::optional<long long> parse_additive(bool evaluate) {
+        auto lhs = parse_multiplicative(evaluate);
         while (lhs.has_value()) {
             if (consume(ScanPpTokenKind::Plus)) {
-                auto rhs = parse_multiplicative();
+                auto rhs = parse_multiplicative(evaluate);
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = *lhs + *rhs;
+                lhs = evaluate ? *lhs + *rhs : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::Minus)) {
-                auto rhs = parse_multiplicative();
+                auto rhs = parse_multiplicative(evaluate);
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = *lhs - *rhs;
+                lhs = evaluate ? *lhs - *rhs : 0LL;
                 continue;
             }
             break;
@@ -894,31 +899,31 @@ class ScanPpExpressionParser {
         return lhs;
     }
 
-    std::optional<long long> parse_multiplicative() {
-        auto lhs = parse_unary();
+    std::optional<long long> parse_multiplicative(bool evaluate) {
+        auto lhs = parse_unary(evaluate);
         while (lhs.has_value()) {
             if (consume(ScanPpTokenKind::Star)) {
-                auto rhs = parse_unary();
+                auto rhs = parse_unary(evaluate);
                 if (!rhs.has_value()) {
                     return std::nullopt;
                 }
-                lhs = *lhs * *rhs;
+                lhs = evaluate ? *lhs * *rhs : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::Slash)) {
-                auto rhs = parse_unary();
-                if (!rhs.has_value() || *rhs == 0) {
+                auto rhs = parse_unary(evaluate);
+                if (!rhs.has_value() || (evaluate && *rhs == 0)) {
                     return std::nullopt;
                 }
-                lhs = *lhs / *rhs;
+                lhs = evaluate ? *lhs / *rhs : 0LL;
                 continue;
             }
             if (consume(ScanPpTokenKind::Percent)) {
-                auto rhs = parse_unary();
-                if (!rhs.has_value() || *rhs == 0) {
+                auto rhs = parse_unary(evaluate);
+                if (!rhs.has_value() || (evaluate && *rhs == 0)) {
                     return std::nullopt;
                 }
-                lhs = *lhs % *rhs;
+                lhs = evaluate ? *lhs % *rhs : 0LL;
                 continue;
             }
             break;
@@ -926,38 +931,38 @@ class ScanPpExpressionParser {
         return lhs;
     }
 
-    std::optional<long long> parse_unary() {
+    std::optional<long long> parse_unary(bool evaluate) {
         if (consume(ScanPpTokenKind::Not)) {
-            auto value = parse_unary();
+            auto value = parse_unary(evaluate);
             if (!value.has_value()) {
                 return std::nullopt;
             }
-            return (*value == 0) ? 1LL : 0LL;
+            return evaluate && *value == 0 ? 1LL : 0LL;
         }
         if (consume(ScanPpTokenKind::BitNot)) {
-            auto value = parse_unary();
+            auto value = parse_unary(evaluate);
             if (!value.has_value()) {
                 return std::nullopt;
             }
             // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
-            return ~*value;
+            return evaluate ? ~*value : 0LL;
         }
         if (consume(ScanPpTokenKind::Plus)) {
-            return parse_unary();
+            return parse_unary(evaluate);
         }
         if (consume(ScanPpTokenKind::Minus)) {
-            auto value = parse_unary();
+            auto value = parse_unary(evaluate);
             if (!value.has_value()) {
                 return std::nullopt;
             }
-            return -*value;
+            return evaluate ? -*value : 0LL;
         }
-        return parse_primary();
+        return parse_primary(evaluate);
     }
 
-    std::optional<long long> parse_primary() {
+    std::optional<long long> parse_primary(bool evaluate) {
         if (consume(ScanPpTokenKind::LParen)) {
-            auto value = parse_logical_or();
+            auto value = parse_logical_or(evaluate);
             if (!value.has_value() || !consume(ScanPpTokenKind::RParen)) {
                 return std::nullopt;
             }
@@ -979,7 +984,7 @@ class ScanPpExpressionParser {
         }
 
         if (current().kind == ScanPpTokenKind::Number) {
-            const auto value = parse_scan_integer_literal(current().text);
+            const auto value = parse_scan_integer_literal(current().text, evaluate);
             ++index_;
             return value;
         }
@@ -996,7 +1001,7 @@ class ScanPpExpressionParser {
                     return std::nullopt;
                 }
                 ScanPpExpressionParser nested{macro_value, object_like_macros_, depth_ + 1};
-                return nested.parse();
+                return nested.parse(evaluate);
             }
             return 0LL;
         }
@@ -1204,8 +1209,9 @@ inline void handle_preprocessor_logical_line(std::string_view raw_line, ScanStre
 
     if (keyword == "if") {
         const bool parent_active = state.current_branch_active;
-        const auto evaluated =
-            evaluate_simple_preprocessor_condition(rest, state.object_like_macros, state.source_directory, state.include_search_paths);
+        const auto evaluated = parent_active ? evaluate_simple_preprocessor_condition(rest, state.object_like_macros,
+                                                                                      state.source_directory, state.include_search_paths)
+                                             : std::optional<bool>{false};
         if (parent_active && !evaluated.has_value()) {
             warn_unknown_preprocessor_condition(keyword, rest, line_number, state);
         }
@@ -1239,7 +1245,9 @@ inline void handle_preprocessor_logical_line(std::string_view raw_line, ScanStre
         }
         auto      &frame = state.conditionals.back();
         const auto evaluated =
-            evaluate_simple_preprocessor_condition(rest, state.object_like_macros, state.source_directory, state.include_search_paths);
+            frame.parent_active && !frame.branch_taken
+                ? evaluate_simple_preprocessor_condition(rest, state.object_like_macros, state.source_directory, state.include_search_paths)
+                : std::optional<bool>{false};
         if (frame.parent_active && !frame.branch_taken && !evaluated.has_value()) {
             warn_unknown_preprocessor_condition(keyword, rest, line_number, state);
         }
