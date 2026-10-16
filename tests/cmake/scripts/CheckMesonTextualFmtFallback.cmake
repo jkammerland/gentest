@@ -9,7 +9,7 @@ if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
 endif()
 
 if(WIN32)
-  message(STATUS "Skipping Meson fmt fallback check on Windows.")
+  message(STATUS "GENTEST_SKIP_TEST: Skipping Meson fmt fallback check on Windows.")
   return()
 endif()
 
