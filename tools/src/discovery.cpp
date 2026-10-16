@@ -843,7 +843,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             nm += '<';
             for (std::size_t i = 0; i < tpl_ordered.size(); ++i) {
                 if (i)
-                    nm += ",";
+                    nm += ',';
                 nm += tpl_ordered[i];
             }
             nm += '>';

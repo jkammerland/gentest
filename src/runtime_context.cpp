@@ -47,6 +47,7 @@ auto normalize_failure_file(std::string file) -> std::string {
 void throw_if_bench_call_failure(const std::string &msg) {
 #if GENTEST_EXCEPTIONS_ENABLED
     if (bench_phase() == BenchPhase::Call) {
+        // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
         throw gentest::assertion(msg);
     }
 #else
@@ -218,6 +219,7 @@ void record_failure_at(std::string msg, std::string file, unsigned line) {
     (void)loc;
     request_runtime_skip(reason, TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
 #if GENTEST_EXCEPTIONS_ENABLED
+    // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
     throw skip_exception{};
 #else
     terminate_no_exceptions_fatal("gentest::detail::skip_shared_fixture_unavailable");

@@ -27,12 +27,10 @@ std::string escape_string(std::string_view value) {
     return escaped;
 }
 
-std::string render_forward_decls(const std::vector<TestCaseInfo> & /*cases*/, const std::string & /*tpl_line*/,
-                                 const std::string & /*tpl_ns*/) {
-    // Forward declarations for test functions are not emitted.
-    // The generated TU includes the test sources before wrappers, so declarations
-    // are available, and emitting prototypes with a fixed return type (e.g., void)
-    // would incorrectly reject non-void test functions.
+std::string_view render_forward_decls(const std::vector<TestCaseInfo> & /*cases*/, const std::string & /*tpl_line*/,
+                                      const std::string & /*tpl_ns*/) {
+    // Registration TUs include annotated declaration headers before wrappers.
+    // Fixed return-type prototypes would incorrectly reject non-void cases.
     return {};
 }
 
@@ -83,7 +81,7 @@ TraitArrays render_trait_arrays(const std::vector<TestCaseInfo> &cases, const st
 }
 
 namespace {
-std::string fixture_lifetime_literal(FixtureLifetime lt) {
+std::string_view fixture_lifetime_literal(FixtureLifetime lt) {
     switch (lt) {
     case FixtureLifetime::None: return "gentest::FixtureLifetime::None";
     case FixtureLifetime::MemberEphemeral: return "gentest::FixtureLifetime::MemberEphemeral";

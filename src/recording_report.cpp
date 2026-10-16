@@ -38,7 +38,7 @@ std::string string_array(const std::vector<std::string> &strings) {
     return out + ']';
 }
 
-std::string extension(std::string_view mime) {
+std::string_view extension(std::string_view mime) {
     if (mime == "application/json")
         return ".json";
     if (mime == "application/cbor")
@@ -63,7 +63,7 @@ BagExport export_bag(const RecordingBag &bag, std::size_t scope_id) {
                                    json_string(record.content_type), json_string(record.schema), json_string(filename));
         result.attachments.push_back({.name           = record.name,
                                       .mime_type      = record.content_type,
-                                      .file_extension = extension(record.content_type),
+                                      .file_extension = std::string(extension(record.content_type)),
                                       .contents       = record.bytes,
                                       .shared_source  = filename});
     }

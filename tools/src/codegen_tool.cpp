@@ -254,6 +254,10 @@ bool merge_header_declaration_occurrences(std::vector<TestCaseInfo> &cases, std:
                 }
             }
         }
+        if (owner == nullptr) {
+            gentest::codegen::log_err("gentest_codegen: internal error: fixture entity has no declaration owner\n");
+            return false;
+        }
         const auto &canonical_meta = *owner;
         for (const std::size_t site_idx : site_indices) {
             const auto &candidate = fixture_sites[site_idx].occurrences.front();
@@ -411,6 +415,10 @@ bool merge_header_declaration_occurrences(std::vector<TestCaseInfo> &cases, std:
                     owner_site_key = site.key;
                 }
             }
+        }
+        if (owner_cases == nullptr) {
+            gentest::codegen::log_err("gentest_codegen: internal error: case entity has no declaration owner\n");
+            return false;
         }
         const auto &canonical_metadata = *owner_cases;
         const auto  expected_semantics = case_semantics(canonical_metadata);
@@ -1886,7 +1894,7 @@ bool should_strip_compdb_arg(std::string_view arg, bool preserve_module_mapping_
     const bool is_build_system_dependency_scan_arg = arg.starts_with("-fmodule-mapper=") || arg.starts_with("-fdeps-format=") ||
                                                      arg.starts_with("-fdeps-file=") || arg.starts_with("-fdeps-target=");
     const bool is_module_mapping_arg               = arg.starts_with("-fmodule-file=") || arg.starts_with("-fprebuilt-module-path=") ||
-                                                     (arg.starts_with("@") && arg.find(".modmap") != std::string_view::npos);
+                                                     (arg.starts_with('@') && arg.find(".modmap") != std::string_view::npos);
     // CMake also emits MSVC cl.exe's proprietary BMI-emission flags ("/interface", spelled with a
     // single dash in the exported compile_commands.json) for module compile commands. clang-cl does
     // not understand them; it silently drops the flag but leaves "-ifcOutput"'s path argument as a
@@ -1956,7 +1964,7 @@ bool prefers_msvc_style_standard_flag(std::span<const std::string> args) {
     return false;
 }
 
-std::string default_cxx_standard_arg(std::span<const std::string> args) {
+std::string_view default_cxx_standard_arg(std::span<const std::string> args) {
     return prefers_msvc_style_standard_flag(args) ? "/std:c++20" : "-std=c++20";
 }
 
@@ -2444,10 +2452,10 @@ bool source_requires_explicit_module_language_mode(std::string_view path) {
 }
 
 bool is_cxx_source_input_path(std::string_view path) {
-    if (path.empty() || path.starts_with("-") || path.starts_with("@")) {
+    if (path.empty() || path.starts_with('-') || path.starts_with('@')) {
         return false;
     }
-    if (path.starts_with("/") && path.find('/', 1) == std::string_view::npos && path.find('\\', 1) == std::string_view::npos) {
+    if (path.starts_with('/') && path.find('/', 1) == std::string_view::npos && path.find('\\', 1) == std::string_view::npos) {
         return false;
     }
     std::string ext = std::filesystem::path{std::string(path)}.extension().string();
@@ -2932,7 +2940,7 @@ std::string normalize_compdb_lookup_path(std::string_view path, std::string_view
         ec.clear();
     }
     if (auto canon = std::filesystem::weakly_canonical(normalized, ec); !ec) {
-        normalized = canon;
+        normalized = std::move(canon);
     }
     normalized = normalized.lexically_normal();
 
@@ -3416,7 +3424,7 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
     if (std::ranges::find(sanitized_command_line, std::string("--driver-mode=cl")) != sanitized_command_line.end()) {
         const auto normalized_file = normalize_compdb_lookup_path(file.str(), "");
         const auto input_it        = std::ranges::find_if(adjusted, [&](const std::string &arg) {
-            return arg.starts_with("/") && normalize_compdb_lookup_path(arg, "") == normalized_file;
+            return arg.starts_with('/') && normalize_compdb_lookup_path(arg, "") == normalized_file;
         });
         if (input_it != adjusted.end()) {
             std::string input_path = std::move(*input_it);
@@ -3551,14 +3559,14 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
     }
 
     if (!has_explicit_cxx_standard_arg(adjusted_command_line)) {
-        command.push_back(default_cxx_standard_arg(adjusted_command_line));
+        command.emplace_back(default_cxx_standard_arg(adjusted_command_line));
     }
     if (force_module_language_mode || needs_explicit_module_language_mode()) {
         command.emplace_back("-x");
         command.emplace_back("c++-module");
     }
     const bool cl_driver_mode = std::ranges::find(adjusted_command_line, std::string("--driver-mode=cl")) != adjusted_command_line.end();
-    if (cl_driver_mode && source_file.starts_with("/")) {
+    if (cl_driver_mode && source_file.starts_with('/')) {
         // In cl driver mode an absolute POSIX source path is misparsed as an
         // option (e.g. /Users/... as /U). Emit the output option before "--"
         // so the source path is consumed as a positional input.
@@ -3925,7 +3933,7 @@ bool is_plain_env_wrapper_at(const clang::tooling::CommandLineArguments &command
 }
 
 bool is_cmake_env_assignment(std::string_view arg) {
-    if (arg.empty() || arg.starts_with("-")) {
+    if (arg.empty() || arg.starts_with('-')) {
         return false;
     }
     const auto eq = arg.find('=');
@@ -4052,6 +4060,7 @@ std::string resolve_resource_dir(const std::string &compiler_path) {
     return trimmed.str();
 }
 
+// NOLINTNEXTLINE(modernize-use-string-view): the macOS branch returns an owned SDK path.
 std::string resolve_default_sysroot() {
 #if !defined(__APPLE__)
     return {};

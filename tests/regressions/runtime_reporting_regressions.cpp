@@ -16,6 +16,7 @@ void measured_jitter_github_annotation_failure(void *);
 
 namespace {
 
+// NOLINTNEXTLINE(bugprone-std-exception-baseclass): exercise the framework control signal without assertion bookkeeping.
 void fallback_assertion_failure(void *) { throw gentest::assertion("runtime-reporting-fallback-assertion"); }
 
 void junit_cdata_close_token_failure(void *) { EXPECT_TRUE(false, "runtime-reporting-cdata-token ]]> marker"); }

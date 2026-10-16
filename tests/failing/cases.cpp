@@ -57,6 +57,7 @@ void expect_throw_location() { EXPECT_THROW((void)0, std::runtime_error); }
 
 namespace failing {
 
+// NOLINTNEXTLINE(bugprone-std-exception-baseclass): regression deliberately exercises non-standard exceptions.
 void expect_no_throw_unknown() { EXPECT_NO_THROW(throw 123); }
 
 } // namespace failing
@@ -69,6 +70,7 @@ void assert_throw_location() { ASSERT_THROW((void)0, std::runtime_error); }
 
 namespace failing {
 
+// NOLINTNEXTLINE(bugprone-std-exception-baseclass): regression deliberately exercises non-standard exceptions.
 void assert_no_throw_unknown() { ASSERT_NO_THROW(throw 123); }
 
 } // namespace failing

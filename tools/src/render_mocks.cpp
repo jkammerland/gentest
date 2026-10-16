@@ -82,7 +82,7 @@ std::string cv_ref_qualifiers_for(const MockMethodQualifiers &qualifiers) {
     return q;
 }
 
-std::string tidy_exception_escape_suppression(const MockMethodQualifiers &qualifiers) {
+std::string_view tidy_exception_escape_suppression(const MockMethodQualifiers &qualifiers) {
     if (qualifiers.is_noexcept) {
         return " // NOLINT(bugprone-exception-escape)";
     }
@@ -328,7 +328,7 @@ std::string template_usage_suffix(const MockMethodInfo &method) {
         }
         out += method.template_params[i].usage_spelling;
     }
-    out += ">";
+    out += '>';
     return out;
 }
 
@@ -1270,7 +1270,7 @@ std::string gmock_arg_alias_tuple(std::size_t method_index, const MockMethodInfo
         }
         out += third_party_arg_alias(method_index, i);
     }
-    out += ")";
+    out += ')';
     return out;
 }
 
@@ -1379,14 +1379,14 @@ std::string third_party_default_overloads(std::size_t method_index, std::string_
 
 std::string trompeloeil_signature(std::size_t method_index, const MockMethodInfo &method) {
     std::string out = third_party_return_alias(method_index);
-    out += "(";
+    out += '(';
     for (std::size_t i = 0; i < method.parameters.size(); ++i) {
         if (i != 0) {
             out += ", ";
         }
         out += third_party_arg_alias(method_index, i);
     }
-    out += ")";
+    out += ')';
     switch (method.qualifiers.ref) {
     case MockMethodRefQualifier::LValue: out += " &"; break;
     case MockMethodRefQualifier::RValue: out += " &&"; break;
@@ -1408,7 +1408,7 @@ std::string trompeloeil_specs(const MockClassInfo &cls, const MockMethodInfo &me
         if (i == 0) {
             out += ", ";
         } else {
-            out += " ";
+            out += ' ';
         }
         out += specs[i];
     }

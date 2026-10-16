@@ -66,6 +66,7 @@ constexpr unsigned kBenchUnknownExceptionShouldFailLine = __LINE__ + 1;
 void               bench_unknown_exception_should_fail(void *) {
     if (!in_bench_call_phase())
         return;
+    // NOLINTNEXTLINE(bugprone-std-exception-baseclass): regression deliberately exercises non-standard exceptions.
     throw 7;
 }
 
@@ -137,6 +138,7 @@ constexpr unsigned kJitterUnknownExceptionShouldFailLine = __LINE__ + 1;
 void               jitter_unknown_exception_should_fail(void *) {
     if (!in_bench_call_phase())
         return;
+    // NOLINTNEXTLINE(bugprone-std-exception-baseclass): regression deliberately exercises non-standard exceptions.
     throw 7;
 }
 
