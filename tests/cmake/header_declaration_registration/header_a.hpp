@@ -24,7 +24,7 @@ struct [[using gentest: fixture(global)]] GlobalFixture : gentest::FixtureSetup,
 };
 
 [[using gentest: test("header_declaration/a")]]
-void case_a(SharedFixture &fixture);
+int case_a(SharedFixture &fixture);
 
 [[using gentest: test("header_declaration/fixture_parity")]]
 void fixture_parity(LocalFixture &local, GlobalFixture &global);

@@ -7,7 +7,7 @@
 //
 // Placeholders and where they apply:
 // - Shared registration fragment (registration_common):
-//     {{FORWARD_DECLS}}, {{TRAIT_DECLS}}, {{WRAPPER_IMPLS}}
+//     {{TRAIT_DECLS}}, {{WRAPPER_IMPLS}}
 // - TU registration headers:
 //     {{REGISTRATION_PREAMBLE}}, {{WRAPPER_SUPPORT_COMMON}},
 //     {{GLOBAL_WRAPPER_IMPLS}}, {{REGISTRATION_COMMON}}, {{CASE_INITS}},
@@ -23,7 +23,6 @@
 //                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite},
 //                     {async_wrapper}, {is_async}, {items_per_call}, {owner}
 //   array_decl_*:     {name}; or {count}, {name}, {body}
-//   forward_decl_*:   {name}; or {scope}, {lines}
 //
 // IMPORTANT: Partials are fed into fmt::format, so any literal braces that
 // must appear in the generated C++ need to be doubled here (e.g. function
@@ -267,8 +266,6 @@ inline bool gentest_init_shared_fixture(::gentest::detail::FixtureHandle<T>& han
 ;
 
 inline constexpr std::string_view registration_common = R"CPP(
-{{FORWARD_DECLS}}
-
 namespace {
 
 {{TRAIT_DECLS}}
@@ -467,15 +464,6 @@ inline constexpr std::string_view array_decl_empty = R"FMT(constexpr std::array<
 inline constexpr std::string_view array_decl_nonempty = R"FMT(constexpr std::array<std::string_view, {count}> {name} = {{
 {body}
 }};
-
-)FMT";
-
-inline constexpr std::string_view forward_decl_line = R"FMT(void {name}();
-
-)FMT";
-
-inline constexpr std::string_view forward_decl_ns = R"FMT(namespace {scope} {{
-{lines}}} // namespace {scope}
 
 )FMT";
 

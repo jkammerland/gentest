@@ -54,8 +54,9 @@ struct Fixture : gentest::FixtureSetup {
 };
 
 [[using gentest: test("module_registration/exported_fixture")]]
-void exported_fixture(Fixture &fixture) {
+int exported_fixture(Fixture &fixture) {
     gentest::asserts::EXPECT_EQ(fixture.value, 7);
+    return fixture.value;
 }
 
 [[using gentest: test("module_registration/exported_redeclaration")]]

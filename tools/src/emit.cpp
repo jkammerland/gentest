@@ -1330,8 +1330,6 @@ struct RegistrationRenderTemplates {
     std::string case_entry;
     std::string array_decl_empty;
     std::string array_decl_nonempty;
-    std::string forward_decl_line;
-    std::string forward_decl_ns;
 
     [[nodiscard]] render::WrapperTemplates wrapper_templates() const {
         return render::WrapperTemplates{
@@ -1345,7 +1343,6 @@ struct RegistrationRenderTemplates {
 };
 
 struct RenderedRegistrationCore {
-    std::string forward_decls;
     std::string trait_decls;
     std::string wrapper_impls;
     std::string case_inits;
@@ -1364,8 +1361,6 @@ struct RenderedRegistrationCore {
         .case_entry            = std::string(tpl::case_entry),
         .array_decl_empty      = std::string(tpl::array_decl_empty),
         .array_decl_nonempty   = std::string(tpl::array_decl_nonempty),
-        .forward_decl_line     = std::string(tpl::forward_decl_line),
-        .forward_decl_ns       = std::string(tpl::forward_decl_ns),
     };
 }
 
@@ -1386,7 +1381,6 @@ struct RenderedRegistrationCore {
     RenderedRegistrationCore core;
     core.case_count                      = cases.size();
     core.needs_full_registration_support = needs_full_registration_support(cases, fixtures, has_mocks);
-    core.forward_decls                   = render::render_forward_decls(cases, templates.forward_decl_line, templates.forward_decl_ns);
 
     auto traits      = render::render_trait_arrays(cases, templates.array_decl_empty, templates.array_decl_nonempty);
     core.trait_decls = std::move(traits.declarations);
@@ -1409,7 +1403,6 @@ void apply_registration_core(std::string &output, const RenderedRegistrationCore
     replace_all(output, "{{WRAPPER_SUPPORT_COMMON}}",
                 core.needs_full_registration_support ? tpl::wrapper_support_common : std::string_view{});
     replace_all(output, "{{REGISTRATION_COMMON}}", tpl::registration_common);
-    replace_all(output, "{{FORWARD_DECLS}}", core.forward_decls);
     replace_all(output, "{{CASE_COUNT}}", std::to_string(core.case_count));
     replace_all(output, "{{TRAIT_DECLS}}", core.trait_decls);
     if (output.find("{{GLOBAL_WRAPPER_IMPLS}}") != std::string::npos) {

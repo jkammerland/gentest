@@ -22,7 +22,10 @@ void GlobalFixture::setUp() { value = 9; }
 
 void GlobalFixture::tearDown() { value = 0; }
 
-void case_a(SharedFixture &fixture) { gentest::expect_eq(fixture.value, 42); }
+int case_a(SharedFixture &fixture) {
+    gentest::expect_eq(fixture.value, 42);
+    return fixture.value;
+}
 
 void fixture_parity(LocalFixture &local, GlobalFixture &global) {
     gentest::expect_eq(local.value, 7);

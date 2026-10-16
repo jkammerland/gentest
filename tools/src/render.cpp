@@ -27,13 +27,6 @@ std::string escape_string(std::string_view value) {
     return escaped;
 }
 
-std::string_view render_forward_decls(const std::vector<TestCaseInfo> & /*cases*/, const std::string & /*tpl_line*/,
-                                      const std::string & /*tpl_ns*/) {
-    // Registration TUs include annotated declaration headers before wrappers.
-    // Fixed return-type prototypes would incorrectly reject non-void cases.
-    return {};
-}
-
 namespace {
 template <typename... Args> inline void append_format(std::string &out, fmt::format_string<Args...> format_string, Args &&...args) {
     fmt::format_to(std::back_inserter(out), format_string, std::forward<Args>(args)...);

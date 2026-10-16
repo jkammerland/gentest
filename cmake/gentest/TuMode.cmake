@@ -290,7 +290,7 @@ function(_gentest_copy_source_properties_to_wrappers)
     endforeach()
 endfunction()
 
-function(_gentest_prepare_tu_mode)
+function(_gentest_prepare_module_mock_provider)
     set(one_value_args
         TARGET TARGET_ID OUTPUT_DIR
         OUT_OUTPUT_ROOT OUT_OUTPUT_DIR OUT_WRAPPER_CPP OUT_WRAPPER_HEADERS OUT_EXTRA_CPP
@@ -1305,7 +1305,7 @@ function(gentest_attach_codegen target)
             OUT_MANIFEST _gentest_artifact_manifest
             OUT_COMPILE_CONTEXT_IDS _gentest_compile_context_ids)
     else()
-        _gentest_prepare_tu_mode(
+        _gentest_prepare_module_mock_provider(
             TARGET ${target}
             TARGET_ID ${_gentest_target_id}
             OUTPUT_DIR "${GENTEST_OUTPUT_DIR}"
