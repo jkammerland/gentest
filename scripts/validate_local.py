@@ -49,7 +49,7 @@ def sha256(path: Path) -> str:
 
 def validator_hashes() -> dict[str, str]:
     return {name: sha256(Path(__file__).with_name(name))
-            for name in ("validate_local.py", "validation_suites.py", "llvm_tools.py", "llvm_toolchain.json")}
+            for name in ("validate_local.py", "validation_suites.py", "llvm_tools.py", "llvm_toolchain.json", "runtime_sources.py")}
 
 
 def git(source: Path, *args: str) -> str:
@@ -102,6 +102,7 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
 
     clang = primary_tool("clang", os.environ.get("GENTEST_CLANG", ""))
     clangxx = primary_tool("clang++", os.environ.get("GENTEST_CLANGXX", ""))
+    host_clang = (toolchain.host_clang or clangxx) if toolchain else clangxx
 
     def cmake_stage(name: str, preset: str, cc: str, cxx: str, *, origin: Path = source,
                     extra: tuple[str, ...] = (), targets: tuple[str, ...] = (), tests: bool = True,
@@ -117,12 +118,16 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         if cc:
             args += ["-DCMAKE_C_COMPILER=" + cc, "-DCMAKE_CXX_COMPILER=" + cxx]
         args += ["-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO", "-DGENTEST_USE_BOOST_JSON=ON",
-                 "-DGENTEST_CODEGEN_HOST_CLANG=" + clangxx,
+                 "-DGENTEST_CODEGEN_HOST_CLANG=" + host_clang,
                  "-DGENTEST_CODEGEN_CLANG_SCAN_DEPS=" + primary_tool("clang-scan-deps"), *extra]
         boost_include = os.environ.get("GENTEST_BOOST_JSON_INCLUDE_DIR", "")
         if boost_include and "-DGENTEST_USE_BOOST_JSON=OFF" not in extra:
             args.append("-DGENTEST_BOOST_JSON_INCLUDE_DIR=" + boost_include)
-        commands = [Command(args, origin, env), Command([cmake, "--build", str(build), "--parallel", str(jobs),
+        ownership = [sys.executable, str(source / "scripts/runtime_sources.py")]
+        commands = [Command([*ownership, "prepare-cmake", "--build-dir", str(build)], origin, env),
+                    Command(args, origin, env),
+                    Command([*ownership, "check", "--source", str(origin), "--backend", "cmake", "--build-dir", str(build)], origin, env),
+                    Command([cmake, "--build", str(build), "--parallel", str(jobs),
                     *(["--target", *targets] if targets else [])], origin, env)]
         if tests:
             commands.append(Command([ctest, "--preset=" + preset, "--test-dir", str(build), "--output-on-failure",
@@ -160,7 +165,7 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
             name = arch + "-qemu"
             targets = next(p["targets"] for p in presets["buildPresets"] if p["name"] == name)
             cross = cmake_stage(name, name, "", "", targets=tuple(targets), extra=(
-                f"-DGENTEST_CODEGEN_EXECUTABLE={codegen}", f"-DGENTEST_CODEGEN_HOST_CLANG={clangxx}",
+                f"-DGENTEST_CODEGEN_EXECUTABLE={codegen}", f"-DGENTEST_CODEGEN_HOST_CLANG={host_clang}",
                 "-DGENTEST_USE_BOOST_JSON=OFF"))
             cross.tools += [arch + "-linux-gnu-g++", "qemu-" + arch]
             cross.dependencies = ["host-codegen"]
@@ -169,7 +174,7 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
             prefix = os.environ.get("GENTEST_SERIALIZER_PREFIX", "")
             missing = "GENTEST_SERIALIZER_PREFIX must name installed Glaze and cbor_tags" if suite == "recording" and not prefix else ""
             commands = [] if missing else suite_commands(suite, source, work, jobs=jobs, codegen=codegen,
-                serializers=prefix, cc=clang, cxx=clangxx)
+                serializers=prefix, cc=clang, cxx=clangxx, host_clang=host_clang)
             stages.append(Stage(suite, commands, ["cmake", "ninja", clang, clangxx] + ([] if suite == "recording" else [suite]),
                                 ["host-codegen"] if suite in ("meson", "xmake") else [], missing))
         # Build both benchmark executables with the same installed toolchain.
@@ -203,7 +208,6 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         if toolchain:
             for command in stage.commands:
                 command.env.update(toolchain.environment())
-                command.env["GENTEST_CODEGEN_HOST_CLANG"] = clangxx
     return stages
 
 

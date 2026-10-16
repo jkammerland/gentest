@@ -26,11 +26,13 @@ class Command:
 
 def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
                    codegen: Path | None = None, serializers: str = "",
-                   cc: str = f"clang-{LLVM_MAJOR}", cxx: str = f"clang++-{LLVM_MAJOR}") -> list[Command]:
+                   cc: str = f"clang-{LLVM_MAJOR}", cxx: str = f"clang++-{LLVM_MAJOR}",
+                   host_clang: str = "") -> list[Command]:
     source, work = source.resolve(), work.resolve()
     common = {"CC": cc, "CXX": cxx, "CCACHE_DISABLE": "1"}
+    host_clang = host_clang or cxx
     if codegen:
-        common.update(GENTEST_CODEGEN=str(codegen), GENTEST_CODEGEN_HOST_CLANG=cxx)
+        common.update(GENTEST_CODEGEN=str(codegen), GENTEST_CODEGEN_HOST_CLANG=host_clang)
     commands: list[Command] = []
 
     def add(*args: object, env: dict[str, str] | None = None):
@@ -82,6 +84,8 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
                  "--repo_env=CC", "--repo_env=CXX", "--repo_env=GENTEST_BAZEL_LOCAL_CLANG"]
         add(*bazel, "test", *flags, "--test_output=errors", "//:gentest_unit_bazel", "//:gentest_integration_bazel",
             "//:gentest_fixtures_bazel", "//:gentest_skiponly_bazel", "//:codegen_check_invalid")
+        add(sys.executable, source / "scripts/runtime_sources.py", "check", "--source", source, "--backend", "bazel",
+            "--bazel-startup-arg=" + bazel[1], *("--bazel-arg=" + flag for flag in flags))
         for style in ["textual", "module"]:
             name = f"gentest_consumer_{style}_bazel"
             add(*bazel, "build", *flags, *(["--experimental_cpp_modules"] if style == "module" else []), f"//:{name}")
@@ -90,14 +94,17 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
     elif suite == "meson":
         if not codegen:
             raise ValueError("meson needs --codegen")
-        add("meson", "setup", work / "build", f"-Dcodegen_path={codegen}", f"-Dcodegen_host_clang={cxx}")
+        add("meson", "setup", work / "build", f"-Dcodegen_path={codegen}", f"-Dcodegen_host_clang={host_clang}")
+        add(sys.executable, source / "scripts/runtime_sources.py", "check", "--source", source,
+            "--backend", "meson", "--build-dir", work / "build")
         add("meson", "compile", "-C", work / "build", "-j", jobs)
         add("meson", "test", "-C", work / "build", "--print-errorlogs")
         downstream("CheckMesonWrapConsumer.cmake")
     elif suite == "xmake":
         if not codegen:
             raise ValueError("xmake needs --codegen")
-        add("xmake", "f", "-c", "-y", "-m", "release", "-o", work / "build")
+        add("xmake", "f", "-c", "-y", "-m", "release", "-o", work / "build", f"--cc={cc}", f"--cxx={cxx}")
+        add(sys.executable, source / "scripts/runtime_sources.py", "check", "--source", source, "--backend", "xmake")
         add("xmake", "build", "-y", "-j", jobs)
         for name in ["unit", "integration", "fixtures", "skiponly"]:
             add("xmake", "r", "-y", f"gentest_{name}_xmake")
@@ -126,7 +133,7 @@ def main() -> int:
     args.cc, args.cxx = toolchain.tools["clang"], toolchain.tools["clang++"]
     args.work.mkdir(parents=True, exist_ok=True)
     commands = suite_commands(args.suite, args.source, args.work, jobs=args.jobs, codegen=args.codegen,
-                              serializers=args.serializers, cc=args.cc, cxx=args.cxx)
+                              serializers=args.serializers, cc=args.cc, cxx=args.cxx, host_clang=toolchain.host_clang)
     for command in commands:
         print("+", subprocess.list2cmdline(command.args), flush=True)
         subprocess.run(command.args, cwd=command.cwd, env=os.environ | command.env | toolchain.environment(), check=True)

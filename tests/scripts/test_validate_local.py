@@ -181,7 +181,8 @@ class PlanTests(unittest.TestCase):
         self.addCleanup(self.selection.stop)
 
     def commands_without_preflight(self, stage):
-        return [command.args for command in stage.commands if "check-toolchain" not in command.args[:3]]
+        return [command.args for command in stage.commands
+                if "check-toolchain" not in command.args[:3] and str(ROOT / "scripts/runtime_sources.py") not in command.args]
 
     @unittest.skipIf(os.name == "nt", "Fake executables use POSIX shell scripts")
     def test_explicit_llvm_prefix_keeps_compilers_libraries_and_coverage_together(self):
@@ -254,6 +255,21 @@ class PlanTests(unittest.TestCase):
                 configure = self.commands_without_preflight(stage)[0]
                 self.assertIn("-DGENTEST_USE_BOOST_JSON=ON", configure)
                 self.assertIn("-DGENTEST_BOOST_JSON_INCLUDE_DIR=/installed/boost/include", configure)
+
+    def test_cmake_lanes_request_and_check_configured_runtime_ownership(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            stages = validator.make_plan("Linux", ROOT, output, output / "base", 2)
+            for stage in stages:
+                configure = next((command for command in stage.commands if any(arg.startswith("--preset=") for arg in command.args)), None)
+                if not configure:
+                    continue
+                with self.subTest(stage=stage.name):
+                    queries = [command.args for command in stage.commands if str(ROOT / "scripts/runtime_sources.py") in command.args]
+                    self.assertEqual(len(queries), 2)
+                    self.assertIn("prepare-cmake", queries[0])
+                    self.assertIn("check", queries[1])
+                    self.assertEqual(queries[1][queries[1].index("--source") + 1], str(configure.cwd))
 
     def test_ci_uses_the_shared_acceptance_commands(self):
         recording = (ROOT / ".github/workflows/recording.yml").read_text()

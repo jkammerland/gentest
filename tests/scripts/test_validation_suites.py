@@ -69,12 +69,23 @@ class SuiteContracts(unittest.TestCase):
 
     def test_meson_keeps_repo_tests_and_downstream_wrap_acceptance(self):
         commands = self.commands("meson")
-        self.assertEqual(len(commands), 4)
+        self.assertEqual(len(commands), 5)
         self.assertIn("-Dcodegen_path=" + str(self.codegen), commands[0].args)
         self.assertIn("-Dcodegen_host_clang=selected-clang++", commands[0].args)
-        self.assertEqual(commands[1].args[:2], ["meson", "compile"])
-        self.assertEqual(commands[2].args[:2], ["meson", "test"])
-        self.assertTrue(commands[3].args[-1].endswith("CheckMesonWrapConsumer.cmake"))
+        self.assertEqual(commands[2].args[:2], ["meson", "compile"])
+        self.assertEqual(commands[3].args[:2], ["meson", "test"])
+        self.assertTrue(commands[4].args[-1].endswith("CheckMesonWrapConsumer.cmake"))
+
+    def test_native_ownership_queries_keep_the_configured_scope_and_bazel_flags(self):
+        for suite in ("bazel", "meson", "xmake"):
+            with self.subTest(suite=suite):
+                checks = [command.args for command in self.commands(suite) if str(ROOT / "scripts/runtime_sources.py") in command.args]
+                self.assertEqual(len(checks), 1)
+                self.assertIn("check", checks[0])
+                self.assertEqual(checks[0][checks[0].index("--backend") + 1], suite)
+                if suite == "bazel":
+                    self.assertIn("--bazel-startup-arg=--output_user_root=" + str(self.work / "cache"), checks[0])
+                    self.assertIn("--bazel-arg=--repo_env=GENTEST_BAZEL_LOCAL_CLANG", checks[0])
 
 
 if __name__ == "__main__":
