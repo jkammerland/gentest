@@ -271,6 +271,19 @@ class PlanTests(unittest.TestCase):
                     self.assertIn("check", queries[1])
                     self.assertEqual(queries[1][queries[1].index("--source") + 1], str(configure.cwd))
 
+    def test_target_compiler_lanes_keep_host_llvm_selection_independent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            for host, name, target_cxx in (("Linux", "gcc-release", "g++"), ("Windows", "msvc-release", "cl"),
+                                           ("Darwin", "appleclang-release", "/usr/bin/clang++")):
+                with self.subTest(host=host), patch.dict(os.environ, {}, clear=True):
+                    stage = next(stage for stage in validator.make_plan(host, ROOT, output, output / "base", 2)
+                                 if stage.name == name)
+                    configure = self.commands_without_preflight(stage)[0]
+                    self.assertIn("-DCMAKE_CXX_COMPILER=" + target_cxx, configure)
+                    self.assertIn("-DGENTEST_CODEGEN_HOST_CLANG=/selected-llvm/bin/clang++", configure)
+                    self.assertEqual(stage.commands[0].env["LLVM_DIR"], "/selected-llvm/lib/cmake/llvm")
+
     def test_ci_uses_the_shared_acceptance_commands(self):
         recording = (ROOT / ".github/workflows/recording.yml").read_text()
         buildsystems = (ROOT / ".github/workflows/buildsystems_linux.yml").read_text()

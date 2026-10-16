@@ -78,7 +78,7 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
         common["GENTEST_BAZEL_LOCAL_CLANG"] = cxx
         bazel = ["bazel", f"--output_user_root={work / 'cache'}"]
         # CI puts work under the checkout; Bazel 9 rejects its default repo contents cache there.
-        flags = ["--repo_contents_cache=", f"--symlink_prefix={work / 'bazel-'}", f"--jobs={jobs}",
+        flags = ["--experimental_cpp_modules", "--repo_contents_cache=", f"--symlink_prefix={work / 'bazel-'}", f"--jobs={jobs}",
                  "--action_env=CCACHE_DISABLE=1", "--host_action_env=CCACHE_DISABLE=1",
                  "--action_env=CC", "--action_env=CXX", "--host_action_env=CC", "--host_action_env=CXX",
                  "--repo_env=CC", "--repo_env=CXX", "--repo_env=GENTEST_BAZEL_LOCAL_CLANG"]
@@ -88,7 +88,7 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
             "--bazel-startup-arg=" + bazel[1], *("--bazel-arg=" + flag for flag in flags))
         for style in ["textual", "module"]:
             name = f"gentest_consumer_{style}_bazel"
-            add(*bazel, "build", *flags, *(["--experimental_cpp_modules"] if style == "module" else []), f"//:{name}")
+            add(*bazel, "build", *flags, f"//:{name}")
             consumer([str(work / "bazel-bin" / name)])
         downstream("CheckBazelBzlmodConsumer.cmake")
     elif suite == "meson":

@@ -27,6 +27,7 @@ class SuiteContracts(unittest.TestCase):
         self.assertEqual(len(builds), 3)
         self.assertIn("//:codegen_check_invalid", builds[0].args)
         for command in builds:
+            self.assertIn("--experimental_cpp_modules", command.args)
             self.assertIn("--repo_contents_cache=", command.args)
             self.assertIn("--repo_env=GENTEST_BAZEL_LOCAL_CLANG", command.args)
             self.assertEqual(command.env["GENTEST_BAZEL_LOCAL_CLANG"], "selected-clang++")
@@ -86,6 +87,15 @@ class SuiteContracts(unittest.TestCase):
                 if suite == "bazel":
                     self.assertIn("--bazel-startup-arg=--output_user_root=" + str(self.work / "cache"), checks[0])
                     self.assertIn("--bazel-arg=--repo_env=GENTEST_BAZEL_LOCAL_CLANG", checks[0])
+                    self.assertIn("--bazel-arg=--experimental_cpp_modules", checks[0])
+
+    def test_explicit_codegen_host_selection_is_separate_from_target_compilers(self):
+        commands = suite_commands("meson", ROOT, self.input_work, codegen=self.codegen, cc="target-cc", cxx="target-cxx",
+                                  host_clang="selected-host-clang")
+        self.assertIn("-Dcodegen_host_clang=selected-host-clang", commands[0].args)
+        self.assertEqual(commands[0].env["CC"], "target-cc")
+        self.assertEqual(commands[0].env["CXX"], "target-cxx")
+        self.assertEqual(commands[0].env["GENTEST_CODEGEN_HOST_CLANG"], "selected-host-clang")
 
 
 if __name__ == "__main__":
