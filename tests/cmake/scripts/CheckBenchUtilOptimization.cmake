@@ -17,6 +17,8 @@ if(CXX_SYSROOT AND NOT _msvc)
 endif()
 if(CXX_FLAGS)
     separate_arguments(_configured_flags NATIVE_COMMAND "${CXX_FLAGS}")
+    # Clang's --coverage shorthand enables gcov even after -fno-profile-arcs.
+    list(REMOVE_ITEM _configured_flags --coverage)
     list(APPEND _extra ${_configured_flags})
 endif()
 
@@ -29,7 +31,12 @@ if(_msvc)
     endif()
     set(_object "${_work}/optimization.obj")
 else()
-    list(APPEND _extra -O2 -fno-lto)
+    # Instrumentation makes otherwise pure calls observable. This assembly
+    # probe must measure optimization without coverage or sanitizer side effects.
+    list(APPEND _extra -O2 -fno-lto -fno-profile-arcs -fno-test-coverage -fno-sanitize=all)
+    if(CXX_COMPILER_ID MATCHES "^(Clang|AppleClang)$")
+        list(APPEND _extra -fno-profile-instr-generate -fno-coverage-mapping)
+    endif()
     set(_object "${_assembly}")
 endif()
 

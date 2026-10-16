@@ -31,27 +31,58 @@ add_test(NAME report_stream_contract COMMAND ${Python3_EXECUTABLE}
 set_tests_properties(report_stream_contract PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
 
 # Optimized code is the observable behavior of an anti-optimization helper.
-gentest_add_cmake_script_test(
-    NAME bench_util_optimization
-    NO_EMULATOR
-    PROG ${CMAKE_COMMAND}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBenchUtilOptimization.cmake"
-    DEFINES
-        "BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}"
-        "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-        "CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
-        "CXX_COMPILER_ARG1=${CMAKE_CXX_COMPILER_ARG1}"
-        "CXX_COMPILER_TARGET=${CMAKE_CXX_COMPILER_TARGET}"
-        "CXX_SYSROOT=${CMAKE_SYSROOT}"
-        "CXX_FLAGS=${CMAKE_CXX_FLAGS}"
-        "PYTHON=${Python3_EXECUTABLE}")
-set_tests_properties(bench_util_optimization PROPERTIES LABELS "benchmarks;public-api;ci-compat")
+set(_gentest_bench_util_probes bench_util_optimization)
+if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+    list(APPEND _gentest_bench_util_probes bench_util_optimization_coverage)
+endif()
+foreach(_gentest_probe IN LISTS _gentest_bench_util_probes)
+    set(_gentest_probe_flags "${CMAKE_CXX_FLAGS}")
+    if(_gentest_probe STREQUAL "bench_util_optimization_coverage")
+        string(APPEND _gentest_probe_flags " --coverage")
+    endif()
+    gentest_add_cmake_script_test(
+        NAME ${_gentest_probe}
+        NO_EMULATOR
+        PROG ${CMAKE_COMMAND}
+        SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckBenchUtilOptimization.cmake"
+        DEFINES
+            "BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}/${_gentest_probe}"
+            "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+            "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
+            "CXX_COMPILER_ARG1=${CMAKE_CXX_COMPILER_ARG1}"
+            "CXX_COMPILER_TARGET=${CMAKE_CXX_COMPILER_TARGET}"
+            "CXX_SYSROOT=${CMAKE_SYSROOT}"
+            "CXX_FLAGS=${_gentest_probe_flags}"
+            "PYTHON=${Python3_EXECUTABLE}")
+    set_tests_properties(${_gentest_probe} PROPERTIES LABELS "benchmarks;public-api;ci-compat")
+endforeach()
+unset(_gentest_bench_util_probes)
+unset(_gentest_probe)
+unset(_gentest_probe_flags)
 
 add_executable(gentest_benchmark_measurement_tests benchmark_measurements/main.cpp benchmark_measurements/cases.cpp
     benchmark_measurements/cases.hpp benchmark_measurements/allocation.cpp)
 target_link_libraries(gentest_benchmark_measurement_tests PRIVATE gentest::gentest)
 target_compile_features(gentest_benchmark_measurement_tests PRIVATE cxx_std_20)
+
+# TSan owns the global new/delete definitions. Wrap calls to scalar new on ELF
+# instead, so deterministic allocation failures still exercise the same tests.
+gentest_detect_thread_sanitizer(_gentest_measurement_tsan)
+if(_gentest_measurement_tsan AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(_gentest_measurement_new_symbol _Znwm)
+    else()
+        set(_gentest_measurement_new_symbol _Znwj)
+    endif()
+    target_compile_definitions(gentest_benchmark_measurement_tests PRIVATE
+        "GENTEST_TEST_REAL_NEW=__real_${_gentest_measurement_new_symbol}"
+        "GENTEST_TEST_WRAP_NEW=__wrap_${_gentest_measurement_new_symbol}")
+    target_link_options(gentest_benchmark_measurement_tests PRIVATE "LINKER:--wrap=${_gentest_measurement_new_symbol}")
+    unset(_gentest_measurement_new_symbol)
+endif()
+unset(_gentest_measurement_tsan)
+
 gentest_attach_codegen(gentest_benchmark_measurement_tests)
 add_test(NAME benchmark_measurement_contract COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_benchmark_measurements.py $<TARGET_FILE:gentest_benchmark_measurement_tests>)
@@ -3670,6 +3701,12 @@ _gentest_add_cmake_helper_test(
     -DBUILD_CONFIG=${_gentest_discover_tests_config})
 
 unset(_gentest_discover_tests_config)
+
+_gentest_add_cmake_helper_test(
+    gentest_discover_tests_strict_selection
+    ${PROJECT_SOURCE_DIR}/tests/cmake/discover_tests
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckDiscoverTestsStrictSelection.cmake
+    cmake)
 
 _gentest_add_cmake_helper_test(
     gentest_header_declaration_registration

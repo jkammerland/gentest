@@ -109,6 +109,7 @@ libgentest_runtime = static_library(
   [
     'src/async.cpp',
     'src/bench_stats.cpp',
+    'src/benchmark.cpp',
     'src/context_api.cpp',
     'src/recording.cpp',
     'src/recording_report.cpp',
