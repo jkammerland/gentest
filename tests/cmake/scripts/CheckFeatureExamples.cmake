@@ -29,7 +29,8 @@ foreach(_example IN ITEMS parameterized fixtures mocking measured metadata recor
   run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_example_build_args})
 
   # Compare exact resolved names, so missing annotations cannot silently pass.
-  execute_process(COMMAND "${_example_exe}" --list-tests --no-color
+  gentest_prepare_fixture_command(_list_command COMMAND "${_example_exe}" --list-tests --no-color)
+  execute_process(COMMAND ${_list_command}
     RESULT_VARIABLE _list_rc OUTPUT_VARIABLE _actual ERROR_VARIABLE _list_error)
   if(NOT "${_list_rc}" STREQUAL "0")
     message(FATAL_ERROR "${_example} inventory failed: ${_list_rc}: ${_list_error}")

@@ -277,8 +277,9 @@ if(_has_doctest_consumer)
     WORKING_DIRECTORY "${_work_dir}"
     STRIP_TRAILING_WHITESPACE)
   message(STATUS "Run ${_doctest_exe} --gentest-probe-gmock-failure...")
+  gentest_prepare_fixture_command(_probe_command COMMAND "${_doctest_exe}" "--gentest-probe-gmock-failure")
   execute_process(
-    COMMAND "${_doctest_exe}" "--gentest-probe-gmock-failure"
+    COMMAND ${_probe_command}
     WORKING_DIRECTORY "${_work_dir}"
     RESULT_VARIABLE _doctest_probe_rc
     OUTPUT_VARIABLE _doctest_probe_out

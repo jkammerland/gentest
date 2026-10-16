@@ -86,13 +86,11 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
 endif()
 gentest_append_public_modules_cache_arg(_cmake_cache_args)
 
+gentest_prepare_fixture_command(_configure_command COMMAND
+  "${CMAKE_COMMAND}" ${_cmake_gen_args} -S "${_src_dir}" -B "${_build_dir}" ${_cmake_cache_args})
 execute_process(
   COMMAND
-    "${CMAKE_COMMAND}"
-    ${_cmake_gen_args}
-    -S "${_src_dir}"
-    -B "${_build_dir}"
-    ${_cmake_cache_args}
+    ${_configure_command}
   WORKING_DIRECTORY "${_work_dir}"
   RESULT_VARIABLE _configure_rc
   OUTPUT_VARIABLE _configure_out
@@ -122,8 +120,9 @@ if(CMAKE_HOST_WIN32)
   set(_exe "${_exe}.exe")
 endif()
 
+gentest_prepare_fixture_command(_list_command COMMAND "${_exe}" --list-tests)
 execute_process(
-  COMMAND "${_exe}" --list-tests
+  COMMAND ${_list_command}
   WORKING_DIRECTORY "${_build_dir}"
   RESULT_VARIABLE _list_rc
   OUTPUT_VARIABLE _list_out
@@ -141,8 +140,9 @@ if(_basic_pos EQUAL -1)
   message(FATAL_ERROR "Expected multiline/module_mock in --list-tests output.\n${_list_out}")
 endif()
 
+gentest_prepare_fixture_command(_run_command COMMAND "${_exe}" --run=multiline/module_mock)
 execute_process(
-  COMMAND "${_exe}" --run=multiline/module_mock
+  COMMAND ${_run_command}
   WORKING_DIRECTORY "${_build_dir}"
   RESULT_VARIABLE _run_rc
   OUTPUT_VARIABLE _run_out

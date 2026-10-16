@@ -34,8 +34,6 @@ gentest_attach_codegen(dep_tests
     CLANG_ARGS
         -I${CMAKE_CURRENT_SOURCE_DIR})
 
-file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/dep_emulator_$<CONFIG>.txt" CONTENT "$<TARGET_PROPERTY:dep_tests,CROSSCOMPILING_EMULATOR>")
-
 get_target_property(_dep_mocks_codegen_id dep_mocks GENTEST_CODEGEN_TARGET_ID)
 get_target_property(_dep_mocks_codegen_target dep_mocks GENTEST_CODEGEN_DEP_TARGET)
 get_target_property(_dep_tests_codegen_id dep_tests GENTEST_CODEGEN_TARGET_ID)

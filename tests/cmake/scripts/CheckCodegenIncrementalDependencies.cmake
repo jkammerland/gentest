@@ -118,18 +118,13 @@ set(_generated_cpp "${_build_dir}/generated/tu_0000_cases.header_registration.ge
 set(_mock_registry "${_build_dir}/generated/mocks/${DEP_MOCKS_CODEGEN_ID}_mock_registry.hpp")
 set(_mock_registry_header_domain "${_build_dir}/generated/mocks/${DEP_MOCKS_CODEGEN_ID}_mock_registry__domain_0000_header.hpp")
 set(_exe "${_build_dir}/dep_tests")
-set(_config "${BUILD_CONFIG}")
-if(_config STREQUAL "")
-  set(_config "${BUILD_TYPE}")
-endif()
-gentest_read_fixture_emulator(_exe_emu "${_build_dir}/dep_emulator_${_config}.txt")
 
 _gentest_read("${_generated_cpp}" _generated_cpp_text)
 _gentest_expect_contains(_generated_cpp_text "incremental/compile/off" "initial generated source")
 _gentest_expect_not_contains(_generated_cpp_text "incremental/compile/on" "initial generated source")
 
 gentest_check_run_or_fail(
-  COMMAND ${_exe_emu} "${_exe}" --list-tests
+  COMMAND "${_exe}" --list-tests
   STRIP_TRAILING_WHITESPACE
   WORKING_DIRECTORY "${_build_dir}"
   OUTPUT_VARIABLE _initial_list_out)
@@ -186,7 +181,7 @@ _gentest_expect_contains(_generated_cpp_text_after_reconfigure "incremental/comp
 _gentest_expect_not_contains(_generated_cpp_text_after_reconfigure "incremental/compile/off" "generated source after reconfigure")
 
 gentest_check_run_or_fail(
-  COMMAND ${_exe_emu} "${_exe}" --list-tests
+  COMMAND "${_exe}" --list-tests
   STRIP_TRAILING_WHITESPACE
   WORKING_DIRECTORY "${_build_dir}"
   OUTPUT_VARIABLE _final_list_out)
