@@ -20,6 +20,7 @@ DEFAULT_POLICY = {
         "src/runtime_context.cpp",
     ],
     "no_exec": [],
+    "intentional_by_compiler": {},
     "fail_on": "missing_obj,missing_gcda,stamp_mismatch,no_match,gcov_error",
     "warn_on": "zero_hits",
 }
@@ -46,6 +47,14 @@ def read_policy_config(config_path: Path) -> Dict[str, Any]:
         if not isinstance(value, str):
             raise RuntimeError(f"coverage policy key '{key}' in '{config_path}' must be a string")
         policy[key] = value
+
+    conditional = data.get("intentional_by_compiler", {})
+    if not isinstance(conditional, dict):
+        raise RuntimeError("coverage policy key 'intentional_by_compiler' must be a table")
+    for family, paths in conditional.items():
+        if family not in {"clang", "gcc"} or not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
+            raise RuntimeError("compiler-specific coverage exemptions require clang/gcc lists of source paths")
+    policy["intentional_by_compiler"] = conditional
 
     return policy
 
@@ -83,6 +92,12 @@ def compiler_family(build_dir: Path) -> str:
     if "gnu" in compiler_text or re.search(r"(^|[\\/])(g\+\+|gcc|cc|c\+\+)([.-]|$)", compiler_text):
         return "gcc"
     return ""
+
+
+def intentional_sources(policy: Dict[str, Any], build_dir: Path) -> List[str]:
+    """Apply only exemptions justified for the compiler that built the objects."""
+    conditional = policy.get("intentional_by_compiler", {})
+    return [*policy["intentional"], *conditional.get(compiler_family(build_dir), [])]
 
 
 def resolve_gcov_command(build_dir: Path, explicit: Optional[Sequence[str]]) -> List[str]:

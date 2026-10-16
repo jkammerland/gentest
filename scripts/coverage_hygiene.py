@@ -25,7 +25,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from coverage_common import DEFAULT_BUILD_DIR, DEFAULT_POLICY, DEFAULT_POLICY_PATH, normalize_build_dir, read_policy_config, resolve_gcov_command
+from coverage_common import DEFAULT_BUILD_DIR, DEFAULT_POLICY, DEFAULT_POLICY_PATH, intentional_sources, normalize_build_dir, read_policy_config, resolve_gcov_command
 
 
 GcovStatus = str
@@ -622,7 +622,7 @@ def main() -> int:
     ap.add_argument(
         "--intentional",
         nargs="*",
-        default=policy["intentional"],
+        default=None,
         help="Path prefixes considered intentional placeholders (not coverage-failing).",
     )
     ap.add_argument(
@@ -658,7 +658,8 @@ def main() -> int:
     project_root = Path(__file__).resolve().parents[1]
     build_dir = normalize_build_dir(project_root, args.build_dir)
     source_roots = _to_abs_paths(project_root, args.roots)
-    intentional_roots = _to_abs_paths(project_root, args.intentional)
+    intentional = intentional_sources(policy, build_dir) if args.intentional is None else args.intentional
+    intentional_roots = _to_abs_paths(project_root, intentional)
     no_exec_roots = _to_abs_paths(project_root, args.no_exec)
     fail_set = _parse_status_set(args.fail_on)
     ignore_set = _parse_status_set(args.ignore_statuses)

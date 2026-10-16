@@ -16,6 +16,12 @@ no_exec = []
 fail_on = "missing_obj,missing_gcda,stamp_mismatch,no_match,gcov_error"
 warn_on = "zero_hits"
 
+[intentional_by_compiler]
+# These compilers use inline barriers. Only native MSVC calls the opaque fallback,
+# so GCC/Clang static executables do not link its coverage counters.
+clang = ["src/bench_util.cpp"]
+gcc = ["src/bench_util.cpp"]
+
 [report]
 fail_under_line = 75.0
 fail_under_branch = 45.0
