@@ -1,7 +1,7 @@
 {
   "linux": [
     {
-      "name": "Ubuntu 24.04 • Clang 20",
+      "name": "Ubuntu 24.04 \u2022 Clang 20",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "compiler": "clang",
@@ -15,7 +15,7 @@
       "ctest_parallel": 2
     },
     {
-      "name": "Ubuntu 24.04 • Clang 20",
+      "name": "Ubuntu 24.04 \u2022 Clang 20",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "compiler": "clang",
@@ -27,7 +27,7 @@
       "build_type": "release"
     },
     {
-      "name": "Ubuntu 24.04 • Clang 20",
+      "name": "Ubuntu 24.04 \u2022 Clang 20",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "compiler": "clang",
@@ -40,7 +40,7 @@
       "preset": "debug-system-cxx23"
     },
     {
-      "name": "Ubuntu 24.04 • GCC",
+      "name": "Ubuntu 24.04 \u2022 GCC",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "compiler": "gcc",
@@ -52,7 +52,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Ubuntu 24.04 • GCC",
+      "name": "Ubuntu 24.04 \u2022 GCC",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "compiler": "gcc",
@@ -64,11 +64,10 @@
       "build_type": "release",
       "enable_package_tests": "ON",
       "setup_mode": "apt-llvm-org",
-      "routine": true,
       "primary": true
     },
     {
-      "name": "Ubuntu 25.10 • Clang 20",
+      "name": "Ubuntu 25.10 \u2022 Clang 20",
       "container": "ubuntu:25.10",
       "pkg_manager": "apt",
       "compiler": "clang",
@@ -80,7 +79,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Ubuntu 25.10 • Clang 20",
+      "name": "Ubuntu 25.10 \u2022 Clang 20",
       "container": "ubuntu:25.10",
       "pkg_manager": "apt",
       "compiler": "clang",
@@ -92,7 +91,7 @@
       "build_type": "release"
     },
     {
-      "name": "Ubuntu 25.10 • GCC",
+      "name": "Ubuntu 25.10 \u2022 GCC",
       "container": "ubuntu:25.10",
       "pkg_manager": "apt",
       "compiler": "gcc",
@@ -104,7 +103,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Ubuntu 25.10 • GCC",
+      "name": "Ubuntu 25.10 \u2022 GCC",
       "container": "ubuntu:25.10",
       "pkg_manager": "apt",
       "compiler": "gcc",
@@ -116,7 +115,7 @@
       "build_type": "release"
     },
     {
-      "name": "Ubuntu 24.04 • LLVM 22",
+      "name": "Ubuntu 24.04 \u2022 LLVM 22",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "setup_mode": "apt-llvm-org",
@@ -129,7 +128,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Ubuntu 24.04 • LLVM 22",
+      "name": "Ubuntu 24.04 \u2022 LLVM 22",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "setup_mode": "apt-llvm-org",
@@ -144,7 +143,7 @@
       "ctest_parallel": 2
     },
     {
-      "name": "Ubuntu 24.04 • LLVM 23",
+      "name": "Ubuntu 24.04 \u2022 LLVM 23",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "setup_mode": "apt-llvm-org",
@@ -155,11 +154,12 @@
       "llvm_dir": "/usr/lib/llvm-23/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-23/lib/cmake/clang",
       "build_type": "debug",
-      "routine": true,
-      "primary": true
+      "primary": true,
+      "allure": true,
+      "enable_package_tests": "ON"
     },
     {
-      "name": "Ubuntu 24.04 • LLVM 23",
+      "name": "Ubuntu 24.04 \u2022 LLVM 23",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "setup_mode": "apt-llvm-org",
@@ -170,13 +170,28 @@
       "llvm_dir": "/usr/lib/llvm-23/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-23/lib/cmake/clang",
       "build_type": "ASan+UBSan",
-      "routine": true,
       "primary": true,
       "preset": "alusan-system",
       "ctest_parallel": 2
     },
     {
-      "name": "Alpine 3.21 • Clang 19",
+      "name": "Ubuntu 24.04 \u2022 LLVM 23",
+      "container": "ubuntu:24.04",
+      "pkg_manager": "apt",
+      "setup_mode": "apt-llvm-org",
+      "compiler": "clang",
+      "cc": "clang-23",
+      "cxx": "clang++-23",
+      "clang_version": "23",
+      "llvm_dir": "/usr/lib/llvm-23/lib/cmake/llvm",
+      "clang_dir": "/usr/lib/llvm-23/lib/cmake/clang",
+      "build_type": "TSan",
+      "primary": true,
+      "preset": "tsan-system",
+      "ctest_parallel": 2
+    },
+    {
+      "name": "Alpine 3.21 \u2022 Clang 19",
       "container": "alpine:3.21",
       "pkg_manager": "apk",
       "compiler": "clang",
@@ -189,7 +204,7 @@
       "codegen_jobs": 2
     },
     {
-      "name": "Alpine 3.21 • Clang 19",
+      "name": "Alpine 3.21 \u2022 Clang 19",
       "container": "alpine:3.21",
       "pkg_manager": "apk",
       "compiler": "clang",
@@ -202,7 +217,7 @@
       "codegen_jobs": 2
     },
     {
-      "name": "Alpine 3.23 • Clang 21",
+      "name": "Alpine 3.23 \u2022 Clang 21",
       "container": "alpine:3.23",
       "pkg_manager": "apk",
       "compiler": "clang",
@@ -215,7 +230,7 @@
       "codegen_jobs": 2
     },
     {
-      "name": "Alpine 3.23 • Clang 21",
+      "name": "Alpine 3.23 \u2022 Clang 21",
       "container": "alpine:3.23",
       "pkg_manager": "apk",
       "compiler": "clang",
@@ -228,7 +243,7 @@
       "codegen_jobs": 2
     },
     {
-      "name": "Fedora 41 • Clang",
+      "name": "Fedora 41 \u2022 Clang",
       "container": "fedora:41",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -239,7 +254,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Fedora 41 • Clang",
+      "name": "Fedora 41 \u2022 Clang",
       "container": "fedora:41",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -250,7 +265,7 @@
       "build_type": "release"
     },
     {
-      "name": "Fedora 41 • GCC",
+      "name": "Fedora 41 \u2022 GCC",
       "container": "fedora:41",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -261,7 +276,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Fedora 41 • GCC",
+      "name": "Fedora 41 \u2022 GCC",
       "container": "fedora:41",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -272,7 +287,7 @@
       "build_type": "release"
     },
     {
-      "name": "Fedora 42 • Clang",
+      "name": "Fedora 42 \u2022 Clang",
       "container": "fedora:42",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -283,7 +298,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Fedora 42 • Clang",
+      "name": "Fedora 42 \u2022 Clang",
       "container": "fedora:42",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -294,7 +309,7 @@
       "build_type": "release"
     },
     {
-      "name": "Fedora 42 • GCC",
+      "name": "Fedora 42 \u2022 GCC",
       "container": "fedora:42",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -305,7 +320,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Fedora 42 • GCC",
+      "name": "Fedora 42 \u2022 GCC",
       "container": "fedora:42",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -316,7 +331,7 @@
       "build_type": "release"
     },
     {
-      "name": "Fedora 43 • Clang 21",
+      "name": "Fedora 43 \u2022 Clang 21",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -327,7 +342,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Fedora 43 • Clang 21",
+      "name": "Fedora 43 \u2022 Clang 21",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -340,7 +355,7 @@
       "ctest_parallel": 2
     },
     {
-      "name": "Fedora 43 • Clang 21",
+      "name": "Fedora 43 \u2022 Clang 21",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -351,7 +366,7 @@
       "build_type": "release"
     },
     {
-      "name": "Fedora 43 • GCC",
+      "name": "Fedora 43 \u2022 GCC",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -362,7 +377,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Fedora 43 • GCC",
+      "name": "Fedora 43 \u2022 GCC",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -373,7 +388,7 @@
       "build_type": "release"
     },
     {
-      "name": "Fedora 43 • LLVM 22",
+      "name": "Fedora 43 \u2022 LLVM 22",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "setup_mode": "upstream-archive",
@@ -386,7 +401,7 @@
       "build_type": "debug"
     },
     {
-      "name": "Fedora 43 • LLVM 22",
+      "name": "Fedora 43 \u2022 LLVM 22",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "setup_mode": "upstream-archive",
@@ -406,7 +421,6 @@
       "llvm-version": "23.1.0",
       "preset": "debug-system",
       "variant": "default",
-      "routine": true,
       "primary": true
     },
     {
@@ -415,20 +429,10 @@
       "variant": "default"
     },
     {
-      "llvm-version": "22.1.0",
-      "preset": "release-system",
-      "variant": "default"
-    },
-    {
       "llvm-version": "21.1.4",
       "preset": "debug-system",
       "variant": "default",
       "enable_package_tests": "ON"
-    },
-    {
-      "llvm-version": "21.1.4",
-      "preset": "release-system",
-      "variant": "default"
     }
   ],
   "macos": [
@@ -466,7 +470,6 @@
       "compiler": "llvm@23",
       "build-type": "debug",
       "variant": "default",
-      "routine": true,
       "primary": true
     },
     {

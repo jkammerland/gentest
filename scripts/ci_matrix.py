@@ -14,9 +14,7 @@ MATRIX_FILE = Path(__file__).with_name("ci_matrix.json")
 PLATFORMS = ("linux", "windows", "macos")
 
 
-def select_matrix(profile: str, source: Path = MATRIX_FILE) -> dict[str, dict]:
-    if profile not in {"pr", "full"}:
-        raise ValueError(f"Unknown CI profile: {profile}")
+def select_matrix(source: Path = MATRIX_FILE) -> dict[str, dict]:
     catalog = json.loads(source.read_text(encoding="utf-8"))
     result = {}
     for platform in PLATFORMS:
@@ -34,27 +32,27 @@ def select_matrix(profile: str, source: Path = MATRIX_FILE) -> dict[str, dict]:
                 if platform == "windows" and original["llvm-version"] != POLICY["release"]:
                     raise ValueError("Primary Windows lane must use the pinned LLVM release")
 
-            if original.get("routine") and not original.get("primary"):
-                raise ValueError(f"Routine {platform} lane must use the primary LLVM toolchain")
+            if "routine" in original:
+                raise ValueError("Routine CI profiles are no longer supported")
 
-            if profile == "pr" and not original.get("routine", False):
-                continue
-            entry = {key: value for key, value in original.items() if key != "routine"}
-            if profile == "pr":
-                entry["enable_package_tests"] = "OFF"
-            entries.append(entry)
+            entries.append(dict(original))
         if not entries:
-            raise ValueError(f"Empty {platform} matrix for {profile}")
+            raise ValueError(f"Empty {platform} matrix")
+
+        # Windows presets share the explicit RelWithDebInfo configuration.
+        if platform == "windows":
+            effective = [(entry["llvm-version"], entry["variant"], entry.get("test_cxx_standard")) for entry in entries]
+            if len(effective) != len(set(effective)):
+                raise ValueError("Duplicate effective Windows configuration")
         result[platform] = {"include": entries}
     return result
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=("pr", "full"), default="pr")
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
-    matrices = select_matrix(args.profile)
+    matrices = select_matrix()
     if args.github_output:
         with args.github_output.open("a", encoding="utf-8", newline="\n") as output:
             for platform, matrix in matrices.items():

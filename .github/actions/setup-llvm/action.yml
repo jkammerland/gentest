@@ -5,4 +5,4 @@ runs:
   steps:
     - name: Install the required LLVM toolchain
       shell: bash
-      run: bash scripts/setup_llvm.sh
+      run: bash "${GITHUB_ACTION_PATH}/../../../scripts/setup_llvm.sh"
