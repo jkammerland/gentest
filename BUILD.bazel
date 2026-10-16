@@ -172,6 +172,8 @@ cc_library(
         'src/async_timer_queue.h',
         'src/async.cpp',
         'src/bench_stats.cpp',
+        'src/benchmark.cpp',
+        'src/benchmark_internal.h',
         'src/context_api.cpp',
         'src/recording.cpp',
         'src/recording_report.cpp',

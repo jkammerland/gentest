@@ -12,6 +12,8 @@ class DiscoverySkipTests(unittest.TestCase):
     def test_only_windows_debug_with_the_switch_skips_abort(self):
         # WIN32 is overridden only in the script interpreter. The tiny fixture
         # still compiles for the real host, so this checks the gate on every OS.
+        # Strict selection has its own native CTest instead of rebuilding every
+        # policy for each gate configuration within this test's 120-second bound.
         cases = [(True, "Debug", True), (False, "Debug", True),
                  (True, "Release", True), (True, "RelWithDebInfo", True),
                  (True, "Debug", False)]
