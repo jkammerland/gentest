@@ -8,6 +8,10 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${SOURCE_DIR}/cmake/GentestPublicModules.cmake")
 include("${SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
+# The parent project also includes fixture helpers more than once. CMake saves
+# replaced functions under an underscore-prefixed name; discovery must remain
+# separate from that name after a repeated include.
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_work_dir "${BUILD_ROOT}/clang_scan_deps_program_resolution")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -121,10 +125,23 @@ if(DEFINED ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS})
 endif()
 set(_old_codegen_scan_deps_env "$ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
 
+# Command-line -D values are cache entries. Removing only a normal binding
+# exposes that cache again, so isolate both stores before controlled scenarios.
+foreach(_controlled_var IN ITEMS GENTEST_CODEGEN_CLANG_SCAN_DEPS CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS)
+  unset(${_controlled_var})
+  unset(${_controlled_var} CACHE)
+endforeach()
+
 set(GENTEST_CODEGEN_HOST_CLANG "${_resolver_dir_a}/clang++")
 set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${_fake_scan_deps_a}")
 unset(GENTEST_CODEGEN_CLANG_SCAN_DEPS)
 set(ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS} "${_fake_scan_deps_b}")
+set(CXX_COMPILER_CLANG_SCAN_DEPS "${_fake_scan_deps_a}")
+gentest_find_clang_scan_deps(_target_scanner "${GENTEST_CODEGEN_HOST_CLANG}")
+if(NOT _target_scanner STREQUAL "${_fake_scan_deps_a}")
+  message(FATAL_ERROR "Host-codegen environment changed the target compiler's scanner: '${_target_scanner}'")
+endif()
+unset(CXX_COMPILER_CLANG_SCAN_DEPS)
 _gentest_resolve_codegen_clang_scan_deps(_codegen_env_override)
 if(NOT _codegen_env_override STREQUAL "${_fake_scan_deps_b}")
   message(FATAL_ERROR
@@ -138,6 +155,14 @@ if(NOT _codegen_cmake_override STREQUAL "${_fake_scan_deps_a}")
     "Expected the explicit CMake scanner to take precedence over the environment override, got '${_codegen_cmake_override}'")
 endif()
 unset(GENTEST_CODEGEN_CLANG_SCAN_DEPS)
+
+# Cached CMake wiring has the same explicit precedence as a normal binding.
+set(GENTEST_CODEGEN_CLANG_SCAN_DEPS "${_fake_scan_deps_a}" CACHE STRING "Controlled scanner override" FORCE)
+_gentest_resolve_codegen_clang_scan_deps(_codegen_cached_override)
+if(NOT _codegen_cached_override STREQUAL "${_fake_scan_deps_a}")
+  message(FATAL_ERROR "Expected the cached CMake scanner to precede the environment override, got '${_codegen_cached_override}'")
+endif()
+unset(GENTEST_CODEGEN_CLANG_SCAN_DEPS CACHE)
 
 # An invalid explicit selection must remain visible instead of silently choosing another installation.
 set(_missing_explicit_scan_deps "${_work_dir}/missing-explicit/clang-scan-deps")

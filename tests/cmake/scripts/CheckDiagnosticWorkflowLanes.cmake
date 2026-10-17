@@ -167,11 +167,6 @@ function(_assert_workflow_contains expected_snippet requirement)
   endif()
 endfunction()
 
-function(_assert_named_row_contains row_name build_type expected_snippet requirement)
-  _find_matrix_row(_row name "${row_name}" build_type "${build_type}")
-  _assert_row_field("${_row}" "${expected_snippet}" "${requirement}")
-endfunction()
-
 foreach(_preset IN ITEMS coverage-system alusan-system tsan tsan-system)
   _require_preset("configurePresets" "${_preset}")
   _require_preset("buildPresets" "${_preset}")
@@ -207,22 +202,34 @@ _assert_row_contains("tsan-system" "ctest_parallel: 2" "set ctest_parallel: 2")
 _assert_workflow_contains("libclang-rt-\${{ matrix.clang_version }}-dev" "install the Clang compiler-rt development package so sanitizer presets can link")
 _assert_workflow_contains("GENTEST_CODEGEN_JOBS=\${{ matrix.codegen_jobs }}" "export GENTEST_CODEGEN_JOBS from the matrix so Alpine CI exercises parallel codegen explicitly")
 
-foreach(_asan_lane IN ITEMS
-    "Ubuntu 24.04 • LLVM 22"
-    "Fedora 43 • Clang 21"
-    "Fedora 43 • LLVM 22")
-  _assert_named_row_contains("${_asan_lane}" "ASan+UBSan" "preset: alusan-system"
-    "set preset: alusan-system for sanitizer coverage")
-  _assert_named_row_contains("${_asan_lane}" "ASan+UBSan" "ctest_parallel: 2"
-    "set ctest_parallel: 2 for sanitizer coverage")
+# Validate lane semantics independently of their human-readable names. Newly
+# added sanitizer and musl rows receive the same checks as existing rows.
+set(_sanitizer_count 0)
+set(_musl_count 0)
+string(JSON _matrix_length LENGTH "${_matrix_json}" linux)
+math(EXPR _matrix_last "${_matrix_length} - 1")
+foreach(_index RANGE 0 ${_matrix_last})
+  string(JSON _row GET "${_matrix_json}" linux ${_index})
+  string(JSON _build_type GET "${_row}" build_type)
+  string(JSON _manager GET "${_row}" pkg_manager)
+  if(_build_type STREQUAL "ASan+UBSan" OR _build_type STREQUAL "TSan")
+    if(_build_type STREQUAL "ASan+UBSan")
+      set(_expected_preset alusan-system)
+    else()
+      set(_expected_preset tsan-system)
+    endif()
+    _assert_row_field("${_row}" "preset: ${_expected_preset}" "select the matching sanitizer preset")
+    _assert_row_field("${_row}" "ctest_parallel: 2" "bound sanitizer CTest parallelism to 2")
+    math(EXPR _sanitizer_count "${_sanitizer_count} + 1")
+  endif()
+  if(_manager STREQUAL "apk")
+    _assert_row_field("${_row}" "codegen_jobs: 2" "exercise parallel codegen on musl")
+    math(EXPR _musl_count "${_musl_count} + 1")
+  endif()
 endforeach()
-
-foreach(_alpine_build_type IN ITEMS debug release)
-  _assert_named_row_contains("Alpine 3.21 • Clang 19" "${_alpine_build_type}" "codegen_jobs: 2"
-    "set codegen_jobs: 2 so musl lanes exercise the parallel codegen path")
-  _assert_named_row_contains("Alpine 3.23 • Clang 21" "${_alpine_build_type}" "codegen_jobs: 2"
-    "set codegen_jobs: 2 so musl lanes exercise the parallel codegen path")
-endforeach()
+if(_sanitizer_count EQUAL 0 OR _musl_count EQUAL 0)
+  message(FATAL_ERROR "The matrix must retain sanitizer and musl coverage")
+endif()
 
 # Clang 20 ASan end-to-end coverage is replaced by strict isolated diagnostics.
 file(READ "${SOURCE_DIR}/.github/workflows/clang_leaks.yml" _leaks_workflow)

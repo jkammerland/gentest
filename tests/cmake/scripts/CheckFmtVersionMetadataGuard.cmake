@@ -11,6 +11,8 @@
 #  -DC_COMPILER=<path>
 #  -DCXX_COMPILER=<path>
 #  -DBUILD_TYPE=<Debug|Release|...>
+#  -DLLVM_DIR=<llvm cmake dir>
+#  -DClang_DIR=<clang cmake dir>
 
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckFmtVersionMetadataGuard.cmake: SOURCE_DIR not set")
@@ -23,6 +25,7 @@ if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_work_dir "${BUILD_ROOT}/fmt_version_metadata_guard")
 set(_build_dir_ok "${_work_dir}/build-ok")
@@ -57,6 +60,8 @@ endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _common_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
+
+gentest_append_llvm_package_cache_args(_common_cache_args)
 
 message(STATUS "Configure fmt metadata guard fixture with gentest_INSTALL=OFF...")
 gentest_check_run_or_fail(

@@ -2,6 +2,9 @@
 #  -DSOURCE_DIR=<fixture source dir>
 #  -DBUILD_ROOT=<path to parent build dir>
 #  -DGENTEST_SOURCE_DIR=<path to gentest source tree>
+# Optional:
+#  -DLLVM_DIR=<llvm cmake dir>
+#  -DClang_DIR=<clang cmake dir>
 
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckPublicModuleSurface.cmake: SOURCE_DIR not set")
@@ -54,6 +57,8 @@ if(NOT "${_effective_build_type}" STREQUAL "")
 endif()
 gentest_append_windows_native_llvm_cache_args(_common_cache_args "${_clangxx}" ${_common_cache_args})
 gentest_append_host_apple_sysroot(_common_cache_args)
+set(_producer_cache_args ${_common_cache_args})
+gentest_append_llvm_package_cache_args(_producer_cache_args)
 
 message(STATUS "Configure producer for public module surface regression...")
 gentest_check_run_or_fail(
@@ -62,7 +67,7 @@ gentest_check_run_or_fail(
     -G Ninja
     -S "${GENTEST_SOURCE_DIR}"
     -B "${_producer_build_dir}"
-    ${_common_cache_args}
+    ${_producer_cache_args}
     "-Dgentest_INSTALL=ON"
     "-Dgentest_BUILD_TESTING=OFF"
     "-DGENTEST_BUILD_CODEGEN=ON"

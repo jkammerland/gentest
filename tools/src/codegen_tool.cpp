@@ -3218,6 +3218,7 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
     };
 
     clang::tooling::CommandLineArguments adjusted;
+    clang::tooling::CommandLineArguments deferred_system_includes;
     const std::string                    normalized_target = normalize_compdb_lookup_path(file.str(), compdb_dir);
     if (!sanitized_command_line.empty()) {
         const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(sanitized_command_line).value_or(0);
@@ -3293,7 +3294,22 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             adjusted.emplace_back("-isysroot");
             adjusted.emplace_back(default_sysroot);
         }
-        adjusted.insert(adjusted.end(), extra_args.begin(), extra_args.end());
+        // CMake supplies host system paths as fallback arguments. Keep the
+        // target's own system include roots ahead of them, especially when an
+        // older package also exists in the host's default include directory.
+        deferred_system_includes.reserve(extra_args.size());
+        for (std::size_t i = 0; i < extra_args.size(); ++i) {
+            const auto &arg                     = extra_args[i];
+            const bool  separate_system_include = arg == "-isystem" || arg == "-isystem-after";
+            if (separate_system_include && i + 1 < extra_args.size()) {
+                deferred_system_includes.push_back(arg);
+                deferred_system_includes.push_back(extra_args[++i]);
+            } else if (arg.starts_with("-isystem") && !separate_system_include) {
+                deferred_system_includes.push_back(arg);
+            } else {
+                adjusted.push_back(arg);
+            }
+        }
         if (needs_explicit_module_language_mode(sanitized_command_line)) {
             adjusted.emplace_back("-x");
             adjusted.emplace_back("c++-module");
@@ -3400,6 +3416,7 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
         }
     }
 
+    adjusted.insert(adjusted.end(), deferred_system_includes.begin(), deferred_system_includes.end());
     adjusted.insert(adjusted.end(), extra_module_args.begin(), extra_module_args.end());
     if (use_synthetic_fallback) {
         adjusted.emplace_back(file.str());
@@ -5520,8 +5537,8 @@ int run_codegen_tool(int argc, const char **argv) {
             std::unordered_set<std::string> attempted_candidates;
             auto                            try_candidate =
                 [&](const std::filesystem::path &candidate, const std::vector<clang::tooling::CompileCommand> &candidate_driver_commands,
-                    const std::vector<clang::tooling::CompileCommand> &candidate_source_commands,
-                    const std::vector<std::filesystem::path> &candidate_include_search_paths) -> const ExternalNamedModuleSourceInfo * {
+                    const std::vector<std::filesystem::path>          &candidate_include_search_paths,
+                    const std::vector<clang::tooling::CompileCommand> &candidate_source_commands) -> const ExternalNamedModuleSourceInfo * {
                 const std::string candidate_key = normalize_compdb_lookup_path(candidate.string());
                 if (candidate_key.empty() || !attempted_candidates.insert(candidate_key).second) {
                     return nullptr;
@@ -5530,10 +5547,17 @@ int run_codegen_tool(int argc, const char **argv) {
                     return nullptr;
                 }
 
+                // Imported CMake module targets may have no compile-database
+                // entry. Borrow and retarget the importer's context for all
+                // preprocessing probes, not just the later PCM build.
+                auto source_commands = candidate_source_commands;
+                if (source_commands.empty() && !candidate_driver_commands.empty()) {
+                    source_commands.push_back(
+                        retarget_compile_command(candidate_driver_commands.front(), context.owner_key, candidate.string()));
+                }
                 const auto discovered_name = named_module_name_from_source_file(
                     candidate, candidate_include_search_paths,
-                    build_augmented_scan_command_line(candidate_source_commands, candidate_driver_commands, candidate.string(),
-                                                      candidate.string()));
+                    build_augmented_scan_command_line(source_commands, candidate_driver_commands, candidate.string(), candidate.string()));
                 if (should_log_module_import_resolution()) {
                     gentest::codegen::log_err("gentest_codegen: explicit candidate '{}' discovered as '{}'\n", candidate.string(),
                                               discovered_name.value_or(std::string{"<none>"}));
@@ -5548,10 +5572,9 @@ int run_codegen_tool(int argc, const char **argv) {
                 std::string external_working_directory    = context.working_directory.empty() ? compdb_dir : context.working_directory;
                 std::string external_forced_compiler_path = context.forced_compiler_path;
                 bool        external_scan_deps_succeeded  = false;
-                if (!candidate_source_commands.empty()) {
-                    external_command_line = candidate_source_commands.front().CommandLine;
-                    external_working_directory =
-                        candidate_source_commands.front().Directory.empty() ? compdb_dir : candidate_source_commands.front().Directory;
+                if (!source_commands.empty()) {
+                    external_command_line      = source_commands.front().CommandLine;
+                    external_working_directory = source_commands.front().Directory.empty() ? compdb_dir : source_commands.front().Directory;
                 }
                 if (!candidate_driver_commands.empty()) {
                     const auto &driver_command = candidate_driver_commands.front().CommandLine;
@@ -5561,8 +5584,8 @@ int run_codegen_tool(int argc, const char **argv) {
                 }
                 if (used_scan_deps) {
                     std::optional<clang::tooling::CompileCommand> external_scan_command;
-                    if (!candidate_source_commands.empty()) {
-                        external_scan_command = candidate_source_commands.front();
+                    if (!source_commands.empty()) {
+                        external_scan_command = source_commands.front();
                     } else if (!candidate_driver_commands.empty()) {
                         external_scan_command =
                             retarget_compile_command(candidate_driver_commands.front(), context.owner_key, candidate.string());
@@ -5618,12 +5641,11 @@ int run_codegen_tool(int argc, const char **argv) {
 
                 auto source_scanned_imports = parse_imported_named_modules_from_source(
                     candidate, {}, std::string_view(*discovered_name), candidate_include_search_paths,
-                    build_augmented_scan_command_line(candidate_source_commands, candidate_driver_commands, candidate.string(),
-                                                      candidate.string()));
+                    build_augmented_scan_command_line(source_commands, candidate_driver_commands, candidate.string(), candidate.string()));
                 if (const auto wrapped_source = resolve_wrapped_source_from_codegen_shim(candidate.string()); wrapped_source.has_value()) {
                     auto wrapped_imports = parse_imported_named_modules_from_source(
                         *wrapped_source, {}, std::string_view(*discovered_name), candidate_include_search_paths,
-                        build_augmented_scan_command_line(candidate_source_commands, candidate_driver_commands, candidate.string(),
+                        build_augmented_scan_command_line(source_commands, candidate_driver_commands, candidate.string(),
                                                           candidate.string()));
                     source_scanned_imports.insert(source_scanned_imports.end(), wrapped_imports.begin(), wrapped_imports.end());
                 }
@@ -5682,7 +5704,7 @@ int run_codegen_tool(int argc, const char **argv) {
                             ? context.include_search_paths
                             : scan_include_search_paths_from_compile_commands(candidate_source_commands, candidate);
                     if (const auto *resolved =
-                            try_candidate(candidate, candidate_driver_commands, candidate_source_commands, candidate_include_search_paths);
+                            try_candidate(candidate, candidate_driver_commands, candidate_include_search_paths, candidate_source_commands);
                         resolved != nullptr) {
                         if (should_log_module_import_resolution()) {
                             gentest::codegen::log_err("gentest_codegen: resolved external module '{}' -> '{}'\n", module_name,
@@ -5719,7 +5741,7 @@ int run_codegen_tool(int argc, const char **argv) {
                     continue;
                 }
                 const auto candidate_include_search_paths = scan_include_search_paths_from_compile_commands(candidate_commands, candidate);
-                if (const auto *resolved = try_candidate(candidate, candidate_commands, candidate_commands, candidate_include_search_paths);
+                if (const auto *resolved = try_candidate(candidate, candidate_commands, candidate_include_search_paths, candidate_commands);
                     resolved != nullptr) {
                     return resolved;
                 }
@@ -5742,7 +5764,7 @@ int run_codegen_tool(int argc, const char **argv) {
                             ? context.include_search_paths
                             : scan_include_search_paths_from_compile_commands(candidate_source_commands, candidate);
                     if (const auto *resolved =
-                            try_candidate(candidate, candidate_driver_commands, candidate_source_commands, candidate_include_search_paths);
+                            try_candidate(candidate, candidate_driver_commands, candidate_include_search_paths, candidate_source_commands);
                         resolved != nullptr) {
                         return resolved;
                     }

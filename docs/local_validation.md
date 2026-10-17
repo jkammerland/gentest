@@ -40,15 +40,14 @@ repeated for troubleshooting; omitted required stages remain INCOMPLETE.
 | Host | Required stages |
 | --- | --- |
 | Linux | Clang Debug/Release, GCC Release, ASan/UBSan, TSan, coverage report/gate, release packaging, native host codegen, aarch64/riscv64 QEMU, Bazel/Meson/Xmake acceptance, recording/serializers, measured base/current comparison, format/tidy |
-| Windows | Clang and MSVC, each Debug/Release, with full configured CTest/package/module inventories |
+| Windows | Clang and MSVC, each RelWithDebInfo, with full configured CTest/package/module inventories |
 | macOS | AppleClang and Homebrew LLVM, each Debug/Release, with full configured CTest/package/module inventories |
 
 Native stages use system presets and full CTest inventories. QEMU uses the
-existing cross-platform smoke presets. Recording and alternate build systems
+complete cross-platform build and test inventories. Recording and alternate build systems
 share `validation_suites.py` with GitHub. Measured comparison keeps the existing
 report-only performance threshold policy; malformed or failed comparisons fail
-the stage. Windows Debug skips the known debugger-attachment abort probe and
-records its reason. Other CTest skips and their available reasons remain visible
+the stage. CTest skips and their available reasons remain visible
 in JSON; inspect these limitations when deciding whether to merge.
 
 ## Installed tools and dependencies
@@ -81,9 +80,9 @@ Private environment overrides, when necessary:
 | Variable | Meaning |
 | --- | --- |
 | `LLVM_DIR`, `Clang_DIR` | Installed LLVM/Clang CMake package directories |
-| `GENTEST_CLANG`, `GENTEST_CLANGXX` | Native Clang executables; default `clang`, `clang++` |
+| `GENTEST_CLANG`, `GENTEST_CLANGXX` | Host LLVM 23 drivers; versioned names take precedence over matching unversioned tools |
 | `GENTEST_GCC`, `GENTEST_GXX` | Linux GCC executables; default `gcc`, `g++` |
-| `GENTEST_LLVM_PREFIX` | Homebrew LLVM prefix for the macOS LLVM lanes |
+| `GENTEST_LLVM_PREFIX` | Selected host LLVM installation prefix |
 | `GENTEST_PACKAGE_CMAKE` | Normally installed packaging-compatible CMake executable; its sibling CTest/CPack are used |
 | `VCPKG_ROOT` | Normal vcpkg checkout for the release-package preset |
 | `GENTEST_SERIALIZER_PREFIX` | Installed Glaze/cbor_tags prefix or CMake prefix list |

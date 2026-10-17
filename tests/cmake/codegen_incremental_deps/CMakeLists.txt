@@ -8,7 +8,10 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(DEP_SWITCH "0" CACHE STRING "Compile-definition toggle for incremental codegen dependency coverage")
 set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
+# Cross fixtures use the external host tool selected by the driver script.
+if(NOT CMAKE_CROSSCOMPILING)
+    set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
+endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
 

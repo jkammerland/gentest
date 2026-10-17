@@ -2,8 +2,17 @@ if(NOT DEFINED PROG OR PROG STREQUAL "")
   message(FATAL_ERROR "CheckJsonInventory.cmake requires -DPROG=<test executable>")
 endif()
 
+set(_emu)
+if(DEFINED EMU)
+  if(EMU MATCHES ";")
+    set(_emu ${EMU})
+  else()
+    separate_arguments(_emu NATIVE_COMMAND "${EMU}")
+  endif()
+endif()
+
 execute_process(
-  COMMAND "${PROG}" --list-json
+  COMMAND ${_emu} "${PROG}" --list-json
   RESULT_VARIABLE _result
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err)

@@ -54,9 +54,8 @@ endif()
 
 file(READ "${_ctest_file}" _ctest_content)
 
-string(FIND "${_ctest_content}" "-DEMU=" _emu_pos)
-if(NOT _emu_pos EQUAL -1)
-  string(SUBSTRING "${_ctest_content}" ${_emu_pos} 160 _emu_excerpt)
+string(REGEX MATCH "-DEMU(:STRING)?=[^\"]*" _emu_excerpt "${_ctest_content}")
+if(NOT "${_emu_excerpt}" STREQUAL "")
   message(FATAL_ERROR
     "gentest_add_check_exit_code(NO_EMULATOR ...) still serialized CMAKE_CROSSCOMPILING_EMULATOR.\n"
     "Observed excerpt:\n${_emu_excerpt}")

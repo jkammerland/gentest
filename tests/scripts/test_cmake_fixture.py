@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import subprocess
 import tempfile
@@ -159,6 +160,146 @@ file(WRITE "${{CMAKE_BINARY_DIR}}/args.txt" "${{_args}}")
                                         text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stdout)
                 self.assertEqual((root / "build/args.txt").read_text(), "-I" + include.as_posix())
+
+
+class NestedBuildContextTests(unittest.TestCase):
+    def test_fixture_configure_keeps_toolchain_and_external_host_clang(self):
+        repository = Path(__file__).resolve().parents[2]
+        script = repository / "tests/cmake/scripts/CheckCmakeFixtureBuild.cmake"
+        for explicit_host, wrong_codegen in ((True, False), (False, False), (True, True)):
+            with self.subTest(explicit_host=explicit_host, wrong_codegen=wrong_codegen), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / "context with spaces"
+                source = root / "source"
+                source.mkdir(parents=True)
+                proof = root / "target built.txt"
+                host = root / "host clang.exe" if explicit_host else Path("")
+                expected_host = host.as_posix() if explicit_host else ""
+                if explicit_host:
+                    host.touch()
+                codegen = Path(sys.executable)
+                if wrong_codegen:
+                    codegen = root / "different host codegen.exe"
+                    codegen.touch()
+
+                # A real child configure must load its toolchain. Merely selecting
+                # a cross compiler executable would leave CMAKE_CROSSCOMPILING false.
+                toolchain = root / "target toolchain.cmake"
+                toolchain.write_text('set(CMAKE_SYSTEM_NAME Generic)\n'
+                                     'set(CMAKE_SYSTEM_PROCESSOR regression_target)\n'
+                                     'set(CMAKE_CXX_COMPILER_TARGET regression-target)\n', encoding="utf-8")
+                (source / "CMakeLists.txt").write_text(f'''cmake_minimum_required(VERSION 3.31)
+project(nested_build_context NONE)
+if(NOT CMAKE_CROSSCOMPILING OR NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "regression_target")
+  message(FATAL_ERROR "Child configure lost its target toolchain")
+endif()
+include([===[{repository.as_posix()}/cmake/gentest/CodegenToolchain.cmake]===])
+_gentest_collect_cross_codegen_clang_args(_scan_args)
+if(NOT "--target=regression-target" IN_LIST _scan_args)
+  message(FATAL_ERROR "Child codegen must scan for the toolchain target")
+endif()
+file(TO_CMAKE_PATH "${{GENTEST_CODEGEN_HOST_CLANG}}" _actual_host_clang)
+if(NOT "${{_actual_host_clang}}" STREQUAL [===[{expected_host}]===])
+  message(FATAL_ERROR "Child configure lost its explicit host Clang path")
+endif()
+if(NOT DEFINED GENTEST_BUILD_CODEGEN OR GENTEST_BUILD_CODEGEN)
+  message(FATAL_ERROR "Child configure must use the external host codegen")
+endif()
+file(TO_CMAKE_PATH "${{GENTEST_CODEGEN_EXECUTABLE}}" _actual_codegen)
+if(NOT _actual_codegen STREQUAL [===[{Path(sys.executable).as_posix()}]===])
+  message(FATAL_ERROR "Child configure lost its external host codegen path")
+endif()
+add_custom_target(context_fixture
+  COMMAND "${{CMAKE_COMMAND}}" -E touch [===[{proof.as_posix()}]===])
+''', encoding="utf-8")
+                result = subprocess.run([
+                    "cmake", f"-DPROG={codegen}", f"-DBUILD_ROOT={root / 'build'}",
+                    f"-DGENTEST_SOURCE_DIR={repository}", f"-DSOURCE_DIR={source}",
+                    "-DTARGET_NAME=context_fixture", "-DGENERATOR=Ninja",
+                    "-DBUILD_TYPE=RelWithDebInfo", "-DBUILD_CONFIG=RelWithDebInfo",
+                    f"-DTOOLCHAIN_FILE={toolchain}", f"-DHOST_CLANG={expected_host}", "-P", str(script)],
+                    text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+                if wrong_codegen:
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn("Child configure lost its external host codegen path", result.stdout)
+                    self.assertFalse(proof.exists())
+                else:
+                    self.assertEqual(result.returncode, 0, result.stdout)
+                    self.assertTrue(proof.is_file(), result.stdout)
+
+    def test_native_windows_fixture_configuration_and_other_hosts(self):
+        common = Path(__file__).resolve().parents[1] / "cmake/scripts/CheckModuleFixtureCommon.cmake"
+        with tempfile.TemporaryDirectory() as temporary:
+            script = Path(temporary) / "configuration.cmake"
+            script.write_text(f'''include([===[{common.as_posix()}]===])
+foreach(windows IN ITEMS TRUE FALSE)
+  set(CMAKE_HOST_WIN32 "${{windows}}")
+  foreach(compiler IN ITEMS "C:/Program Files/LLVM/bin/clang++.exe" "clang-cl.exe" "cl.exe" "/usr/bin/g++")
+    foreach(requested IN ITEMS "" Debug Release RelWithDebInfo MinSizeRel)
+      gentest_resolve_fixture_build_type(actual "${{compiler}}" "${{requested}}")
+      if(windows)
+        set(expected RelWithDebInfo)
+      else()
+        set(expected "${{requested}}")
+      endif()
+      if(NOT actual STREQUAL expected)
+        message(FATAL_ERROR "Unexpected fixture configuration: ${{windows}}/${{compiler}}/${{requested}} -> ${{actual}}")
+      endif()
+    endforeach()
+  endforeach()
+endforeach()
+''', encoding="utf-8")
+            result = subprocess.run(["cmake", "-P", str(script)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class CompileProbeTargetTests(unittest.TestCase):
+    def test_compile_only_probes_forward_targets_only_to_clang(self):
+        scripts = Path(__file__).resolve().parents[1] / "cmake/scripts"
+        for script in ("CheckBenchUtilOptimization.cmake", "CheckVendoredIndicatorsCompile.cmake"):
+            for identity, target_expected in (("GNU", False), ("Clang", True), ("AppleClang", True), ("Unknown", False)):
+                for target in ("configured-target", ""):
+                    with self.subTest(script=script, identity=identity, target=target), tempfile.TemporaryDirectory() as tmp:
+                        root = Path(tmp) / "probe with spaces"
+                        source = root / "source"
+                        source.mkdir(parents=True)
+                        log = root / "compiler.jsonl"
+                        driver = root / "compiler.py"
+
+                        # Isolate argument forwarding from platform compiler availability.
+                        # Real optimization/header contracts are exercised by their CTests.
+                        driver.write_text("""import json
+from pathlib import Path
+import sys
+log, expected = sys.argv[1:3]
+args = sys.argv[3:]
+targets = [arg for arg in args if arg.startswith('--target=')]
+assert targets == ([] if expected == 'none' else [expected]), targets
+assert '--sysroot=configured-sysroot' in args, args
+assert '-DGENTEST_COMPILE_PROBE=1' in args, args
+assert Path(args[args.index('-c') + 1]).is_file(), args
+Path(args[args.index('-o') + 1]).write_text('compiler fixture output')
+with Path(log).open('a') as stream:
+    stream.write(json.dumps(args) + '\\n')
+""", encoding="utf-8")
+                        if script == "CheckBenchUtilOptimization.cmake":
+                            probe = source / "tests/bench_util/optimization.cpp"
+                            probe.parent.mkdir(parents=True)
+                            probe.write_text("// Argument-forwarding fixture.\n", encoding="utf-8")
+                            checker = source / "tests/scripts/check_bench_util_assembly.py"
+                            checker.parent.mkdir(parents=True)
+                            checker.write_text("from pathlib import Path\nimport sys\n"
+                                               "assert Path(sys.argv[1]).read_text() == 'compiler fixture output'\n", encoding="utf-8")
+
+                        expected = "--target=" + target if target_expected and target else "none"
+                        arg1 = subprocess.list2cmdline([str(driver), str(log), expected])
+                        result = subprocess.run(["cmake", f"-DBUILD_ROOT={root / 'build'}", f"-DSOURCE_DIR={source}",
+                            f"-DCXX_COMPILER={sys.executable}", f"-DCXX_COMPILER_ARG1={arg1}", f"-DCXX_COMPILER_ID={identity}",
+                            f"-DCXX_COMPILER_TARGET={target}", "-DCXX_SYSROOT=configured-sysroot",
+                            "-DCXX_FLAGS=-DGENTEST_COMPILE_PROBE=1", f"-DPYTHON={sys.executable}", "-P", str(scripts / script)],
+                            capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        invocations = [json.loads(line) for line in log.read_text().splitlines()]
+                        self.assertEqual(len(invocations), 1 if script == "CheckBenchUtilOptimization.cmake" else 2)
 
 
 if __name__ == "__main__":

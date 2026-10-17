@@ -1,9 +1,13 @@
 local gentest_state = {}
-local fail
 
-fail = function(message)
-    error("gentest xmake: " .. message, 0)
-end
+-- Description scope exposes neither error() nor raise(). Register an
+-- interpreter API so configuration failures retain their diagnostic.
+interp_add_scopeapis({values = {
+    {"_gentest_fail", function(interp, message)
+        interp._raise("gentest xmake: " .. message)
+    end},
+}})
+local fail = _gentest_fail
 
 -- Configure the shared Xmake helper context. External consumers can override
 -- codegen_project_root to point at a gentest checkout, or provide

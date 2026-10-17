@@ -17,6 +17,32 @@ file(MAKE_DIRECTORY
   "${_work_dir}/llvm/lib/unwind"
   "${_work_dir}/staged")
 file(WRITE "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby.h" "#pragma once\n")
+
+function(check_local_sdk_identity action_sdk expected)
+  # An incidental selected-SDK input must not make an unrelated SDKROOT pass.
+  set(_action "Inputs: [${_work_dir}/sdk/SDKSettings.json]\n    Environment: [OTHER=value, SDKROOT=${action_sdk}, LAST=value]\n")
+  gentest_bazel_local_sdk_matches(_matches "${_action}" "${_work_dir}/sdk")
+  if(NOT "${_matches}" STREQUAL "${expected}")
+    message(FATAL_ERROR "Unexpected SDK identity result '${_matches}' for '${action_sdk}'; expected '${expected}'")
+  endif()
+endfunction()
+
+check_local_sdk_identity("${_work_dir}/sdk" TRUE)
+check_local_sdk_identity("external/sdk" FALSE)
+check_local_sdk_identity("${_work_dir}/missing-sdk" FALSE)
+check_local_sdk_identity("${_work_dir}/sdk/Ruby.framework" FALSE)
+check_local_sdk_identity("${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby.h" FALSE)
+check_local_sdk_identity("" FALSE)
+gentest_bazel_local_sdk_matches(_missing_sdk "Inputs: [${_work_dir}/sdk]\n    Environment: [OTHER=value]\n" "${_work_dir}/sdk")
+if(_missing_sdk)
+  message(FATAL_ERROR "Action without SDKROOT unexpectedly matched the selected SDK")
+endif()
+gentest_bazel_local_sdk_matches(_duplicate_sdk
+  "    Environment: [SDKROOT=${_work_dir}/sdk, SDKROOT=${_work_dir}/sdk]\n" "${_work_dir}/sdk")
+if(_duplicate_sdk)
+  message(FATAL_ERROR "Ambiguous SDKROOT entries unexpectedly matched the selected SDK")
+endif()
+
 if(WIN32)
   # Production pruning is Apple-only. Do not model its POSIX relative symlinks
   # on Windows, where CMake may create neither the link nor a resolvable target.
@@ -26,6 +52,15 @@ if(WIN32)
     message(FATAL_ERROR "Windows staging unexpectedly pruned an ordinary framework entry")
   endif()
 else()
+  file(CREATE_LINK "sdk" "${_work_dir}/MacOSX26.5.sdk" SYMBOLIC)
+  file(CREATE_LINK "sdk" "${_work_dir}/SDK alias with spaces" SYMBOLIC)
+  check_local_sdk_identity("${_work_dir}/MacOSX26.5.sdk" TRUE)
+  check_local_sdk_identity("${_work_dir}/SDK alias with spaces" TRUE)
+  gentest_bazel_local_sdk_matches(_selected_alias
+    "    Environment: [SDKROOT=${_work_dir}/sdk]\n" "${_work_dir}/MacOSX26.5.sdk")
+  if(NOT _selected_alias)
+    message(FATAL_ERROR "Canonical action SDK did not match the selected SDK alias")
+  endif()
   file(CREATE_LINK "." "${_work_dir}/sdk/Ruby.framework/Versions/A/Headers/ruby/ruby" SYMBOLIC)
   file(CREATE_LINK "A" "${_work_dir}/sdk/Ruby.framework/Versions/Current" SYMBOLIC)
   file(CREATE_LINK "Versions/Current/Headers" "${_work_dir}/sdk/Ruby.framework/Headers" SYMBOLIC)

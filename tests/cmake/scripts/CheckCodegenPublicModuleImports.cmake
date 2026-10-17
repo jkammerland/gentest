@@ -38,7 +38,16 @@ if(NOT _ninja)
   return()
 endif()
 
-gentest_find_clang_scan_deps(_scan_deps "${_clangxx}")
+gentest_find_clang_scan_deps(_target_scan_deps "${_clangxx}")
+
+# Select host tooling explicitly. The target compiler's scanner may come from
+# a different installation; inherited host overrides must not change an assertion.
+set(CMAKE_CXX_COMPILER "${_clangxx}")
+set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${_target_scan_deps}")
+if(DEFINED ENV{GENTEST_CODEGEN_HOST_CLANG})
+  set(GENTEST_CODEGEN_HOST_CLANG "$ENV{GENTEST_CODEGEN_HOST_CLANG}")
+endif()
+_gentest_resolve_codegen_clang_scan_deps(_scan_deps)
 if(NOT _scan_deps)
   gentest_skip_test("codegen public module imports regression: clang-scan-deps not found")
   return()
@@ -48,7 +57,8 @@ set(_common_cache_args
   "-DCMAKE_MAKE_PROGRAM=${_ninja}"
   "-DCMAKE_C_COMPILER=${_clang}"
   "-DCMAKE_CXX_COMPILER=${_clangxx}"
-  "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_scan_deps}")
+  "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_target_scan_deps}"
+  "-DGENTEST_CODEGEN_CLANG_SCAN_DEPS=${_scan_deps}")
 if(CMAKE_HOST_WIN32)
   list(APPEND _common_cache_args "-DCMAKE_OBJECT_PATH_MAX=160")
 endif()
@@ -160,7 +170,7 @@ function(_gentest_assert_required_scanner build_dir expected_scanner)
   endif()
   set(_expected_regex "${expected_scanner}")
   string(REGEX REPLACE "([][+.*^$(){}|\\\\])" "\\\\\\1" _expected_regex "${_expected_regex}")
-  if(NOT _command_text MATCHES "--clang-scan-deps(=| )${_expected_regex}")
+  if(NOT _command_text MATCHES "--clang-scan-deps(=| )\\\"?${_expected_regex}(\\\"| |$)")
     message(FATAL_ERROR
       "Expected generated codegen command to require --clang-scan-deps=${expected_scanner}. Command: ${_command_text}")
   endif()
@@ -185,7 +195,7 @@ function(_gentest_assert_scanner_dependency build_dir expected_scanner)
   endif()
 endfunction()
 
-message(STATUS "Configure consumer with automatically selected clang-scan-deps...")
+message(STATUS "Configure consumer with explicitly selected host clang-scan-deps...")
 _gentest_configure_consumer("${_consumer_build_dir}")
 _gentest_assert_required_scanner("${_consumer_build_dir}" "${_scan_deps}")
 _gentest_assert_scanner_dependency("${_consumer_build_dir}" "${_scan_deps}")

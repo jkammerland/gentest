@@ -5,6 +5,8 @@ import json
 import subprocess
 import sys
 
+from target_command import target_command
+
 
 def main():
     binary = sys.argv[1]
@@ -17,7 +19,7 @@ def main():
                         "--report-format=" + fmt, "--no-color"]
                 if disabled:
                     args.append("--without-default-sink")
-                result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+                result = subprocess.run(target_command(*args), capture_output=True, text=True, timeout=30)
                 assert result.returncode == (0 if case == "success" else 1), result
                 if fmt == "json":
                     report = json.loads(result.stdout)
@@ -33,8 +35,8 @@ def main():
                     assert "deliberate teardown failure" in result.stderr, result.stderr
 
     for case in ("success", "failure"):
-        result = subprocess.run([binary, "--run=report_stream/" + case, "--report-format=json",
-                                 "--verify-restoration", "--no-color"],
+        result = subprocess.run(target_command(binary, "--run=report_stream/" + case, "--report-format=json",
+                                 "--verify-restoration", "--no-color"),
                                 capture_output=True, text=True, timeout=30)
         assert result.returncode == 0, result
         report, end = json.JSONDecoder().raw_decode(result.stdout.lstrip())

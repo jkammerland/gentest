@@ -38,6 +38,12 @@ if(GENERATOR MATCHES "Ninja Multi-Config|Visual Studio|Xcode")
 endif()
 
 set(_effective_c_compiler "")
+if(NOT "${PACKAGE_TEST_C_COMPILER}" STREQUAL "")
+  set(C_COMPILER "${PACKAGE_TEST_C_COMPILER}")
+endif()
+if(NOT "${PACKAGE_TEST_CXX_COMPILER}" STREQUAL "")
+  set(CXX_COMPILER "${PACKAGE_TEST_CXX_COMPILER}")
+endif()
 if(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
   set(_effective_c_compiler "${C_COMPILER}")
 endif()
@@ -74,8 +80,13 @@ else()
 endif()
 set(_src_dir "${_work_dir}/src")
 set(_build_dir "${_work_dir}/build")
-set(_producer_build_dir "${_work_dir}/producer-build")
-set(_install_prefix "${_work_dir}/install")
+if(USE_INSTALLED_GENTEST)
+  if(NOT DEFINED PACKAGE_PRODUCER_ROOT)
+    message(FATAL_ERROR "Installed third-party consumers require their CTest package producer fixture")
+  endif()
+  set(_producer_build_dir "${PACKAGE_PRODUCER_ROOT}/p")
+  set(_install_prefix "${PACKAGE_PRODUCER_ROOT}/i")
+endif()
 set(_producer_fmt_dir "")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
@@ -115,9 +126,11 @@ endif()
 if(DEFINED PROG AND NOT "${PROG}" STREQUAL "" AND NOT USE_INSTALLED_GENTEST)
   list(APPEND _cmake_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
 endif()
-if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
+gentest_resolve_fixture_build_type(_configuration "${_effective_cxx_compiler}" "${BUILD_TYPE}")
+if(NOT "${_configuration}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${_configuration}")
 endif()
+gentest_append_windows_native_llvm_cache_args(_cmake_cache_args "${_effective_cxx_compiler}" ${_cmake_cache_args})
 set(_incoming_prefix_path "")
 if(DEFINED CMAKE_PREFIX_PATH AND NOT "${CMAKE_PREFIX_PATH}" STREQUAL "")
   set(_incoming_prefix_path "${CMAKE_PREFIX_PATH}")
@@ -152,26 +165,9 @@ endif()
 gentest_append_host_apple_sysroot(_cmake_cache_args)
 
 if(USE_INSTALLED_GENTEST)
-  message(STATUS "Configure installed gentest producer for third-party mock consumers...")
-  gentest_check_run_or_fail(
-    COMMAND
-      "${CMAKE_COMMAND}"
-      ${_cmake_gen_args}
-      -S "${GENTEST_SOURCE_DIR}"
-      -B "${_producer_build_dir}"
-      ${_cmake_cache_args}
-      "-Dgentest_INSTALL=ON"
-      "-Dgentest_BUILD_TESTING=OFF"
-      "-DGENTEST_BUILD_CODEGEN=ON"
-      "-DCMAKE_INSTALL_PREFIX=${_install_prefix}"
-    WORKING_DIRECTORY "${_work_dir}"
-    STRIP_TRAILING_WHITESPACE)
-
-  message(STATUS "Build and install gentest producer for third-party mock consumers...")
-  gentest_check_run_or_fail(
-    COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install
-    WORKING_DIRECTORY "${_work_dir}"
-    STRIP_TRAILING_WHITESPACE)
+  if(NOT EXISTS "${_producer_build_dir}/CMakeCache.txt" OR NOT IS_DIRECTORY "${_install_prefix}")
+    message(FATAL_ERROR "Third-party package producer fixture is unavailable: ${PACKAGE_PRODUCER_ROOT}")
+  endif()
 
   set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
   if(EXISTS "${_producer_cache_file}")

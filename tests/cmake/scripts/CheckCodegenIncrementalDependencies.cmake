@@ -11,6 +11,7 @@
 #  -DC_COMPILER=<C compiler>
 #  -DCXX_COMPILER=<C++ compiler>
 #  -DBUILD_TYPE=<Debug/Release/...>
+#  -DPROG=<external host gentest_codegen, required for cross builds>
 
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckCodegenIncrementalDependencies.cmake: SOURCE_DIR not set")
@@ -27,6 +28,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_work_dir "${BUILD_ROOT}/codegen_incremental_deps")
 file(REMOVE_RECURSE "${_work_dir}")
@@ -68,6 +70,11 @@ if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
 endif()
 if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
+endif()
+if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
+  gentest_append_external_codegen_cache_args(_cmake_cache_args "${PROG}")
+elseif(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
+  message(FATAL_ERROR "Cross incremental fixture requires PROG to run an external host gentest_codegen")
 endif()
 
 function(_gentest_read _path _out_var)

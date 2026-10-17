@@ -1,0 +1,77 @@
+name: Requested full CI
+run-name: Requested full CI — PR ${{ github.event.issue.number }}
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  request:
+    name: Authorize and freeze PR revision
+    if: ${{ github.event.issue.pull_request && github.event.sender.type != 'Bot' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    concurrency:
+      group: full-ci-control-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    outputs:
+      ready: ${{ steps.request.outputs.ready }}
+      pr_number: ${{ steps.request.outputs.pr_number }}
+      head_sha: ${{ steps.request.outputs.head_sha }}
+      base_sha: ${{ steps.request.outputs.base_sha }}
+      candidate_sha: ${{ steps.request.outputs.candidate_sha }}
+    steps:
+      - name: Checkout trusted controller
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Validate live authorization and revision
+        id: request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/full_ci.py request
+
+  full:
+    needs: request
+    if: ${{ needs.request.outputs.ready == 'true' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      candidate_sha: ${{ needs.request.outputs.candidate_sha }}
+      base_sha: ${{ needs.request.outputs.base_sha }}
+      pr_number: ${{ needs.request.outputs.pr_number }}
+
+  report:
+    name: Report current full-CI result
+    if: ${{ always() && needs.request.outputs.ready == 'true' }}
+    needs: [request, full]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: full-ci-control-${{ needs.request.outputs.pr_number }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout trusted controller
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Publish result if this request is still current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_PR_NUMBER: ${{ needs.request.outputs.pr_number }}
+          CI_HEAD_SHA: ${{ needs.request.outputs.head_sha }}
+          CI_BASE_SHA: ${{ needs.request.outputs.base_sha }}
+          CI_CANDIDATE_SHA: ${{ needs.request.outputs.candidate_sha }}
+          CI_RESULT: ${{ needs.full.result }}
+        run: python3 scripts/full_ci.py report

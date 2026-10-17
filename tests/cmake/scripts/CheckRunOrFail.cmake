@@ -1,19 +1,23 @@
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+
 function(gentest_check_run_or_fail)
   set(options STRIP_TRAILING_WHITESPACE)
   set(oneValueArgs DISPLAY_COMMAND OUTPUT_VARIABLE WORKING_DIRECTORY)
   set(multiValueArgs COMMAND)
-  cmake_parse_arguments(RUN "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+  cmake_parse_arguments(PARSE_ARGV 0 RUN "${options}" "${oneValueArgs}" "${multiValueArgs}")
 
   if(NOT RUN_COMMAND)
     message(FATAL_ERROR "gentest_check_run_or_fail: COMMAND is required")
   endif()
+
+  gentest_prepare_fixture_command(RUN_COMMAND COMMAND ${RUN_COMMAND})
 
   set(_strip_args)
   if(RUN_STRIP_TRAILING_WHITESPACE)
     set(_strip_args OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE)
   endif()
   if(DEFINED RUN_WORKING_DIRECTORY AND NOT RUN_WORKING_DIRECTORY STREQUAL "")
-    set(_command ${RUN_COMMAND})
+    set(_command "${RUN_COMMAND}")
     set(_helper_parallel_level "${GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
     if("${_helper_parallel_level}" STREQUAL "" AND NOT "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}" STREQUAL "")
       set(_helper_parallel_level "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
@@ -29,7 +33,7 @@ function(gentest_check_run_or_fail)
       list(APPEND _env_args "CTEST_PARALLEL_LEVEL=${_helper_parallel_level}")
     endif()
     if(_env_args)
-      set(_command "${CMAKE_COMMAND}" -E env ${_env_args} ${RUN_COMMAND})
+      set(_command "${CMAKE_COMMAND};-E;env;${_env_args};${RUN_COMMAND}")
     endif()
     execute_process(
       COMMAND ${_command}
@@ -40,7 +44,7 @@ function(gentest_check_run_or_fail)
       ${_strip_args}
     )
   else()
-    set(_command ${RUN_COMMAND})
+    set(_command "${RUN_COMMAND}")
     set(_helper_parallel_level "${GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
     if("${_helper_parallel_level}" STREQUAL "" AND NOT "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}" STREQUAL "")
       set(_helper_parallel_level "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
@@ -56,7 +60,7 @@ function(gentest_check_run_or_fail)
       list(APPEND _env_args "CTEST_PARALLEL_LEVEL=${_helper_parallel_level}")
     endif()
     if(_env_args)
-      set(_command "${CMAKE_COMMAND}" -E env ${_env_args} ${RUN_COMMAND})
+      set(_command "${CMAKE_COMMAND};-E;env;${_env_args};${RUN_COMMAND}")
     endif()
     execute_process(
       COMMAND ${_command}

@@ -2,6 +2,7 @@
 #  -DPROG=<path to ctest>
 #  -DSOURCE_DIR=<repo root>
 #  -DBINARY_ROOT=<temp root>
+#  -DHOST_CODEGEN=<external host gentest_codegen, required for cross builds>
 
 function(_assert_contains haystack needle label)
   string(FIND "${haystack}" "${needle}" _idx)
@@ -19,6 +20,8 @@ endif()
 if(NOT DEFINED BINARY_ROOT)
   message(FATAL_ERROR "CheckCdashExperimentalLive.cmake: BINARY_ROOT not set")
 endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_binary_dir "${BINARY_ROOT}/build")
 file(REMOVE_RECURSE "${BINARY_ROOT}")
@@ -43,6 +46,11 @@ if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
 endif()
 if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
   list(APPEND _configure_options "-DClang_DIR=${Clang_DIR}")
+endif()
+if(DEFINED HOST_CODEGEN AND NOT "${HOST_CODEGEN}" STREQUAL "")
+  gentest_append_external_codegen_cache_args(_configure_options "${HOST_CODEGEN}")
+elseif(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
+  message(FATAL_ERROR "Cross CDash fixture requires HOST_CODEGEN to run an external host gentest_codegen")
 endif()
 set(_configure_options_file "${BINARY_ROOT}/configure-options.txt")
 file(MAKE_DIRECTORY "${BINARY_ROOT}")

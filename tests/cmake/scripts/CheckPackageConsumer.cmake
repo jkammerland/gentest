@@ -23,6 +23,8 @@
 #     [-DPACKAGE_TEST_DRY_RUN_CONSUMER_EXE=<ON|OFF>]
 #     [-DBUILD_TYPE=<Debug|Release|...>]
 #     [-DBUILD_CONFIG=<Debug|Release|...>]   # for multi-config generators
+#     [-DPACKAGE_TEST_PHASE=<SETUP|CONSUMER|CLEANUP>]
+#     [-DPACKAGE_PRODUCER_ROOT=<shared CTest fixture root>]
 #     -P tests/cmake/scripts/CheckPackageConsumer.cmake
 
 if(NOT DEFINED SOURCE_DIR)
@@ -146,139 +148,15 @@ if(CMAKE_HOST_WIN32)
   set(_exe_ext ".exe")
 endif()
 
-set(_cmake_generator_args)
-if(DEFINED GENERATOR AND NOT GENERATOR STREQUAL "")
-  list(APPEND _cmake_generator_args -G "${GENERATOR}")
-  if(DEFINED GENERATOR_PLATFORM AND NOT GENERATOR_PLATFORM STREQUAL "")
-    list(APPEND _cmake_generator_args -A "${GENERATOR_PLATFORM}")
-  endif()
-  if(DEFINED GENERATOR_TOOLSET AND NOT GENERATOR_TOOLSET STREQUAL "")
-    list(APPEND _cmake_generator_args -T "${GENERATOR_TOOLSET}")
-  endif()
-endif()
+include("${CMAKE_CURRENT_LIST_DIR}/PackageFixtureContext.cmake")
+gentest_package_fixture_context()
 
-set(_cmake_cache_args)
-if(DEFINED TOOLCHAIN_FILE AND NOT TOOLCHAIN_FILE STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
-endif()
-if(DEFINED MAKE_PROGRAM AND NOT MAKE_PROGRAM STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
-endif()
-set(_effective_c_compiler "")
-if(DEFINED PACKAGE_TEST_C_COMPILER AND NOT PACKAGE_TEST_C_COMPILER STREQUAL "")
-  set(_effective_c_compiler "${PACKAGE_TEST_C_COMPILER}")
-elseif(DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")
-  set(_effective_c_compiler "${C_COMPILER}")
-endif()
-
-set(_effective_cxx_compiler "")
-if(DEFINED PACKAGE_TEST_CXX_COMPILER AND NOT PACKAGE_TEST_CXX_COMPILER STREQUAL "")
-  set(_effective_cxx_compiler "${PACKAGE_TEST_CXX_COMPILER}")
-elseif(DEFINED CXX_COMPILER AND NOT CXX_COMPILER STREQUAL "")
-  set(_effective_cxx_compiler "${CXX_COMPILER}")
-endif()
-
-gentest_resolve_fixture_build_type(_effective_build_type "${_effective_cxx_compiler}" "${BUILD_TYPE}")
-set(_effective_build_config "")
-set(_is_multi_config_generator FALSE)
-if(DEFINED GENERATOR AND NOT GENERATOR STREQUAL "")
-  if(GENERATOR STREQUAL "Ninja Multi-Config" OR GENERATOR MATCHES "^Visual Studio" OR GENERATOR STREQUAL "Xcode")
-    set(_is_multi_config_generator TRUE)
-  endif()
-endif()
-if(_is_multi_config_generator)
-  gentest_resolve_fixture_build_type(_effective_build_config "${_effective_cxx_compiler}" "${BUILD_CONFIG}")
-endif()
-
-if(NOT _effective_c_compiler STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_C_COMPILER=${_effective_c_compiler}")
-endif()
-if(NOT _effective_cxx_compiler STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${_effective_cxx_compiler}")
-endif()
-if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DLLVM_DIR=${LLVM_DIR}")
-endif()
-if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
-endif()
-if(DEFINED PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS
-   AND NOT "${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL "")
-  list(APPEND _cmake_cache_args
-       "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}")
-endif()
-if(NOT "${_effective_build_type}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${_effective_build_type}")
-endif()
-gentest_append_windows_native_llvm_cache_args(_cmake_cache_args "${_effective_cxx_compiler}" ${_cmake_cache_args})
-set(_windows_native_llvm_policy_key "")
-gentest_is_windows_native_llvm_clang(_uses_windows_native_llvm_compat "${_effective_cxx_compiler}")
-if(_uses_windows_native_llvm_compat)
-  set(_windows_native_llvm_policy_key "win-native-llvm-cache-v1")
-endif()
-list(APPEND _cmake_cache_args "-DGENTEST_BUILD_CODEGEN=ON")
-if(PACKAGE_TEST_USE_MODULES)
-  list(APPEND _cmake_cache_args "-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO")
-endif()
-
-set(_producer_surface_files
-    "${SOURCE_DIR}/CMakeLists.txt"
-    "${SOURCE_DIR}/src/CMakeLists.txt"
-    "${SOURCE_DIR}/cmake/GentestDependencies.cmake"
-    "${SOURCE_DIR}/cmake/GentestFmtDependency.cmake"
-    "${SOURCE_DIR}/cmake/GentestCodegen.cmake"
-    "${SOURCE_DIR}/third_party/target_install_package/VENDORED_TAG.txt")
-file(GLOB_RECURSE _producer_codegen_cmake_modules
-  LIST_DIRECTORIES FALSE
-  "${SOURCE_DIR}/cmake/gentest/*.cmake")
-list(APPEND _producer_surface_files ${_producer_codegen_cmake_modules})
-file(GLOB_RECURSE _producer_public_headers
-  LIST_DIRECTORIES FALSE
-  "${SOURCE_DIR}/include/gentest/*.h"
-  "${SOURCE_DIR}/include/gentest/*.hpp"
-  "${SOURCE_DIR}/include/gentest/*.cppm")
-list(APPEND _producer_surface_files ${_producer_public_headers})
-list(REMOVE_DUPLICATES _producer_surface_files)
-list(SORT _producer_surface_files)
-
-set(_producer_source_surface_key "")
-foreach(_producer_surface_file IN LISTS _producer_surface_files)
-  if(EXISTS "${_producer_surface_file}")
-    file(SHA256 "${_producer_surface_file}" _producer_surface_hash)
-    string(APPEND _producer_source_surface_key "|${_producer_surface_file}:${_producer_surface_hash}")
-  endif()
-endforeach()
-
-file(GLOB_RECURSE _tip_vendored_cmake_surface
-  LIST_DIRECTORIES FALSE
-  "${SOURCE_DIR}/third_party/target_install_package/share/cmake/target_install_package/*")
-list(SORT _tip_vendored_cmake_surface)
-foreach(_producer_surface_file IN LISTS _tip_vendored_cmake_surface)
-  file(SHA256 "${_producer_surface_file}" _producer_surface_hash)
-  string(APPEND _producer_source_surface_key "|${_producer_surface_file}:${_producer_surface_hash}")
-endforeach()
-
-set(_work_dir_semantic_key
-  "${PACKAGE_NAME}|${CONSUMER_LINK_MODE}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}|${_windows_native_llvm_policy_key}|${_producer_source_surface_key}")
-string(MD5 _work_dir_hash "${_work_dir_semantic_key}")
-string(SUBSTRING "${_work_dir_hash}" 0 12 _work_dir_hash_short)
-set(_producer_semantic_key
-  "${PACKAGE_NAME}|${PACKAGE_TEST_USE_MODULES}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}|${_effective_c_compiler}|${_effective_cxx_compiler}|${_effective_build_type}|${BUILD_CONFIG}|${PROG}|${_windows_native_llvm_policy_key}|${_producer_source_surface_key}")
-string(MD5 _producer_hash "${_producer_semantic_key}")
-string(SUBSTRING "${_producer_hash}" 0 12 _producer_hash_short)
-string(REGEX REPLACE "[^A-Za-z0-9]+" "_" _package_tag "${PACKAGE_NAME}")
-string(TOLOWER "${_package_tag}" _package_tag)
-if(_package_tag STREQUAL "")
-  set(_package_tag "pkg")
-endif()
-set(_work_dir "${BUILD_ROOT}/pkg_${_package_tag}_${_work_dir_hash_short}")
-set(_producer_root "${BUILD_ROOT}/pkg_${_package_tag}_producer_${_producer_hash_short}")
-set(_producer_build_dir "${_producer_root}/p")
-set(_install_prefix "${_producer_root}/i")
+# Each consumer owns its scratch directory; only the producer prefix is shared.
+string(SHA256 _work_hash "${_producer_hash}|${CONSUMER_LINK_MODE}|${PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE}")
+string(SUBSTRING "${_work_hash}" 0 12 _work_hash_short)
+set(_work_dir "${BUILD_ROOT}/consumer_${_work_hash_short}")
 set(_consumer_build_dir "${_work_dir}/c")
 set(_consumer_source_dir "${_work_dir}/src")
-set(_fetchcontent_base_dir "${_producer_root}/fc")
-set(_producer_lock "${_producer_root}/producer.lock")
 
 if(PACKAGE_TEST_DRY_RUN_WORK_DIR)
   message(STATUS "CheckPackageConsumer work dir: ${_work_dir}")
@@ -297,26 +175,49 @@ if(PACKAGE_TEST_DRY_RUN_WORK_DIR OR PACKAGE_TEST_DRY_RUN_PRODUCER_DIR OR PACKAGE
   return()
 endif()
 
-file(REMOVE_RECURSE "${_work_dir}")
-file(MAKE_DIRECTORY "${_work_dir}")
-file(COPY "${SOURCE_DIR}/tests/consumer/" DESTINATION "${_consumer_source_dir}")
-file(MAKE_DIRECTORY "${_producer_root}")
-file(LOCK "${_producer_lock}" GUARD PROCESS TIMEOUT 1800)
+if(NOT DEFINED PACKAGE_TEST_PHASE)
+  set(PACKAGE_TEST_PHASE CONSUMER)
+endif()
+if(PACKAGE_TEST_PHASE STREQUAL "CLEANUP")
+  gentest_remove_fixture_path("${_producer_root}")
+  return()
+endif()
 
-message(STATUS "Configure producer build (${PACKAGE_NAME})...")
-run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}"
-    ${_cmake_generator_args}
-    -S "${SOURCE_DIR}"
-    -B "${_producer_build_dir}"
-    ${_cmake_cache_args}
-    "-D${PACKAGE_NAME}_INSTALL=ON"
-    "-D${PACKAGE_NAME}_BUILD_TESTING=OFF"
-    "-DFETCHCONTENT_BASE_DIR=${_fetchcontent_base_dir}"
-    "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
-gentest_assert_windows_native_llvm_cache_args(
-  "${_producer_build_dir}" "${_effective_cxx_compiler}" "package consumer producer")
+if(PACKAGE_TEST_PHASE STREQUAL "SETUP")
+  # CTest owns freshness and lifetime. Every invocation starts from source;
+  # there is no partial-source fingerprint, cached producer, or lock protocol.
+  gentest_remove_fixture_path("${_producer_root}")
+  file(MAKE_DIRECTORY "${_producer_root}")
+  set(_work_dir "${_producer_root}")
+  message(STATUS "Configure producer build (${PACKAGE_NAME})...")
+  run_or_fail(
+    COMMAND
+      "${CMAKE_COMMAND}"
+      ${_cmake_generator_args}
+      -S "${SOURCE_DIR}"
+      -B "${_producer_build_dir}"
+      ${_cmake_cache_args}
+      "-D${PACKAGE_NAME}_INSTALL=ON"
+      "-D${PACKAGE_NAME}_BUILD_TESTING=OFF"
+      "-DFETCHCONTENT_BASE_DIR=${_fetchcontent_base_dir}"
+      "-DCMAKE_INSTALL_PREFIX=${_install_prefix}")
+  gentest_assert_windows_native_llvm_cache_args(
+    "${_producer_build_dir}" "${_effective_cxx_compiler}" "package consumer producer")
+
+  message(STATUS "Build and install producer into '${_install_prefix}'...")
+  set(_producer_build_args --build "${_producer_build_dir}" --target install)
+  if(NOT "${_effective_build_config}" STREQUAL "")
+    list(APPEND _producer_build_args --config "${_effective_build_config}")
+  endif()
+  run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_producer_build_args})
+  return()
+elseif(NOT PACKAGE_TEST_PHASE STREQUAL "CONSUMER")
+  message(FATAL_ERROR "Unknown package fixture phase: ${PACKAGE_TEST_PHASE}")
+endif()
+
+if(NOT EXISTS "${_producer_build_dir}/CMakeCache.txt" OR NOT IS_DIRECTORY "${_install_prefix}")
+  message(FATAL_ERROR "Package producer fixture is unavailable: ${_producer_root}. Run through CTest or use PACKAGE_TEST_PHASE=SETUP first.")
+endif()
 
 if(PACKAGE_TEST_USE_MODULES)
   set(_producer_cache_file "${_producer_build_dir}/CMakeCache.txt")
@@ -349,23 +250,9 @@ if(PACKAGE_TEST_USE_MODULES)
   endif()
 endif()
 
-message(STATUS "Build and install producer into '${_install_prefix}'...")
-if(_is_multi_config_generator)
-  # Multi-config generators (Visual Studio, Xcode, Ninja Multi-Config) often
-  # generate for several configurations at once. Install both Debug and Release
-  # so imported targets have locations for common configs (and for the config
-  # mapping logic in the generated *Config.cmake files).
-  set(_install_configs Debug Release)
-  if(NOT "${_effective_build_config}" STREQUAL "")
-    list(APPEND _install_configs "${_effective_build_config}")
-  endif()
-  list(REMOVE_DUPLICATES _install_configs)
-  foreach(_cfg IN LISTS _install_configs)
-    run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install --config "${_cfg}")
-  endforeach()
-else()
-  run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install)
-endif()
+file(REMOVE_RECURSE "${_work_dir}")
+file(MAKE_DIRECTORY "${_work_dir}")
+file(COPY "${SOURCE_DIR}/tests/consumer/" DESTINATION "${_consumer_source_dir}")
 
 set(_legacy_scan_inspector_dir "${_install_prefix}/share/cmake/gentest/scan_inspector")
 if(EXISTS "${_legacy_scan_inspector_dir}")
@@ -424,7 +311,6 @@ foreach(_installed_cmake_file IN LISTS _installed_cmake_files)
       "Installed package export still references the producer source tree: ${SOURCE_DIR}\nFile: ${_installed_cmake_file}")
   endif()
 endforeach()
-file(LOCK "${_producer_lock}" RELEASE GUARD PROCESS)
 
 message(STATUS "Configure consumer project...")
 if(NOT EXISTS "${_consumer_source_dir}/CMakeLists.txt")
@@ -437,11 +323,9 @@ list(APPEND _consumer_cache_args "-DCMAKE_PREFIX_PATH=${_install_prefix}")
 list(APPEND _consumer_cache_args "-DGENTEST_CONSUMER_LINK_MODE=${CONSUMER_LINK_MODE}")
 list(APPEND _consumer_cache_args "-DGENTEST_CONSUMER_USE_MODULES=${PACKAGE_TEST_USE_MODULES}")
 if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
-  set(_installed_codegen_dir "${_install_prefix}/bin")
-  file(MAKE_DIRECTORY "${_installed_codegen_dir}")
-  set(_installed_codegen "${_installed_codegen_dir}/gentest_codegen${_exe_ext}")
-  file(COPY_FILE "${PROG}" "${_installed_codegen}" ONLY_IF_DIFFERENT)
-  list(APPEND _consumer_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${_installed_codegen}")
+  # The shared installed prefix is immutable. Explicit codegen uses the
+  # caller-owned host executable; native-codegen consumers use the export.
+  list(APPEND _consumer_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
 endif()
 if(NOT _producer_fmt_dir STREQUAL "")
   # Keep consumer dependency resolution aligned with the producer package build.
@@ -498,8 +382,6 @@ if(PACKAGE_TEST_BUILD_EXAMPLES)
   include("${CMAKE_CURRENT_LIST_DIR}/CheckFeatureExamples.cmake")
 endif()
 
-# Nested producer + consumer builds can occupy substantial disk space on
-# module-enabled Debug lanes. Remove the scratch roots after success so later
-# helper tests do not inherit a nearly full workspace.
+# Consumers own their scratch output. CTest runs shared producer cleanup once
+# after every dependent consumer has finished, including failed consumers.
 gentest_remove_fixture_path("${_work_dir}")
-gentest_remove_fixture_path("${_producer_root}")

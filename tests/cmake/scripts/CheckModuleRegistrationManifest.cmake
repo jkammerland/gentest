@@ -192,11 +192,13 @@ foreach(_case IN ITEMS
 endforeach()
 
 set(_blocked_junit "${_build_dir}/blocked_shared_fixture.xml")
-execute_process(
-  COMMAND "${CMAKE_COMMAND}" -E env GENTEST_STORY034_BLOCKED_FIXTURE=1 "${_exe}"
+gentest_prepare_fixture_command(_blocked_command COMMAND
+  "${CMAKE_COMMAND}" -E env GENTEST_STORY034_BLOCKED_FIXTURE=1 "${_exe}"
     --run=module_registration/blocked_shared_fixture
     --kind=test
-    "--junit=${_blocked_junit}"
+    "--junit=${_blocked_junit}")
+execute_process(
+  COMMAND ${_blocked_command}
   WORKING_DIRECTORY "${_build_dir}"
   RESULT_VARIABLE _blocked_rc
   OUTPUT_VARIABLE _blocked_out
