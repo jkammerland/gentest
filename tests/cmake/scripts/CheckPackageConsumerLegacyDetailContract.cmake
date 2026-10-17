@@ -12,68 +12,15 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckFixtureWriteHelpers.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
-set(_cmake_generator_args)
-if(DEFINED GENERATOR AND NOT GENERATOR STREQUAL "")
-  list(APPEND _cmake_generator_args -G "${GENERATOR}")
-  if(DEFINED GENERATOR_PLATFORM AND NOT GENERATOR_PLATFORM STREQUAL "")
-    list(APPEND _cmake_generator_args -A "${GENERATOR_PLATFORM}")
-  endif()
-  if(DEFINED GENERATOR_TOOLSET AND NOT GENERATOR_TOOLSET STREQUAL "")
-    list(APPEND _cmake_generator_args -T "${GENERATOR_TOOLSET}")
-  endif()
+# This textual compatibility consumer uses the same installed package as the
+# include-only smoke consumers; its authored API assertions remain independent.
+set(PACKAGE_TEST_USE_MODULES OFF)
+include("${CMAKE_CURRENT_LIST_DIR}/PackageFixtureContext.cmake")
+gentest_package_fixture_context()
+if(NOT EXISTS "${_producer_build_dir}/CMakeCache.txt")
+  message(FATAL_ERROR "Legacy detail consumer requires its CTest package producer fixture")
 endif()
-
-set(_cmake_cache_args
-    "-Dgentest_BUILD_TESTING=OFF"
-    "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF"
-    "-DGENTEST_BUILD_CODEGEN=ON"
-    "-Dgentest_INSTALL=ON"
-    "-DCMAKE_INSTALL_PREFIX=${BUILD_ROOT}/legacy_detail_fixture_contract/install")
-
-if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
-endif()
-if(DEFINED MAKE_PROGRAM AND NOT "${MAKE_PROGRAM}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
-endif()
-
-if(DEFINED PACKAGE_TEST_C_COMPILER AND NOT "${PACKAGE_TEST_C_COMPILER}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_C_COMPILER=${PACKAGE_TEST_C_COMPILER}")
-elseif(DEFINED C_COMPILER AND NOT "${C_COMPILER}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_C_COMPILER=${C_COMPILER}")
-endif()
-
-if(DEFINED PACKAGE_TEST_CXX_COMPILER AND NOT "${PACKAGE_TEST_CXX_COMPILER}" STREQUAL "")
-  set(_effective_cxx_compiler "${PACKAGE_TEST_CXX_COMPILER}")
-  list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${PACKAGE_TEST_CXX_COMPILER}")
-elseif(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "")
-  set(_effective_cxx_compiler "${CXX_COMPILER}")
-  list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER=${CXX_COMPILER}")
-else()
-  set(_effective_cxx_compiler "")
-endif()
-
-if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DLLVM_DIR=${LLVM_DIR}")
-endif()
-if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
-endif()
-if(DEFINED PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS
-   AND NOT "${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL "")
-  list(APPEND _cmake_cache_args
-       "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${PACKAGE_TEST_CXX_COMPILER_CLANG_SCAN_DEPS}")
-endif()
-
-gentest_resolve_fixture_build_type(_effective_build_type "${_effective_cxx_compiler}" "${BUILD_TYPE}")
-if(NOT "${_effective_build_type}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${_effective_build_type}")
-endif()
-gentest_append_windows_native_llvm_cache_args(_cmake_cache_args "${_effective_cxx_compiler}" ${_cmake_cache_args})
-
 set(_work_dir "${BUILD_ROOT}/legacy_detail_fixture_contract")
-set(_producer_build_dir "${_work_dir}/producer")
-set(_install_prefix "${_work_dir}/install")
 set(_consumer_source_dir "${_work_dir}/consumer-src")
 set(_consumer_build_dir "${_work_dir}/consumer-build")
 
@@ -239,41 +186,6 @@ auto main() -> int {
 }
 ]=])
 
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" ${_cmake_generator_args} -S "${SOURCE_DIR}" -B "${_producer_build_dir}" ${_cmake_cache_args}
-  WORKING_DIRECTORY "${_work_dir}"
-  DISPLAY_COMMAND "configure producer install")
-gentest_assert_windows_native_llvm_cache_args(
-  "${_producer_build_dir}" "${_effective_cxx_compiler}" "legacy detail contract producer")
-
-set(_is_multi_config_generator FALSE)
-set(_effective_build_config "")
-if(DEFINED GENERATOR AND NOT GENERATOR STREQUAL "")
-  if(GENERATOR STREQUAL "Ninja Multi-Config" OR GENERATOR MATCHES "^Visual Studio" OR GENERATOR STREQUAL "Xcode")
-    set(_is_multi_config_generator TRUE)
-    gentest_resolve_fixture_build_type(_effective_build_config "${_effective_cxx_compiler}" "${BUILD_CONFIG}")
-  endif()
-endif()
-
-if(_is_multi_config_generator)
-  set(_install_configs Debug Release)
-  if(NOT "${_effective_build_config}" STREQUAL "")
-    list(APPEND _install_configs "${_effective_build_config}")
-  endif()
-  list(REMOVE_DUPLICATES _install_configs)
-  foreach(_cfg IN LISTS _install_configs)
-    gentest_check_run_or_fail(
-      COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install --config "${_cfg}"
-      WORKING_DIRECTORY "${_work_dir}"
-      DISPLAY_COMMAND "build and install producer package (${_cfg})")
-  endforeach()
-else()
-  gentest_check_run_or_fail(
-    COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install
-    WORKING_DIRECTORY "${_work_dir}"
-    DISPLAY_COMMAND "build and install producer package")
-endif()
-
 file(GLOB_RECURSE _config_candidates
   LIST_DIRECTORIES FALSE
   "${_install_prefix}/*/${PACKAGE_NAME}Config.cmake"
@@ -357,3 +269,5 @@ foreach(_consumer_target IN LISTS _consumer_targets)
     WORKING_DIRECTORY "${_work_dir}"
     DISPLAY_COMMAND "run ${_consumer_target}")
 endforeach()
+
+gentest_remove_fixture_path("${_work_dir}")

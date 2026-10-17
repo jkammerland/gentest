@@ -218,7 +218,7 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_manual_ci.py)
 set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github;ci-compat")
 
-foreach(_gentest_validation_contract IN ITEMS ci_plan ci_matrix llvm_tools llvm_dependency_shims clang_leak_probes validate_local discovery_skip coverage_policy)
+foreach(_gentest_validation_contract IN ITEMS ci_plan ci_matrix llvm_tools llvm_dependency_shims package_fixtures clang_leak_probes validate_local discovery_skip coverage_policy)
     add_test(NAME ${_gentest_validation_contract}_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_${_gentest_validation_contract}.py)
     set_property(TEST ${_gentest_validation_contract}_contract APPEND PROPERTY LABELS "scripts;ci-compat")
@@ -3598,37 +3598,7 @@ gentest_add_check_death(
     REQUIRED_SUBSTRING "error: --async-log-tail must be a non-negative decimal integer"
     ARGS --async-log-tail=abc)
 
-function(_gentest_add_cmake_helper_test name source_dir script_path label)
-    # Keep helper fixture roots compact so nested CMake/Ninja scratch paths stay under
-    # Windows toolchain path limits even when the outer checkout path is long.
-    string(MD5 _gentest_helper_build_hash "${name}|${source_dir}|${script_path}")
-    string(SUBSTRING "${_gentest_helper_build_hash}" 0 12 _gentest_helper_build_suffix)
-    set(_gentest_helper_build_root "${CMAKE_CURRENT_BINARY_DIR}/cmh_${_gentest_helper_build_suffix}")
-
-    add_test(NAME ${name}
-        COMMAND ${CMAKE_COMMAND}
-            -DSOURCE_DIR=${source_dir}
-            -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-            -DBUILD_ROOT=${_gentest_helper_build_root}
-            -DGENERATOR=${CMAKE_GENERATOR}
-            -DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}
-            -DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}
-            -DTOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
-            -DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-            -DC_COMPILER=${CMAKE_C_COMPILER}
-            -DCXX_COMPILER=${CMAKE_CXX_COMPILER}
-            -DCXX_COMPILER_CLANG_SCAN_DEPS=${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}
-            -DPROG=${_gentest_codegen_prog}
-            -DLLVM_DIR=${LLVM_DIR}
-            -DClang_DIR=${Clang_DIR}
-            -DPython3_EXECUTABLE:FILEPATH=${Python3_EXECUTABLE}
-            -DBUILD_TYPE=${CMAKE_BUILD_TYPE}
-            ${ARGN}
-            -P ${script_path})
-
-    set_tests_properties(${name} PROPERTIES LABELS "${label}")
-    set_property(TEST ${name} APPEND PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
-endfunction()
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/GentestCmakeFixtureTests.cmake")
 
 function(_gentest_add_python_configure_failure_test name source_dir required_substring label)
     # Keep helper fixture roots compact so nested CMake/Ninja scratch paths stay under
@@ -4963,7 +4933,9 @@ set_property(TEST gentest_package_consumer_executable_path APPEND PROPERTY LABEL
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
     set(_gentest_package_test_config "")
-    if(CMAKE_CONFIGURATION_TYPES)
+    if(WIN32)
+        set(_gentest_package_test_config "RelWithDebInfo")
+    elseif(CMAKE_CONFIGURATION_TYPES)
         set(_gentest_package_test_config "Debug")
     endif()
 
@@ -5158,19 +5130,23 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         ${_gentest_package_test_module_compiler_args})
     set_property(TEST gentest_package_consumer_relwithdebinfo_exact_config APPEND PROPERTY LABELS "modules" "package")
 
-    _gentest_add_cmake_helper_test(
-        gentest_package_consumer_minsizerel_exact_config
-        ${PROJECT_SOURCE_DIR}
-        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPackageConsumer.cmake
-        package
-        -DPACKAGE_NAME=${PROJECT_NAME}
-        -DCONSUMER_LINK_MODE=main_only
-        -DPACKAGE_TEST_USE_MODULES=ON
-        -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
-        -DBUILD_TYPE=MinSizeRel
-        -DBUILD_CONFIG=MinSizeRel
-        ${_gentest_package_test_module_compiler_args})
-    set_property(TEST gentest_package_consumer_minsizerel_exact_config APPEND PROPERTY LABELS "modules" "package")
+    # Windows validation has one native configuration: RelWithDebInfo.
+    # MinSizeRel remains exercised on Linux/macOS without relabelling a build.
+    if(NOT WIN32)
+        _gentest_add_cmake_helper_test(
+            gentest_package_consumer_minsizerel_exact_config
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPackageConsumer.cmake
+            package
+            -DPACKAGE_NAME=${PROJECT_NAME}
+            -DCONSUMER_LINK_MODE=main_only
+            -DPACKAGE_TEST_USE_MODULES=ON
+            -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON
+            -DBUILD_TYPE=MinSizeRel
+            -DBUILD_CONFIG=MinSizeRel
+            ${_gentest_package_test_module_compiler_args})
+        set_property(TEST gentest_package_consumer_minsizerel_exact_config APPEND PROPERTY LABELS "modules" "package")
+    endif()
 
     if(UNIX AND NOT APPLE)
         find_program(_gentest_package_test_gcc NAMES gcc)

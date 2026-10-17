@@ -78,7 +78,11 @@ if(NOT _single_config_exe MATCHES "gentest_consumer${_exe_suffix}$")
 endif()
 
 _gentest_capture_consumer_exe("Ninja Multi-Config" "Release" _multi_config_exe)
-if(NOT _multi_config_exe MATCHES "[/\\\\]Release[/\\\\]gentest_consumer${_exe_suffix}$")
+set(_expected_config Release)
+if(CMAKE_HOST_WIN32)
+  set(_expected_config RelWithDebInfo)
+endif()
+if(NOT _multi_config_exe MATCHES "[/\\\\]${_expected_config}[/\\\\]gentest_consumer${_exe_suffix}$")
   message(FATAL_ERROR
     "Expected multi-config generator consumer path to include the selected config directory, got '${_multi_config_exe}'")
 endif()

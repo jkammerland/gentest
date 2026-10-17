@@ -4,7 +4,7 @@ set(_example_cache_args ${_cmake_cache_args}
   "-DCMAKE_PREFIX_PATH=${_install_prefix}"
   "-D${_consumer_dir_var}=${_config_dir}")
 if(PACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE)
-  list(APPEND _example_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${_installed_codegen}")
+  list(APPEND _example_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
 endif()
 if(NOT _producer_fmt_dir STREQUAL "")
   list(APPEND _example_cache_args "-Dfmt_DIR=${_producer_fmt_dir}")

@@ -8,6 +8,10 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${SOURCE_DIR}/cmake/GentestPublicModules.cmake")
 include("${SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
+# The parent project also includes fixture helpers more than once. CMake saves
+# replaced functions under an underscore-prefixed name; discovery must remain
+# separate from that name after a repeated include.
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_work_dir "${BUILD_ROOT}/clang_scan_deps_program_resolution")
 file(REMOVE_RECURSE "${_work_dir}")

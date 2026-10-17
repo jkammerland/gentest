@@ -14,6 +14,7 @@ foreach(_key IN ITEMS LLVM_DIR Clang_DIR)
     list(APPEND _args "-D${_key}=${${_key}}")
   endif()
 endforeach()
+gentest_append_windows_native_llvm_cache_args(_args "${CXX_COMPILER}" ${_args})
 gentest_resolve_fixture_build_type(_configuration "${CXX_COMPILER}" "${BUILD_TYPE}")
 gentest_check_run_or_fail(COMMAND "${CMAKE_COMMAND}"
   -S "${GENTEST_SOURCE_DIR}/tests/cmake/llvm_sdk" -B "${_build}"
