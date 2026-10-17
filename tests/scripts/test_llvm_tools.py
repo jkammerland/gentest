@@ -146,6 +146,26 @@ class ToolSelectionTests(unittest.TestCase):
             self.assertNotIn("CC", selected.environment())
             self.assertNotIn("CXX", selected.environment())
 
+    def test_actions_export_validates_only_the_requested_role_and_preserves_target_compilers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp).resolve()
+            prefix = fake_toolchain(root / "llvm", llvm_tools.LLVM_MAJOR)
+            (prefix / "bin/clang-tidy").unlink()
+            (prefix / "bin/llvm-cov").unlink()
+            output = root / "environment"
+            env = {"GENTEST_LLVM_PREFIX": str(prefix), "CC": "gcc", "CXX": "g++"}
+            result = subprocess.run([sys.executable, str(ROOT / "scripts/llvm_tools.py"), "check-toolchain",
+                                     "--tools", *llvm_tools.HOST_TOOLS, "--github-env", str(output)],
+                                    env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            exported = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(exported["GENTEST_CODEGEN_CLANG_SCAN_DEPS"], str(prefix / "bin/clang-scan-deps"))
+            self.assertEqual(exported["GENTEST_CODEGEN_HOST_CLANG"], str(prefix / "bin/clang++"))
+            self.assertEqual(exported["LLVM_DIR"], str(prefix / "lib/cmake/llvm"))
+            self.assertNotIn("CC", exported)
+            self.assertNotIn("CXX", exported)
+            self.assertNotIn("CLANG_TIDY_BIN", exported)
+
     def test_compiler_and_host_driver_names_survive_executable_symlinks(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -26,7 +26,8 @@ class Command:
 
 def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
                    codegen: Path | None = None, serializers: str = "",
-                   cc: str = f"clang-{LLVM_MAJOR}", cxx: str = f"clang++-{LLVM_MAJOR}", host_clang: str = "") -> list[Command]:
+                   cc: str = f"clang-{LLVM_MAJOR}", cxx: str = f"clang++-{LLVM_MAJOR}",
+                   host_clang: str = "", host_scan_deps: str = "") -> list[Command]:
     source, work = source.resolve(), work.resolve()
     common = {"CC": cc, "CXX": cxx, "CCACHE_DISABLE": "1"}
     host_clang = host_clang or cxx
@@ -74,18 +75,22 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
             example / ("gentest_recording.exe" if os.name == "nt" else "gentest_recording"),
             "recording", example / "reports", "--expect-json", "--expect-cbor")
     elif suite == "bazel":
-        common["GENTEST_BAZEL_LOCAL_CLANG"] = cxx
+        common["GENTEST_BAZEL_LOCAL_CLANG"] = host_clang
+        if host_scan_deps:
+            common["GENTEST_BAZEL_LOCAL_CLANG_SCAN_DEPS"] = host_scan_deps
         bazel = ["bazel", f"--output_user_root={work / 'cache'}"]
         # CI puts work under the checkout; Bazel 9 rejects its default repo contents cache there.
-        flags = ["--repo_contents_cache=", f"--symlink_prefix={work / 'bazel-'}", f"--jobs={jobs}",
+        flags = ["--experimental_cpp_modules", "--repo_contents_cache=", f"--symlink_prefix={work / 'bazel-'}", f"--jobs={jobs}",
                  "--action_env=CCACHE_DISABLE=1", "--host_action_env=CCACHE_DISABLE=1",
                  "--action_env=CC", "--action_env=CXX", "--host_action_env=CC", "--host_action_env=CXX",
                  "--repo_env=CC", "--repo_env=CXX", "--repo_env=GENTEST_BAZEL_LOCAL_CLANG"]
+        if host_scan_deps:
+            flags.append("--repo_env=GENTEST_BAZEL_LOCAL_CLANG_SCAN_DEPS")
         add(*bazel, "test", *flags, "--test_output=errors", "//:gentest_unit_bazel", "//:gentest_integration_bazel",
             "//:gentest_fixtures_bazel", "//:gentest_skiponly_bazel", "//:codegen_check_invalid")
         for style in ["textual", "module"]:
             name = f"gentest_consumer_{style}_bazel"
-            add(*bazel, "build", *flags, *(["--experimental_cpp_modules"] if style == "module" else []), f"//:{name}")
+            add(*bazel, "build", *flags, f"//:{name}")
             consumer([str(work / "bazel-bin" / name)])
         downstream("CheckBazelBzlmodConsumer.cmake")
     elif suite == "meson":
@@ -98,7 +103,7 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
     elif suite == "xmake":
         if not codegen:
             raise ValueError("xmake needs --codegen")
-        add("xmake", "f", "-c", "-y", "-m", "release", "-o", work / "build")
+        add("xmake", "f", "-c", "-y", "-m", "release", "-o", work / "build", f"--cc={cc}", f"--cxx={cxx}")
         add("xmake", "build", "-y", "-j", jobs)
         for name in ["unit", "integration", "fixtures", "skiponly"]:
             add("xmake", "r", "-y", f"gentest_{name}_xmake")
@@ -129,7 +134,8 @@ def main() -> int:
     args.cxx = args.cxx or toolchain.tools["clang++"]
     args.work.mkdir(parents=True, exist_ok=True)
     commands = suite_commands(args.suite, args.source, args.work, jobs=args.jobs, codegen=args.codegen,
-                              serializers=args.serializers, cc=args.cc, cxx=args.cxx, host_clang=toolchain.host_clang)
+                              serializers=args.serializers, cc=args.cc, cxx=args.cxx, host_clang=toolchain.host_clang,
+                              host_scan_deps=toolchain.tools["clang-scan-deps"])
     for command in commands:
         print("+", subprocess.list2cmdline(command.args), flush=True)
         subprocess.run(command.args, cwd=command.cwd, env=os.environ | command.env | toolchain.environment(), check=True)

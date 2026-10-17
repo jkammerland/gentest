@@ -77,7 +77,7 @@ Publication is handled by the manually dispatched
    printed by `gh run list`:
 
    ```sh
-   gh workflow run ci.yml --ref master -f profile=full -f base_ref=v1.2.1
+   gh workflow run ci.yml --ref master -f base_ref=v1.2.1
    gh run list --workflow ci.yml --branch master --limit 5
    : "${CI_RUN_ID:?Set CI_RUN_ID from the list above}"
    gh run watch "$CI_RUN_ID" --exit-status

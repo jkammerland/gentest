@@ -269,13 +269,29 @@ class PlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp, \
                 patch.object(sys, "argv", ["validation_suites.py", "bazel", "--work", temp, "--cc", "gcc", "--cxx", "g++"]), \
                 patch.object(validation_suites, "select_toolchain", return_value=Toolchain(
-                    {"clang": "/llvm/bin/clang", "clang++": "/llvm/bin/clang++"}, host_clang="/llvm/bin/clang++")) as select, \
+                    {"clang": "/llvm/bin/clang", "clang++": "/llvm/bin/clang++", "clang-scan-deps": "/llvm/bin/clang-scan-deps"},
+                    host_clang="/llvm/bin/clang++")) as select, \
                 patch.object(validation_suites, "suite_commands", return_value=[]) as commands:
             self.assertEqual(validation_suites.main(), 0)
         self.assertEqual(commands.call_args.kwargs["cc"], "gcc")
         self.assertEqual(commands.call_args.kwargs["cxx"], "g++")
         self.assertEqual(commands.call_args.kwargs["host_clang"], "/llvm/bin/clang++")
         self.assertNotIn("cc", select.call_args.kwargs)
+
+    def test_backend_commands_keep_gcc_targets_and_host_scanning_separate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            commands = suite_commands("bazel", ROOT, Path(temp), cc="gcc", cxx="g++",
+                                      host_clang="/host/clang++-23", host_scan_deps="/host/clang-scan-deps-23")
+            for command in commands:
+                self.assertEqual(command.env["CC"], "gcc")
+                self.assertEqual(command.env["CXX"], "g++")
+                self.assertEqual(command.env["GENTEST_BAZEL_LOCAL_CLANG"], "/host/clang++-23")
+                self.assertEqual(command.env["GENTEST_BAZEL_LOCAL_CLANG_SCAN_DEPS"], "/host/clang-scan-deps-23")
+                if command.args[0] == "bazel":
+                    self.assertIn("--repo_env=GENTEST_BAZEL_LOCAL_CLANG_SCAN_DEPS", command.args)
+            commands = suite_commands("xmake", ROOT, Path(temp), cc="gcc", cxx="g++", codegen=Path("/host/codegen"))
+            self.assertIn("--cc=gcc", commands[0].args)
+            self.assertIn("--cxx=g++", commands[0].args)
 
     def test_boost_json_include_override_keeps_the_optional_writer_enabled(self):
         with tempfile.TemporaryDirectory() as temp, \

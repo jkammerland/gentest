@@ -2,27 +2,29 @@ name: cmake
 
 on:
   workflow_dispatch:
-    inputs:
-      profile:
-        description: Test profile (pr runs five smoke environments; full runs exhaustive validation)
-        type: choice
-        options: [full, pr]
-        default: pr
   workflow_call:
     inputs:
-      profile:
+      candidate_sha:
+        description: Exact candidate commit to test
+        required: true
         type: string
-        default: pr
+      base_sha:
+        description: Frozen comparison base
+        type: string
+        default: ''
+      pr_number:
+        description: Validated PR number for concurrency isolation
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: cmake-${{ github.ref }}
+  group: cmake-${{ inputs.pr_number && format('pr-{0}', inputs.pr_number) || github.ref }}
   cancel-in-progress: true
 
 env:
-  GENTEST_CI_PROFILE: ${{ inputs.profile || 'pr' }}
   CTEST_OUTPUT_ON_FAILURE: 1
   GENTEST_HELPER_BUILD_PARALLEL_LEVEL: 1
 
@@ -35,15 +37,18 @@ jobs:
       windows: ${{ steps.matrix.outputs.windows }}
       macos: ${{ steps.matrix.outputs.macos }}
     steps:
-      - name: Checkout matrix definition
+      - name: Checkout trusted matrix definition
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
       - name: Select validation matrix
         id: matrix
-        run: python3 scripts/ci_matrix.py --profile "${GENTEST_CI_PROFILE}" --github-output "$GITHUB_OUTPUT"
+        run: python3 scripts/ci_matrix.py --github-output "$GITHUB_OUTPUT"
 
   macos:
     needs: plan
-    name: macOS • ${{ matrix.compiler == 'appleclang' && 'AppleClang (Xcode 26)' || format('Homebrew {0}', matrix.compiler) }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }}
+    name: macOS • ${{ matrix.compiler == 'appleclang' && 'AppleClang (Xcode 26)' || format('Homebrew {0}', matrix.compiler) }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }} ${{ matrix.compatibility && '• compatibility' || '' }}
     runs-on: ${{ matrix.compiler == 'appleclang' && 'macos-26' || 'macos-15' }}
     strategy:
       fail-fast: false
@@ -51,9 +56,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
+          persist-credentials: false
 
       - name: Cache vcpkg binary artifacts
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cache/vcpkg
@@ -98,9 +106,9 @@ jobs:
           else
             LLVM_PREFIX="$(brew --prefix llvm@23)"
           fi
-          echo "LLVM_DIR=${LLVM_PREFIX}/lib/cmake/llvm" >> $GITHUB_ENV
-          echo "Clang_DIR=${LLVM_PREFIX}/lib/cmake/clang" >> $GITHUB_ENV
-          echo "PATH=${LLVM_PREFIX}/bin:$PATH" >> $GITHUB_ENV
+          export GENTEST_LLVM_PREFIX="${LLVM_PREFIX}"
+          python3 scripts/llvm_tools.py check-toolchain --major '${{ matrix.host_llvm_major }}' \
+            --tools clang clang++ clang-scan-deps llvm-config --github-env "$GITHUB_ENV"
           if [ "${{ matrix.compiler }}" = "llvm" ] || [ "${{ matrix.compiler }}" = "llvm@23" ] || [ "${{ matrix.compiler }}" = "llvm@21" ] || [ "${{ matrix.compiler }}" = "llvm@20" ]; then
             echo "LLVM_BIN=${LLVM_PREFIX}/bin" >> $GITHUB_ENV
           fi
@@ -110,10 +118,6 @@ jobs:
           echo "SDKROOT=$(xcrun --show-sdk-path)" >> $GITHUB_ENV
           echo "CCACHE_DISABLE=1" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
-
-      - name: Verify primary LLVM version
-        if: matrix.primary == true
-        run: python3 scripts/llvm_tools.py check "${LLVM_BIN}/clang++"
 
       - name: Show tool versions
         run: |
@@ -171,14 +175,11 @@ jobs:
       - name: Test
         run: |
           ctest_args=(--no-tests=error --preset=${{ matrix.build-type }} --output-on-failure --parallel 4 -E '^(gentest_bazel_bzlmod_consumer)$')
-          if [ "${GENTEST_CI_PROFILE}" = "pr" ]; then
-            ctest_args+=(--label-regex '^ci-smoke$')
-          fi
           ctest "${ctest_args[@]}"
 
   windows:
     needs: plan
-    name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }}
+    name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }} ${{ matrix.compatibility && '• compatibility' || '' }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -186,6 +187,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
+          persist-credentials: false
 
       - name: Install modern Ninja
         shell: pwsh
@@ -196,7 +200,7 @@ jobs:
 
       - name: Cache extracted LLVM toolchain
         id: cache-llvm
-        uses: actions/cache@v5
+        uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}\llvm\clang+llvm-${{ matrix.llvm-version }}-x86_64-pc-windows-msvc
           key: llvm-${{ runner.os }}-${{ matrix.llvm-version }}
@@ -248,10 +252,12 @@ jobs:
         with:
           arch: x64
 
-      - name: Verify primary LLVM version
-        if: matrix.primary == true
+      - name: Validate selected host LLVM role
         shell: pwsh
-        run: python scripts/llvm_tools.py check "$env:LLVM_BIN\clang++.exe"
+        run: |
+          $env:GENTEST_LLVM_PREFIX = Split-Path $env:LLVM_BIN -Parent
+          python scripts/llvm_tools.py check-toolchain --major '${{ matrix.host_llvm_major }}' `
+            --tools clang clang++ clang-scan-deps llvm-config --github-env "$env:GITHUB_ENV"
 
       - name: Setup LLVM 23 package dependencies
         if: matrix.llvm-version == '23.1.0'
@@ -317,9 +323,6 @@ jobs:
         shell: pwsh
         run: |
           $ctestArgs = @("--no-tests=error", "--preset=${{ matrix.preset }}", "-C", "RelWithDebInfo", "--output-on-failure", "--parallel", "4", "-E", "^(gentest_bazel_helpers_use_configured_toolchain)$")
-          if ($env:GENTEST_CI_PROFILE -eq "pr") {
-            $ctestArgs += @("--label-regex", "^ci-smoke$")
-          }
           ctest @ctestArgs
 
       - name: Configure/Build/Test (MSVC)
@@ -340,9 +343,6 @@ jobs:
           cmake --build $msvcBuildDir --config RelWithDebInfo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $ctestArgs = @("--no-tests=error", "--test-dir", $msvcBuildDir, "-C", "RelWithDebInfo", "--output-on-failure", "--parallel", "4")
-          if ($env:GENTEST_CI_PROFILE -eq "pr") {
-            $ctestArgs += @("--label-regex", "^ci-smoke$")
-          }
           ctest @ctestArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -410,6 +410,9 @@ jobs:
             libgmock-dev \
             libtrompeloeil-cpp-dev \
             doctest-dev
+          if [ "${{ matrix.allure }}" = "true" ]; then
+            apt_install libboost-json-dev
+          fi
           if [ "${{ matrix.setup_mode }}" = "apt-llvm-org" ]; then
             curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
             printf '%s\n' \
@@ -557,7 +560,13 @@ jobs:
           echo "/usr/lib/llvm${{ matrix.llvm_version }}/bin" >> "$GITHUB_PATH"
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
+          persist-credentials: false
       - name: Configure environment variables
+        env:
+          LLVM_DIR: ${{ matrix.llvm_dir }}
+          Clang_DIR: ${{ matrix.clang_dir }}
         run: |
           echo "LLVM_DIR=${{ matrix.llvm_dir }}" >> $GITHUB_ENV
           echo "Clang_DIR=${{ matrix.clang_dir }}" >> $GITHUB_ENV
@@ -565,38 +574,12 @@ jobs:
           echo "CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
           echo "GENTEST_XMAKE_TEST_TARGET_CC=${{ matrix.cc }}" >> $GITHUB_ENV
           echo "GENTEST_XMAKE_TEST_TARGET_CXX=${{ matrix.cxx }}" >> $GITHUB_ENV
-          host_clang_root="$(dirname "$(dirname "$(dirname "${{ matrix.clang_dir }}")")")"
-          host_clang=""
-          for candidate in \
-            "${host_clang_root}/bin/clang++" \
-            "${host_clang_root}/bin/clang++-${{ matrix.clang_version }}" \
-            "${host_clang_root}/bin/clang++-${{ matrix.llvm_version }}" \
-            "clang++-${{ matrix.clang_version }}" \
-            "clang++-${{ matrix.llvm_version }}" \
-            "clang++"
-          do
-            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
-              host_clang="${candidate}"
-              break
-            fi
-            if [ -n "${candidate}" ] && command -v "${candidate}" >/dev/null 2>&1; then
-              host_clang="$(command -v "${candidate}")"
-              break
-            fi
-          done
-          if [ -z "${host_clang}" ]; then
-            echo "Failed to resolve host clang++ for gentest_codegen." >&2
-            exit 1
-          fi
-          echo "GENTEST_CODEGEN_HOST_CLANG=${host_clang}" >> $GITHUB_ENV
+          python3 scripts/llvm_tools.py check-toolchain --major '${{ matrix.host_llvm_major }}' \
+            --tools clang clang++ clang-scan-deps llvm-config --github-env "$GITHUB_ENV"
           echo "GENTEST_CODEGEN_JOBS=${{ matrix.codegen_jobs }}" >> $GITHUB_ENV
           echo "GENTEST_CMAKE_PRESET=${{ matrix.preset || (matrix.build_type == 'debug' && 'debug-system' || 'release-system') }}" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
           echo "PATH=/usr/local/bin:$PATH" >> $GITHUB_ENV
-      - name: Verify primary LLVM version
-        if: matrix.primary == true
-        run: python3 scripts/llvm_tools.py check "${GENTEST_CODEGEN_HOST_CLANG}"
-
       - name: Show tool versions
         run: |
           set -euxo pipefail
@@ -622,22 +605,11 @@ jobs:
             "-DGENTEST_CODEGEN_HOST_CLANG=${GENTEST_CODEGEN_HOST_CLANG}"
             "-DGENTEST_ENABLE_PACKAGE_TESTS=${{ matrix.enable_package_tests || 'OFF' }}"
           )
+          if [ "${{ matrix.allure }}" = "true" ]; then
+            CMAKE_ARGS+=("-DGENTEST_ENABLE_ALLURE_TESTS=ON" "-DGENTEST_USE_BOOST_JSON=ON")
+          fi
           if [ "${{ matrix.compiler }}" = "clang" ]; then
-            scan_deps=""
-            for candidate in \
-              "${CXX/clang++/clang-scan-deps}" \
-              "clang-scan-deps-${{ matrix.clang_version }}" \
-              "clang-scan-deps-${{ matrix.llvm_version }}" \
-              "clang-scan-deps"
-            do
-              if [ -n "$candidate" ] && command -v "$candidate" >/dev/null 2>&1; then
-                scan_deps="$(command -v "$candidate")"
-                break
-              fi
-            done
-            if [ -n "$scan_deps" ]; then
-              CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${scan_deps}")
-            fi
+            CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
           fi
           if [ "${{ matrix.pkg_manager }}" != "apk" ]; then
             CMAKE_ARGS+=("-DGENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS=ON")
@@ -657,26 +629,13 @@ jobs:
         run: |
           set -euxo pipefail
           ctest_args=(--no-tests=error --preset=${GENTEST_CMAKE_PRESET} --output-on-failure --parallel ${{ matrix.ctest_parallel || 4 }})
-          if [ "${GENTEST_CI_PROFILE}" = "pr" ]; then
-            ctest_args+=(--label-regex '^ci-smoke$')
-          fi
           ctest "${ctest_args[@]}"
 
   package-workflow:
     needs: plan
-    if: ${{ inputs.profile == 'full' }}
     name: Package Workflow
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Cache vcpkg binary artifacts
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/vcpkg
-          key: vcpkg-${{ runner.os }}-package-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'scripts/setup-vcpkg.sh') }}
-
       - name: Install dependencies
         run: |
           set -euxo pipefail
@@ -730,8 +689,26 @@ jobs:
           import sysconfig
           print(sysconfig.get_path("scripts"))
           PY
+      - name: Checkout trusted provisioning
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
       - name: Setup LLVM toolchain
         uses: ./.github/actions/setup-llvm
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
+          persist-credentials: false
+
+      - name: Cache vcpkg binary artifacts
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.cache/vcpkg
+          key: vcpkg-${{ runner.os }}-package-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'scripts/setup-vcpkg.sh') }}
+
 
       - name: Setup vcpkg
         run: bash scripts/setup-vcpkg.sh
@@ -756,3 +733,48 @@ jobs:
         run: |
           set -euxo pipefail
           cmake --workflow --preset=package
+
+  libassert:
+    name: LLVM 23 • libassert without exceptions
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install dependencies
+        run: |
+          set -euxo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends git curl ca-certificates build-essential \
+            ninja-build python3 python3-pip pkg-config zip unzip tar libfmt-dev libffi-dev \
+            libxml2-dev zlib1g-dev libzstd-dev libunwind-dev
+          python3 -m pip install --break-system-packages --upgrade cmake
+      - name: Checkout trusted provisioning
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Setup LLVM toolchain
+        uses: ./.github/actions/setup-llvm
+      - name: Checkout candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
+          persist-credentials: false
+      - name: Restore dependency artifacts
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.cache/vcpkg
+          key: vcpkg-${{ runner.os }}-libassert-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+      - name: Setup pinned vcpkg
+        run: bash scripts/setup-vcpkg.sh
+      - name: Configure libassert without exceptions
+        run: |
+          cmake --preset=libassert-noexc \
+            -DCMAKE_C_COMPILER="${CC}" -DCMAKE_CXX_COMPILER="${CXX}" \
+            -DLLVM_DIR="${LLVM_DIR}" -DClang_DIR="${Clang_DIR}"
+      - name: Build
+        run: cmake --build --preset=libassert-noexc --parallel
+      - name: Test
+        run: ctest --preset=libassert-noexc --output-on-failure --no-tests=error

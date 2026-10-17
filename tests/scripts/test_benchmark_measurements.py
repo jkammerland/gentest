@@ -4,11 +4,13 @@ import math
 import subprocess
 import sys
 
+from target_command import target_command
+
 
 def run(binary, name, success=True, *extra):
     result = subprocess.run(
-        [binary, "--filter=" + name, "--report-format=json", "--bench-epochs=2",
-         "--bench-warmup=3", "--bench-min-total-time-s=0", "--bench-min-epoch-time-s=0", *extra],
+        target_command(binary, "--filter=" + name, "--report-format=json", "--bench-epochs=2",
+         "--bench-warmup=3", "--bench-min-total-time-s=0", "--bench-min-epoch-time-s=0", *extra),
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == (0 if success else 1), (name, result.stdout, result.stderr)
@@ -17,7 +19,7 @@ def run(binary, name, success=True, *extra):
 
 def main():
     binary = sys.argv[1]
-    manual = subprocess.run([binary, "--manual-invalid"], capture_output=True, text=True, timeout=30)
+    manual = subprocess.run(target_command(binary, "--manual-invalid"), capture_output=True, text=True, timeout=30)
     assert manual.returncode == 0, (manual.stdout, manual.stderr)
     primary, _ = run(binary, "*primary/*", True, "--repeat=3")
     tables = {table["id"]: table for table in primary["tables"]}

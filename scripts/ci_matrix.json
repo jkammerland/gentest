@@ -1,7 +1,7 @@
 {
   "linux": [
     {
-      "name": "Ubuntu 24.04 • Clang 20",
+      "name": "Ubuntu 24.04 • Clang 20 • compatibility",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "compiler": "clang",
@@ -12,10 +12,12 @@
       "clang_dir": "/usr/lib/llvm-20/lib/cmake/clang",
       "build_type": "TSan",
       "preset": "tsan-system",
-      "ctest_parallel": 2
+      "ctest_parallel": 2,
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Ubuntu 24.04 • Clang 20",
+      "name": "Ubuntu 24.04 • Clang 20 • compatibility",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "compiler": "clang",
@@ -24,10 +26,12 @@
       "clang_version": "20",
       "llvm_dir": "/usr/lib/llvm-20/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-20/lib/cmake/clang",
-      "build_type": "release"
+      "build_type": "release",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Ubuntu 24.04 • Clang 20",
+      "name": "Ubuntu 24.04 • Clang 20 • compatibility",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "compiler": "clang",
@@ -37,10 +41,12 @@
       "llvm_dir": "/usr/lib/llvm-20/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-20/lib/cmake/clang",
       "build_type": "debug",
-      "preset": "debug-system-cxx23"
+      "preset": "debug-system-cxx23",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Ubuntu 24.04 • GCC",
+      "name": "Ubuntu 24.04 • GCC • LLVM 20 compatibility",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "compiler": "gcc",
@@ -49,7 +55,9 @@
       "clang_version": "20",
       "llvm_dir": "/usr/lib/llvm-20/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-20/lib/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
       "name": "Ubuntu 24.04 • GCC",
@@ -64,11 +72,11 @@
       "build_type": "release",
       "enable_package_tests": "ON",
       "setup_mode": "apt-llvm-org",
-      "routine": true,
-      "primary": true
+      "primary": true,
+      "host_llvm_major": 23
     },
     {
-      "name": "Ubuntu 25.10 • Clang 20",
+      "name": "Ubuntu 25.10 • Clang 20 • compatibility",
       "container": "ubuntu:25.10",
       "pkg_manager": "apt",
       "compiler": "clang",
@@ -77,10 +85,12 @@
       "clang_version": "20",
       "llvm_dir": "/usr/lib/llvm-20/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-20/lib/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Ubuntu 25.10 • Clang 20",
+      "name": "Ubuntu 25.10 • Clang 20 • compatibility",
       "container": "ubuntu:25.10",
       "pkg_manager": "apt",
       "compiler": "clang",
@@ -89,10 +99,12 @@
       "clang_version": "20",
       "llvm_dir": "/usr/lib/llvm-20/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-20/lib/cmake/clang",
-      "build_type": "release"
+      "build_type": "release",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Ubuntu 25.10 • GCC",
+      "name": "Ubuntu 25.10 • GCC • LLVM 20 compatibility",
       "container": "ubuntu:25.10",
       "pkg_manager": "apt",
       "compiler": "gcc",
@@ -101,10 +113,12 @@
       "clang_version": "20",
       "llvm_dir": "/usr/lib/llvm-20/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-20/lib/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Ubuntu 25.10 • GCC",
+      "name": "Ubuntu 25.10 • GCC • LLVM 20 compatibility",
       "container": "ubuntu:25.10",
       "pkg_manager": "apt",
       "compiler": "gcc",
@@ -113,10 +127,12 @@
       "clang_version": "20",
       "llvm_dir": "/usr/lib/llvm-20/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-20/lib/cmake/clang",
-      "build_type": "release"
+      "build_type": "release",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Ubuntu 24.04 • LLVM 22",
+      "name": "Ubuntu 24.04 • LLVM 22 • compatibility",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "setup_mode": "apt-llvm-org",
@@ -126,10 +142,12 @@
       "clang_version": "22",
       "llvm_dir": "/usr/lib/llvm-22/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-22/lib/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 22,
+      "compatibility": true
     },
     {
-      "name": "Ubuntu 24.04 • LLVM 22",
+      "name": "Ubuntu 24.04 • LLVM 22 • compatibility",
       "container": "ubuntu:24.04",
       "pkg_manager": "apt",
       "setup_mode": "apt-llvm-org",
@@ -141,7 +159,9 @@
       "clang_dir": "/usr/lib/llvm-22/lib/cmake/clang",
       "build_type": "ASan+UBSan",
       "preset": "alusan-system",
-      "ctest_parallel": 2
+      "ctest_parallel": 2,
+      "host_llvm_major": 22,
+      "compatibility": true
     },
     {
       "name": "Ubuntu 24.04 • LLVM 23",
@@ -155,8 +175,10 @@
       "llvm_dir": "/usr/lib/llvm-23/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-23/lib/cmake/clang",
       "build_type": "debug",
-      "routine": true,
-      "primary": true
+      "primary": true,
+      "allure": true,
+      "enable_package_tests": "ON",
+      "host_llvm_major": 23
     },
     {
       "name": "Ubuntu 24.04 • LLVM 23",
@@ -170,13 +192,30 @@
       "llvm_dir": "/usr/lib/llvm-23/lib/cmake/llvm",
       "clang_dir": "/usr/lib/llvm-23/lib/cmake/clang",
       "build_type": "ASan+UBSan",
-      "routine": true,
       "primary": true,
       "preset": "alusan-system",
-      "ctest_parallel": 2
+      "ctest_parallel": 2,
+      "host_llvm_major": 23
     },
     {
-      "name": "Alpine 3.21 • Clang 19",
+      "name": "Ubuntu 24.04 • LLVM 23",
+      "container": "ubuntu:24.04",
+      "pkg_manager": "apt",
+      "setup_mode": "apt-llvm-org",
+      "compiler": "clang",
+      "cc": "clang-23",
+      "cxx": "clang++-23",
+      "clang_version": "23",
+      "llvm_dir": "/usr/lib/llvm-23/lib/cmake/llvm",
+      "clang_dir": "/usr/lib/llvm-23/lib/cmake/clang",
+      "build_type": "TSan",
+      "primary": true,
+      "preset": "tsan-system",
+      "ctest_parallel": 2,
+      "host_llvm_major": 23
+    },
+    {
+      "name": "Alpine 3.21 • Clang 19 • compatibility",
       "container": "alpine:3.21",
       "pkg_manager": "apk",
       "compiler": "clang",
@@ -186,10 +225,12 @@
       "llvm_dir": "/usr/lib/cmake/llvm19",
       "clang_dir": "/usr/lib/cmake/clang19",
       "build_type": "debug",
-      "codegen_jobs": 2
+      "codegen_jobs": 2,
+      "host_llvm_major": 19,
+      "compatibility": true
     },
     {
-      "name": "Alpine 3.21 • Clang 19",
+      "name": "Alpine 3.21 • Clang 19 • compatibility",
       "container": "alpine:3.21",
       "pkg_manager": "apk",
       "compiler": "clang",
@@ -199,10 +240,12 @@
       "llvm_dir": "/usr/lib/cmake/llvm19",
       "clang_dir": "/usr/lib/cmake/clang19",
       "build_type": "release",
-      "codegen_jobs": 2
+      "codegen_jobs": 2,
+      "host_llvm_major": 19,
+      "compatibility": true
     },
     {
-      "name": "Alpine 3.23 • Clang 21",
+      "name": "Alpine 3.23 • Clang 21 • compatibility",
       "container": "alpine:3.23",
       "pkg_manager": "apk",
       "compiler": "clang",
@@ -212,10 +255,12 @@
       "llvm_dir": "/usr/lib/cmake/llvm21",
       "clang_dir": "/usr/lib/cmake/clang21",
       "build_type": "debug",
-      "codegen_jobs": 2
+      "codegen_jobs": 2,
+      "host_llvm_major": 21,
+      "compatibility": true
     },
     {
-      "name": "Alpine 3.23 • Clang 21",
+      "name": "Alpine 3.23 • Clang 21 • compatibility",
       "container": "alpine:3.23",
       "pkg_manager": "apk",
       "compiler": "clang",
@@ -225,10 +270,12 @@
       "llvm_dir": "/usr/lib/cmake/llvm21",
       "clang_dir": "/usr/lib/cmake/clang21",
       "build_type": "release",
-      "codegen_jobs": 2
+      "codegen_jobs": 2,
+      "host_llvm_major": 21,
+      "compatibility": true
     },
     {
-      "name": "Fedora 41 • Clang",
+      "name": "Fedora 41 • Clang • compatibility",
       "container": "fedora:41",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -236,10 +283,12 @@
       "cxx": "clang++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 19,
+      "compatibility": true
     },
     {
-      "name": "Fedora 41 • Clang",
+      "name": "Fedora 41 • Clang • compatibility",
       "container": "fedora:41",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -247,10 +296,12 @@
       "cxx": "clang++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "release"
+      "build_type": "release",
+      "host_llvm_major": 19,
+      "compatibility": true
     },
     {
-      "name": "Fedora 41 • GCC",
+      "name": "Fedora 41 • GCC • LLVM 19 compatibility",
       "container": "fedora:41",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -258,10 +309,12 @@
       "cxx": "g++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 19,
+      "compatibility": true
     },
     {
-      "name": "Fedora 41 • GCC",
+      "name": "Fedora 41 • GCC • LLVM 19 compatibility",
       "container": "fedora:41",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -269,10 +322,12 @@
       "cxx": "g++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "release"
+      "build_type": "release",
+      "host_llvm_major": 19,
+      "compatibility": true
     },
     {
-      "name": "Fedora 42 • Clang",
+      "name": "Fedora 42 • Clang • compatibility",
       "container": "fedora:42",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -280,10 +335,12 @@
       "cxx": "clang++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Fedora 42 • Clang",
+      "name": "Fedora 42 • Clang • compatibility",
       "container": "fedora:42",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -291,10 +348,12 @@
       "cxx": "clang++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "release"
+      "build_type": "release",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Fedora 42 • GCC",
+      "name": "Fedora 42 • GCC • LLVM 20 compatibility",
       "container": "fedora:42",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -302,10 +361,12 @@
       "cxx": "g++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Fedora 42 • GCC",
+      "name": "Fedora 42 • GCC • LLVM 20 compatibility",
       "container": "fedora:42",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -313,10 +374,12 @@
       "cxx": "g++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "release"
+      "build_type": "release",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
-      "name": "Fedora 43 • Clang 21",
+      "name": "Fedora 43 • Clang 21 • compatibility",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -324,10 +387,12 @@
       "cxx": "clang++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 21,
+      "compatibility": true
     },
     {
-      "name": "Fedora 43 • Clang 21",
+      "name": "Fedora 43 • Clang 21 • compatibility",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -337,10 +402,12 @@
       "clang_dir": "/usr/lib64/cmake/clang",
       "build_type": "ASan+UBSan",
       "preset": "alusan-system",
-      "ctest_parallel": 2
+      "ctest_parallel": 2,
+      "host_llvm_major": 21,
+      "compatibility": true
     },
     {
-      "name": "Fedora 43 • Clang 21",
+      "name": "Fedora 43 • Clang 21 • compatibility",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "compiler": "clang",
@@ -348,10 +415,12 @@
       "cxx": "clang++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "release"
+      "build_type": "release",
+      "host_llvm_major": 21,
+      "compatibility": true
     },
     {
-      "name": "Fedora 43 • GCC",
+      "name": "Fedora 43 • GCC • LLVM 21 compatibility",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -359,10 +428,12 @@
       "cxx": "g++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 21,
+      "compatibility": true
     },
     {
-      "name": "Fedora 43 • GCC",
+      "name": "Fedora 43 • GCC • LLVM 21 compatibility",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "compiler": "gcc",
@@ -370,10 +441,12 @@
       "cxx": "g++",
       "llvm_dir": "/usr/lib64/cmake/llvm",
       "clang_dir": "/usr/lib64/cmake/clang",
-      "build_type": "release"
+      "build_type": "release",
+      "host_llvm_major": 21,
+      "compatibility": true
     },
     {
-      "name": "Fedora 43 • LLVM 22",
+      "name": "Fedora 43 • LLVM 22 • compatibility",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "setup_mode": "upstream-archive",
@@ -383,10 +456,12 @@
       "cxx": "/opt/llvm-22.1.0/bin/clang++",
       "llvm_dir": "/opt/llvm-22.1.0/lib/cmake/llvm",
       "clang_dir": "/opt/llvm-22.1.0/lib/cmake/clang",
-      "build_type": "debug"
+      "build_type": "debug",
+      "host_llvm_major": 22,
+      "compatibility": true
     },
     {
-      "name": "Fedora 43 • LLVM 22",
+      "name": "Fedora 43 • LLVM 22 • compatibility",
       "container": "fedora:43",
       "pkg_manager": "dnf",
       "setup_mode": "upstream-archive",
@@ -398,7 +473,9 @@
       "clang_dir": "/opt/llvm-22.1.0/lib/cmake/clang",
       "build_type": "ASan+UBSan",
       "preset": "alusan-system",
-      "ctest_parallel": 2
+      "ctest_parallel": 2,
+      "host_llvm_major": 22,
+      "compatibility": true
     }
   ],
   "windows": [
@@ -406,75 +483,81 @@
       "llvm-version": "23.1.0",
       "preset": "debug-system",
       "variant": "default",
-      "routine": true,
-      "primary": true
+      "primary": true,
+      "host_llvm_major": 23
     },
     {
       "llvm-version": "22.1.0",
       "preset": "debug-system",
-      "variant": "default"
-    },
-    {
-      "llvm-version": "22.1.0",
-      "preset": "release-system",
-      "variant": "default"
+      "variant": "default",
+      "host_llvm_major": 22,
+      "compatibility": true
     },
     {
       "llvm-version": "21.1.4",
       "preset": "debug-system",
       "variant": "default",
-      "enable_package_tests": "ON"
-    },
-    {
-      "llvm-version": "21.1.4",
-      "preset": "release-system",
-      "variant": "default"
+      "enable_package_tests": "ON",
+      "host_llvm_major": 21,
+      "compatibility": true
     }
   ],
   "macos": [
     {
       "compiler": "appleclang",
       "build-type": "debug",
-      "variant": "default"
+      "variant": "default",
+      "host_llvm_major": 23
     },
     {
       "compiler": "appleclang",
       "build-type": "release",
-      "variant": "default"
+      "variant": "default",
+      "host_llvm_major": 23
     },
     {
       "compiler": "llvm@20",
       "build-type": "debug",
-      "variant": "default"
+      "variant": "default",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
       "compiler": "llvm@20",
       "build-type": "release",
-      "variant": "default"
+      "variant": "default",
+      "host_llvm_major": 20,
+      "compatibility": true
     },
     {
       "compiler": "llvm@21",
       "build-type": "debug",
-      "variant": "default"
+      "variant": "default",
+      "host_llvm_major": 21,
+      "compatibility": true
     },
     {
       "compiler": "llvm@21",
       "build-type": "release",
-      "variant": "default"
+      "variant": "default",
+      "host_llvm_major": 21,
+      "compatibility": true
     },
     {
       "compiler": "llvm@23",
       "build-type": "debug",
       "variant": "default",
-      "routine": true,
-      "primary": true
+      "primary": true,
+      "host_llvm_major": 23
     },
     {
       "compiler": "llvm@20",
       "build-type": "debug",
       "variant": "cxx23",
       "test_cxx_standard": "23",
-      "enable_package_tests": "ON"
+      "enable_package_tests": "ON",
+      "host_llvm_major": 20,
+      "compatibility": true
     }
   ]
 }

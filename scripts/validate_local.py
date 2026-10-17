@@ -117,7 +117,7 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
 
     def cmake_stage(name: str, preset: str, cc: str, cxx: str, *, origin: Path = source,
                     extra: tuple[str, ...] = (), targets: tuple[str, ...] = (), tests: bool = True,
-                    cmake: str = "cmake", configuration: str = "") -> Stage:
+                    cmake: str = "cmake", configuration: str = "", test_preset: str = "") -> Stage:
         build = output / "work" / name
         # Generic --build does not inherit preset environment, so preserve it
         # explicitly for instrumented code generators as well as test programs.
@@ -138,7 +138,7 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
                     *(["--config", configuration] if configuration else []),
                     *(["--target", *targets] if targets else [])], origin, env)]
         if tests:
-            commands.append(Command([ctest, "--preset=" + preset, "--test-dir", str(build), "--output-on-failure",
+            commands.append(Command([ctest, "--preset=" + (test_preset or preset), "--test-dir", str(build), "--output-on-failure",
                 *(["-C", configuration] if configuration else []),
                 "--no-tests=error", "--parallel", "1" if name == "coverage" else str(jobs),
                 "--output-junit", str(output / "evidence" / (name + ".xml"))], origin, env))
@@ -172,8 +172,7 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         codegen = output / "work/host-codegen/tools/gentest_codegen"
         for arch in ("aarch64", "riscv64"):
             name = arch + "-qemu"
-            targets = next(p["targets"] for p in presets["buildPresets"] if p["name"] == name)
-            cross = cmake_stage(name, name, "", "", targets=tuple(targets), extra=(
+            cross = cmake_stage(name, name, "", "", test_preset=name + "-full", extra=(
                 f"-DGENTEST_CODEGEN_EXECUTABLE={codegen}", f"-DGENTEST_CODEGEN_HOST_CLANG={host_clang}",
                 "-DGENTEST_USE_BOOST_JSON=OFF"))
             cross.tools += [arch + "-linux-gnu-g++", "qemu-" + arch]
@@ -183,7 +182,8 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
             prefix = os.environ.get("GENTEST_SERIALIZER_PREFIX", "")
             missing = "GENTEST_SERIALIZER_PREFIX must name installed Glaze and cbor_tags" if suite == "recording" and not prefix else ""
             commands = [] if missing else suite_commands(suite, source, work, jobs=jobs, codegen=codegen,
-                serializers=prefix, cc=clang, cxx=clangxx, host_clang=host_clang)
+                serializers=prefix, cc=clang, cxx=clangxx, host_clang=host_clang,
+                host_scan_deps=primary_tool("clang-scan-deps"))
             stages.append(Stage(suite, commands, ["cmake", "ninja", clang, clangxx] + ([] if suite == "recording" else [suite]),
                                 ["host-codegen"] if suite in ("meson", "xmake") else [], missing))
         # Build both benchmark executables with the same installed toolchain.

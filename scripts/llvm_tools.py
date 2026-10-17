@@ -153,6 +153,7 @@ def main() -> int:
     toolchain.add_argument("--tools", nargs="+", choices=TOOL_OVERRIDES, default=tuple(TOOL_OVERRIDES))
     toolchain.add_argument("--without-packages", action="store_true")
     toolchain.add_argument("--major", type=int, default=LLVM_MAJOR, help="Explicit LLVM compatibility lane")
+    toolchain.add_argument("--github-env", type=Path, help="Export the validated selection for subsequent Actions steps")
     args = parser.parse_args()
 
     try:
@@ -165,6 +166,13 @@ def main() -> int:
                 print(f"LLVM {LLVM_MAJOR}: {check_tool(executable)}")
         else:
             selected = select_toolchain(required=tuple(args.tools), packages=not args.without_packages, major=args.major)
+            if args.github_env:
+                environment = selected.environment()
+                if any("\n" in value or "\r" in value for value in environment.values()):
+                    raise ValueError("Tool environment values must be single lines")
+                with args.github_env.open("a", encoding="utf-8") as output:
+                    for name, value in environment.items():
+                        output.write(f"{name}={value}\n")
             print(f"LLVM {args.major}: " + "; ".join(f"{name}={path}" for name, path in selected.tools.items()))
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         print(error, file=sys.stderr)

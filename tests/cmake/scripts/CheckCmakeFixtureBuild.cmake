@@ -13,6 +13,7 @@
 #  -DC_COMPILER=<C compiler>
 #  -DCXX_COMPILER=<C++ compiler>
 #  -DCXX_COMPILER_CLANG_SCAN_DEPS=<clang-scan-deps binary>
+#  -DHOST_CLANG=<native Clang used by external codegen>
 #  -DBUILD_TYPE=<Debug/Release/...>
 #  -DBUILD_CONFIG=<Debug/Release/...>  # for multi-config generators
 #  -DBUILD_TIMEOUT_SEC=<seconds>
@@ -69,8 +70,8 @@ endif()
 
 set(_cmake_cache_args
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-  "-DGENTEST_SOURCE_DIR=${GENTEST_SOURCE_DIR}"
-  "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
+  "-DGENTEST_SOURCE_DIR=${GENTEST_SOURCE_DIR}")
+gentest_append_external_codegen_cache_args(_cmake_cache_args "${PROG}")
 if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
 endif()

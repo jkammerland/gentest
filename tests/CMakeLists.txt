@@ -4,9 +4,10 @@ add_executable(gentest_selection_tests selection/cases.cpp selection/cases.hpp)
 target_link_libraries(gentest_selection_tests PRIVATE gentest::gentest_main)
 target_compile_features(gentest_selection_tests PRIVATE cxx_std_20)
 gentest_attach_codegen(gentest_selection_tests)
-add_test(NAME selected_cases_contract COMMAND ${Python3_EXECUTABLE}
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_selected_cases.py $<TARGET_FILE:gentest_selection_tests>)
-set_tests_properties(selected_cases_contract PROPERTIES LABELS "public-api;runner;ci-compat")
+gentest_add_python_program_test(NAME selected_cases_contract
+    PROG gentest_selection_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_selected_cases.py)
+set_tests_properties(selected_cases_contract PROPERTIES LABELS "public-api;runner")
 
 # Exercise actual value preservation under optimization even in Debug builds.
 add_executable(gentest_bench_util_value_tests bench_util/values.cpp bench_util/values.hpp)
@@ -20,15 +21,16 @@ else()
 endif()
 gentest_attach_codegen(gentest_bench_util_value_tests)
 add_test(NAME bench_util_values COMMAND gentest_bench_util_value_tests --kind=test --no-color)
-set_tests_properties(bench_util_values PROPERTIES LABELS "benchmarks;public-api;ci-compat")
+set_tests_properties(bench_util_values PROPERTIES LABELS "benchmarks;public-api")
 
 add_executable(gentest_report_stream_tests report_stream/main.cpp report_stream/cases.cpp report_stream/cases.hpp)
 target_link_libraries(gentest_report_stream_tests PRIVATE gentest::gentest)
 target_compile_features(gentest_report_stream_tests PRIVATE cxx_std_20)
 gentest_attach_codegen(gentest_report_stream_tests)
-add_test(NAME report_stream_contract COMMAND ${Python3_EXECUTABLE}
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_report_stream.py $<TARGET_FILE:gentest_report_stream_tests>)
-set_tests_properties(report_stream_contract PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
+gentest_add_python_program_test(NAME report_stream_contract
+    PROG gentest_report_stream_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_report_stream.py)
+set_tests_properties(report_stream_contract PROPERTIES LABELS "public-api;runner;reporting")
 
 # Optimized code is the observable behavior of an anti-optimization helper.
 set(_gentest_bench_util_probes bench_util_optimization)
@@ -55,7 +57,7 @@ foreach(_gentest_probe IN LISTS _gentest_bench_util_probes)
             "CXX_SYSROOT=${CMAKE_SYSROOT}"
             "CXX_FLAGS=${_gentest_probe_flags}"
             "PYTHON=${Python3_EXECUTABLE}")
-    set_tests_properties(${_gentest_probe} PROPERTIES LABELS "benchmarks;public-api;ci-compat")
+    set_tests_properties(${_gentest_probe} PROPERTIES LABELS "benchmarks;public-api")
 endforeach()
 unset(_gentest_bench_util_probes)
 unset(_gentest_probe)
@@ -84,9 +86,10 @@ endif()
 unset(_gentest_measurement_tsan)
 
 gentest_attach_codegen(gentest_benchmark_measurement_tests)
-add_test(NAME benchmark_measurement_contract COMMAND ${Python3_EXECUTABLE}
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_benchmark_measurements.py $<TARGET_FILE:gentest_benchmark_measurement_tests>)
-set_tests_properties(benchmark_measurement_contract PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
+gentest_add_python_program_test(NAME benchmark_measurement_contract
+    PROG gentest_benchmark_measurement_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_benchmark_measurements.py)
+set_tests_properties(benchmark_measurement_contract PROPERTIES LABELS "public-api;runner;reporting")
 include("${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFixtureCommon.cmake")
 
 option(GENTEST_REQUIRE_THIRD_PARTY_MOCK_CONSUMERS "Require real GMock/doctest generated-mock consumers in CMake regressions" OFF)
@@ -106,12 +109,13 @@ target_link_libraries(gentest_recording_tests PRIVATE gentest::gentest)
 target_compile_features(gentest_recording_tests PRIVATE cxx_std_20)
 gentest_attach_codegen(gentest_recording_tests)
 add_dependencies(gentest_test_suites gentest_recording_tests)
-add_test(NAME runtime_recording COMMAND ${Python3_EXECUTABLE}
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_runtime_recording.py
-    $<TARGET_FILE:gentest_recording_tests> ${CMAKE_CURRENT_BINARY_DIR}/recording-reports
+gentest_add_python_program_test(NAME runtime_recording
+    PROG gentest_recording_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_runtime_recording.py
+    ARGS ${CMAKE_CURRENT_BINARY_DIR}/recording-reports
     ${GENTEST_USE_BOOST_JSON}
     "$<AND:$<BOOL:${GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS}>,$<PLATFORM_ID:Windows>,$<CONFIG:Debug>>")
-set_tests_properties(runtime_recording PROPERTIES LABELS "public-api;runner;reporting;ci-compat")
+set_tests_properties(runtime_recording PROPERTIES LABELS "public-api;runner;reporting")
 
 add_executable(gentest_recording_lifetime_tests recording_lifetime.cpp)
 target_compile_features(gentest_recording_lifetime_tests PRIVATE cxx_std_20)
@@ -119,18 +123,18 @@ target_include_directories(gentest_recording_lifetime_tests PRIVATE ${PROJECT_SO
 target_link_libraries(gentest_recording_lifetime_tests PRIVATE gentest::gentest)
 add_dependencies(gentest_test_suites gentest_recording_lifetime_tests)
 add_test(NAME runtime_recording_lifetime COMMAND gentest_recording_lifetime_tests)
-set_tests_properties(runtime_recording_lifetime PROPERTIES LABELS "runner;reporting;ci-compat")
+set_tests_properties(runtime_recording_lifetime PROPERTIES LABELS "runner;reporting")
 
 gentest_add_manual_regression(
     TARGET gentest_recording_shared_payloads_tests
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/recording_shared_payloads.cpp)
 add_dependencies(gentest_test_suites gentest_recording_shared_payloads_tests)
 add_test(NAME runtime_recording_shared_payloads COMMAND gentest_recording_shared_payloads_tests)
-set_tests_properties(runtime_recording_shared_payloads PROPERTIES LABELS "runner;reporting;ci-compat")
+set_tests_properties(runtime_recording_shared_payloads PROPERTIES LABELS "runner;reporting")
 
 add_test(NAME runtime_recording_example_verifier
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_check_example_reports.py)
-set_tests_properties(runtime_recording_example_verifier PROPERTIES LABELS "reporting;scripts;ci-compat")
+set_tests_properties(runtime_recording_example_verifier PROPERTIES LABELS "reporting;scripts")
 
 option(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS "Test optional Glaze and cbor_tags recording adapters" OFF)
 if(GENTEST_ENABLE_RECORDING_ADAPTER_TESTS)
@@ -146,42 +150,42 @@ target_link_libraries(gentest_benchmark_codegen_tests PRIVATE gentest::gentest)
 gentest_attach_codegen(gentest_benchmark_codegen_tests)
 add_dependencies(gentest_test_suites gentest_benchmark_codegen_tests)
 add_test(NAME benchmark_codegen_metadata COMMAND gentest_benchmark_codegen_tests)
-set_tests_properties(benchmark_codegen_metadata PROPERTIES LABELS "codegen;benchmarks;public-api;ci-compat")
+set_tests_properties(benchmark_codegen_metadata PROPERTIES LABELS "codegen;benchmarks;public-api")
 
 add_executable(gentest_format_value_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/format_value.cpp)
 target_compile_features(gentest_format_value_tests PRIVATE cxx_std_20)
 target_link_libraries(gentest_format_value_tests PRIVATE gentest::gentest)
 add_dependencies(gentest_test_suites gentest_format_value_tests)
-add_test(NAME format_value COMMAND $<TARGET_FILE:gentest_format_value_tests>)
-set_property(TEST format_value APPEND PROPERTY LABELS "public-api;ci-compat")
+add_test(NAME format_value COMMAND gentest_format_value_tests)
+set_property(TEST format_value APPEND PROPERTY LABELS "public-api")
 
 add_executable(gentest_narrow_sync_surface_api_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/narrow_sync_surface_api.cpp)
 target_compile_features(gentest_narrow_sync_surface_api_tests PRIVATE cxx_std_20)
 target_link_libraries(gentest_narrow_sync_surface_api_tests PRIVATE gentest::gentest)
 add_dependencies(gentest_test_suites gentest_narrow_sync_surface_api_tests)
-add_test(NAME narrow_sync_surface_api COMMAND $<TARGET_FILE:gentest_narrow_sync_surface_api_tests>)
-set_property(TEST narrow_sync_surface_api APPEND PROPERTY LABELS "public-api;headers;ci-compat")
+add_test(NAME narrow_sync_surface_api COMMAND gentest_narrow_sync_surface_api_tests)
+set_property(TEST narrow_sync_surface_api APPEND PROPERTY LABELS "public-api;headers")
 
 add_executable(gentest_run_cases_api_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/run_cases_api.cpp)
 target_compile_features(gentest_run_cases_api_tests PRIVATE cxx_std_20)
 target_link_libraries(gentest_run_cases_api_tests PRIVATE gentest::gentest)
 add_dependencies(gentest_test_suites gentest_run_cases_api_tests)
-add_test(NAME run_cases_api COMMAND $<TARGET_FILE:gentest_run_cases_api_tests>)
-set_property(TEST run_cases_api APPEND PROPERTY LABELS "public-api;runner;ci-compat")
+add_test(NAME run_cases_api COMMAND gentest_run_cases_api_tests)
+set_property(TEST run_cases_api APPEND PROPERTY LABELS "public-api;runner")
 
-add_test(
+gentest_add_python_program_test(
     NAME run_cases_list_json_utf8
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_run_cases_list_json_utf8.py
-            $<TARGET_FILE:gentest_run_cases_api_tests>)
-set_property(TEST run_cases_list_json_utf8 APPEND PROPERTY LABELS "public-api;runner;ci-compat")
+    PROG gentest_run_cases_api_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_run_cases_list_json_utf8.py)
+set_property(TEST run_cases_list_json_utf8 APPEND PROPERTY LABELS "public-api;runner")
 
 add_test(
     NAME codegen_tooling_scripts_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_codegen_tooling_scripts.py)
-set_property(TEST codegen_tooling_scripts_contract APPEND PROPERTY LABELS "codegen;scripts;ci-compat")
+set_property(TEST codegen_tooling_scripts_contract APPEND PROPERTY LABELS "codegen;scripts")
 
 add_test(
     NAME package_metadata_validator_contract
@@ -191,37 +195,37 @@ set_property(TEST package_metadata_validator_contract APPEND PROPERTY LABELS "pa
 add_test(
     NAME github_release_environment_setup_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_setup_github_release_environment.py)
-set_property(TEST github_release_environment_setup_contract APPEND PROPERTY LABELS "package;scripts;github;ci-compat")
+set_property(TEST github_release_environment_setup_contract APPEND PROPERTY LABELS "package;scripts;github")
 
 add_test(
     NAME github_release_workflow_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_release_workflow.py)
-set_property(TEST github_release_workflow_contract APPEND PROPERTY LABELS "package;scripts;github;ci-compat")
+set_property(TEST github_release_workflow_contract APPEND PROPERTY LABELS "package;scripts;github")
 
 add_test(
     NAME source_release_package_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_package_source_release.py)
-set_property(TEST source_release_package_contract APPEND PROPERTY LABELS "package;scripts;github;ci-compat")
+set_property(TEST source_release_package_contract APPEND PROPERTY LABELS "package;scripts;github")
 
 add_test(
     NAME cmake_fixture_harness_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_cmake_fixture.py)
-set_property(TEST cmake_fixture_harness_contract APPEND PROPERTY LABELS "cmake;scripts;ci-compat")
+set_property(TEST cmake_fixture_harness_contract APPEND PROPERTY LABELS "cmake;scripts")
 
 add_test(
     NAME ci_package_lane_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_ci_package_lanes.py)
-set_property(TEST ci_package_lane_contract APPEND PROPERTY LABELS "cmake;scripts;ci-compat")
+set_property(TEST ci_package_lane_contract APPEND PROPERTY LABELS "cmake;scripts")
 
 add_test(
     NAME manual_ci_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_manual_ci.py)
-set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github;ci-compat")
+set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github")
 
-foreach(_gentest_validation_contract IN ITEMS ci_plan ci_matrix llvm_tools llvm_dependency_shims package_fixtures clang_leak_probes validate_local discovery_skip coverage_policy)
+foreach(_gentest_validation_contract IN ITEMS full_ci ci_matrix llvm_tools llvm_dependency_shims package_fixtures target_command fixture_target_command tsan_death_tests backend_prerequisite_skips clang_leak_probes validate_local discovery_skip coverage_policy)
     add_test(NAME ${_gentest_validation_contract}_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_${_gentest_validation_contract}.py)
-    set_property(TEST ${_gentest_validation_contract}_contract APPEND PROPERTY LABELS "scripts;ci-compat")
+    set_property(TEST ${_gentest_validation_contract}_contract APPEND PROPERTY LABELS "scripts")
 endforeach()
 unset(_gentest_validation_contract)
 
@@ -234,7 +238,7 @@ if(NOT _gentest_analyzer_fmt_target)
 endif()
 set_property(TEST analyzer_assertions_contract APPEND PROPERTY ENVIRONMENT
     "GENTEST_ANALYZER_INCLUDE_DIRS=$<JOIN:$<TARGET_PROPERTY:${_gentest_analyzer_fmt_target},INTERFACE_INCLUDE_DIRECTORIES>,|>")
-set_property(TEST analyzer_assertions_contract APPEND PROPERTY LABELS "public-api;scripts;ci-compat")
+set_property(TEST analyzer_assertions_contract APPEND PROPERTY LABELS "public-api;scripts")
 unset(_gentest_analyzer_fmt_target)
 
 gentest_add_manual_regression(
@@ -246,15 +250,15 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 endif()
 add_dependencies(gentest_test_suites gentest_analyzer_assertion_tests)
 add_test(NAME analyzer_assertions_runtime COMMAND gentest_analyzer_assertion_tests)
-set_tests_properties(analyzer_assertions_runtime PROPERTIES LABELS "public-api;ci-compat;ci-smoke")
+set_tests_properties(analyzer_assertions_runtime PROPERTIES LABELS "public-api")
 
 add_executable(gentest_runner_api_example
     ${CMAKE_CURRENT_SOURCE_DIR}/runner_api_example.cpp)
 target_compile_features(gentest_runner_api_example PRIVATE cxx_std_20)
 target_link_libraries(gentest_runner_api_example PRIVATE gentest::gentest)
 add_dependencies(gentest_test_suites gentest_runner_api_example)
-add_test(NAME runner_api_example COMMAND $<TARGET_FILE:gentest_runner_api_example>)
-set_property(TEST runner_api_example APPEND PROPERTY LABELS "public-api;runner;ci-compat")
+add_test(NAME runner_api_example COMMAND gentest_runner_api_example)
+set_property(TEST runner_api_example APPEND PROPERTY LABELS "public-api;runner")
 
 gentest_resolve_test_std(_gentest_test_std_feature _gentest_codegen_std_flag)
 unset(_gentest_test_std_feature)
@@ -575,6 +579,8 @@ gentest_add_cmake_script_test(
     DEFINES
         "EXPECT_RC=NONZERO"
         "REQUIRED_SUBSTRINGS=[ FAIL ] async/fail_fast_cancel_released_context/01_sync_failure|without an active test context")
+
+set_property(TEST async_fail_fast_cancel_released_context_aborts APPEND PROPERTY LABELS "death")
 
 gentest_add_cmake_script_test(
     NAME async_fail_fast_cancel_local_fixture_runs_teardown
@@ -1205,24 +1211,14 @@ if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
         PROPERTIES DISABLED "$<CONFIG:Debug>")
 endif()
 
-option(GENTEST_SKIP_TSAN_DEATH_TESTS "Skip death tests whose stderr contract is incompatible with ThreadSanitizer" OFF)
-if(GENTEST_SKIP_TSAN_DEATH_TESTS)
-    set_tests_properties(
-        concurrency_fail_single_death concurrency_skip_no_context_death concurrency_xfail_no_context_death concurrency_multi_noadopt_death
-        concurrency_adopted_expect_pass_death concurrency_adopted_fmt_expect_pass_death concurrency_adopted_expect_fail_death
-        concurrency_adopted_assert_death concurrency_adopted_expect_throw_death concurrency_adopted_fail_death concurrency_adopted_skip_death
-        concurrency_adopted_xfail_death concurrency_adopted_mock_expectation_death concurrency_adopted_mock_mode_death
-        concurrency_adopted_mock_handle_mutation_death
-        concurrency_adopted_mock_closed_context_death concurrency_adopted_mock_unexpected_call_death concurrency_stop_callback_expect_death
-        async_fail_fast_cancel_released_context_aborts
-        PROPERTIES DISABLED TRUE)
+gentest_detect_thread_sanitizer(_gentest_tests_have_tsan)
+if(_gentest_tests_have_tsan)
+    add_test(NAME tsan_death_tests_enabled COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/scripts/check_tsan_death_tests.py --build-dir ${CMAKE_BINARY_DIR}
+        --config $<CONFIG> --ctest ${CMAKE_CTEST_COMMAND})
+    set_property(TEST tsan_death_tests_enabled APPEND PROPERTY LABELS "concurrency;scripts")
 endif()
-
-option(GENTEST_ENABLE_TSAN_STRESS_TESTS "Enable long-running TSAN stress reproducers" OFF)
-set(GENTEST_TSAN_STRESS_TIMEOUT_SEC "660" CACHE STRING "Timeout in seconds for TSAN stress reproducers")
-
-set(_gentest_is_tsan_build OFF)
-gentest_detect_thread_sanitizer(_gentest_is_tsan_build)
+unset(_gentest_tests_have_tsan)
 
 if(NOT GENTEST_CODEGEN_EXECUTABLE AND NOT GENTEST_CODEGEN_TARGET AND NOT TARGET gentest_codegen)
     message(FATAL_ERROR
@@ -1259,7 +1255,7 @@ function(_gentest_add_proof_test name source)
     target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(${name} PRIVATE gentest_runtime)
     target_compile_features(${name} PRIVATE cxx_std_20)
-    add_test(NAME ${name} COMMAND $<TARGET_FILE:${name}>)
+    add_test(NAME ${name} COMMAND ${name})
     set_property(TEST ${name} APPEND PROPERTY LABELS "proof")
 endfunction()
 
@@ -1295,7 +1291,7 @@ target_include_directories(
         ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(gentest_proof_measured_call_phase_body_timing PRIVATE gentest_runtime)
 target_compile_features(gentest_proof_measured_call_phase_body_timing PRIVATE cxx_std_20)
-add_test(NAME gentest_proof_measured_call_phase_body_timing COMMAND $<TARGET_FILE:gentest_proof_measured_call_phase_body_timing>)
+add_test(NAME gentest_proof_measured_call_phase_body_timing COMMAND gentest_proof_measured_call_phase_body_timing)
 set_property(TEST gentest_proof_measured_call_phase_body_timing APPEND PROPERTY LABELS "proof")
 gentest_add_cmake_script_test(
     NAME gentest_runner_registry_runtime_hidden
@@ -1323,6 +1319,7 @@ gentest_add_cmake_script_test(
         "BUILD_ROOT=${CMAKE_BINARY_DIR}/vendored_indicators_compile_check"
         "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
         "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
         "CXX_COMPILER_ARG1=${CMAKE_CXX_COMPILER_ARG1}"
         "CXX_COMPILER_TARGET=${CMAKE_CXX_COMPILER_TARGET}"
         "CXX_SYSROOT=${CMAKE_SYSROOT}"
@@ -2377,6 +2374,7 @@ endif()
 if(GENTEST_WITH_LIBASSERT AND GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS)
     set(target_name_noexc "${PROJECT_NAME}_libassert_noexc_tests")
     gentest_add_suite(libassert TARGET ${target_name_noexc} OUTPUT_DIR libassert_noexc NO_CTEST)
+    gentest_link_mocks(${target_name_noexc} PRIVATE gentest_textual_suite_mocks)
 
     # Disable exceptions for this target (Clang/GNU/AppleClang); MSVC uses different flags
     target_compile_options(${target_name_noexc}
@@ -3045,6 +3043,7 @@ gentest_add_cmake_script_test(
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCdashExperimentalLive.cmake"
     DEFINES
         "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "HOST_CODEGEN=${_gentest_codegen_prog}"
         "BINARY_ROOT=${CMAKE_CURRENT_BINARY_DIR}/cmake_cdash_live"
         "C_COMPILER=${CMAKE_C_COMPILER}"
         "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
@@ -3634,7 +3633,7 @@ _gentest_add_cmake_helper_test(
     gentest_llvm_sdk_compatibility
     ${PROJECT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckLlvmSdk.cmake
-    "cmake;codegen;ci-compat")
+    "cmake;codegen")
 
 _gentest_add_python_configure_failure_test(
     gentest_codegen_output_collision
@@ -3880,6 +3879,8 @@ gentest_add_cmake_script_test(
         "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
         "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/genex_compile_definitions"
         "TARGET_NAME=genex_compile_definitions"
+        "TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
+        "HOST_CLANG=${GENTEST_CODEGEN_HOST_CLANG}"
         "GENERATOR=${CMAKE_GENERATOR}"
         "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
         "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
@@ -4508,7 +4509,7 @@ foreach(_gentest_driver_mode IN ITEMS g++ cl)
         ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenCompileCommandDelimiter.cmake
         cmake
         -DDRIVER_MODE=${_gentest_driver_mode})
-    set_property(TEST gentest_codegen_compile_command_delimiter${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen;ci-compat")
+    set_property(TEST gentest_codegen_compile_command_delimiter${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen")
 
     _gentest_add_cmake_helper_test(
         gentest_codegen_fallback_header_semantics${_gentest_driver_suffix}
@@ -4516,7 +4517,7 @@ foreach(_gentest_driver_mode IN ITEMS g++ cl)
         ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFallbackHeaderSemantics.cmake
         cmake
         -DDRIVER_MODE=${_gentest_driver_mode})
-    set_property(TEST gentest_codegen_fallback_header_semantics${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen;ci-compat")
+    set_property(TEST gentest_codegen_fallback_header_semantics${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen")
 
     _gentest_add_cmake_helper_test(
         gentest_codegen_function_body_diagnostics${_gentest_driver_suffix}
@@ -4524,7 +4525,7 @@ foreach(_gentest_driver_mode IN ITEMS g++ cl)
         ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFunctionBodyDiagnostics.cmake
         cmake
         -DDRIVER_MODE=${_gentest_driver_mode})
-    set_property(TEST gentest_codegen_function_body_diagnostics${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen;ci-compat")
+    set_property(TEST gentest_codegen_function_body_diagnostics${_gentest_driver_suffix} APPEND PROPERTY LABELS "codegen")
 endforeach()
 unset(_gentest_driver_suffix)
 unset(_gentest_driver_mode)
@@ -4588,13 +4589,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckWindowsDebugDeathSkipGate.cmake
     cmake)
-set_property(TEST gentest_windows_debug_death_skip_gate APPEND PROPERTY LABELS "ci-compat;ci-smoke")
-
-_gentest_add_cmake_helper_test(
-    gentest_tsan_death_skip_gate
-    ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckTsanDeathSkipGate.cmake
-    cmake)
+set_property(TEST gentest_windows_debug_death_skip_gate APPEND PROPERTY LABELS "concurrency;platform")
 
 _gentest_add_cmake_helper_test(
     gentest_runtime_shared_context_exports
@@ -4798,7 +4793,7 @@ if(UNIX)
                 ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_xmake_root_resolution.py
                 ${_gentest_xmake_root_test_program}
                 ${PROJECT_SOURCE_DIR})
-        set_property(TEST gentest_xmake_shallow_root_resolution APPEND PROPERTY LABELS "xmake;ci-compat")
+        set_property(TEST gentest_xmake_shallow_root_resolution APPEND PROPERTY LABELS "xmake")
     endif()
 endif()
 
@@ -5174,60 +5169,6 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
     unset(_gentest_package_test_compiler_args)
     unset(_gentest_package_test_module_compiler_args)
 endif()
-
-# Compatibility lanes deliberately exercise a compact cross-platform contract.
-# Unfiltered local and explicit full CI runs retain every test, including
-# the complete nested build-helper matrix.
-set(_gentest_ci_compat_tests
-    gentest_codegen_check_valid
-    gentest_header_declaration_registration
-    gentest_explicit_mock_target_surface
-    gentest_module_registration_manifest
-    gentest_imported_module_runtime
-    gentest_public_module_surface
-    gentest_runtime_shared_context_exports
-    gentest_codegen_msvc_modmap_external_module
-    gentest_codegen_separate_module_flag_strip
-    gentest_codegen_scan_deps_joined_module_file)
-if(WIN32)
-    list(APPEND _gentest_ci_compat_tests gentest_codegen_mock_cross_root_include_windows)
-endif()
-foreach(_gentest_ci_compat_test IN LISTS _gentest_ci_compat_tests)
-    if(TEST ${_gentest_ci_compat_test})
-        set_property(TEST ${_gentest_ci_compat_test} APPEND PROPERTY LABELS "ci-compat")
-    endif()
-endforeach()
-unset(_gentest_ci_compat_test)
-unset(_gentest_ci_compat_tests)
-
-# Routine hosted validation exercises authored suites and small integration
-# contracts. Exhaustive nested build matrices remain in unfiltered CTest runs.
-get_property(_gentest_registered_tests DIRECTORY PROPERTY TESTS)
-foreach(_gentest_test IN LISTS _gentest_registered_tests)
-    get_property(_gentest_labels TEST ${_gentest_test} PROPERTY LABELS)
-    if("ci-compat" IN_LIST _gentest_labels AND ("scripts" IN_LIST _gentest_labels OR NOT "cmake" IN_LIST _gentest_labels))
-        set_property(TEST ${_gentest_test} APPEND PROPERTY LABELS "ci-smoke")
-    endif()
-endforeach()
-foreach(_gentest_test IN ITEMS
-    gentest_diagnostic_workflow_lanes
-    gentest_buildsystems_linux_workflow_contract
-    gentest_discover_tests_smoke
-    gentest_module_registration_mock_split
-    gentest_codegen_check_valid
-    gentest_codegen_msvc_modmap_external_module
-    gentest_codegen_separate_module_flag_strip
-    gentest_codegen_scan_deps_joined_module_file)
-    if(TEST ${_gentest_test})
-        set_property(TEST ${_gentest_test} APPEND PROPERTY LABELS "ci-smoke")
-    endif()
-endforeach()
-if(WIN32)
-    set_property(TEST gentest_codegen_mock_cross_root_include_windows APPEND PROPERTY LABELS "ci-smoke")
-endif()
-unset(_gentest_test)
-unset(_gentest_labels)
-unset(_gentest_registered_tests)
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
 #

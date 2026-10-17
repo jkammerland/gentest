@@ -5,6 +5,8 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+
+from target_command import target_command
 import xml.etree.ElementTree as ET
 
 exe = Path(sys.argv[1]).resolve()
@@ -20,7 +22,7 @@ smoke = ["--bench-epochs=2", "--bench-warmup=0", "--bench-min-epoch-time-s=0.000
 
 
 def run(*args, rc=0):
-    result = subprocess.run([str(exe), "--no-color", *args, *smoke], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    result = subprocess.run(target_command(exe, "--no-color", *args, *smoke), capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert result.returncode == rc, (args, result.returncode, result.stdout, result.stderr)
     return result
 
@@ -158,7 +160,7 @@ if skip_windows_debug_abort:
     print("GENTEST_KNOWN_SKIP: Windows Debug abort probes may suspend for debugger attachment")
 else:
     for args in [("--record-outside",), ("--run=rt_recording/bad/adopted", "--include-death")]:
-        result = subprocess.run([str(exe), *args], capture_output=True, text=True, encoding="utf-8", timeout=20)
+        result = subprocess.run(target_command(exe, *args), capture_output=True, text=True, encoding="utf-8", timeout=20)
         assert result.returncode != 0
         assert "recording" in result.stderr
 print("runtime recording: scope, lifecycle, ownership, payload and export checks passed")

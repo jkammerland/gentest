@@ -108,6 +108,7 @@ def _write_summary(
     line_threshold: float,
     branch_threshold: float,
     top_files: int,
+    incomplete: bool = False,
 ) -> None:
     files = list(data.get("files", []))
 
@@ -121,10 +122,14 @@ def _write_summary(
         )
 
     weakest = sorted(files, key=_sort_key)[:top_files]
+    status = []
+    if incomplete:
+        status = ["**INCOMPLETE: tests or counter hygiene failed. These measurements are diagnostic and cannot establish the coverage gate.**", ""]
 
     lines = [
         "# Coverage Report",
         "",
+        *status,
         f"Build dir: `{build_dir}`",
         "",
         "Scope: repo-owned files in the implementation trees under `src/` and `tools/src/`, including internal "
@@ -192,6 +197,7 @@ def _gcovr_command(
     intentional: Iterable[str],
     gcov_cmd: Sequence[str],
     gcov_ignore_parse_errors: str,
+    incomplete: bool = False,
 ) -> List[str]:
     cmd = [
         sys.executable,
@@ -210,6 +216,8 @@ def _gcovr_command(
         "--json-summary-pretty",
         "--html-details",
         str(output_dir / "index.html"),
+        "--html-title",
+        "INCOMPLETE coverage" if incomplete else "Gentest coverage",
         "--sort",
         "uncovered-percent",
         "--sort-branches",
@@ -243,6 +251,8 @@ def main() -> int:
     report_policy = _read_report_policy(config_path)
 
     parser = argparse.ArgumentParser(parents=[config_parser])
+    parser.add_argument("--incomplete", action="store_true",
+                        help="Label diagnostic coverage after tests or counter hygiene fail; retain a failing exit status.")
     parser.add_argument(
         "--build-dir",
         default=DEFAULT_BUILD_DIR,
@@ -300,6 +310,7 @@ def main() -> int:
         intentional_sources(hygiene_policy, build_dir),
         gcov_cmd,
         report_policy["gcov_ignore_parse_errors"],
+        args.incomplete,
     )
 
     proc = subprocess.run(
@@ -327,9 +338,12 @@ def main() -> int:
         args.fail_under_line,
         args.fail_under_branch,
         args.top_files,
+        args.incomplete,
     )
 
     failures = _metric_failures(data, args.fail_under_line, args.fail_under_branch)
+    if args.incomplete:
+        failures.append("tests or counter hygiene failed; coverage is incomplete")
     print(f"Coverage summary written to {summary_md}")
     print(f"Coverage details written to {output_dir / 'index.html'}")
     if failures:
