@@ -209,6 +209,18 @@ class ToolSelectionTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, expected):
                         llvm_tools.select_toolchain()
 
+    def test_explicit_host_driver_selects_sdk_without_path_compilers(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prefix = fake_toolchain(root / "llvm", llvm_tools.LLVM_MAJOR)
+            env = {"PATH": str(root), "GENTEST_CODEGEN_HOST_CLANG": str(prefix / "bin/clang++"),
+                   "CC": "gcc", "CXX": "g++"}
+            with patch.dict(os.environ, env, clear=True):
+                selected = llvm_tools.select_toolchain(required=llvm_tools.HOST_TOOLS)
+            self.assertEqual(selected.tools["clang++"], str(prefix / "bin/clang++"))
+            self.assertEqual(selected.llvm_dir, str(prefix / "lib/cmake/llvm"))
+            self.assertEqual(selected.host_clang, str(prefix / "bin/clang++"))
+
     def test_cmake_rejects_mismatched_host_packages_independently_of_target_compiler(self):
         cmake = shutil.which("cmake")
         self.assertIsNotNone(cmake, "CMake is required for the repository tooling checks")

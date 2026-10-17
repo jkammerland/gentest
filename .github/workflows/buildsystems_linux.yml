@@ -286,4 +286,7 @@ jobs:
           else
             xmake_dir=/home/ci/.local/bin
           fi
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && PATH=\"${xmake_dir}:\$PATH\" python3 scripts/validation_suites.py xmake --work build/buildsystems-xmake --codegen \"${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen\" --cc '${CC}' --cxx '${CXX}'"
+          # Preserve the validated host SDK while running Xmake as its unprivileged user.
+          runuser -u ci -- env PATH="${xmake_dir}:${PATH}" \
+            python3 scripts/validation_suites.py xmake --work build/buildsystems-xmake \
+            --codegen "${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen" --cc "${CC}" --cxx "${CXX}"

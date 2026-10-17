@@ -107,7 +107,8 @@ def select_toolchain(*, required: tuple[str, ...] = tuple(TOOL_OVERRIDES), packa
     # names below: clang++ and compiler wrappers depend on the invoked basename.
     prefix_value = os.environ.get("GENTEST_LLVM_PREFIX", "")
     if not prefix_value and "clang++" in names:
-        prefix_value = str(Path(resolve_tool("clang++", cxx, major=major)).resolve().parent.parent)
+        driver = cxx or os.environ.get("GENTEST_CLANGXX", "") or host_clang
+        prefix_value = str(Path(resolve_tool("clang++", driver, major=major)).resolve().parent.parent)
     prefix = Path(prefix_value).resolve() if prefix_value else None
     tools = {}
     for name in names:
