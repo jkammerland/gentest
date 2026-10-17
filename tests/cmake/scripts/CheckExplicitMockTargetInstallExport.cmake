@@ -6,7 +6,6 @@
 #  -DGENERATOR=<cmake generator name>
 #  -DGENERATOR_PLATFORM=<platform>
 #  -DGENERATOR_TOOLSET=<toolset>
-#  -DTOOLCHAIN_FILE=<toolchain.cmake>
 #  -DMAKE_PROGRAM=<path>
 #  -DBUILD_TYPE=<Debug|Release|...>
 
@@ -63,6 +62,8 @@ if(DEFINED GENERATOR_TOOLSET AND NOT "${GENERATOR_TOOLSET}" STREQUAL "")
   list(APPEND _cmake_gen_args -T "${GENERATOR_TOOLSET}")
 endif()
 
+# This named-module fixture explicitly selects native Clang above. Its producer
+# builds the installable host codegen, so target cross toolchains do not apply.
 set(_cmake_cache_args
   "-DGENTEST_SOURCE_DIR=${GENTEST_SOURCE_DIR}"
   "-DCMAKE_C_COMPILER=${_clang}"
@@ -77,17 +78,11 @@ if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
 elseif(DEFINED MAKE_PROGRAM AND NOT "${MAKE_PROGRAM}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
 endif()
-if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")
-endif()
 if(DEFINED LLVM_DIR AND NOT "${LLVM_DIR}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DLLVM_DIR=${LLVM_DIR}")
 endif()
 if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
-endif()
-if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
-  gentest_append_external_codegen_cache_args(_cmake_cache_args "${PROG}")
 endif()
 gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
 if(NOT "${_clang_scan_deps}" STREQUAL "")
@@ -108,12 +103,6 @@ if(GENERATOR STREQUAL "Ninja" OR GENERATOR STREQUAL "Ninja Multi-Config")
   list(APPEND _consumer_cache_args "-DCMAKE_MAKE_PROGRAM=${_supported_ninja}")
 elseif(DEFINED MAKE_PROGRAM AND NOT "${MAKE_PROGRAM}" STREQUAL "")
   list(APPEND _consumer_cache_args "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
-endif()
-if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
-  # Installed target artifacts live in a host staging directory outside the target sysroot.
-  list(APPEND _consumer_cache_args
-    "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}"
-    "-DCMAKE_STAGING_PREFIX=${_install_prefix}")
 endif()
 if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
   list(APPEND _consumer_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")

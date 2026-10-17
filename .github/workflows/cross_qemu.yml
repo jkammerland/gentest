@@ -78,6 +78,11 @@ jobs:
             pkg-config \
             meson \
             libfmt-dev \
+            libffi-dev \
+            libxml2-dev \
+            zlib1g-dev \
+            libzstd-dev \
+            libcurl4-openssl-dev \
             curl \
             zip \
             unzip \
@@ -249,6 +254,11 @@ jobs:
             pkg-config \
             meson \
             libfmt-dev \
+            libffi-dev \
+            libxml2-dev \
+            zlib1g-dev \
+            libzstd-dev \
+            libcurl4-openssl-dev \
             curl \
             zip \
             unzip \

@@ -4,6 +4,15 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 set(_build "${BUILD_ROOT}/sdk")
 file(REMOVE_RECURSE "${_build}")
 set(_args "-DGENTEST_SOURCE_DIR=${GENTEST_SOURCE_DIR}")
+
+# SDK libraries and their probe execute on the host, including in QEMU lanes.
+if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
+  gentest_resolve_clang_fixture_compilers(C_COMPILER CXX_COMPILER)
+  if(NOT C_COMPILER OR NOT CXX_COMPILER)
+    message(FATAL_ERROR "LLVM SDK probe requires host clang and clang++")
+  endif()
+endif()
+
 foreach(_key IN ITEMS C_COMPILER CXX_COMPILER)
   if(NOT "${${_key}}" STREQUAL "")
     list(APPEND _args "-DCMAKE_${_key}=${${_key}}")

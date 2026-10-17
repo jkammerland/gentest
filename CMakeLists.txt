@@ -147,10 +147,12 @@ include(GentestCodegen)
 add_subdirectory(src)
 
 if(${PROJECT_NAME}_INSTALL)
+    # This vendored helper runs in CMake on the host, outside any target sysroot.
     set(_gentest_target_install_package_root "${PROJECT_SOURCE_DIR}/third_party/target_install_package")
     find_package(target_install_package 7.1.0 EXACT CONFIG REQUIRED
         PATHS "${_gentest_target_install_package_root}"
-        NO_DEFAULT_PATH)
+        NO_DEFAULT_PATH
+        NO_CMAKE_FIND_ROOT_PATH)
     set(_gentest_fmt_public_dependency "fmt ${GENTEST_FMT_VERSION} EXACT CONFIG REQUIRED")
 
     # Imported module BMIs must use the same CRT as the installed carrier.

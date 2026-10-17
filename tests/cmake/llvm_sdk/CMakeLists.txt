@@ -12,7 +12,17 @@ gentest_normalize_llvm_imported_configs(${LLVM_AVAILABLE_LIBS} ${CLANG_EXPORTED_
 add_executable(llvm_sdk_probe probe.cpp)
 target_compile_features(llvm_sdk_probe PRIVATE cxx_std_20)
 target_include_directories(llvm_sdk_probe SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS})
-target_link_libraries(llvm_sdk_probe PRIVATE clangIndex)
+if(TARGET clang-cpp)
+    # Distro SDKs may export only the shared Clang library.
+    target_link_libraries(llvm_sdk_probe PRIVATE clang-cpp)
+    if(TARGET LLVM)
+        target_link_libraries(llvm_sdk_probe PRIVATE LLVM)
+    else()
+        target_link_libraries(llvm_sdk_probe PRIVATE LLVMSupport)
+    endif()
+else()
+    target_link_libraries(llvm_sdk_probe PRIVATE clangIndex)
+endif()
 if(MSVC)
     # Match the runtime/STL ABI used by prebuilt LLVM SDK archives.
     set_property(TARGET llvm_sdk_probe PROPERTY MSVC_RUNTIME_LIBRARY MultiThreaded)
