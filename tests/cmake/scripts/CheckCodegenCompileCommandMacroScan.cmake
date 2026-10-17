@@ -107,6 +107,7 @@ gentest_fixture_write_compdb("${_compdb}" "${_provider_entry}" "${_consumer_entr
 message(STATUS "Require clang-scan-deps for compile-command-defined module imports...")
 execute_process(
   COMMAND
+    "${CMAKE_COMMAND}" -E env --unset=GENTEST_CODEGEN_CLANG_SCAN_DEPS
     "${PROG}"
     --compdb "${_work_dir}"
     --tu-out-dir "${_generated_missing_dir}"
