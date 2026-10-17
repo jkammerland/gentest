@@ -4428,6 +4428,14 @@ _gentest_add_cmake_helper_test(
 set_property(TEST gentest_clang_scan_deps_program_resolution APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
+    gentest_clang_scan_deps_cached_override_isolation
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckClangScanDepsProgramResolution.cmake
+    "cmake;modules"
+    -DGENTEST_CODEGEN_CLANG_SCAN_DEPS=${CMAKE_CURRENT_BINARY_DIR}/inherited-codegen-scanner
+    -DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${CMAKE_CURRENT_BINARY_DIR}/inherited-target-scanner)
+
+_gentest_add_cmake_helper_test(
     gentest_module_fixture_compiler_resolution
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFixtureCompilerResolution.cmake
