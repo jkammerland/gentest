@@ -4,9 +4,15 @@
 
 #include <array>
 #include <cstdio>
+#include <exception>
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
+
+// Framework control signals must bypass a user's broad std::exception handler.
+static_assert(!std::is_base_of_v<std::exception, gentest::assertion>);
+static_assert(!std::is_base_of_v<std::exception, gentest::detail::skip_exception>);
 
 namespace {
 
@@ -19,7 +25,7 @@ bool condition(bool value) {
     return value;
 }
 
-std::string message() {
+std::string_view message() {
     ++message_calls;
     return "analyzer assertion message";
 }

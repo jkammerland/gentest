@@ -1,6 +1,8 @@
 #define TERMCOLOR_USE_NOOP 1
 #include "../../src/runner_async_status_renderer.cpp"
 
+#include <cstdio>
+#include <exception>
 #include <iostream>
 #include <sstream>
 #include <string_view>
@@ -11,7 +13,7 @@ bool contains(std::string_view haystack, std::string_view needle) { return hayst
 
 } // namespace
 
-int main() {
+int main() try {
     std::ostringstream                   out;
     gentest::runner::AsyncStatusRenderer renderer(out, gentest::runner::AsyncStatusRenderer::Mode::Virtual, true);
 
@@ -27,4 +29,7 @@ int main() {
         return 1;
     }
     return 0;
+} catch (const std::exception &error) {
+    static_cast<void>(std::fprintf(stderr, "renderer regression threw an exception: %s\n", error.what()));
+    return 1;
 }

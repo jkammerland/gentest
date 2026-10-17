@@ -132,6 +132,7 @@ namespace unit {
 
 void expect_throw_simple() {
     EXPECT_THROW(throw_runtime_error(), std::runtime_error);
+    // NOLINTNEXTLINE(bugprone-std-exception-baseclass): regression deliberately exercises non-standard exceptions.
     EXPECT_THROW(throw 123, int);
 }
 

@@ -25,11 +25,13 @@ int main() {
         } catch (const gentest::failure &) { require_throw_failure_rethrew = true; }
 
         try {
+            // NOLINTNEXTLINE(bugprone-std-exception-baseclass): prove framework assertions bypass std::exception handlers.
             gentest::detail::expect_throw<std::exception>([] { throw gentest::assertion("framework assertion passthrough"); },
                                                           "std::exception", std::source_location::current());
         } catch (const gentest::assertion &) { expect_throw_assertion_rethrew = true; }
 
         try {
+            // NOLINTNEXTLINE(bugprone-std-exception-baseclass): prove framework assertions bypass std::exception handlers.
             gentest::detail::require_throw<std::exception>([] { throw gentest::assertion("framework assertion passthrough"); },
                                                            "std::exception", std::source_location::current());
         } catch (const gentest::assertion &) { require_throw_assertion_rethrew = true; }

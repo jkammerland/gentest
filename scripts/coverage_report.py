@@ -12,7 +12,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
-from coverage_common import DEFAULT_BUILD_DIR, DEFAULT_POLICY_PATH, normalize_build_dir, read_policy_config, resolve_gcov_command
+from coverage_common import DEFAULT_BUILD_DIR, DEFAULT_POLICY_PATH, intentional_sources, normalize_build_dir, read_policy_config, resolve_gcov_command
 
 
 DEFAULT_REPORT_POLICY = {
@@ -297,7 +297,7 @@ def main() -> int:
         output_dir,
         hygiene_policy["roots"],
         hygiene_policy["exclude_prefix"],
-        hygiene_policy["intentional"],
+        intentional_sources(hygiene_policy, build_dir),
         gcov_cmd,
         report_policy["gcov_ignore_parse_errors"],
     )

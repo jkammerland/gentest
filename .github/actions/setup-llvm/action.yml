@@ -1,0 +1,8 @@
+name: Setup repository LLVM
+description: Install and verify the LLVM toolchain selected by scripts/llvm_toolchain.json
+runs:
+  using: composite
+  steps:
+    - name: Install the required LLVM toolchain
+      shell: bash
+      run: bash scripts/setup_llvm.sh

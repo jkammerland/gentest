@@ -74,7 +74,7 @@ std::vector<SuiteExecutionPlan> build_suite_execution_plan(std::span<const gente
     for (auto &builder : builders) {
         auto &plan = builder.plan;
         if (shuffle) {
-            const std::uint64_t suite_seed = base_seed ^ (std::hash<std::string_view>{}(plan.suite) << 1);
+            const std::uint64_t suite_seed = base_seed ^ (std::hash<std::string_view>{}(plan.suite) << 1U);
             shuffle_with_seed(plan.free_like, suite_seed);
 
             const auto shuffle_groups = [&](std::vector<FixtureGroupPlan> &groups) {

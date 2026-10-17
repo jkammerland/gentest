@@ -40,7 +40,11 @@ class CiPackageLaneTests(unittest.TestCase):
                                        ("linux", "clang_version", "23")):
             with self.subTest(platform=platform):
                 selected = [entry for entry in matrix[platform] if entry.get(key) == version]
-                self.assertEqual(len(selected), 1)
+                expected = 3 if platform == "linux" else 1
+                self.assertEqual(len(selected), expected)
+                if platform == "linux":
+                    self.assertEqual({(entry["compiler"], entry["build_type"]) for entry in selected},
+                                     {("clang", "debug"), ("clang", "ASan+UBSan"), ("gcc", "release")})
         self.assertIn("Setup LLVM 23 package dependencies", self.workflow)
         self.assertIn("zlib:x64-windows", self.workflow)
         self.assertIn("zstd:x64-windows", self.workflow)

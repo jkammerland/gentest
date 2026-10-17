@@ -95,7 +95,7 @@ static ParseU64DecimalResult parse_u64_decimal_strict(std::string_view s) {
 
 static std::uint64_t make_random_seed() {
     std::random_device rd;
-    const auto         hi = static_cast<std::uint64_t>(rd()) << 32;
+    const auto         hi = static_cast<std::uint64_t>(rd()) << 32U;
     const auto         lo = static_cast<std::uint64_t>(rd());
     return hi ^ lo;
 }
@@ -637,7 +637,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             }
         }
 
-        if (s.starts_with("-")) {
+        if (s.starts_with('-')) {
             fmt::print(stderr, "error: unknown option '{}'\n", s);
             return false;
         }

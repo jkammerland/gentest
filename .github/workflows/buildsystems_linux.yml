@@ -74,11 +74,9 @@ jobs:
           - name: Ubuntu 24.04
             container: ubuntu:24.04
             pkg_manager: apt
-            clang_version: "20"
           - name: Fedora 43
             container: fedora:43
             pkg_manager: dnf
-            clang_version: "20"
     steps:
       - &install_deps_apt
         name: Install dependencies (apt)
@@ -127,14 +125,8 @@ jobs:
             libcurl4-openssl-dev \
             libunwind-dev \
             libfmt-dev \
-            clang-${{ matrix.clang_version }} \
-            clang-tools-${{ matrix.clang_version }} \
-            libclang-${{ matrix.clang_version }}-dev \
-            libclang-cpp${{ matrix.clang_version }}-dev \
-            llvm-${{ matrix.clang_version }}-dev \
             meson
           python3 -m pip install --break-system-packages --upgrade cmake
-          echo "/usr/lib/llvm-${{ matrix.clang_version }}/bin" >> "$GITHUB_PATH"
       - &install_deps_dnf
         name: Install dependencies (dnf)
         if: ${{ matrix.pkg_manager == 'dnf' }}
@@ -153,11 +145,6 @@ jobs:
             curl \
             zip \
             unzip \
-            clang \
-            clang-libs \
-            clang-devel \
-            clang-tools-extra \
-            llvm-devel \
             fmt-devel \
             zlib-ng-compat-devel \
             libunwind-devel \
@@ -175,6 +162,10 @@ jobs:
       - &checkout
         name: Checkout
         uses: actions/checkout@v6
+
+      - &setup_llvm
+        name: Setup LLVM toolchain
+        uses: ./.github/actions/setup-llvm
 
       - name: Install Bazelisk
         run: |
@@ -231,40 +222,31 @@ jobs:
           - name: Ubuntu 24.04
             container: ubuntu:24.04
             pkg_manager: apt
-            clang_version: "20"
-            cc: clang-20
-            cxx: clang++-20
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
           - name: Fedora 43
             container: fedora:43
             pkg_manager: dnf
-            clang_version: "20"
-            cc: clang
-            cxx: clang++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
     steps:
       - *install_deps_apt
       - *install_deps_dnf
       - *checkout
+      - *setup_llvm
 
       - &build_host_codegen
         name: Build host codegen (CMake preset)
         run: |
           set -euxo pipefail
           cmake --preset=host-codegen \
-            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
-            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
-            -DLLVM_DIR=${{ matrix.llvm_dir }} \
-            -DClang_DIR=${{ matrix.clang_dir }}
+            -DCMAKE_C_COMPILER=${CC} \
+            -DCMAKE_CXX_COMPILER=${CXX} \
+            -DLLVM_DIR=${LLVM_DIR} \
+            -DClang_DIR=${Clang_DIR}
           cmake --build --preset=host-codegen --parallel
 
       - name: Test Meson and downstream consumers
         run: |
           python3 scripts/validation_suites.py meson --work build/buildsystems-meson \
             --codegen "$PWD/build/host-codegen/tools/gentest_codegen" \
-            --cc "${{ matrix.cc }}" --cxx "${{ matrix.cxx }}"
+            --cc "${CC}" --cxx "${CXX}"
 
   xmake:
     needs: plan
@@ -282,23 +264,14 @@ jobs:
           - name: Ubuntu 24.04
             container: ubuntu:24.04
             pkg_manager: apt
-            clang_version: "20"
-            cc: clang-20
-            cxx: clang++-20
-            llvm_dir: /usr/lib/llvm-20/lib/cmake/llvm
-            clang_dir: /usr/lib/llvm-20/lib/cmake/clang
           - name: Fedora 43
             container: fedora:43
             pkg_manager: dnf
-            clang_version: "20"
-            cc: clang
-            cxx: clang++
-            llvm_dir: /usr/lib64/cmake/llvm
-            clang_dir: /usr/lib64/cmake/clang
     steps:
       - *install_deps_apt
       - *install_deps_dnf
       - *checkout
+      - *setup_llvm
       - *build_host_codegen
       - name: Create CI user
         run: |
@@ -328,4 +301,4 @@ jobs:
           else
             xmake_dir=/home/ci/.local/bin
           fi
-          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && PATH=\"${xmake_dir}:\$PATH\" python3 scripts/validation_suites.py xmake --work build/buildsystems-xmake --codegen \"${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen\" --cc '${{ matrix.cc }}' --cxx '${{ matrix.cxx }}'"
+          su - ci -c "cd \"${GITHUB_WORKSPACE}\" && PATH=\"${xmake_dir}:\$PATH\" python3 scripts/validation_suites.py xmake --work build/buildsystems-xmake --codegen \"${GITHUB_WORKSPACE}/build/host-codegen/tools/gentest_codegen\" --cc '${CC}' --cxx '${CXX}'"

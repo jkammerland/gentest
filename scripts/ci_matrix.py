@@ -7,6 +7,8 @@ import argparse
 import json
 from pathlib import Path
 
+from llvm_tools import LLVM_MAJOR, POLICY
+
 
 MATRIX_FILE = Path(__file__).with_name("ci_matrix.json")
 PLATFORMS = ("linux", "windows", "macos")
@@ -20,6 +22,21 @@ def select_matrix(profile: str, source: Path = MATRIX_FILE) -> dict[str, dict]:
     for platform in PLATFORMS:
         entries = []
         for original in catalog[platform]:
+            if original.get("primary"):
+                if platform == "linux":
+                    version = original.get("clang_version")
+                elif platform == "windows":
+                    version = original.get("llvm-version", "").split(".")[0]
+                else:
+                    version = original.get("compiler", "").removeprefix("llvm@")
+                if str(version) != str(LLVM_MAJOR):
+                    raise ValueError(f"Primary {platform} lane must use LLVM {LLVM_MAJOR}: {original}")
+                if platform == "windows" and original["llvm-version"] != POLICY["release"]:
+                    raise ValueError("Primary Windows lane must use the pinned LLVM release")
+
+            if original.get("routine") and not original.get("primary"):
+                raise ValueError(f"Routine {platform} lane must use the primary LLVM toolchain")
+
             if profile == "pr" and not original.get("routine", False):
                 continue
             entry = {key: value for key, value in original.items() if key != "routine"}

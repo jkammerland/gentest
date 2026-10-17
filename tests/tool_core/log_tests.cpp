@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <fmt/format.h>
 #include <iostream>
 #include <llvm/Support/raw_ostream.h>
@@ -124,7 +125,7 @@ template <typename Fn> std::string capture_stderr(Fn &&fn) {
 
 } // namespace
 
-int main() {
+int main() try {
     Run t;
 
     {
@@ -166,4 +167,7 @@ int main() {
         return 1;
     }
     return 0;
+} catch (const std::exception &error) {
+    static_cast<void>(std::fprintf(stderr, "logging regression threw an exception: %s\n", error.what()));
+    return 1;
 }

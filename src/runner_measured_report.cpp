@@ -186,7 +186,7 @@ std::string format_report_time_ns(double value_ns, TimeUnitMode mode) {
     const TimeDisplaySpec spec = pick_time_display_spec_from_ns(std::fabs(value_ns), mode);
     std::string           text = format_scaled_time_ns(value_ns, spec);
     if (mode == TimeUnitMode::Auto) {
-        text += " ";
+        text += ' ';
         text += spec.suffix;
     }
     return text;
@@ -282,7 +282,7 @@ void print_markdown_report(std::span<const ReportTable> tables) {
     }
 }
 
-std::string machine_kind_name(MachineValueKind kind) {
+std::string_view machine_kind_name(MachineValueKind kind) {
     switch (kind) {
     case MachineValueKind::String: return "string";
     case MachineValueKind::Number: return "number";

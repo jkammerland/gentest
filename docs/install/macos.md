@@ -8,7 +8,7 @@
 Install the normal CMake tooling:
 
 ```bash
-brew install cmake ninja llvm
+brew install cmake ninja llvm@23
 xcode-select --install
 ```
 
@@ -39,7 +39,7 @@ ctest --preset=debug-system --output-on-failure
 For module development on macOS, configure with Homebrew LLVM and turn public modules on explicitly:
 
 ```bash
-llvm_prefix="$(brew --prefix llvm)"
+llvm_prefix="$(brew --prefix llvm@23)"
 
 cmake --preset=debug-system \
   -DCMAKE_C_COMPILER="$llvm_prefix/bin/clang" \
@@ -61,7 +61,7 @@ If you use `GENTEST_ENABLE_PUBLIC_MODULES=AUTO`, unsupported toolchains disable 
 Install the package and host code generator into a local prefix:
 
 ```bash
-llvm_prefix="$(brew --prefix llvm)"
+llvm_prefix="$(brew --prefix llvm@23)"
 install_prefix="$PWD/install/gentest"
 
 cmake -S . -B build/install-macos -G Ninja \
@@ -95,7 +95,7 @@ ctest --test-dir build/examples/hello --output-on-failure
 Module example:
 
 ```bash
-llvm_prefix="$(brew --prefix llvm)"
+llvm_prefix="$(brew --prefix llvm@23)"
 
 cmake -S examples/hello_modules -B build/examples/hello_modules -G Ninja \
   -DCMAKE_PREFIX_PATH="$PWD/install/gentest" \

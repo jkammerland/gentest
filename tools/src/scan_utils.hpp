@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -747,6 +748,7 @@ class ScanPpExpressionParser {
             if (!rhs.has_value()) {
                 return std::nullopt;
             }
+            // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
             lhs = *lhs | *rhs;
         }
         return lhs;
@@ -759,6 +761,7 @@ class ScanPpExpressionParser {
             if (!rhs.has_value()) {
                 return std::nullopt;
             }
+            // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
             lhs = *lhs ^ *rhs;
         }
         return lhs;
@@ -771,6 +774,7 @@ class ScanPpExpressionParser {
             if (!rhs.has_value()) {
                 return std::nullopt;
             }
+            // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
             lhs = *lhs & *rhs;
         }
         return lhs;
@@ -845,17 +849,19 @@ class ScanPpExpressionParser {
         while (lhs.has_value()) {
             if (consume(ScanPpTokenKind::ShiftLeft)) {
                 auto rhs = parse_additive();
-                if (!rhs.has_value()) {
+                if (!rhs.has_value() || *rhs < 0 || *rhs >= std::numeric_limits<unsigned long long>::digits) {
                     return std::nullopt;
                 }
+                // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
                 lhs = *lhs << *rhs;
                 continue;
             }
             if (consume(ScanPpTokenKind::ShiftRight)) {
                 auto rhs = parse_additive();
-                if (!rhs.has_value()) {
+                if (!rhs.has_value() || *rhs < 0 || *rhs >= std::numeric_limits<unsigned long long>::digits) {
                     return std::nullopt;
                 }
+                // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
                 lhs = *lhs >> *rhs;
                 continue;
             }
@@ -933,6 +939,7 @@ class ScanPpExpressionParser {
             if (!value.has_value()) {
                 return std::nullopt;
             }
+            // NOLINTNEXTLINE(bugprone-signed-bitwise): interpret signed source preprocessor arithmetic.
             return ~*value;
         }
         if (consume(ScanPpTokenKind::Plus)) {

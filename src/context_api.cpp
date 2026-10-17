@@ -124,6 +124,7 @@ void log(std::string_view message) {
     (void)loc;
     detail::request_runtime_skip(reason, detail::TestContextInfo::RuntimeSkipKind::User);
 #if GENTEST_EXCEPTIONS_ENABLED
+    // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
     throw detail::skip_exception{};
 #else
     ::gentest::detail::terminate_no_exceptions_fatal("gentest::skip");

@@ -5,6 +5,7 @@
 
 #include <map>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace gentest::codegen::render {
@@ -12,7 +13,7 @@ namespace gentest::codegen::render {
 // Forward decls for free functions
 // Render forward declarations for free functions (non-member tests).
 // Args come from discovery; `tpl_line`/`tpl_ns` are partial templates.
-std::string render_forward_decls(const std::vector<TestCaseInfo> &cases, const std::string &tpl_line, const std::string &tpl_ns);
+std::string_view render_forward_decls(const std::vector<TestCaseInfo> &cases, const std::string &tpl_line, const std::string &tpl_ns);
 
 struct TraitArrays {
     std::string              declarations;

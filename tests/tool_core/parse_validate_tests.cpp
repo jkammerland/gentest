@@ -1,4 +1,5 @@
 #include "parse_core.hpp"
+#include "scan_utils.hpp"
 #include "validate.hpp"
 
 #include <algorithm>
@@ -6,6 +7,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 using gentest::codegen::FixtureLifetime;
@@ -33,6 +35,24 @@ auto normalize_ws(std::string value) -> std::string {
 
 int main() {
     Run t;
+
+    // Signed preprocessor values need bitwise and arithmetic-shift semantics.
+    {
+        const std::unordered_map<std::string, std::string> macros;
+        auto                                               evaluate = [&](std::string_view expression) {
+            return gentest::codegen::scan::ScanPpExpressionParser(expression, macros).parse();
+        };
+        t.expect(evaluate("~0") == -1, "preprocessor bitwise complement retains negative values");
+        t.expect(evaluate("-1 & 8") == 8, "preprocessor signed bitwise and");
+        t.expect(evaluate("-8 | 3") == -5, "preprocessor signed bitwise or");
+        t.expect(evaluate("-1 ^ 3") == -4, "preprocessor signed bitwise xor");
+        t.expect(evaluate("2 << 3") == 16, "preprocessor left shift");
+        t.expect(evaluate("-8 >> 1") == -4, "preprocessor right shift retains the sign");
+        t.expect(!evaluate("1 << -1").has_value(), "preprocessor rejects negative left-shift counts");
+        t.expect(!evaluate("1 >> -1").has_value(), "preprocessor rejects negative right-shift counts");
+        t.expect(!evaluate("1 << 64").has_value(), "preprocessor rejects overflowing left-shift counts");
+        t.expect(!evaluate("1 >> 64").has_value(), "preprocessor rejects overflowing right-shift counts");
+    }
 
     {
         auto                     attrs = parse_attribute_list(R"(test("suite/a"), slow, linux, req("#1"), owner("bar"))");

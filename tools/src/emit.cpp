@@ -76,7 +76,7 @@ std::string normalize_path_key(const fs::path &path) {
     }
     fs::path canon = fs::weakly_canonical(abs, ec);
     if (!ec)
-        abs = canon;
+        abs = std::move(canon);
     abs             = abs.lexically_normal();
     std::string key = abs.generic_string();
 #if defined(_WIN32)
@@ -118,10 +118,10 @@ std::string normalize_case_file(const CollectorOptions &opts, std::string_view f
 
     ec.clear();
     if (auto canon = fs::weakly_canonical(abs_file, ec); !ec)
-        abs_file = canon;
+        abs_file = std::move(canon);
     ec.clear();
     if (auto canon = fs::weakly_canonical(abs_root, ec); !ec)
-        abs_root = canon;
+        abs_root = std::move(canon);
 
     abs_file = abs_file.lexically_normal();
     abs_root = abs_root.lexically_normal();
@@ -1579,7 +1579,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
                         fmt::format_to(std::back_inserter(registration_source), "#include \"{}\"\n",
                                        additive_header_include(opts, idx, registration_out, source_path, header));
                     }
-                    registration_source += "\n";
+                    registration_source += '\n';
                     const bool has_mocks            = !source_mocks.empty() || needs_mock_codegen_include;
                     const auto core                 = render_registration_core(tu_cases, tu_fixtures, templates, has_mocks);
                     needs_full_registration_support = core.needs_full_registration_support;

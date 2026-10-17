@@ -21,6 +21,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
+from llvm_tools import LLVM_MAJOR, resolve_tool
 from validation_suites import Command, suite_commands
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +48,8 @@ def sha256(path: Path) -> str:
 
 
 def validator_hashes() -> dict[str, str]:
-    return {name: sha256(Path(__file__).with_name(name)) for name in ("validate_local.py", "validation_suites.py")}
+    return {name: sha256(Path(__file__).with_name(name))
+            for name in ("validate_local.py", "validation_suites.py", "llvm_tools.py", "llvm_toolchain.json")}
 
 
 def git(source: Path, *args: str) -> str:
@@ -86,8 +88,16 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
     stages: list[Stage] = []
     presets = json.loads((source / "CMakePresets.json").read_text(encoding="utf-8"))
     by_name = {p["name"]: p for p in presets["configurePresets"]}
-    clang = os.environ.get("GENTEST_CLANG", "clang")
-    clangxx = os.environ.get("GENTEST_CLANGXX", "clang++")
+    def primary_tool(name: str, override: str = "") -> str:
+        try:
+            return resolve_tool(name, override)
+        except (ValueError, OSError, subprocess.CalledProcessError):
+            # Keep plan construction possible on hosts missing a capability.
+            # Execution checks the version before configuring any build.
+            return override or f"{name}-{LLVM_MAJOR}"
+
+    clang = primary_tool("clang", os.environ.get("GENTEST_CLANG", ""))
+    clangxx = primary_tool("clang++", os.environ.get("GENTEST_CLANGXX", ""))
     if host == "Darwin":
         # Homebrew's LLVM is keg-only. An explicit prefix is private runtime
         # configuration, never a hostname/path inventory in this repository.
@@ -130,12 +140,14 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         cmake_stage("asan-ubsan", "alusan-system", clang, clangxx)
         cmake_stage("tsan", "tsan-system", clang, clangxx)
         coverage = cmake_stage("coverage", "coverage-system", clang, clangxx)
-        coverage.tools += ["gcovr", "llvm-cov"]
+        llvm_cov = primary_tool("llvm-cov")
+        coverage.tools += ["gcovr", llvm_cov]
         build = output / "work/coverage"
         coverage.commands += [
             Command([sys.executable, str(source / "scripts/coverage_hygiene.py"), "--build-dir", str(build),
-                     "--ignore-statuses", "stamp_mismatch", "--gcov", "llvm-cov", "gcov"], source),
-            Command([sys.executable, str(source / "scripts/coverage_report.py"), "--build-dir", str(build)], source)]
+                     "--ignore-statuses", "stamp_mismatch", "--gcov", llvm_cov, "gcov"], source),
+            Command([sys.executable, str(source / "scripts/coverage_report.py"), "--build-dir", str(build),
+                     "--gcov", llvm_cov, "gcov"], source)]
         package_cmake = os.environ.get("GENTEST_PACKAGE_CMAKE", "cmake")
         package = cmake_stage("package", "release-package", clang, clangxx, cmake=package_cmake)
         package.missing = "VCPKG_ROOT must name a normal vcpkg installation" if not os.environ.get("VCPKG_ROOT") else ""
@@ -183,6 +195,23 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
                 if host == "Darwin" and compiler == "llvm" and Path(cxx).resolve() == Path("/usr/bin/clang++").resolve():
                     stage.missing = "Select Homebrew LLVM with GENTEST_LLVM_PREFIX (AppleClang is a separate lane)"
     assert [stage.name for stage in stages] == required_stages(host)
+    llvm_prefix = os.environ.get("GENTEST_LLVM_PREFIX", "")
+    if not llvm_prefix and Path(clangxx).is_file():
+        llvm_prefix = str(Path(clangxx).resolve().parent.parent)
+
+    for stage in stages:
+        if stage.name not in {"appleclang-debug", "appleclang-release"}:
+            stage.commands.insert(0, Command([sys.executable, str(source / "scripts/llvm_tools.py"), "check", clang, clangxx], source))
+        if stage.name == "lint":
+            stage.tools = ["bash", primary_tool("clang-format"), primary_tool("clang-tidy")]
+        if llvm_prefix:
+            for command in stage.commands:
+                command.env["PATH"] = str(Path(llvm_prefix) / "bin") + os.pathsep + os.environ.get("PATH", "")
+                for libdir in ("lib", "lib64"):
+                    cmake_dir = Path(llvm_prefix) / libdir / "cmake"
+                    if (cmake_dir / "llvm/LLVMConfig.cmake").is_file() and (cmake_dir / "clang/ClangConfig.cmake").is_file():
+                        command.env.update(LLVM_DIR=str(cmake_dir / "llvm"), Clang_DIR=str(cmake_dir / "clang"))
+                        break
     return stages
 
 

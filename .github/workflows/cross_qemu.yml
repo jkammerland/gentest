@@ -102,59 +102,26 @@ jobs:
             unzip \
             tar \
             ca-certificates \
-            clang-20 \
-            clang-tools-20 \
-            libclang-20-dev \
-            libclang-cpp20-dev \
-            llvm-20-dev \
             qemu-user \
             libc6-dev-arm64-cross \
             libc6-arm64-cross \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu
           python3 -m pip install --break-system-packages --upgrade cmake
-          echo "/usr/lib/llvm-20/bin" >> "$GITHUB_PATH"
           echo "PATH=/usr/local/bin:$PATH" >> "$GITHUB_ENV"
 
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup LLVM toolchain
+        uses: ./.github/actions/setup-llvm
+
       - name: Configure environment variables
         run: |
           set -euxo pipefail
-          llvm_root="/usr/lib/llvm-20"
-          host_clang=""
-          host_clangxx=""
-          for candidate in \
-            "$(command -v clang-20 2>/dev/null || true)" \
-            "${llvm_root}/bin/clang" \
-            "$(command -v clang 2>/dev/null || true)"
-          do
-            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
-              host_clang="${candidate}"
-              break
-            fi
-          done
-          for candidate in \
-            "$(command -v clang++-20 2>/dev/null || true)" \
-            "${llvm_root}/bin/clang++" \
-            "$(command -v clang++ 2>/dev/null || true)"
-          do
-            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
-              host_clangxx="${candidate}"
-              break
-            fi
-          done
-          if [ -z "${host_clang}" ] || [ -z "${host_clangxx}" ]; then
-            echo "Failed to resolve host Clang toolchain from llvm-20 packages." >&2
-            exit 1
-          fi
-          echo "LLVM_DIR=${llvm_root}/lib/cmake/llvm" >> $GITHUB_ENV
-          echo "Clang_DIR=${llvm_root}/lib/cmake/clang" >> $GITHUB_ENV
-          echo "HOST_CLANG=${host_clang}" >> $GITHUB_ENV
-          echo "HOST_CLANGXX=${host_clangxx}" >> $GITHUB_ENV
-          echo "GENTEST_CODEGEN_HOST_CLANG=${host_clangxx}" >> $GITHUB_ENV
-          echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
+          echo "HOST_CLANG=${CC}" >> "$GITHUB_ENV"
+          echo "HOST_CLANGXX=${CXX}" >> "$GITHUB_ENV"
+          echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
 
       - name: Show tool versions
         run: |
@@ -252,59 +219,26 @@ jobs:
             unzip \
             tar \
             ca-certificates \
-            clang-20 \
-            clang-tools-20 \
-            libclang-20-dev \
-            libclang-cpp20-dev \
-            llvm-20-dev \
             qemu-user \
             libc6-dev-riscv64-cross \
             libc6-riscv64-cross \
             gcc-riscv64-linux-gnu \
             g++-riscv64-linux-gnu
           python3 -m pip install --break-system-packages --upgrade cmake
-          echo "/usr/lib/llvm-20/bin" >> "$GITHUB_PATH"
           echo "PATH=/usr/local/bin:$PATH" >> "$GITHUB_ENV"
 
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup LLVM toolchain
+        uses: ./.github/actions/setup-llvm
+
       - name: Configure environment variables
         run: |
           set -euxo pipefail
-          llvm_root="/usr/lib/llvm-20"
-          host_clang=""
-          host_clangxx=""
-          for candidate in \
-            "$(command -v clang-20 2>/dev/null || true)" \
-            "${llvm_root}/bin/clang" \
-            "$(command -v clang 2>/dev/null || true)"
-          do
-            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
-              host_clang="${candidate}"
-              break
-            fi
-          done
-          for candidate in \
-            "$(command -v clang++-20 2>/dev/null || true)" \
-            "${llvm_root}/bin/clang++" \
-            "$(command -v clang++ 2>/dev/null || true)"
-          do
-            if [ -n "${candidate}" ] && [ -x "${candidate}" ]; then
-              host_clangxx="${candidate}"
-              break
-            fi
-          done
-          if [ -z "${host_clang}" ] || [ -z "${host_clangxx}" ]; then
-            echo "Failed to resolve host Clang toolchain from llvm-20 packages." >&2
-            exit 1
-          fi
-          echo "LLVM_DIR=${llvm_root}/lib/cmake/llvm" >> $GITHUB_ENV
-          echo "Clang_DIR=${llvm_root}/lib/cmake/clang" >> $GITHUB_ENV
-          echo "HOST_CLANG=${host_clang}" >> $GITHUB_ENV
-          echo "HOST_CLANGXX=${host_clangxx}" >> $GITHUB_ENV
-          echo "GENTEST_CODEGEN_HOST_CLANG=${host_clangxx}" >> $GITHUB_ENV
-          echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
+          echo "HOST_CLANG=${CC}" >> "$GITHUB_ENV"
+          echo "HOST_CLANGXX=${CXX}" >> "$GITHUB_ENV"
+          echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
 
       - name: Show tool versions
         run: |

@@ -30,16 +30,23 @@ in this repository.
 
 ## Routine GitHub coverage
 
+`scripts/llvm_toolchain.json` selects the primary LLVM major and upstream
+release. Lint, coverage, recording, measured reports, backend acceptance, QEMU
+host codegen, and package validation use this LLVM 23 toolchain. Routine matrix
+rows must match that policy; full-profile older-version rows remain compatibility
+coverage. The standalone Clang 20 leak probes retain their specific reproducer
+version. Public releases continue to publish source archives only.
+
 The matrix selector runs before creating platform jobs. Unknown profiles,
 invalid matrix data, and selector failures fail the planning job. There is no
 fallback that silently starts the exhaustive matrix.
 
 | Environment | Configuration |
 | --- | --- |
-| Ubuntu 25.10, Clang 20 | Debug |
-| Ubuntu 24.04, GCC | Release |
-| Fedora 43, LLVM 22 | ASan + UBSan |
-| Windows, LLVM 22 | RelWithDebInfo, plus the MSVC RelWithDebInfo step |
+| Ubuntu 24.04, LLVM 23 | Debug |
+| Ubuntu 24.04, GCC with LLVM 23 codegen | Release |
+| Ubuntu 24.04, LLVM 23 | ASan + UBSan |
+| Windows, LLVM 23 | RelWithDebInfo, plus the MSVC RelWithDebInfo step |
 | macOS, Homebrew LLVM 23 | Debug |
 
 All five build the authored targets and run `ci-smoke` tests. This label covers

@@ -184,7 +184,7 @@ CalibratedEpoch calibrate_epoch_iterations(const gentest::Case &c, void *ctx, co
             return calibration;
         }
         calibration.iterations *= 2;
-        if (calibration.iterations == 0 || calibration.iterations > (static_cast<std::size_t>(1) << 30)) {
+        if (calibration.iterations == 0 || calibration.iterations > (static_cast<std::size_t>(1) << 30U)) {
             return calibration;
         }
     }

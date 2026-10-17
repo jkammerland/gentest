@@ -317,7 +317,7 @@ auto percent_encode_uri_path(std::string_view path) -> std::string {
             continue;
         }
         encoded.push_back('%');
-        encoded.push_back(kHex[(ch >> 4U) & 0x0FU]);
+        encoded.push_back(kHex[(static_cast<unsigned>(ch) >> 4U) & 0x0FU]);
         encoded.push_back(kHex[ch & 0x0FU]);
     }
     return encoded;

@@ -113,6 +113,43 @@ if(NOT _scan_deps_bare_b STREQUAL "${_fake_scan_deps_b}")
 endif()
 unset(CXX_COMPILER_CLANG_SCAN_DEPS)
 
+# Explicit codegen overrides take precedence over compiler-adjacent discovery.
+# Control both sources so the fixture does not depend on the enclosing CI toolchain.
+set(_had_codegen_scan_deps_env FALSE)
+if(DEFINED ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS})
+  set(_had_codegen_scan_deps_env TRUE)
+endif()
+set(_old_codegen_scan_deps_env "$ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
+
+set(GENTEST_CODEGEN_HOST_CLANG "${_resolver_dir_a}/clang++")
+set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${_fake_scan_deps_a}")
+unset(GENTEST_CODEGEN_CLANG_SCAN_DEPS)
+set(ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS} "${_fake_scan_deps_b}")
+_gentest_resolve_codegen_clang_scan_deps(_codegen_env_override)
+if(NOT _codegen_env_override STREQUAL "${_fake_scan_deps_b}")
+  message(FATAL_ERROR
+    "Expected the explicit environment scanner to take precedence over compiler scanner discovery, got '${_codegen_env_override}'")
+endif()
+
+set(GENTEST_CODEGEN_CLANG_SCAN_DEPS "${_fake_scan_deps_a}")
+_gentest_resolve_codegen_clang_scan_deps(_codegen_cmake_override)
+if(NOT _codegen_cmake_override STREQUAL "${_fake_scan_deps_a}")
+  message(FATAL_ERROR
+    "Expected the explicit CMake scanner to take precedence over the environment override, got '${_codegen_cmake_override}'")
+endif()
+unset(GENTEST_CODEGEN_CLANG_SCAN_DEPS)
+
+# An invalid explicit selection must remain visible instead of silently choosing another installation.
+set(_missing_explicit_scan_deps "${_work_dir}/missing-explicit/clang-scan-deps")
+set(ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS} "${_missing_explicit_scan_deps}")
+_gentest_resolve_codegen_clang_scan_deps(_codegen_missing_override)
+if(NOT _codegen_missing_override STREQUAL "${_missing_explicit_scan_deps}")
+  message(FATAL_ERROR
+    "Expected the invalid explicit scanner path to be retained, got '${_codegen_missing_override}'")
+endif()
+
+# Automatic discovery requires no explicit override, including the one exported by setup-llvm in CI.
+unset(ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS})
 if(NOT CMAKE_HOST_WIN32)
   set(CMAKE_EXECUTABLE_SUFFIX ".exe")
   set(GENTEST_CODEGEN_HOST_CLANG "${_resolver_dir_a}/clang++")
@@ -131,6 +168,11 @@ if(NOT CMAKE_HOST_WIN32)
   endif()
 endif()
 
+if(_had_codegen_scan_deps_env)
+  set(ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS} "${_old_codegen_scan_deps_env}")
+else()
+  unset(ENV{GENTEST_CODEGEN_CLANG_SCAN_DEPS})
+endif()
 set(ENV{PATH} "${_old_path}")
 set(CMAKE_PROGRAM_PATH "${_old_cmake_program_path}")
 message(STATUS "clang-scan-deps program resolution regression passed")

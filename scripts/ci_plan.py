@@ -27,6 +27,9 @@ BUILDSYSTEM_LANES = frozenset({"bazel", "meson", "xmake"})
 FORCE_ALL_PATHS = frozenset(
     {
         "scripts/ci_plan.py",
+        "scripts/llvm_toolchain.json",
+        "scripts/llvm_tools.py",
+        "scripts/setup_llvm.sh",
         "tests/scripts/test_ci_plan.py",
     }
 )
@@ -251,6 +254,7 @@ def classify_paths(paths: Iterable[str]) -> dict[str, bool]:
         if (
             path in FORCE_ALL_PATHS
             or path.startswith(".github/workflows/")
+            or path.startswith(".github/actions/")
             or _is_dependency_path(path)
         ):
             return all_enabled()
