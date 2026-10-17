@@ -62,6 +62,7 @@ class ComparisonResult:
     new_cases: list[CaseKey]
     omitted_metrics: list[str]
     unavailable_metrics: list[str]
+    incomparable_cases: list[str]
 
 
 def _as_float(value: Any) -> float | None:
@@ -269,18 +270,26 @@ def compare_reports(
     improvements: list[MetricComparison] = []
     omitted_metrics: list[str] = []
     unavailable_metrics: list[str] = []
+    incomparable_cases: list[str] = []
 
     for key in common_keys:
         semantic_fields = ["execution_mode", "time_source", "sampling_kind"]
-        if key.series is None and baseline[key].sampling_kind == "batch-average":
+        if key.series is None and "batch-average" in (baseline[key].sampling_kind, current[key].sampling_kind):
             semantic_fields.append("calls_per_sample")
+        differences = []
         for field in semantic_fields:
             before_semantics = getattr(baseline[key], field)
             after_semantics = getattr(current[key], field)
             if before_semantics != after_semantics:
-                raise ValueError(
-                    f"{_case_label(key)}: incompatible {field}: baseline={before_semantics!r}, current={after_semantics!r}"
+                differences.append(
+                    f"incompatible {field}: baseline={before_semantics!r}, current={after_semantics!r}"
                 )
+
+        # Valid measurements with different sampling semantics cannot establish a performance change.
+        # Adaptive jitter calibration can change these semantics even between runs of the same binary.
+        if differences:
+            incomparable_cases.append(f"{_case_label(key)}: " + "; ".join(differences))
+            continue
 
         baseline_metrics = baseline[key].metrics or {}
         current_metrics = current[key].metrics or {}
@@ -338,6 +347,7 @@ def compare_reports(
         new_cases=_sorted_keys(current_keys - baseline_keys),
         omitted_metrics=omitted_metrics,
         unavailable_metrics=unavailable_metrics,
+        incomparable_cases=incomparable_cases,
     )
 
 
@@ -443,8 +453,11 @@ def render_markdown(
         f"| Missing benchmarks | {len(result.missing_cases)} |",
         f"| Omitted metric values | {len(result.omitted_metrics)} |",
         f"| Unavailable metric values | {len(result.unavailable_metrics)} |",
+        f"| Not comparable measurements | {len(result.incomparable_cases)} |",
         "",
     ]
+    if not result.comparisons:
+        lines.extend(["No comparable metric values are available; this report cannot establish a performance change.", ""])
     if fail_on_new:
         lines.extend(["Policy: new benchmarks are failures.", ""])
     if fail_on_missing:
@@ -454,6 +467,12 @@ def render_markdown(
     _append_comparison_table(lines, "Improvements", result.improvements)
     _append_case_table(lines, "New Benchmarks", result.new_cases)
     _append_case_table(lines, "Missing Benchmarks", result.missing_cases)
+
+    if result.incomparable_cases:
+        lines.extend(["## Not Comparable", ""])
+        for item in result.incomparable_cases:
+            lines.append(f"- {_markdown_code(item)}")
+        lines.append("")
 
     if result.omitted_metrics:
         lines.extend(["## Omitted Metrics", ""])
@@ -535,6 +554,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.markdown_out.write_text(markdown, encoding="utf-8")
         else:
             sys.stdout.write(markdown)
+
+        # Preserve the diagnostic summary, but never report success without any numeric comparison.
+        if not result.comparisons:
+            raise ValueError("reports contain no comparable metric values")
 
         failed = bool(result.regressions)
         failed = failed or (args.fail_on_new and bool(result.new_cases))

@@ -221,6 +221,70 @@ if(UNIX)
         "stdout:\n${_wrapper_no_summary_out}\n"
         "stderr:\n${_wrapper_no_summary_err}")
     endif()
+
+    # Exercise the actual CI wrapper with reports whose independently calibrated jitter widths differ.
+    # Compatible benchmark regressions remain visible and keep the existing report-only CI policy.
+    file(READ "${_baseline_json}" _wrapper_baseline)
+    file(READ "${_current_json}" _wrapper_current)
+    string(JSON _wrapper_baseline SET "${_wrapper_baseline}" tables 1 rows 0 sampling_kind "\"batch-average\"")
+    string(JSON _wrapper_baseline SET "${_wrapper_baseline}" tables 1 rows 0 calls_per_sample 16384)
+    string(JSON _wrapper_current SET "${_wrapper_current}" tables 1 rows 0 sampling_kind "\"batch-average\"")
+    string(JSON _wrapper_current SET "${_wrapper_current}" tables 1 rows 0 calls_per_sample 32768)
+    file(WRITE "${_work_dir}/wrapper-baseline.json" "${_wrapper_baseline}\n")
+    file(WRITE "${_work_dir}/wrapper-current.json" "${_wrapper_current}\n")
+
+    set(_baseline_runner "${_work_dir}/baseline-report.sh")
+    set(_current_runner "${_work_dir}/current-report.sh")
+    file(WRITE "${_baseline_runner}" [=[#!/usr/bin/env bash
+cat -- "$(dirname -- "${BASH_SOURCE[0]}")/wrapper-baseline.json"
+]=])
+    file(WRITE "${_current_runner}" [=[#!/usr/bin/env bash
+cat -- "$(dirname -- "${BASH_SOURCE[0]}")/wrapper-current.json"
+]=])
+    file(CHMOD "${_baseline_runner}" "${_current_runner}"
+      PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+
+    foreach(_wrapper_threshold IN ITEMS 10 25)
+      file(REMOVE_RECURSE "${_wrapper_dir}")
+      execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env
+          "GENTEST_MEASURED_BASE_EXE=${_baseline_runner}"
+          "GENTEST_MEASURED_CURRENT_EXE=${_current_runner}"
+          "GENTEST_MEASURED_FAIL_REGRESSION_PCT=${_wrapper_threshold}"
+          "GENTEST_MEASURED_COMPARE_SCRIPT=${_script}"
+          "GENTEST_MEASURED_REPORT_DIR=${_wrapper_dir}"
+          "${_bash_program}" "${SOURCE_DIR}/scripts/ci_measured_report_compare.sh"
+        WORKING_DIRECTORY "${_work_dir}"
+        RESULT_VARIABLE _wrapper_adaptive_rc
+        OUTPUT_VARIABLE _wrapper_adaptive_out
+        ERROR_VARIABLE _wrapper_adaptive_err)
+      if(NOT _wrapper_adaptive_rc EQUAL 0)
+        message(FATAL_ERROR
+          "Valid adaptive jitter sampling must preserve the measured comparison report.\n"
+          "stdout:\n${_wrapper_adaptive_out}\n"
+          "stderr:\n${_wrapper_adaptive_err}")
+      endif()
+
+      file(READ "${_wrapper_dir}/comparison-exit-code.txt" _wrapper_comparison_rc)
+      string(STRIP "${_wrapper_comparison_rc}" _wrapper_comparison_rc)
+      if(_wrapper_threshold EQUAL 10)
+        set(_expected_comparison_rc 1)
+      else()
+        set(_expected_comparison_rc 0)
+      endif()
+      if(NOT _wrapper_comparison_rc STREQUAL "${_expected_comparison_rc}")
+        message(FATAL_ERROR "Compatible benchmark regression classification changed: ${_wrapper_comparison_rc}")
+      endif()
+
+      file(READ "${_wrapper_dir}/measured-compare.md" _wrapper_summary)
+      foreach(_expected_text IN ITEMS "## Not Comparable" "jitter/noise" "baseline=16384, current=32768"
+          "Compared metric values | 2" "Not comparable measurements | 1")
+        string(FIND "${_wrapper_summary}" "${_expected_text}" _expected_pos)
+        if(_expected_pos EQUAL -1)
+          message(FATAL_ERROR "Adaptive jitter summary missing '${_expected_text}':\n${_wrapper_summary}")
+        endif()
+      endforeach()
+    endforeach()
   endif()
 endif()
 

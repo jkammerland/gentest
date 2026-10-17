@@ -912,9 +912,12 @@ python3 scripts/compare_measured_reports.py \
 
 The comparison matches bench/jitter rows by name, checks metrics such as
 `median_ns_per_item`, `p95_ns_per_item`, and `stddev_ns_per_item`, reports new
-or missing benchmarks, writes a Markdown summary, and exits non-zero only for
-regressions over the configured threshold unless `--fail-on-new` or
-`--fail-on-missing` is set.
+or missing benchmarks, and writes a Markdown summary. Measurements with different
+execution, timing or sampling semantics (including jitter batch widths) appear under
+**Not Comparable**, without invented performance deltas. Compatible measurements
+are still compared. Exit codes are `0` for no detected regression, `1` for regressions
+over the configured threshold (or `--fail-on-new`/`--fail-on-missing` violations), and
+`2` for invalid inputs or no comparable metric values.
 
 ### Out-of-line definitions
 
