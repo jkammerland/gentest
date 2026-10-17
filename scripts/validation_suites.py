@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import sys
 
-from llvm_tools import LLVM_MAJOR, resolve_tool
+from llvm_tools import HOST_TOOLS, LLVM_MAJOR, select_toolchain
 
 
 @dataclass
@@ -26,11 +26,12 @@ class Command:
 
 def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
                    codegen: Path | None = None, serializers: str = "",
-                   cc: str = f"clang-{LLVM_MAJOR}", cxx: str = f"clang++-{LLVM_MAJOR}") -> list[Command]:
+                   cc: str = f"clang-{LLVM_MAJOR}", cxx: str = f"clang++-{LLVM_MAJOR}", host_clang: str = "") -> list[Command]:
     source, work = source.resolve(), work.resolve()
     common = {"CC": cc, "CXX": cxx, "CCACHE_DISABLE": "1"}
+    host_clang = host_clang or cxx
     if codegen:
-        common.update(GENTEST_CODEGEN=str(codegen), GENTEST_CODEGEN_HOST_CLANG=cxx)
+        common.update(GENTEST_CODEGEN=str(codegen), GENTEST_CODEGEN_HOST_CLANG=host_clang)
     commands: list[Command] = []
 
     def add(*args: object, env: dict[str, str] | None = None):
@@ -90,7 +91,7 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
     elif suite == "meson":
         if not codegen:
             raise ValueError("meson needs --codegen")
-        add("meson", "setup", work / "build", f"-Dcodegen_path={codegen}", f"-Dcodegen_host_clang={cxx}")
+        add("meson", "setup", work / "build", f"-Dcodegen_path={codegen}", f"-Dcodegen_host_clang={host_clang}")
         add("meson", "compile", "-C", work / "build", "-j", jobs)
         add("meson", "test", "-C", work / "build", "--print-errorlogs")
         downstream("CheckMesonWrapConsumer.cmake")
@@ -122,14 +123,16 @@ def main() -> int:
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
-    args.cc = resolve_tool("clang", args.cc)
-    args.cxx = resolve_tool("clang++", args.cxx)
+    # CC/CXX belong to the target lane; host LLVM selection is independent.
+    toolchain = select_toolchain(required=HOST_TOOLS)
+    args.cc = args.cc or toolchain.tools["clang"]
+    args.cxx = args.cxx or toolchain.tools["clang++"]
     args.work.mkdir(parents=True, exist_ok=True)
     commands = suite_commands(args.suite, args.source, args.work, jobs=args.jobs, codegen=args.codegen,
-                              serializers=args.serializers, cc=args.cc, cxx=args.cxx)
+                              serializers=args.serializers, cc=args.cc, cxx=args.cxx, host_clang=toolchain.host_clang)
     for command in commands:
         print("+", subprocess.list2cmdline(command.args), flush=True)
-        subprocess.run(command.args, cwd=command.cwd, env=os.environ | command.env, check=True)
+        subprocess.run(command.args, cwd=command.cwd, env=os.environ | command.env | toolchain.environment(), check=True)
     return 0
 
 

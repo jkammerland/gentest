@@ -17,28 +17,23 @@ should_skip_lint_path() {
     return 1
 }
 
-list_cpp_files() {
-    local tracked_file=""
-    while IFS= read -r tracked_file; do
-        if should_skip_lint_path "${tracked_file}"; then
-            continue
-        fi
-        case "${tracked_file}" in
-        *.c | *.cc | *.cpp | *.cxx | *.cu | *.h | *.hh | *.hpp | *.hxx | *.ipp | *.cppm | *.ixx | *.mpp | *.c++ | *.h++)
-            printf '%s\n' "${tracked_file}"
-            ;;
-        esac
-    done < <(git -c safe.directory="${repo_root}" -C "${repo_root}" ls-files -- include src tests tools)
-}
-
+# Capture Git's status before filtering: process substitution hides failures.
+tracked_files="$(git -c safe.directory="${repo_root}" -C "${repo_root}" ls-files -- include src tests tools)"
 cpp_files=()
-while IFS= read -r cpp_file; do
-    cpp_files+=("${cpp_file}")
-done < <(list_cpp_files)
+while IFS= read -r tracked_file; do
+    if should_skip_lint_path "${tracked_file}"; then
+        continue
+    fi
+    case "${tracked_file}" in
+    *.c | *.cc | *.cpp | *.cxx | *.cu | *.h | *.hh | *.hpp | *.hxx | *.ipp | *.cppm | *.ixx | *.mpp | *.c++ | *.h++)
+        cpp_files+=("${tracked_file}")
+        ;;
+    esac
+done <<< "${tracked_files}"
 
 if [ "${#cpp_files[@]}" -eq 0 ]; then
-    echo "No C++ files found for clang-format check."
-    exit 0
+    echo "No tracked C++ files found for clang-format check." >&2
+    exit 1
 fi
 
 cd "${repo_root}"

@@ -10,6 +10,15 @@ find_package(Clang CONFIG REQUIRED)
 gentest_require_llvm_package_minimum(LLVM 19)
 gentest_require_llvm_package_minimum(Clang 19)
 
+gentest_get_llvm_package_major(_gentest_llvm_major LLVM)
+gentest_get_llvm_package_major(_gentest_clang_major Clang)
+if(NOT _gentest_llvm_major STREQUAL _gentest_clang_major)
+    message(FATAL_ERROR
+        "gentest requires matching LLVM and Clang package majors; found LLVM ${_gentest_llvm_major}, Clang ${_gentest_clang_major}")
+endif()
+
+gentest_normalize_llvm_imported_configs(${LLVM_AVAILABLE_LIBS} ${CLANG_EXPORTED_TARGETS})
+
 gentest_patch_llvm_missing_diaguids(LLVMDebugInfoPDB)
 
 # Try to locate the monolithic libLLVM DSO for toolchains where clang-cpp
@@ -228,9 +237,6 @@ endif()
 # Prefer monolithic clang-cpp when available (more stable across LLVM versions),
 # otherwise fall back to per-component linking.
 if(TARGET clang-cpp)
-    gentest_ensure_imported_config_artifacts(clang-cpp RELWITHDEBINFO)
-    gentest_ensure_imported_config_artifacts(clang-cpp MINSIZEREL)
-
     # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
     # Link it when available; otherwise fall back to LLVMSupport because this
     # tool directly uses llvm::InitLLVM.

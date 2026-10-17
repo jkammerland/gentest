@@ -218,7 +218,7 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_manual_ci.py)
 set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github;ci-compat")
 
-foreach(_gentest_validation_contract IN ITEMS ci_plan ci_matrix llvm_tools clang_leak_probes validate_local discovery_skip coverage_policy)
+foreach(_gentest_validation_contract IN ITEMS ci_plan ci_matrix llvm_tools llvm_dependency_shims clang_leak_probes validate_local discovery_skip coverage_policy)
     add_test(NAME ${_gentest_validation_contract}_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_${_gentest_validation_contract}.py)
     set_property(TEST ${_gentest_validation_contract}_contract APPEND PROPERTY LABELS "scripts;ci-compat")
@@ -3659,6 +3659,12 @@ function(_gentest_add_python_configure_failure_test name source_dir required_sub
     set_tests_properties(${name} PROPERTIES LABELS "${label}")
     set_property(TEST ${name} APPEND PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
 endfunction()
+
+_gentest_add_cmake_helper_test(
+    gentest_llvm_sdk_compatibility
+    ${PROJECT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckLlvmSdk.cmake
+    "cmake;codegen;ci-compat")
 
 _gentest_add_python_configure_failure_test(
     gentest_codegen_output_collision

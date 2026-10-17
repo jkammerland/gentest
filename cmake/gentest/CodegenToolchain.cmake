@@ -125,6 +125,35 @@ function(_gentest_append_adjacent_scan_deps_candidates list_var executable)
     set(${list_var} "${_gentest_candidates}" PARENT_SCOPE)
 endfunction()
 
+function(_gentest_find_clang_scan_deps out_var)
+    # Share candidate discovery between host-codegen and target-compiler roles.
+    # Each caller supplies only the role's explicit/adjacent candidates.
+    set(_gentest_candidates ${ARGN})
+    if(DEFINED LLVM_VERSION_MAJOR AND NOT "${LLVM_VERSION_MAJOR}" STREQUAL "")
+        list(APPEND _gentest_candidates "clang-scan-deps-${LLVM_VERSION_MAJOR}")
+    elseif(LLVM_PACKAGE_VERSION MATCHES "^([0-9]+)")
+        list(APPEND _gentest_candidates "clang-scan-deps-${CMAKE_MATCH_1}")
+    endif()
+    list(APPEND _gentest_candidates
+        clang-scan-deps-23 clang-scan-deps-22 clang-scan-deps-21
+        clang-scan-deps-20 clang-scan-deps-19 clang-scan-deps)
+    list(REMOVE_DUPLICATES _gentest_candidates)
+    foreach(_gentest_candidate IN LISTS _gentest_candidates)
+        if(NOT IS_ABSOLUTE "${_gentest_candidate}" AND NOT "${_gentest_candidate}" MATCHES "[/\\\\]")
+            unset(_gentest_resolved_scan_deps)
+            find_program(_gentest_resolved_scan_deps NAMES "${_gentest_candidate}"
+                PATHS ENV PATH NO_DEFAULT_PATH NO_CACHE)
+        else()
+            _gentest_resolve_codegen_program_candidate(_gentest_resolved_scan_deps "${_gentest_candidate}")
+        endif()
+        if(_gentest_resolved_scan_deps)
+            set(${out_var} "${_gentest_resolved_scan_deps}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
 function(_gentest_resolve_codegen_clang_scan_deps out_var)
     # Explicit wiring wins. Keep invalid explicit paths intact so the build
     # reports the selected host-tool path instead of silently choosing another
@@ -166,33 +195,8 @@ function(_gentest_resolve_codegen_clang_scan_deps out_var)
         list(APPEND _gentest_candidates "${LLVM_TOOLS_BINARY_DIR}/clang-scan-deps${_gentest_host_executable_suffix}")
     endif()
 
-    set(_gentest_llvm_major "")
-    if(DEFINED LLVM_VERSION_MAJOR AND NOT "${LLVM_VERSION_MAJOR}" STREQUAL "")
-        set(_gentest_llvm_major "${LLVM_VERSION_MAJOR}")
-    elseif(DEFINED LLVM_PACKAGE_VERSION AND NOT "${LLVM_PACKAGE_VERSION}" STREQUAL "")
-        string(REGEX MATCH "^[0-9]+" _gentest_llvm_major "${LLVM_PACKAGE_VERSION}")
-    endif()
-    if(NOT "${_gentest_llvm_major}" STREQUAL "")
-        list(APPEND _gentest_candidates "clang-scan-deps-${_gentest_llvm_major}")
-    endif()
-    list(APPEND _gentest_candidates
-        clang-scan-deps-23
-        clang-scan-deps-22
-        clang-scan-deps-21
-        clang-scan-deps-20
-        clang-scan-deps-19
-        clang-scan-deps)
-    list(REMOVE_DUPLICATES _gentest_candidates)
-
-    foreach(_gentest_candidate IN LISTS _gentest_candidates)
-        _gentest_resolve_codegen_program_candidate(_gentest_resolved_scan_deps "${_gentest_candidate}")
-        if(NOT "${_gentest_resolved_scan_deps}" STREQUAL "")
-            set(${out_var} "${_gentest_resolved_scan_deps}" PARENT_SCOPE)
-            return()
-        endif()
-    endforeach()
-
-    set(${out_var} "" PARENT_SCOPE)
+    _gentest_find_clang_scan_deps(_gentest_resolved_scan_deps ${_gentest_candidates})
+    set(${out_var} "${_gentest_resolved_scan_deps}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_append_codegen_module_context_args command_var target clang_scan_deps)

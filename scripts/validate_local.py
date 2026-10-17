@@ -21,7 +21,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
-from llvm_tools import LLVM_MAJOR, resolve_tool
+from llvm_tools import HOST_TOOLS, LLVM_MAJOR, select_toolchain
 from validation_suites import Command, suite_commands
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +36,7 @@ def required_stages(host: str) -> list[str]:
                 "package", "host-codegen", "aarch64-qemu", "riscv64-qemu", "bazel", "meson", "xmake",
                 "recording", "measured", "lint"]
     if host == "Windows":
-        return [f"{compiler}-{config}" for compiler in ("clang", "msvc") for config in ("debug", "release")]
+        return [f"{compiler}-relwithdebinfo" for compiler in ("clang", "msvc")]
     if host == "Darwin":
         return [f"{compiler}-{config}" for compiler in ("appleclang", "llvm") for config in ("debug", "release")]
     raise ValueError(f"Unsupported host: {host}")
@@ -88,27 +88,36 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
     stages: list[Stage] = []
     presets = json.loads((source / "CMakePresets.json").read_text(encoding="utf-8"))
     by_name = {p["name"]: p for p in presets["configurePresets"]}
+    selection_error = ""
+    try:
+        toolchain = select_toolchain(required=HOST_TOOLS)
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        # A plan may describe unavailable capabilities, but it must never turn
+        # an invalid explicit selection into an executable fallback configure.
+        toolchain = None
+        selection_error = str(error)
+
+    analysis, analysis_errors = {}, {}
+    if host == "Linux":
+        for stage, tools in (("coverage", ("llvm-cov",)), ("lint", ("clang-tidy", "clang-format"))):
+            try:
+                analysis[stage] = select_toolchain(required=tools, packages=False)
+            except (ValueError, OSError, subprocess.CalledProcessError) as error:
+                analysis_errors[stage] = str(error)
+
     def primary_tool(name: str, override: str = "") -> str:
-        try:
-            return resolve_tool(name, override)
-        except (ValueError, OSError, subprocess.CalledProcessError):
-            # Keep plan construction possible on hosts missing a capability.
-            # Execution checks the version before configuring any build.
-            return override or f"{name}-{LLVM_MAJOR}"
+        selections = [toolchain, *analysis.values()]
+        return next((selection.tools[name] for selection in selections if selection and name in selection.tools),
+                    override or f"{name}-{LLVM_MAJOR}")
 
     clang = primary_tool("clang", os.environ.get("GENTEST_CLANG", ""))
     clangxx = primary_tool("clang++", os.environ.get("GENTEST_CLANGXX", ""))
-    if host == "Darwin":
-        # Homebrew's LLVM is keg-only. An explicit prefix is private runtime
-        # configuration, never a hostname/path inventory in this repository.
-        prefix = os.environ.get("GENTEST_LLVM_PREFIX", "")
-        if prefix:
-            clang, clangxx = str(Path(prefix) / "bin/clang"), str(Path(prefix) / "bin/clang++")
-    clang, clangxx = shutil.which(clang) or clang, shutil.which(clangxx) or clangxx
+
+    host_clang = (toolchain.host_clang or clangxx) if toolchain else clangxx
 
     def cmake_stage(name: str, preset: str, cc: str, cxx: str, *, origin: Path = source,
                     extra: tuple[str, ...] = (), targets: tuple[str, ...] = (), tests: bool = True,
-                    cmake: str = "cmake") -> Stage:
+                    cmake: str = "cmake", configuration: str = "") -> Stage:
         build = output / "work" / name
         # Generic --build does not inherit preset environment, so preserve it
         # explicitly for instrumented code generators as well as test programs.
@@ -119,14 +128,18 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         args = [cmake, "--preset=" + preset, "-B", str(build)]
         if cc:
             args += ["-DCMAKE_C_COMPILER=" + cc, "-DCMAKE_CXX_COMPILER=" + cxx]
-        args += ["-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO", "-DGENTEST_USE_BOOST_JSON=ON", *extra]
+        args += ["-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO", "-DGENTEST_USE_BOOST_JSON=ON",
+                 "-DGENTEST_CODEGEN_HOST_CLANG=" + host_clang,
+                 "-DGENTEST_CODEGEN_CLANG_SCAN_DEPS=" + primary_tool("clang-scan-deps"), *extra]
         boost_include = os.environ.get("GENTEST_BOOST_JSON_INCLUDE_DIR", "")
         if boost_include and "-DGENTEST_USE_BOOST_JSON=OFF" not in extra:
             args.append("-DGENTEST_BOOST_JSON_INCLUDE_DIR=" + boost_include)
         commands = [Command(args, origin, env), Command([cmake, "--build", str(build), "--parallel", str(jobs),
+                    *(["--config", configuration] if configuration else []),
                     *(["--target", *targets] if targets else [])], origin, env)]
         if tests:
             commands.append(Command([ctest, "--preset=" + preset, "--test-dir", str(build), "--output-on-failure",
+                *(["-C", configuration] if configuration else []),
                 "--no-tests=error", "--parallel", "1" if name == "coverage" else str(jobs),
                 "--output-junit", str(output / "evidence" / (name + ".xml"))], origin, env))
         stage = Stage(name, commands, [cmake, ctest, "ninja", *([cc, cxx] if cc else [])])
@@ -161,7 +174,7 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
             name = arch + "-qemu"
             targets = next(p["targets"] for p in presets["buildPresets"] if p["name"] == name)
             cross = cmake_stage(name, name, "", "", targets=tuple(targets), extra=(
-                f"-DGENTEST_CODEGEN_EXECUTABLE={codegen}", f"-DGENTEST_CODEGEN_HOST_CLANG={clangxx}",
+                f"-DGENTEST_CODEGEN_EXECUTABLE={codegen}", f"-DGENTEST_CODEGEN_HOST_CLANG={host_clang}",
                 "-DGENTEST_USE_BOOST_JSON=OFF"))
             cross.tools += [arch + "-linux-gnu-g++", "qemu-" + arch]
             cross.dependencies = ["host-codegen"]
@@ -170,7 +183,7 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
             prefix = os.environ.get("GENTEST_SERIALIZER_PREFIX", "")
             missing = "GENTEST_SERIALIZER_PREFIX must name installed Glaze and cbor_tags" if suite == "recording" and not prefix else ""
             commands = [] if missing else suite_commands(suite, source, work, jobs=jobs, codegen=codegen,
-                serializers=prefix, cc=clang, cxx=clangxx)
+                serializers=prefix, cc=clang, cxx=clangxx, host_clang=host_clang)
             stages.append(Stage(suite, commands, ["cmake", "ninja", clang, clangxx] + ([] if suite == "recording" else [suite]),
                                 ["host-codegen"] if suite in ("meson", "xmake") else [], missing))
         # Build both benchmark executables with the same installed toolchain.
@@ -189,29 +202,28 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         compilers = [("clang", clang, clangxx), ("msvc", "cl", "cl")] if host == "Windows" else [
             ("appleclang", "/usr/bin/clang", "/usr/bin/clang++"), ("llvm", clang, clangxx)]
         for compiler, cc, cxx in compilers:
+            if host == "Windows":
+                cmake_stage(compiler + "-relwithdebinfo", "release-system", cc, cxx,
+                            extra=("-DCMAKE_BUILD_TYPE=RelWithDebInfo",), configuration="RelWithDebInfo")
+                continue
+
             for config in ("debug", "release"):
-                extra = ("-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON",) if host == "Windows" and config == "debug" else ()
-                stage = cmake_stage(compiler + "-" + config, config + "-system", cc, cxx, extra=extra)
+                stage = cmake_stage(compiler + "-" + config, config + "-system", cc, cxx)
                 if host == "Darwin" and compiler == "llvm" and Path(cxx).resolve() == Path("/usr/bin/clang++").resolve():
                     stage.missing = "Select Homebrew LLVM with GENTEST_LLVM_PREFIX (AppleClang is a separate lane)"
     assert [stage.name for stage in stages] == required_stages(host)
-    llvm_prefix = os.environ.get("GENTEST_LLVM_PREFIX", "")
-    if not llvm_prefix and Path(clangxx).is_file():
-        llvm_prefix = str(Path(clangxx).resolve().parent.parent)
-
     for stage in stages:
-        if stage.name not in {"appleclang-debug", "appleclang-release"}:
-            stage.commands.insert(0, Command([sys.executable, str(source / "scripts/llvm_tools.py"), "check", clang, clangxx], source))
+        required_tools = (*HOST_TOOLS, *(analysis[stage.name].tools if stage.name in analysis else ()))
+        stage.commands.insert(0, Command([sys.executable, str(source / "scripts/llvm_tools.py"),
+                                         "check-toolchain", "--tools", *dict.fromkeys(required_tools)], source))
+        stage.missing = "; ".join(filter(None, (selection_error, analysis_errors.get(stage.name, ""), stage.missing)))
         if stage.name == "lint":
             stage.tools = ["bash", primary_tool("clang-format"), primary_tool("clang-tidy")]
-        if llvm_prefix:
+        if toolchain:
             for command in stage.commands:
-                command.env["PATH"] = str(Path(llvm_prefix) / "bin") + os.pathsep + os.environ.get("PATH", "")
-                for libdir in ("lib", "lib64"):
-                    cmake_dir = Path(llvm_prefix) / libdir / "cmake"
-                    if (cmake_dir / "llvm/LLVMConfig.cmake").is_file() and (cmake_dir / "clang/ClangConfig.cmake").is_file():
-                        command.env.update(LLVM_DIR=str(cmake_dir / "llvm"), Clang_DIR=str(cmake_dir / "clang"))
-                        break
+                command.env.update(toolchain.environment())
+                if stage.name in analysis:
+                    command.env.update(analysis[stage.name].environment())
     return stages
 
 

@@ -1005,38 +1005,16 @@ function(gentest_resolve_program_candidate out_program candidate)
 endfunction()
 
 function(gentest_find_clang_scan_deps out_program compiler_path)
+  include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../../cmake/gentest/CodegenToolchain.cmake")
+
+  # This is the target compiler's scanner. Host-codegen environment overrides
+  # belong to _gentest_resolve_codegen_clang_scan_deps(), not this role.
   set(_candidates)
-  if(DEFINED CXX_COMPILER_CLANG_SCAN_DEPS AND NOT "${CXX_COMPILER_CLANG_SCAN_DEPS}" STREQUAL "")
-    list(APPEND _candidates "${CXX_COMPILER_CLANG_SCAN_DEPS}")
+  gentest_resolve_program_candidate(_explicit "${CXX_COMPILER_CLANG_SCAN_DEPS}")
+  if(NOT "${_explicit}" STREQUAL "")
+    list(APPEND _candidates "${_explicit}")
   endif()
-  if(NOT "${compiler_path}" STREQUAL "")
-    get_filename_component(_compiler_dir "${compiler_path}" DIRECTORY)
-    if(CMAKE_HOST_WIN32)
-      list(APPEND _candidates "${_compiler_dir}/clang-scan-deps.exe")
-      file(GLOB _versioned_scan_deps LIST_DIRECTORIES FALSE "${_compiler_dir}/clang-scan-deps-*.exe")
-    else()
-      list(APPEND _candidates "${_compiler_dir}/clang-scan-deps")
-      file(GLOB _versioned_scan_deps LIST_DIRECTORIES FALSE "${_compiler_dir}/clang-scan-deps-*")
-    endif()
-    list(APPEND _candidates ${_versioned_scan_deps})
-  endif()
-
-  list(APPEND _candidates
-    "clang-scan-deps-23"
-    "clang-scan-deps-22"
-    "clang-scan-deps-21"
-    "clang-scan-deps-20"
-    "clang-scan-deps-19"
-    "clang-scan-deps")
-
-  list(REMOVE_DUPLICATES _candidates)
-  foreach(_candidate IN LISTS _candidates)
-    gentest_resolve_program_candidate(_resolved_candidate "${_candidate}")
-    if(NOT "${_resolved_candidate}" STREQUAL "")
-      set(${out_program} "${_resolved_candidate}" PARENT_SCOPE)
-      return()
-    endif()
-  endforeach()
-
-  set(${out_program} "" PARENT_SCOPE)
+  _gentest_append_adjacent_scan_deps_candidates(_candidates "${compiler_path}")
+  _gentest_find_clang_scan_deps(_selected ${_candidates})
+  set(${out_program} "${_selected}" PARENT_SCOPE)
 endfunction()
