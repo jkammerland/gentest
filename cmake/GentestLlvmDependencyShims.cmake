@@ -148,11 +148,11 @@ function(gentest_patch_llvm_missing_diaguids)
 
     file(GLOB _gentest_diaguids_candidates
         LIST_DIRECTORIES FALSE
-        "C:/Program Files/Microsoft Visual Studio/2022/*/DIA SDK/lib/amd64/diaguids.lib"
-        "C:/Program Files (x86)/Microsoft Visual Studio/2022/*/DIA SDK/lib/amd64/diaguids.lib"
-        "C:/Program Files/Microsoft Visual Studio/2019/*/DIA SDK/lib/amd64/diaguids.lib"
-        "C:/Program Files (x86)/Microsoft Visual Studio/2019/*/DIA SDK/lib/amd64/diaguids.lib")
+        "C:/Program Files/Microsoft Visual Studio/*/*/DIA SDK/lib/amd64/diaguids.lib"
+        "C:/Program Files (x86)/Microsoft Visual Studio/*/*/DIA SDK/lib/amd64/diaguids.lib")
     if(_gentest_diaguids_candidates)
+        # The installed Visual Studio version need not match the SDK builder's.
+        list(SORT _gentest_diaguids_candidates COMPARE NATURAL ORDER DESCENDING)
         list(GET _gentest_diaguids_candidates 0 _gentest_diaguids_lib)
     endif()
 

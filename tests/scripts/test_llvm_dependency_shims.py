@@ -1,5 +1,6 @@
 """Configure and link imported libraries using real archives and CMake mappings."""
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import tempfile
@@ -165,6 +166,21 @@ endif()
     def test_missing_artifact_remains_a_configuration_failure(self):
         result = self.configure('add_library(component STATIC IMPORTED)\nset(LLVM_AVAILABLE_LIBS component)', succeeds=False)
         self.assertIn("IMPORTED_LOCATION", result.stderr)
+
+    @unittest.skipUnless(os.name == "nt", "DIA SDK imports apply to native Windows SDKs")
+    def test_stale_diaguids_import_uses_installed_sdk(self):
+        self.configure(self.library() + '''
+add_library(pdb INTERFACE IMPORTED)
+set_property(TARGET pdb PROPERTY INTERFACE_LINK_LIBRARIES
+  "${CMAKE_BINARY_DIR}/obsolete-sdk/DIA SDK/lib/amd64/diaguids.lib")
+gentest_patch_llvm_missing_diaguids(pdb)
+set_property(TARGET component PROPERTY INTERFACE_LINK_LIBRARIES pdb)
+''', '''
+get_target_property(dia pdb INTERFACE_LINK_LIBRARIES)
+if(NOT EXISTS "${dia}")
+  message(FATAL_ERROR "Stale DIA dependency was not replaced by an installed library: ${dia}")
+endif()
+''')
 
 
 if __name__ == "__main__":

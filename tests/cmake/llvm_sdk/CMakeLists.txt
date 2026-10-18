@@ -6,6 +6,7 @@ gentest_prepare_llvm_package_imports()
 find_package(LLVM CONFIG REQUIRED)
 find_package(Clang CONFIG REQUIRED)
 gentest_normalize_llvm_imported_configs(${LLVM_AVAILABLE_LIBS} ${CLANG_EXPORTED_TARGETS})
+gentest_patch_llvm_missing_diaguids(LLVMDebugInfoPDB)
 
 # Compile and link against the actual SDK, including the component introduced
 # in LLVM 23. Codegen's module integration tests exercise discovery itself.

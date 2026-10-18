@@ -5,6 +5,22 @@ set(_build "${BUILD_ROOT}/sdk")
 file(REMOVE_RECURSE "${_build}")
 set(_args "-DGENTEST_SOURCE_DIR=${GENTEST_SOURCE_DIR}")
 
+# Keep the requested compiler meaningful on Windows: Visual Studio otherwise
+# selects its own driver when an outer Ninja fixture asks for native Clang.
+set(_generator_args)
+if(DEFINED GENERATOR AND NOT "${GENERATOR}" STREQUAL "")
+  list(APPEND _generator_args -G "${GENERATOR}")
+endif()
+if(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")
+  list(APPEND _generator_args -A "${GENERATOR_PLATFORM}")
+endif()
+if(DEFINED GENERATOR_TOOLSET AND NOT "${GENERATOR_TOOLSET}" STREQUAL "")
+  list(APPEND _generator_args -T "${GENERATOR_TOOLSET}")
+endif()
+if(DEFINED MAKE_PROGRAM AND NOT "${MAKE_PROGRAM}" STREQUAL "")
+  list(APPEND _args "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
+endif()
+
 # SDK libraries and their probe execute on the host, including in QEMU lanes.
 if(DEFINED TOOLCHAIN_FILE AND NOT "${TOOLCHAIN_FILE}" STREQUAL "")
   gentest_resolve_clang_fixture_compilers(C_COMPILER CXX_COMPILER)
@@ -26,6 +42,7 @@ endforeach()
 gentest_append_windows_native_llvm_cache_args(_args "${CXX_COMPILER}" ${_args})
 gentest_resolve_fixture_build_type(_configuration "${CXX_COMPILER}" "${BUILD_TYPE}")
 gentest_check_run_or_fail(COMMAND "${CMAKE_COMMAND}"
+  ${_generator_args}
   -S "${GENTEST_SOURCE_DIR}/tests/cmake/llvm_sdk" -B "${_build}"
   "-DCMAKE_BUILD_TYPE=${_configuration}" "-DCMAKE_CONFIGURATION_TYPES=${_configuration}" ${_args})
 gentest_check_run_or_fail(COMMAND "${CMAKE_COMMAND}" --build "${_build}" --config "${_configuration}")
