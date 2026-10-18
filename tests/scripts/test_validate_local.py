@@ -12,6 +12,9 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 import validate_local as validator
+import validation_suites
+from llvm_tools import LLVM_MAJOR, TOOL_OVERRIDES, Toolchain
+from llvm_tool_fixture import fake_toolchain
 from validation_suites import Command, suite_commands
 
 COMMIT = "1" * 40
@@ -170,20 +173,25 @@ class ExecutionTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
-    def commands_without_preflight(self, stage):
-        return [command.args for command in stage.commands if "check" not in command.args[:3]]
+    def setUp(self):
+        prefix = Path("/selected-llvm")
+        self.selection = patch.object(validator, "select_toolchain", return_value=Toolchain(
+            {name: str(prefix / "bin" / name) for name in TOOL_OVERRIDES},
+            str(prefix / "lib/cmake/llvm"), str(prefix / "lib/cmake/clang")))
+        self.selection.start()
+        self.addCleanup(self.selection.stop)
 
+    def commands_without_preflight(self, stage):
+        return [command.args for command in stage.commands if "check-toolchain" not in command.args[:3]]
+
+    @unittest.skipIf(os.name == "nt", "Fake executables use POSIX shell scripts")
     def test_explicit_llvm_prefix_keeps_compilers_libraries_and_coverage_together(self):
+        self.selection.stop()
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
-            prefix = output / "llvm"
-            for package in ("llvm", "clang"):
-                config = prefix / "lib/cmake" / package / ("LLVMConfig.cmake" if package == "llvm" else "ClangConfig.cmake")
-                config.parent.mkdir(parents=True)
-                config.write_text("# fixture package\n")
+            prefix = fake_toolchain(output / "llvm", LLVM_MAJOR)
 
-            with patch.dict(os.environ, {"GENTEST_LLVM_PREFIX": str(prefix)}, clear=True), \
-                    patch.object(validator, "resolve_tool", side_effect=lambda name, override="": str(prefix / "bin" / name)):
+            with patch.dict(os.environ, {"GENTEST_LLVM_PREFIX": str(prefix)}, clear=True):
                 stages = validator.make_plan("Linux", ROOT, output, output / "base", 2)
 
             for stage in stages:
@@ -197,14 +205,31 @@ class PlanTests(unittest.TestCase):
             for command in gcov_commands:
                 self.assertEqual(command[command.index("--gcov") + 1], str(prefix / "bin/llvm-cov"))
 
-    def test_full_native_lanes_and_windows_skip(self):
+    @unittest.skipIf(os.name == "nt", "Fake executables use POSIX shell scripts")
+    def test_stale_explicit_prefix_with_valid_path_never_executes_configure(self):
+        self.selection.stop()
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            stale = fake_toolchain(output / "stale", 21)
+            valid = fake_toolchain(output / "valid", LLVM_MAJOR)
+            with patch.dict(os.environ, {"PATH": str(valid / "bin"), "GENTEST_LLVM_PREFIX": str(stale)}, clear=True):
+                stages = validator.make_plan("Linux", ROOT, output, output / "base", 2)
+                with patch.object(validator, "execute", side_effect=AssertionError("configure must not execute")) as execute, \
+                        patch.object(validator.shutil, "which", side_effect=lambda name: name):
+                    for stage in stages:
+                        self.assertIn("Expected LLVM", stage.missing)
+                        result = validator.run_stage(stage, output, 10, {}, {})
+                        self.assertEqual(result["status"], "INCOMPLETE")
+                    execute.assert_not_called()
+
+    def test_full_native_lanes_and_windows_configuration(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=True):
             output = Path(temp)
             linux = validator.make_plan("Linux", ROOT, output, output / "base", 2)
             self.assertEqual(len(linux), 16)
             stages = {s.name: s for s in linux}
             for stage in linux:
-                self.assertEqual(stage.commands[0].args[1:3], [str(ROOT / "scripts/llvm_tools.py"), "check"])
+                self.assertEqual(stage.commands[0].args[1:3], [str(ROOT / "scripts/llvm_tools.py"), "check-toolchain"])
             self.assertIn("--preset=alusan-system", self.commands_without_preflight(stages["asan-ubsan"])[0])
             self.assertIn("--preset=tsan-system", self.commands_without_preflight(stages["tsan"])[0])
             self.assertIn("--parallel", self.commands_without_preflight(stages["coverage"])[2])
@@ -214,12 +239,59 @@ class PlanTests(unittest.TestCase):
                 self.assertNotIn("--label-regex", self.commands_without_preflight(stage)[2])
                 self.assertIn("--no-tests=error", self.commands_without_preflight(stage)[2])
             windows = validator.make_plan("Windows", ROOT, output, output / "base", 2)
-            self.assertEqual([s.name for s in windows], ["clang-debug", "clang-release", "msvc-debug", "msvc-release"])
+            self.assertEqual([s.name for s in windows], ["clang-relwithdebinfo", "msvc-relwithdebinfo"])
             for stage in windows:
-                self.assertEqual(stage.commands[0].args[1:3], [str(ROOT / "scripts/llvm_tools.py"), "check"])
-                self.assertEqual("-DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=ON" in self.commands_without_preflight(stage)[0], stage.name.endswith("-debug"))
+                self.assertEqual(stage.commands[0].args[1:3], [str(ROOT / "scripts/llvm_tools.py"), "check-toolchain"])
+                configure, build, test = self.commands_without_preflight(stage)
+                self.assertIn("-DCMAKE_BUILD_TYPE=RelWithDebInfo", configure)
+                self.assertEqual(build[build.index("--config") + 1], "RelWithDebInfo")
+                self.assertEqual(test[test.index("-C") + 1], "RelWithDebInfo")
             mac = validator.make_plan("Darwin", ROOT, output, output / "base", 2)
             self.assertEqual([s.name for s in mac], ["appleclang-debug", "appleclang-release", "llvm-debug", "llvm-release"])
+
+    @unittest.skipIf(os.name == "nt", "Fake executables use POSIX shell scripts")
+    def test_missing_analysis_tools_do_not_block_build_lanes(self):
+        self.selection.stop()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            prefix = fake_toolchain(root / "llvm", LLVM_MAJOR)
+            for tool in ("clang-format", "clang-tidy", "llvm-cov"):
+                (prefix / "bin" / tool).unlink()
+            with patch.dict(os.environ, {"GENTEST_LLVM_PREFIX": str(prefix)}, clear=True):
+                stages = {stage.name: stage for stage in validator.make_plan("Linux", ROOT, root, root / "base", 2)}
+                windows = validator.make_plan("Windows", ROOT, root, root / "base", 2)
+            self.assertFalse(stages["clang-debug"].missing)
+            self.assertTrue(stages["lint"].missing)
+            self.assertTrue(stages["coverage"].missing)
+            self.assertTrue(all(not stage.missing for stage in windows))
+
+    def test_suite_target_compiler_is_independent_of_host_llvm(self):
+        with tempfile.TemporaryDirectory() as temp, \
+                patch.object(sys, "argv", ["validation_suites.py", "bazel", "--work", temp, "--cc", "gcc", "--cxx", "g++"]), \
+                patch.object(validation_suites, "select_toolchain", return_value=Toolchain(
+                    {"clang": "/llvm/bin/clang", "clang++": "/llvm/bin/clang++", "clang-scan-deps": "/llvm/bin/clang-scan-deps"},
+                    host_clang="/llvm/bin/clang++")) as select, \
+                patch.object(validation_suites, "suite_commands", return_value=[]) as commands:
+            self.assertEqual(validation_suites.main(), 0)
+        self.assertEqual(commands.call_args.kwargs["cc"], "gcc")
+        self.assertEqual(commands.call_args.kwargs["cxx"], "g++")
+        self.assertEqual(commands.call_args.kwargs["host_clang"], "/llvm/bin/clang++")
+        self.assertNotIn("cc", select.call_args.kwargs)
+
+    def test_backend_commands_keep_gcc_targets_and_host_scanning_separate(self):
+        with tempfile.TemporaryDirectory() as temp:
+            commands = suite_commands("bazel", ROOT, Path(temp), cc="gcc", cxx="g++",
+                                      host_clang="/host/clang++-23", host_scan_deps="/host/clang-scan-deps-23")
+            for command in commands:
+                self.assertEqual(command.env["CC"], "gcc")
+                self.assertEqual(command.env["CXX"], "g++")
+                self.assertEqual(command.env["GENTEST_BAZEL_LOCAL_CLANG"], "/host/clang++-23")
+                self.assertEqual(command.env["GENTEST_BAZEL_LOCAL_CLANG_SCAN_DEPS"], "/host/clang-scan-deps-23")
+                if command.args[0] == "bazel":
+                    self.assertIn("--repo_env=GENTEST_BAZEL_LOCAL_CLANG_SCAN_DEPS", command.args)
+            commands = suite_commands("xmake", ROOT, Path(temp), cc="gcc", cxx="g++", codegen=Path("/host/codegen"))
+            self.assertIn("--cc=gcc", commands[0].args)
+            self.assertIn("--cxx=g++", commands[0].args)
 
     def test_boost_json_include_override_keeps_the_optional_writer_enabled(self):
         with tempfile.TemporaryDirectory() as temp, \

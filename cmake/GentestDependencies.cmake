@@ -99,6 +99,12 @@ function(gentest_ensure_fmt)
                 GIT_TAG 12.1.0)
             FetchContent_MakeAvailable(fmt)
 
+            # A shared runtime also needs position-independent code in its
+            # fetched static dependency, including on AArch64 and RISC-V.
+            if(GENTEST_RUNTIME_SHARED AND TARGET fmt)
+                set_property(TARGET fmt PROPERTY POSITION_INDEPENDENT_CODE ON)
+            endif()
+
             if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND TARGET fmt)
                 # Treat fetched fmt headers as system headers for downstream
                 # targets to avoid third-party warning noise in project builds.

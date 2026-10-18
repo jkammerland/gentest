@@ -206,6 +206,20 @@ class CoveragePolicyTests(unittest.TestCase):
                 fallback = (self.repo / "src/bench_util.cpp").as_posix()
                 self.assertEqual(any(re.search(pattern, fallback) for pattern in exclusions), compiler == "Clang")
 
+                # High measured percentages must not turn a failed test run
+                # into a valid coverage gate. Preserve useful diagnostic output.
+                incomplete = subprocess.run([sys.executable, str(self.scripts / "coverage_report.py"),
+                                             "--build-dir", str(self.build), "--incomplete", "--gcov", sys.executable],
+                                            env=env, capture_output=True, text=True)
+                self.assertEqual(incomplete.returncode, 1, incomplete.stdout + incomplete.stderr)
+                summary = (self.build / "coverage-report/summary.md").read_text(encoding="utf-8")
+                self.assertIn("INCOMPLETE", summary)
+                self.assertIn("90.0%", summary)
+                self.assertIn("75.0%", summary)
+                self.assertIn("45.0%", summary)
+                args = json.loads(arguments.read_text(encoding="utf-8"))
+                self.assertIn("INCOMPLETE", args[args.index("--html-title") + 1])
+
 
 if __name__ == "__main__":
     unittest.main()

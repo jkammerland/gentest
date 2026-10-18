@@ -1260,9 +1260,9 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME regression_bench_local_fixture_call_teardown_dualfail_allure_preserves_time
         PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
         SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckReportTime.cmake"
-        ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail
+        ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail_time
         DEFINES
-            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail/result-0-result.json"
+            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail_time/result-0-result.json"
             "FORMAT=ALLURE"
             "REQUIRED_SUBSTRING=\"status\":\"failed\""
             "EXPECT_RC=1")
@@ -1279,9 +1279,9 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         NAME regression_jitter_local_fixture_call_teardown_dualfail_allure_preserves_time
         PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
         SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckReportTime.cmake"
-        ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail
+        ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail_time
         DEFINES
-            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail/result-0-result.json"
+            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail_time/result-0-result.json"
             "FORMAT=ALLURE"
             "REQUIRED_SUBSTRING=\"status\":\"failed\""
             "EXPECT_RC=1")

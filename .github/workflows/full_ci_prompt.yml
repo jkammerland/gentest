@@ -1,0 +1,30 @@
+name: Full CI prompt
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  prompt:
+    name: Update full-CI request comment
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: full-ci-control-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      # Metadata only: never check out the PR head or its merge revision here.
+      - name: Checkout default-branch controller
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Update request prompt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/full_ci.py prompt

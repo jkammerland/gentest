@@ -211,14 +211,11 @@ function(_gentest_expect_configure_success test_case out_build_dir)
   file(MAKE_DIRECTORY "${_work_dir}")
   file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
 
+  gentest_prepare_fixture_command(_configure_command COMMAND
+    "${CMAKE_COMMAND}" ${_cmake_gen_args} -S "${_src_dir}" -B "${_build_dir}"
+    ${_cmake_cache_args} "-DTEST_CASE=${test_case}")
   execute_process(
-    COMMAND
-      "${CMAKE_COMMAND}"
-      ${_cmake_gen_args}
-      -S "${_src_dir}"
-      -B "${_build_dir}"
-      ${_cmake_cache_args}
-      "-DTEST_CASE=${test_case}"
+    COMMAND ${_configure_command}
     RESULT_VARIABLE _rc
     OUTPUT_VARIABLE _out
     ERROR_VARIABLE _err
@@ -251,8 +248,9 @@ function(_gentest_expect_build_success build_dir target_name)
 endfunction()
 
 function(_gentest_expect_run_success build_dir executable_name)
+  gentest_fixture_program_command(_run_command "${build_dir}/${executable_name}${CMAKE_EXECUTABLE_SUFFIX}")
   execute_process(
-    COMMAND "${build_dir}/${executable_name}${CMAKE_EXECUTABLE_SUFFIX}"
+    COMMAND ${_run_command}
     RESULT_VARIABLE _run_rc
     OUTPUT_VARIABLE _run_out
     ERROR_VARIABLE _run_err

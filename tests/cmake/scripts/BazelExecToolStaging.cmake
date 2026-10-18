@@ -1,5 +1,32 @@
 include_guard(GLOBAL)
 
+# Inspect the action environment, not incidental SDK paths in inputs or arguments.
+# xcrun may return a versioned alias for the same physical SDK directory.
+function(gentest_bazel_local_sdk_matches out_var action_text selected_sdk)
+  set(${out_var} FALSE PARENT_SCOPE)
+  string(REGEX MATCH "(^|\n)[ \t]*Environment: \\[([^\r\n]*)\\]" _environment_line "${action_text}")
+  if(NOT _environment_line)
+    return()
+  endif()
+  set(_environment "${CMAKE_MATCH_2}")
+  string(REGEX MATCHALL "(^|, )SDKROOT=[^,]*" _sdk_entries "${_environment}")
+  list(LENGTH _sdk_entries _sdk_count)
+  if(NOT _sdk_count EQUAL 1)
+    return()
+  endif()
+  list(GET _sdk_entries 0 _sdk_entry)
+  string(REGEX REPLACE "^(, )?SDKROOT=" "" _action_sdk "${_sdk_entry}")
+  if(NOT IS_ABSOLUTE "${_action_sdk}" OR NOT IS_DIRECTORY "${_action_sdk}"
+     OR NOT IS_ABSOLUTE "${selected_sdk}" OR NOT IS_DIRECTORY "${selected_sdk}")
+    return()
+  endif()
+  file(REAL_PATH "${_action_sdk}" _action_sdk_real)
+  file(REAL_PATH "${selected_sdk}" _selected_sdk_real)
+  if(_action_sdk_real STREQUAL _selected_sdk_real)
+    set(${out_var} TRUE PARENT_SCOPE)
+  endif()
+endfunction()
+
 # Apple SDKs contain directory aliases as well as a few intentional
 # ancestor/self-referential symlinks. Bazel follows directory symlinks while
 # expanding a recursive glob, so remove only links that resolve to an ancestor

@@ -55,7 +55,9 @@ set(_include_args "-I${_source_dir_norm}/third_party/include")
 set(_extra_args)
 gentest_append_host_apple_sysroot_compile_args(_extra_args)
 gentest_is_msvc_style_compiler(_msvc_style_compiler "${CXX_COMPILER}")
-if(DEFINED CXX_COMPILER_TARGET AND NOT "${CXX_COMPILER_TARGET}" STREQUAL "" AND NOT _msvc_style_compiler)
+# GNU cross drivers select their target through the executable/toolchain.
+if(DEFINED CXX_COMPILER_TARGET AND NOT "${CXX_COMPILER_TARGET}" STREQUAL ""
+    AND CXX_COMPILER_ID MATCHES "^(Clang|AppleClang)$" AND NOT _msvc_style_compiler)
   list(APPEND _extra_args "--target=${CXX_COMPILER_TARGET}")
 endif()
 if(DEFINED CXX_SYSROOT AND NOT "${CXX_SYSROOT}" STREQUAL "" AND NOT _msvc_style_compiler)

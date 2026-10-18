@@ -88,13 +88,11 @@ endif()
 gentest_append_public_modules_cache_arg(_cmake_cache_args)
 gentest_append_windows_path_budget_cache_args(_cmake_cache_args)
 
+gentest_prepare_fixture_command(_configure_command COMMAND
+  "${CMAKE_COMMAND}" ${_cmake_gen_args} -S "${_src_dir}" -B "${_build_dir}" ${_cmake_cache_args})
 execute_process(
   COMMAND
-    "${CMAKE_COMMAND}"
-    ${_cmake_gen_args}
-    -S "${_src_dir}"
-    -B "${_build_dir}"
-    ${_cmake_cache_args}
+    ${_configure_command}
   WORKING_DIRECTORY "${_work_dir}"
   RESULT_VARIABLE _configure_rc
   OUTPUT_VARIABLE _configure_out
@@ -174,8 +172,9 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
 endif()
 set(_exe "${_exe_dir}/header_unit_import_preamble_tests${CMAKE_EXECUTABLE_SUFFIX}")
 
+gentest_prepare_fixture_command(_run_command COMMAND "${_exe}" --run=header_unit/import_preamble)
 execute_process(
-  COMMAND "${_exe}" --run=header_unit/import_preamble
+  COMMAND ${_run_command}
   WORKING_DIRECTORY "${_work_dir}"
   RESULT_VARIABLE _run_rc
   OUTPUT_VARIABLE _run_out

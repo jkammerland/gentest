@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Contract checks for the repository's manual CI entry points.
+"""Event, revision, permission, and completion policy for the discovered CI inventory."""
 
-Actionlint validates YAML and workflow-call schemas; these checks enforce the
-event and concurrency policy across the discovered workflow inventory.
-"""
-
+import copy
+import json
+import os
+from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
+import textwrap
 import unittest
-from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -22,6 +23,10 @@ def events_block(text):
     return match.group(1)
 
 
+def jobs(text):
+    return dict(re.findall(r"(?m)^  ([a-z][a-z0-9-]*):\n((?:    .*\n|\n)+)", text.split("jobs:\n", 1)[1]))
+
+
 class ManualCiTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -29,27 +34,161 @@ class ManualCiTests(unittest.TestCase):
         cls.reusable = {name: text for name, text in cls.workflows.items()
                         if re.search(r"(?m)^  workflow_call:", events_block(text))}
 
-    def test_only_lint_runs_automatically_on_pull_requests(self):
-        self.assertTrue(self.workflows)
-        automatic = set()
-        for name, text in self.workflows.items():
-            with self.subTest(workflow=name):
-                events = re.findall(r"(?m)^  ([a-z_]+):", events_block(text))
-                if "pull_request" in events:
-                    automatic.add(name)
-                self.assertNotIn("pull_request_target", events)
-        self.assertEqual(automatic, {"lint.yml"})
+    def test_automatic_events_run_only_lint_and_metadata_prompt(self):
+        expected = {"pull_request": {"lint.yml"}, "push": {"lint.yml"},
+                    "pull_request_target": {"full_ci_prompt.yml"}, "issue_comment": {"full_ci_request.yml"}}
+        for event, expected_files in expected.items():
+            with self.subTest(event=event):
+                actual = {name for name, text in self.workflows.items()
+                          if re.search(rf"(?m)^  {event}:", events_block(text))}
+                self.assertEqual(actual, expected_files)
+        self.assertIn("branches: [master]", events_block(self.workflows["lint.yml"]))
+        self.assertNotRegex(events_block(self.workflows["ci.yml"]), r"(?m)^  (push|pull_request|schedule):")
 
     def test_pull_request_lint_is_unconditional_for_both_checks(self):
         text = self.workflows["lint.yml"]
         self.assertIn("types: [opened, synchronize, reopened, ready_for_review]", events_block(text))
-        self.assertNotRegex(events_block(text), r"(?m)^    (?:paths|paths-ignore|branches|branches-ignore):")
-        jobs = dict(re.findall(r"(?m)^  ([a-z-]+):\n((?:    .*\n|\n)+)", text.split("jobs:\n", 1)[1]))
-        self.assertEqual(set(jobs), {"format", "tidy"})
-        for name, body in jobs.items():
-            with self.subTest(job=name):
-                self.assertNotRegex(body, r"(?m)^    (?:if|needs):")
+        self.assertNotRegex(events_block(text), r"(?m)^    (?:paths|paths-ignore|branches-ignore):")
+        self.assertEqual(set(jobs(text)), {"format", "tidy"})
+        for body in jobs(text).values():
+            self.assertNotRegex(body, r"(?m)^    (?:if|needs):")
         self.assertNotIn("run_lint", text)
+
+    def test_full_bundle_covers_discovered_suites_without_profile_or_path_skips(self):
+        calls = re.findall(r"(?m)^    uses: \./\.github/workflows/([^\s]+)$", self.workflows["ci.yml"])
+        self.assertEqual(set(calls), set(self.reusable) - {"ci.yml"})
+        self.assertEqual(len(calls), len(set(calls)))
+        self.assertNotIn("release.yml", calls)
+        for name, text in self.reusable.items():
+            with self.subTest(workflow=name):
+                self.assertRegex(events_block(text), r"(?m)^  workflow_dispatch:")
+                self.assertNotIn("ci_plan", text)
+                self.assertNotIn("ci-smoke", text)
+                self.assertNotIn("inputs.profile", text)
+                self.assertNotRegex(text, r"run_(?:cmake|coverage|cross_qemu|bazel|meson|xmake|measured):")
+        self.assertFalse((ROOT / "scripts/ci_plan.py").exists())
+        self.assertIn("run-name: CI (full) — ${{ github.ref_name }}", self.workflows["ci.yml"])
+
+    def test_all_suites_have_distinct_pr_specific_concurrency(self):
+        prefixes = []
+        for name, text in self.reusable.items():
+            with self.subTest(workflow=name):
+                match = re.search(r"(?m)^  group: ([a-z-]+)-\$\{\{ inputs.pr_number && format\('pr-\{0\}', inputs.pr_number\) \|\| github.ref \}\}$", text)
+                self.assertIsNotNone(match)
+                prefixes.append(match[1])
+                self.assertIn("cancel-in-progress: true", text)
+        self.assertEqual(len(prefixes), len(set(prefixes)))
+        for name in ("full_ci_prompt.yml", "full_ci_request.yml"):
+            text = self.workflows[name]
+            self.assertIn("group: full-ci-control-", text)
+            self.assertNotIn("cancel-in-progress: true", text)
+
+    def test_trusted_definitions_pass_pinned_commits_through_every_call(self):
+        request = jobs(self.workflows["full_ci_request.yml"])
+        self.assertIn("uses: ./.github/workflows/ci.yml", request["full"])
+        for input_name in ("candidate_sha", "base_sha", "pr_number"):
+            self.assertIn(input_name + ": ${{ needs.request.outputs." + input_name + " }}", request["full"])
+        for name, body in jobs(self.workflows["ci.yml"]).items():
+            if re.search(r"(?m)^    uses:", body):
+                for input_name in ("candidate_sha", "base_sha", "pr_number"):
+                    self.assertIn(input_name + ": ${{ needs.revision.outputs." + input_name + " }}", body)
+        for name, text in self.workflows.items():
+            self.assertNotIn("secrets: inherit", text)
+            self.assertNotIn("actions: write", text)
+        for name, text in self.reusable.items():
+            self.assertIn("permissions:\n  contents: read", text)
+            self.assertNotRegex(text, r"(?:pull-requests|issues|contents): write")
+
+    def test_workers_checkout_candidate_after_trusted_provisioning(self):
+        for name, text in self.reusable.items():
+            for job, body in jobs(text).items():
+                if "steps:" not in body or name == "ci.yml" or (name == "cmake.yml" and job == "plan") or job == "comparison-base":
+                    continue
+                with self.subTest(workflow=name, job=job):
+                    candidate = "ref: ${{ inputs.candidate_sha || github.sha }}"
+                    self.assertIn(candidate, body)
+                    if "uses: ./.github/actions/setup-llvm" in body:
+                        self.assertIn("ref: ${{ github.workflow_sha }}", body)
+                        self.assertLess(body.index("ref: ${{ github.workflow_sha }}"), body.index("uses: ./.github/actions/setup-llvm"))
+                        self.assertLess(body.index("uses: ./.github/actions/setup-llvm"), body.index(candidate))
+        plan = jobs(self.workflows["cmake.yml"])["plan"]
+        self.assertIn("ref: ${{ github.workflow_sha }}", plan)
+        self.assertNotIn("inputs.candidate_sha", plan)
+        for name, text in self.workflows.items():
+            for block in re.findall(r"uses: actions/checkout@[^\n]+\n((?:        .*\n|\n)+)", text):
+                # Source publication retains its separate signing/pushing permission boundary.
+                if name != "release.yml":
+                    self.assertIn("persist-credentials: false", block)
+
+    def test_metadata_jobs_never_execute_candidate_code_or_poll(self):
+        for name in ("full_ci_prompt.yml", "full_ci_request.yml"):
+            text = self.workflows[name]
+            self.assertNotIn("ref: ${{ inputs.candidate_sha", text)
+            self.assertNotIn("ref: ${{ needs.request.outputs.candidate_sha", text)
+            self.assertNotIn("github.event.comment.body", text)
+            self.assertNotIn("workflow_dispatch", events_block(text))
+        request = self.workflows["full_ci_request.yml"]
+        self.assertIn("types: [created, edited]", events_block(request))
+        self.assertIn("needs: [request, full]", request)
+        self.assertIn("CI_RESULT: ${{ needs.full.result }}", request)
+        prompt = self.workflows["full_ci_prompt.yml"]
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, edited]", events_block(prompt))
+        controller = (ROOT / "scripts/full_ci.py").read_text()
+        self.assertNotIn("author_association", controller)
+        self.assertNotIn("sleep(", controller)
+        self.assertNotIn("subprocess", controller)
+
+    def test_candidate_caches_use_only_restore_actions(self):
+        count = 0
+        for name, text in self.reusable.items():
+            for action in re.findall(r"uses: (actions/cache[^\s]+)", text):
+                self.assertTrue(action.startswith("actions/cache/restore@"), (name, action))
+                count += 1
+            self.assertNotIn("cache-mode:", text)
+        self.assertGreater(count, 0)
+
+    def test_coverage_diagnostics_survive_test_or_counter_failures(self):
+        text = jobs(self.workflows["coverage.yml"])["coverage"]
+        condition = "if: ${{ always() && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}"
+        self.assertEqual(text.count(condition), 2)
+        self.assertIn("id: tests", text)
+        self.assertIn("id: hygiene", text)
+        self.assertIn("COVERAGE_HYGIENE_OUTCOME: ${{ steps.hygiene.outcome }}", text)
+        self.assertIn("report_args+=(--incomplete)", text)
+        self.assertIn("**INCOMPLETE coverage:", text)
+        self.assertNotIn("continue-on-error", text)
+
+    def test_aggregate_rejects_skipped_cancelled_or_failed_suites(self):
+        bundle = jobs(self.workflows["ci.yml"])
+        aggregate = bundle["aggregate"]
+        expected = set(bundle) - {"aggregate"}
+        needs = set(re.search(r"needs: \[([^]]+)\]", aggregate)[1].split(", "))
+        self.assertEqual(needs, expected)
+        self.assertIn("if: ${{ always() }}", aggregate)
+        script = textwrap.dedent(aggregate.split("python3 - <<'PYTHON'\n", 1)[1].split("          PYTHON", 1)[0])
+        with tempfile.TemporaryDirectory() as tmp:
+            results = {name: {"result": "success"} for name in expected}
+            def run():
+                env = {**os.environ, "CI_RESULTS": json.dumps(results), "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary")}
+                return subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True)
+            self.assertEqual(run().returncode, 0)
+            for status in ("failure", "cancelled", "skipped"):
+                with self.subTest(status=status):
+                    results["cmake"]["result"] = status
+                    result = run()
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("cmake", result.stderr)
+
+    def test_measured_base_is_frozen_once_and_never_path_filtered(self):
+        text = self.workflows["measured_reports.yml"]
+        self.assertIn("CI_BASE_REF: ${{ inputs.base_sha || inputs.base_ref || 'master' }}", text)
+        self.assertIn("CI_BASE_SHA: ${{ needs.comparison-base.outputs.base_sha }}", text)
+        self.assertIn('git worktree add --detach "${GENTEST_MEASURED_BASE_SOURCE}" "${CI_BASE_SHA}"', text)
+        self.assertNotIn("github.event.pull_request", text)
+
+    def test_xmake_resource_locks_remain(self):
+        text = (ROOT / "tests/CMakeLists.txt").read_text()
+        self.assertEqual(text.count('PROPERTY RESOURCE_LOCK "xmake"'), 4)
 
     def test_windows_validation_uses_relwithdebinfo(self):
         text = self.workflows["cmake.yml"].split("  windows:\n", 1)[1].split("  linux:\n", 1)[0]
@@ -59,6 +198,7 @@ class ManualCiTests(unittest.TestCase):
         self.assertEqual(text.count('"-C", "RelWithDebInfo"'), 2)
         self.assertNotIn("-DCMAKE_BUILD_TYPE=Debug", text)
         self.assertNotIn("GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS", text)
+
 
     def test_windows_contract_rejects_ci_and_runtime_gate_regressions(self):
         workflow = ".github/workflows/cmake.yml"
@@ -115,60 +255,89 @@ class ManualCiTests(unittest.TestCase):
                     finally:
                         (fixture / path).write_text(files[path], encoding="utf-8")
 
-    def test_bundle_calls_every_reusable_suite_once_at_the_same_revision(self):
-        calls = re.findall(r"(?m)^    uses: \./\.github/workflows/([^\s]+)$", self.workflows["ci.yml"])
-        self.assertTrue(self.reusable)
-        self.assertEqual(set(calls), set(self.reusable))
-        self.assertEqual(len(calls), len(set(calls)))
-        # Release publication must stay outside the validation bundle.
-        self.assertNotIn("release.yml", calls)
 
-    def test_each_suite_retains_a_manual_entry_point(self):
-        for name, text in {"ci.yml": self.workflows["ci.yml"], **self.reusable}.items():
-            with self.subTest(workflow=name):
-                self.assertRegex(events_block(text), r"(?m)^  workflow_dispatch:")
+    def test_package_pr_preset_is_focused_and_parallel(self) -> None:
+        presets = json.loads((ROOT / "CMakePresets.json").read_text(encoding="utf-8"))
+        test_presets = {preset["name"]: preset for preset in presets["testPresets"]}
+        workflow_presets = {preset["name"]: preset for preset in presets["workflowPresets"]}
 
-    def test_master_push_starts_one_bundle(self):
-        automatic = {name for name, text in self.workflows.items()
-                     if re.search(r"(?m)^  push:", events_block(text))}
-        self.assertEqual(automatic, {"ci.yml"})
-        self.assertIn("branches: [master]", events_block(self.workflows["ci.yml"]))
+        parallel_base = test_presets["test-local-parallel-base"]
+        self.assertEqual(parallel_base["execution"]["jobs"], 4)
+        self.assertEqual(parallel_base["environment"]["GENTEST_HELPER_BUILD_PARALLEL_LEVEL"], "1")
+        self.assertEqual(test_presets["release-package-pr"]["filter"]["include"]["label"], "^package$")
 
-    def test_routine_bundle_keeps_expensive_suites_behind_full(self):
-        text = self.workflows["ci.yml"]
-        self.assertIn("default: pr", events_block(text))
-        self.assertIn("CI_PROFILE: ${{ inputs.profile || 'pr' }}", text)
-        jobs = dict(re.findall(r"(?m)^  ([a-z-]+):\n((?:    .*\n|\n)+)", text.split("jobs:\n", 1)[1]))
-        full_only = {name for name, body in jobs.items() if "profile == 'full'" in body}
-        self.assertEqual(full_only, {"coverage", "cross-qemu", "buildsystems", "measured", "clang-leaks"})
-        self.assertIn('*) echo "Unknown CI profile" >&2; exit 1', text)
+        package_pr_steps = workflow_presets["package-pr"]["steps"]
+        self.assertEqual([step["type"] for step in package_pr_steps], ["configure", "build", "test", "package"])
+        self.assertEqual(package_pr_steps[2]["name"], "release-package-pr")
 
-    def test_reused_suites_do_not_cancel_each_other_or_the_caller(self):
-        groups = []
-        for name, text in {"ci.yml": self.workflows["ci.yml"], **self.reusable}.items():
-            with self.subTest(workflow=name):
-                match = re.search(r"(?m)^  group: ([a-z-]+)-\$\{\{ github.ref \}\}$", text)
-                self.assertIsNotNone(match, "use a distinct fixed suite prefix; github.workflow belongs to the caller")
-                groups.append(match.group(1))
-        self.assertEqual(len(groups), len(set(groups)))
+    def test_qemu_contract_rejects_inherited_and_command_line_limits(self):
+        presets = json.loads((ROOT / "CMakePresets.json").read_text())
+        workflow = self.workflows["cross_qemu.yml"]
+        for key in ("BAZELISK_VERSION", "XMAKE_VERSION"):
+            pattern = rf'(?m)^  {key}: "([^"]+)"$'
+            cross_version = re.search(pattern, workflow)
+            native_version = re.search(pattern, self.workflows["buildsystems_linux.yml"])
+            self.assertIsNotNone(cross_version)
+            self.assertIsNotNone(native_version)
+            self.assertEqual(cross_version[1], native_version[1])
+        full_builds = [preset for preset in presets["buildPresets"] if preset["name"].endswith("-qemu-full")]
+        self.assertTrue(full_builds)
+        first = full_builds[0]["name"]
 
-    def test_manual_pr_profile_controls_bash_and_powershell_runners(self):
-        text = self.workflows["cmake.yml"]
-        self.assertIn("GENTEST_CI_PROFILE: ${{ inputs.profile || 'pr' }}", text)
-        self.assertIn('if [ "${GENTEST_CI_PROFILE}" = "pr" ]', text)
-        self.assertIn('if ($env:GENTEST_CI_PROFILE -eq "pr")', text)
-        self.assertNotIn('if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]', text)
-        self.assertNotIn('if ($env:GITHUB_EVENT_NAME -eq "pull_request")', text)
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            (fixture / ".github/workflows").mkdir(parents=True)
 
-    def test_measured_base_is_resolved_once_and_passed_to_the_comparison(self):
-        text = self.workflows["measured_reports.yml"]
-        self.assertIn("CI_BASE_REF: ${{ inputs.base_ref || 'master' }}", text)
-        self.assertIn("base_sha: ${{ steps.base.outputs.sha }}", text)
-        self.assertIn("CI_BASE_SHA: ${{ needs.plan.outputs.base_sha }}", text)
-        self.assertNotIn("github.event.pull_request.base", text)
-        self.assertIn('git fetch --no-tags -- origin "${CI_BASE_REF}"', text)
-        self.assertIn('git worktree add --detach "${GENTEST_MEASURED_BASE_SOURCE}" "${CI_BASE_SHA}"', text)
-        self.assertIn("base_ref: ${{ inputs.base_ref || github.event.before }}", self.workflows["ci.yml"])
+            def check(data, text):
+                (fixture / "CMakePresets.json").write_text(json.dumps(data))
+                (fixture / ".github/workflows/cross_qemu.yml").write_text(text)
+                return subprocess.run(["cmake", f"-DSOURCE_DIR={fixture}", "-P",
+                                       str(ROOT / "tests/cmake/scripts/CheckQemuWorkflowPresets.cmake")],
+                                      capture_output=True, text=True)
+
+            baseline = check(presets, workflow)
+            self.assertEqual(baseline.returncode, 0, baseline.stdout + baseline.stderr)
+
+            # The configure preset may itself be inherited through a hidden parent.
+            inherited_config = copy.deepcopy(presets)
+            selected = next(p for p in inherited_config["buildPresets"] if p["name"] == first)
+            inherited_config["buildPresets"].append({"name": "contract-config", "hidden": True,
+                                                    "configurePreset": selected.pop("configurePreset")})
+            selected["inherits"] = ["contract-config", selected["inherits"]]
+            result = check(inherited_config, workflow)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            for group, base, field, value in (
+                ("buildPresets", "build-base", "targets", ["gentest_unit_tests"]),
+                ("testPresets", "test-base", "filter", {"include": {"label": "public-api"}}),
+            ):
+                with self.subTest(inherited_limit=field):
+                    data = copy.deepcopy(presets)
+                    parent = next(p for p in data[group] if p["name"] == base)
+                    parent["inherits"] = ["contract-empty", "contract-middle"]
+                    data[group].extend([
+                        {"name": "contract-empty", "hidden": True},
+                        {"name": "contract-middle", "hidden": True, "inherits": "contract-limited"},
+                        {"name": "contract-limited", "hidden": True, field: value},
+                    ])
+                    result = check(data, workflow)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("must not restrict", result.stderr)
+
+            build_command = "cmake --build --preset=" + first
+            test_command = "ctest --preset=" + first
+            mutations = (
+                ("smoke build", workflow.replace(build_command, build_command.removesuffix("-full"), 1)),
+                ("explicit build target", workflow.replace(build_command, build_command + " --target gentest_unit_tests", 1)),
+                ("continued build target", workflow.replace(build_command, build_command + " \\\n            --target gentest_unit_tests", 1)),
+                ("CTest label filter", workflow.replace(test_command, test_command + " -L public-api", 1)),
+                ("empty inventory accepted", workflow.replace(" --no-tests=error", "", 1)),
+            )
+            for name, text in mutations:
+                with self.subTest(workflow_limit=name):
+                    self.assertNotEqual(text, workflow)
+                    result = check(presets, text)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

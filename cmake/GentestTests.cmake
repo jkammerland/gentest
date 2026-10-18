@@ -75,8 +75,45 @@ function(gentest_add_suite suite)
 
     if(NOT GENTEST_NO_CTEST)
         add_test(NAME ${suite} COMMAND ${GENTEST_TARGET})
-        set_tests_properties(${suite} PROPERTIES LABELS "suite-${suite};default-suite;ci-compat")
+        set_tests_properties(${suite} PROPERTIES LABELS "suite-${suite};default-suite")
     endif()
+endfunction()
+
+function(gentest_add_python_program_test)
+    set(options NO_EMULATOR)
+    set(one_value_args NAME PROG SCRIPT)
+    set(multi_value_args ARGS)
+    cmake_parse_arguments(PARSE_ARGV 0 GENTEST "${options}" "${one_value_args}" "${multi_value_args}")
+
+    if(NOT GENTEST_NAME OR NOT GENTEST_PROG OR NOT GENTEST_SCRIPT OR NOT Python3_EXECUTABLE)
+        message(FATAL_ERROR "gentest_add_python_program_test: NAME, PROG, SCRIPT, and Python3_EXECUTABLE are required")
+    endif()
+
+    set(_prog "${GENTEST_PROG}")
+    if(TARGET "${GENTEST_PROG}")
+        set(_prog "$<TARGET_FILE:${GENTEST_PROG}>")
+    endif()
+    add_test(NAME ${GENTEST_NAME} COMMAND "${Python3_EXECUTABLE}" "${GENTEST_SCRIPT}" "${_prog}" ${GENTEST_ARGS})
+
+    # Python stays native; its target subprocess receives an explicit argv prefix.
+    set(_emulator_json "[")
+    set(_separator "")
+    if(NOT GENTEST_NO_EMULATOR AND CMAKE_CROSSCOMPILING AND NOT "${CMAKE_CROSSCOMPILING_EMULATOR}" STREQUAL "")
+        foreach(_item IN LISTS CMAKE_CROSSCOMPILING_EMULATOR)
+            string(REPLACE "\\" "\\\\" _escaped "${_item}")
+            string(REPLACE "\"" "\\\"" _escaped "${_escaped}")
+            string(REPLACE "\n" "\\n" _escaped "${_escaped}")
+            string(REPLACE "\r" "\\r" _escaped "${_escaped}")
+            string(REPLACE "\t" "\\t" _escaped "${_escaped}")
+            string(APPEND _emulator_json "${_separator}\"${_escaped}\"")
+            set(_separator ",")
+        endforeach()
+    endif()
+    string(APPEND _emulator_json "]")
+
+    # Escape CTest's environment-property delimiter without shell splitting.
+    string(REPLACE ";" "\\;" _emulator_json "${_emulator_json}")
+    set_property(TEST ${GENTEST_NAME} APPEND PROPERTY ENVIRONMENT "GENTEST_TEST_EMULATOR_JSON=${_emulator_json}")
 endfunction()
 
 function(gentest_add_manual_regression)
@@ -120,7 +157,12 @@ function(gentest_add_cmake_script_test)
     unset(_prog)
 
     set(_emu_def "")
-    if(NOT GENTEST_NO_EMULATOR AND CMAKE_CROSSCOMPILING AND DEFINED CMAKE_CROSSCOMPILING_EMULATOR AND NOT CMAKE_CROSSCOMPILING_EMULATOR STREQUAL "")
+    # These programs always run on the host even inside a cross-build test tree.
+    set(_host_program FALSE)
+    if("${GENTEST_PROG}" STREQUAL "${CMAKE_COMMAND}" OR "${GENTEST_PROG}" STREQUAL "${CMAKE_CTEST_COMMAND}")
+        set(_host_program TRUE)
+    endif()
+    if(NOT GENTEST_NO_EMULATOR AND NOT _host_program AND CMAKE_CROSSCOMPILING AND DEFINED CMAKE_CROSSCOMPILING_EMULATOR AND NOT CMAKE_CROSSCOMPILING_EMULATOR STREQUAL "")
         set(_gentest_emu_items ${CMAKE_CROSSCOMPILING_EMULATOR})
         list(LENGTH _gentest_emu_items _gentest_emu_count)
         string(JOIN ";" _gentest_emu_joined ${_gentest_emu_items})
@@ -452,6 +494,7 @@ function(gentest_add_check_death)
         ${_no_emulator_arg}
         ENCODED_DEFINES ${_encoded_defines}
         DEFINES ${_defines})
+    set_property(TEST ${GENTEST_NAME} APPEND PROPERTY LABELS "death")
 endfunction()
 
 function(gentest_add_check_file_contains)

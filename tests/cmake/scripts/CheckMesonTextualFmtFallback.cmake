@@ -1,7 +1,7 @@
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckMesonTextualFmtFallback.cmake: SOURCE_DIR not set")
 endif()
-if(NOT DEFINED BUILD_ROOT)
+if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
   message(FATAL_ERROR "CheckMesonTextualFmtFallback.cmake: BUILD_ROOT not set")
 endif()
 if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
@@ -9,7 +9,7 @@ if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
 endif()
 
 if(WIN32)
-  message(STATUS "Skipping Meson fmt fallback check on Windows.")
+  message(STATUS "GENTEST_SKIP_TEST: Skipping Meson fmt fallback check on Windows.")
   return()
 endif()
 
@@ -65,29 +65,9 @@ if(NOT EXISTS "${_codegen}")
   message(FATAL_ERROR "CheckMesonTextualFmtFallback.cmake: resolved codegen path does not exist: ${_codegen}")
 endif()
 
-string(MD5 _scratch_hash "${BUILD_ROOT}")
-set(_scratch_base "")
-foreach(_candidate IN ITEMS "/dev/shm" "/tmp")
-  if(EXISTS "${_candidate}")
-    set(_probe_file "${_candidate}/gentest_meson_fmt_probe_${_scratch_hash}")
-    execute_process(
-      COMMAND "${CMAKE_COMMAND}" -E touch "${_probe_file}"
-      RESULT_VARIABLE _probe_rc
-      OUTPUT_QUIET
-      ERROR_QUIET)
-    if(_probe_rc EQUAL 0)
-      file(REMOVE "${_probe_file}")
-      set(_scratch_base "${_candidate}")
-      break()
-    endif()
-  endif()
-endforeach()
-if("${_scratch_base}" STREQUAL "")
-  message(STATUS "GENTEST_SKIP_TEST: no writable scratch root available for Meson fmt fallback check")
-  return()
-endif()
-
-set(_scratch_root "${_scratch_base}/gentest_meson_textual_fmt_fallback_${_scratch_hash}")
+# Keep compiler probes and consumers in the caller's build tree. Writable
+# system temporary directories may still be mounted with noexec.
+set(_scratch_root "${BUILD_ROOT}/meson_textual_fmt_fallback")
 file(REMOVE_RECURSE "${_scratch_root}")
 file(MAKE_DIRECTORY "${_scratch_root}")
 file(MAKE_DIRECTORY "${_scratch_root}/empty-pkgconfig")
@@ -104,7 +84,15 @@ file(CREATE_LINK "${_codegen}" "${_fake_codegen}" SYMBOLIC)
 file(CREATE_LINK "${_fmt_include_root}/fmt" "${_fake_fmt_include}/fmt" SYMBOLIC)
 
 set(_out_dir "${_scratch_root}/meson-fmt-fallback")
-set(_fallback_include_flag "-I${_fake_fmt_include}")
+
+# Meson spells an adjacent fallback inside the source tree relative to that
+# tree. Require that exact include root in either build-directory layout.
+set(_fallback_include_path "${_fake_fmt_include}")
+cmake_path(IS_PREFIX SOURCE_DIR "${_fake_fmt_include}" NORMALIZE _fallback_inside_source)
+if(_fallback_inside_source)
+  file(RELATIVE_PATH _fallback_include_path "${SOURCE_DIR}" "${_fake_fmt_include}")
+endif()
+set(_fallback_include_flag "-I${_fallback_include_path}")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env

@@ -56,7 +56,7 @@
       "cacheVariables": {
         "GENTEST_WITH_LIBASSERT": "ON",
         "GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS": "ON",
-        "GENTEST_LIBASSERT_FIND_PACKAGE": "OFF"
+        "VCPKG_MANIFEST_FEATURES": "libassert"
       }
     },
     {
@@ -448,7 +448,6 @@
         "rhs": "Linux"
       },
       "cacheVariables": {
-        "GENTEST_SKIP_TSAN_DEATH_TESTS": "ON",
         "CMAKE_CXX_FLAGS": "-fsanitize=thread -g -O1 -fno-omit-frame-pointer",
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
         "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=thread",
@@ -470,7 +469,6 @@
       },
       "cacheVariables": {
         "GENTEST_ENABLE_PACKAGE_TESTS": "OFF",
-        "GENTEST_SKIP_TSAN_DEATH_TESTS": "ON",
         "CMAKE_CXX_FLAGS": "-fsanitize=thread -g -O1 -fno-omit-frame-pointer",
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
         "CMAKE_MODULE_LINKER_FLAGS": "-fsanitize=thread",

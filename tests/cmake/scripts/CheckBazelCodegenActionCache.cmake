@@ -517,9 +517,9 @@ if(_local_no_remote_pos EQUAL -1 OR _local_no_cache_pos EQUAL -1 OR _local_no_sa
     "Local fallback codegen action does not disable sandboxing/execution/cache reuse.\n${_local_aquery_out}")
 endif()
 if(APPLE)
-  string(FIND "${_local_aquery_out}" "${_selected_macos_sdk}" _local_absolute_sdk_pos)
+  gentest_bazel_local_sdk_matches(_local_sdk_matches "${_local_aquery_out}" "${_selected_macos_sdk}")
   string(FIND "${_local_aquery_out}" "SDKROOT=external/" _local_relative_sdk_pos)
-  if(_local_absolute_sdk_pos EQUAL -1 OR NOT _local_relative_sdk_pos EQUAL -1)
+  if(NOT _local_sdk_matches OR NOT _local_relative_sdk_pos EQUAL -1)
     message(FATAL_ERROR
       "Local macOS fallback must export the absolute host SDK, never a relative external-repository path.\n"
       "expected SDK: ${_selected_macos_sdk}\n${_local_aquery_out}")

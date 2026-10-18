@@ -11,6 +11,8 @@
 #  -DC_COMPILER=<path>
 #  -DCXX_COMPILER=<path>
 #  -DBUILD_TYPE=<Debug|Release|...>
+#  -DLLVM_DIR=<llvm cmake dir>
+#  -DClang_DIR=<clang cmake dir>
 
 if(NOT DEFINED SOURCE_DIR OR "${SOURCE_DIR}" STREQUAL "")
   message(FATAL_ERROR "CheckInstallOnlyCodegenDefault.cmake: SOURCE_DIR not set")
@@ -29,6 +31,7 @@ if(NOT EXISTS "${_vendored_tip_config}")
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
 set(_work_dir "${BUILD_ROOT}/install_only_codegen_default")
 set(_build_dir "${_work_dir}/build")
@@ -64,6 +67,8 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
+gentest_append_llvm_package_cache_args(_cmake_cache_args)
+
 message(STATUS "Configure install-only producer fixture...")
 gentest_check_run_or_fail(
   COMMAND
@@ -80,10 +85,21 @@ if(NOT EXISTS "${_cache_file}")
   message(FATAL_ERROR "Expected configure to produce '${_cache_file}'")
 endif()
 
+# Read the child platform decision independently of the option under test.
+set(_system_file "${_build_dir}/CMakeFiles/${CMAKE_VERSION}/CMakeSystem.cmake")
+file(STRINGS "${_system_file}" _cross_compiling REGEX "^set\\(CMAKE_CROSSCOMPILING \"(TRUE|FALSE)\"\\)$")
+if(_cross_compiling STREQUAL "set(CMAKE_CROSSCOMPILING \"TRUE\")")
+  set(_expected_codegen OFF)
+elseif(_cross_compiling STREQUAL "set(CMAKE_CROSSCOMPILING \"FALSE\")")
+  set(_expected_codegen ON)
+else()
+  message(FATAL_ERROR "Expected one CMAKE_CROSSCOMPILING decision in '${_system_file}': '${_cross_compiling}'")
+endif()
+
 file(STRINGS "${_cache_file}" _codegen_default REGEX "^GENTEST_BUILD_CODEGEN:BOOL=")
-if(NOT _codegen_default STREQUAL "GENTEST_BUILD_CODEGEN:BOOL=ON")
+if(NOT _codegen_default STREQUAL "GENTEST_BUILD_CODEGEN:BOOL=${_expected_codegen}")
   message(FATAL_ERROR
-    "Install-only producer configure must default GENTEST_BUILD_CODEGEN=ON so the installed CMake package includes gentest_codegen.\n"
+    "Install-only producer configure must default GENTEST_BUILD_CODEGEN=${_expected_codegen}: native installs include the host tool; cross installs require an external host tool.\n"
     "Observed cache entry: '${_codegen_default}'")
 endif()
 
@@ -111,4 +127,4 @@ if(NOT _tip_dir_normalized STREQUAL _expected_tip_dir_normalized)
     "Observed: '${_tip_dir_normalized}'")
 endif()
 
-message(STATUS "Install-only producer configure defaults codegen on, public modules off, and resolves vendored target_install_package")
+message(STATUS "Install-only producer defaults codegen ${_expected_codegen}, public modules off, and resolves vendored target_install_package")

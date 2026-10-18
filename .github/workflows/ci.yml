@@ -1,74 +1,161 @@
 name: CI
-run-name: CI (${{ inputs.profile || 'pr' }}) — ${{ github.ref_name }}
+run-name: CI (full) — ${{ github.ref_name }}
 
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
     inputs:
-      profile:
-        description: Test profile (pr is routine smoke validation; full is the exhaustive fallback)
-        type: choice
-        options: [full, pr]
-        default: pr
       base_ref:
         description: Base branch, tag, or commit for the measured comparison
         type: string
         default: master
+  workflow_call:
+    inputs:
+      candidate_sha:
+        description: Frozen candidate merge commit
+        required: true
+        type: string
+      base_sha:
+        description: Frozen PR base commit
+        required: true
+        type: string
+      pr_number:
+        description: Validated PR number for concurrency isolation
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-full-${{ inputs.pr_number && format('pr-{0}', inputs.pr_number) || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  profile:
-    name: Validate profile
+  revision:
+    name: Freeze full-CI revision
     runs-on: ubuntu-24.04
     outputs:
-      profile: ${{ steps.profile.outputs.profile }}
+      candidate_sha: ${{ steps.revision.outputs.candidate_sha }}
+      base_sha: ${{ steps.revision.outputs.base_sha }}
+      pr_number: ${{ steps.revision.outputs.pr_number }}
     steps:
-      - name: Validate requested profile
-        id: profile
+      - name: Checkout trusted resolver
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Validate and freeze revisions
+        id: revision
         env:
-          CI_PROFILE: ${{ inputs.profile || 'pr' }}
+          CI_CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
+          CI_BASE_SHA: ${{ inputs.base_sha }}
+          CI_BASE_REF: ${{ inputs.base_ref || 'master' }}
+          CI_PR_NUMBER: ${{ inputs.pr_number }}
         run: |
-          case "$CI_PROFILE" in
-            pr|full) echo "profile=$CI_PROFILE" >> "$GITHUB_OUTPUT" ;;
-            *) echo "Unknown CI profile" >&2; exit 1 ;;
-          esac
+          set -euo pipefail
+          [[ "${CI_CANDIDATE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          if [ -n "${CI_PR_NUMBER}" ]; then
+            [[ "${CI_PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]
+            [[ "${CI_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          else
+            git fetch --no-tags -- origin "${CI_BASE_REF}"
+            CI_BASE_SHA="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+          fi
+          printf 'candidate_sha=%s\nbase_sha=%s\npr_number=%s\n' \
+            "${CI_CANDIDATE_SHA}" "${CI_BASE_SHA}" "${CI_PR_NUMBER}" >> "${GITHUB_OUTPUT}"
   cmake:
-    needs: profile
+    needs: revision
     uses: ./.github/workflows/cmake.yml
+    permissions:
+      contents: read
     with:
-      profile: ${{ needs.profile.outputs.profile }}
+      candidate_sha: ${{ needs.revision.outputs.candidate_sha }}
+      base_sha: ${{ needs.revision.outputs.base_sha }}
+      pr_number: ${{ needs.revision.outputs.pr_number }}
   lint:
-    needs: profile
+    needs: revision
     uses: ./.github/workflows/lint.yml
-  coverage:
-    needs: profile
-    if: ${{ needs.profile.outputs.profile == 'full' }}
-    uses: ./.github/workflows/coverage.yml
-  cross-qemu:
-    needs: profile
-    if: ${{ needs.profile.outputs.profile == 'full' }}
-    uses: ./.github/workflows/cross_qemu.yml
-  buildsystems:
-    needs: profile
-    if: ${{ needs.profile.outputs.profile == 'full' }}
-    uses: ./.github/workflows/buildsystems_linux.yml
-  measured:
-    needs: profile
-    if: ${{ needs.profile.outputs.profile == 'full' }}
-    uses: ./.github/workflows/measured_reports.yml
+    permissions:
+      contents: read
     with:
-      base_ref: ${{ inputs.base_ref || github.event.before }}
+      candidate_sha: ${{ needs.revision.outputs.candidate_sha }}
+      base_sha: ${{ needs.revision.outputs.base_sha }}
+      pr_number: ${{ needs.revision.outputs.pr_number }}
+  coverage:
+    needs: revision
+    uses: ./.github/workflows/coverage.yml
+    permissions:
+      contents: read
+    with:
+      candidate_sha: ${{ needs.revision.outputs.candidate_sha }}
+      base_sha: ${{ needs.revision.outputs.base_sha }}
+      pr_number: ${{ needs.revision.outputs.pr_number }}
+  cross-qemu:
+    needs: revision
+    uses: ./.github/workflows/cross_qemu.yml
+    permissions:
+      contents: read
+    with:
+      candidate_sha: ${{ needs.revision.outputs.candidate_sha }}
+      base_sha: ${{ needs.revision.outputs.base_sha }}
+      pr_number: ${{ needs.revision.outputs.pr_number }}
+  buildsystems:
+    needs: revision
+    uses: ./.github/workflows/buildsystems_linux.yml
+    permissions:
+      contents: read
+    with:
+      candidate_sha: ${{ needs.revision.outputs.candidate_sha }}
+      base_sha: ${{ needs.revision.outputs.base_sha }}
+      pr_number: ${{ needs.revision.outputs.pr_number }}
+  measured:
+    needs: revision
+    uses: ./.github/workflows/measured_reports.yml
+    permissions:
+      contents: read
+    with:
+      candidate_sha: ${{ needs.revision.outputs.candidate_sha }}
+      base_sha: ${{ needs.revision.outputs.base_sha }}
+      pr_number: ${{ needs.revision.outputs.pr_number }}
   recording:
-    needs: profile
+    needs: revision
     uses: ./.github/workflows/recording.yml
+    permissions:
+      contents: read
+    with:
+      candidate_sha: ${{ needs.revision.outputs.candidate_sha }}
+      base_sha: ${{ needs.revision.outputs.base_sha }}
+      pr_number: ${{ needs.revision.outputs.pr_number }}
   clang-leaks:
-    needs: profile
-    if: ${{ needs.profile.outputs.profile == 'full' }}
+    needs: revision
     uses: ./.github/workflows/clang_leaks.yml
+    permissions:
+      contents: read
+    with:
+      candidate_sha: ${{ needs.revision.outputs.candidate_sha }}
+      base_sha: ${{ needs.revision.outputs.base_sha }}
+      pr_number: ${{ needs.revision.outputs.pr_number }}
+  aggregate:
+    name: Full CI result (informational)
+    if: ${{ always() }}
+    needs: [revision, cmake, lint, coverage, cross-qemu, buildsystems, measured, recording, clang-leaks]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Reject incomplete or unsuccessful suites
+        env:
+          CI_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import sys
+
+          results = json.loads(os.environ["CI_RESULTS"])
+          failed = [name for name, result in results.items() if result["result"] != "success"]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("Full CI is informational; this workflow does not change merge rules.\n\n")
+              for name, result in results.items():
+                  summary.write(f"- {name}: {result['result']}\n")
+          if failed:
+              sys.exit("Full CI incomplete or unsuccessful: " + ", ".join(failed))
+          PYTHON

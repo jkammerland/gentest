@@ -148,11 +148,11 @@ function(gentest_patch_llvm_missing_diaguids)
 
     file(GLOB _gentest_diaguids_candidates
         LIST_DIRECTORIES FALSE
-        "C:/Program Files/Microsoft Visual Studio/2022/*/DIA SDK/lib/amd64/diaguids.lib"
-        "C:/Program Files (x86)/Microsoft Visual Studio/2022/*/DIA SDK/lib/amd64/diaguids.lib"
-        "C:/Program Files/Microsoft Visual Studio/2019/*/DIA SDK/lib/amd64/diaguids.lib"
-        "C:/Program Files (x86)/Microsoft Visual Studio/2019/*/DIA SDK/lib/amd64/diaguids.lib")
+        "C:/Program Files/Microsoft Visual Studio/*/*/DIA SDK/lib/amd64/diaguids.lib"
+        "C:/Program Files (x86)/Microsoft Visual Studio/*/*/DIA SDK/lib/amd64/diaguids.lib")
     if(_gentest_diaguids_candidates)
+        # The installed Visual Studio version need not match the SDK builder's.
+        list(SORT _gentest_diaguids_candidates COMPARE NATURAL ORDER DESCENDING)
         list(GET _gentest_diaguids_candidates 0 _gentest_diaguids_lib)
     endif()
 
@@ -230,6 +230,11 @@ endfunction()
 
 function(gentest_ensure_imported_config_artifacts target config)
     string(TOUPPER "${config}" _gentest_config_upper)
+    # Release variants share the package ABI. Never synthesize a Debug/CRT
+    # configuration or change an export's explicit configuration mapping.
+    if(NOT _gentest_config_upper MATCHES "^(RELEASE|RELWITHDEBINFO|MINSIZEREL)$")
+        return()
+    endif()
     gentest_get_imported_config_artifacts("${target}" "${_gentest_config_upper}"
         _gentest_existing_location _gentest_existing_implib)
     if(_gentest_existing_location OR _gentest_existing_implib)
@@ -237,26 +242,42 @@ function(gentest_ensure_imported_config_artifacts target config)
     endif()
 
     set(_gentest_fallback_configs RELEASE RELWITHDEBINFO MINSIZEREL NOCONFIG "")
+    # CMake lists discard a trailing empty element in foreach(IN LISTS).
+    # Treat the configuration-independent properties explicitly below.
+    list(APPEND _gentest_fallback_configs GENERIC)
     foreach(_gentest_fallback_config IN LISTS _gentest_fallback_configs)
         string(TOUPPER "${_gentest_fallback_config}" _gentest_fallback_upper)
         if(_gentest_fallback_upper STREQUAL _gentest_config_upper)
             continue()
         endif()
 
-        gentest_get_imported_config_artifacts("${target}" "${_gentest_fallback_upper}"
+        set(_gentest_source_config "${_gentest_fallback_upper}")
+        if(_gentest_source_config STREQUAL "GENERIC")
+            set(_gentest_source_config "")
+        endif()
+        gentest_get_imported_config_artifacts("${target}" "${_gentest_source_config}"
             _gentest_fallback_location _gentest_fallback_implib)
         if(NOT _gentest_fallback_location AND NOT _gentest_fallback_implib)
             continue()
         endif()
 
-        if(_gentest_fallback_location)
-            set_property(TARGET "${target}" PROPERTY
-                "IMPORTED_LOCATION_${_gentest_config_upper}" "${_gentest_fallback_location}")
-        endif()
-        if(_gentest_fallback_implib)
-            set_property(TARGET "${target}" PROPERTY
-                "IMPORTED_IMPLIB_${_gentest_config_upper}" "${_gentest_fallback_implib}")
-        endif()
+        # Copy a configuration as a unit: Windows DLL/import-library pairs,
+        # sonames and transitive link metadata must describe the same artifact.
+        foreach(_gentest_property IN ITEMS
+                IMPORTED_LOCATION IMPORTED_IMPLIB IMPORTED_SONAME IMPORTED_NO_SONAME
+                IMPORTED_LINK_DEPENDENT_LIBRARIES IMPORTED_LINK_INTERFACE_LANGUAGES
+                IMPORTED_LINK_INTERFACE_LIBRARIES IMPORTED_LINK_INTERFACE_MULTIPLICITY
+                IMPORTED_OBJECTS IMPORTED_LIBNAME IMPORTED_CXX_MODULES)
+            set(_gentest_source_property "${_gentest_property}")
+            if(NOT _gentest_source_config STREQUAL "")
+                string(APPEND _gentest_source_property "_${_gentest_source_config}")
+            endif()
+            get_property(_gentest_has_property TARGET "${target}" PROPERTY "${_gentest_source_property}" SET)
+            if(_gentest_has_property)
+                get_target_property(_gentest_value "${target}" "${_gentest_source_property}")
+                set_property(TARGET "${target}" PROPERTY "${_gentest_property}_${_gentest_config_upper}" "${_gentest_value}")
+            endif()
+        endforeach()
         get_target_property(_gentest_imported_configs "${target}" IMPORTED_CONFIGURATIONS)
         if(NOT _gentest_imported_configs OR _gentest_imported_configs MATCHES "-NOTFOUND$")
             set(_gentest_imported_configs "")
@@ -264,7 +285,29 @@ function(gentest_ensure_imported_config_artifacts target config)
         list(APPEND _gentest_imported_configs "${_gentest_config_upper}")
         list(REMOVE_DUPLICATES _gentest_imported_configs)
         set_property(TARGET "${target}" PROPERTY IMPORTED_CONFIGURATIONS "${_gentest_imported_configs}")
-        message(STATUS "gentest: patched ${target} ${_gentest_config_upper} imported artifacts from ${_gentest_fallback_upper}")
+        message(VERBOSE "gentest: patched ${target} ${_gentest_config_upper} imported artifacts from ${_gentest_fallback_upper}")
         return()
+    endforeach()
+endfunction()
+
+function(gentest_normalize_llvm_imported_configs)
+    # Use the package's exported inventory so newly added LLVM/Clang components
+    # receive the same release-configuration handling as existing components.
+    set(_gentest_targets ${ARGN})
+    list(REMOVE_DUPLICATES _gentest_targets)
+    foreach(_gentest_target IN LISTS _gentest_targets)
+        if(NOT TARGET "${_gentest_target}")
+            continue()
+        endif()
+        get_target_property(_gentest_alias "${_gentest_target}" ALIASED_TARGET)
+        get_target_property(_gentest_imported "${_gentest_target}" IMPORTED)
+        get_target_property(_gentest_type "${_gentest_target}" TYPE)
+        if(_gentest_alias OR NOT _gentest_imported
+           OR NOT _gentest_type MATCHES "^(STATIC|SHARED|MODULE|UNKNOWN)_LIBRARY$")
+            continue()
+        endif()
+        foreach(_gentest_config IN ITEMS RELEASE RELWITHDEBINFO MINSIZEREL)
+            gentest_ensure_imported_config_artifacts("${_gentest_target}" "${_gentest_config}")
+        endforeach()
     endforeach()
 endfunction()

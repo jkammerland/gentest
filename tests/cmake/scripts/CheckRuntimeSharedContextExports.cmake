@@ -11,6 +11,7 @@
 #  -DC_COMPILER=<path>
 #  -DCXX_COMPILER=<path>
 #  -DBUILD_TYPE=<Debug|Release|...>
+#  -DBUILD_CONFIG=<Debug|Release|...>
 #  -DLLVM_DIR=<path>
 #  -DClang_DIR=<path>
 
@@ -33,6 +34,20 @@ set(_build_dir "${_work_dir}/build")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 file(COPY "${SOURCE_DIR}/" DESTINATION "${_src_dir}")
+
+# Keep configure, build and generated target metadata on the same configuration.
+set(_build_config "${BUILD_CONFIG}")
+if("${_build_config}" STREQUAL "")
+  set(_build_config "${BUILD_TYPE}")
+endif()
+if("${_build_config}" STREQUAL "")
+  if(CMAKE_HOST_WIN32)
+    set(_build_config RelWithDebInfo)
+  else()
+    set(_build_config Debug)
+  endif()
+endif()
+gentest_resolve_fixture_build_type(_build_config "${CXX_COMPILER}" "${_build_config}")
 
 set(_cmake_gen_args -G "${GENERATOR}")
 if(DEFINED GENERATOR_PLATFORM AND NOT "${GENERATOR_PLATFORM}" STREQUAL "")
@@ -69,9 +84,7 @@ endif()
 if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DClang_DIR=${Clang_DIR}")
 endif()
-if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
-endif()
+list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${_build_config}")
 gentest_append_host_apple_sysroot(_cmake_cache_args)
 
 message(STATUS "Configure runtime shared context export fixture...")
@@ -87,11 +100,11 @@ gentest_check_run_or_fail(
 
 message(STATUS "Build runtime shared context export fixture...")
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target runtime_shared_context_consumer
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --config "${_build_config}" --target runtime_shared_context_consumer
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-set(_prog "${_build_dir}/runtime_shared_context_consumer${CMAKE_EXECUTABLE_SUFFIX}")
+file(READ "${_build_dir}/gentest-fixture-targets/runtime_shared_context_consumer/program_${_build_config}.txt" _prog)
 set(_run_command "${_prog}")
 if(CMAKE_HOST_WIN32)
   get_filename_component(_prog_dir "${_prog}" DIRECTORY)

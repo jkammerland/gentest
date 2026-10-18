@@ -31,7 +31,7 @@ file(TO_CMAKE_PATH "${SOURCE_DIR}" _source_dir_norm)
 
 function(_gentest_run_codegen_expect_success)
   set(one_value_args NAME COMPDB_DIR TU_OUT_DIR SOURCE_FILE)
-  set(multi_value_args MODULE_WRAPPER_OUTPUTS)
+  set(multi_value_args MODULE_WRAPPER_OUTPUTS MODULE_SOURCES CLANG_ARGS)
   cmake_parse_arguments(RUN "" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
   if(NOT RUN_NAME OR NOT RUN_COMPDB_DIR OR NOT RUN_SOURCE_FILE)
@@ -45,7 +45,13 @@ function(_gentest_run_codegen_expect_success)
   foreach(_module_wrapper_output IN LISTS RUN_MODULE_WRAPPER_OUTPUTS)
     list(APPEND _cmd --module-wrapper-output "${_module_wrapper_output}")
   endforeach()
+  foreach(_module_source IN LISTS RUN_MODULE_SOURCES)
+    list(APPEND _cmd --external-module-source "${_module_source}")
+  endforeach()
   list(APPEND _cmd "${RUN_SOURCE_FILE}")
+  if(RUN_CLANG_ARGS)
+    list(APPEND _cmd -- ${RUN_CLANG_ARGS})
+  endif()
 
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
@@ -110,6 +116,54 @@ _gentest_run_codegen_expect_success(
   NAME "relative include path under compile-command cwd"
   COMPDB_DIR "${_relative_include_dir}"
   SOURCE_FILE "${_relative_include_source_abs}")
+
+# An installed module provider has no compile-database entry. Its discovery
+# probes and PCM build must inherit the importer, and target system paths must
+# precede fallback host system paths. No host-installed package is required.
+set(_borrowed_dir "${_work_dir}/borrowed_context")
+set(_target_include_dir "${_borrowed_dir}/target")
+set(_fallback_include_dir "${_borrowed_dir}/fallback")
+file(MAKE_DIRECTORY "${_target_include_dir}" "${_fallback_include_dir}")
+gentest_fixture_write_file("${_target_include_dir}/context_version.hpp" [[
+#define GENTEST_RETARGET_CONTEXT_VERSION 23
+]])
+gentest_fixture_write_file("${_fallback_include_dir}/context_version.hpp" [[
+#error module scan selected a fallback header ahead of the target header
+]])
+gentest_fixture_write_file("${_borrowed_dir}/provider.cppm" [[
+module;
+#include <context_version.hpp>
+export module gentest.retarget.borrowed_context;
+export constexpr int borrowed_context_value() { return GENTEST_RETARGET_CONTEXT_VERSION; }
+]])
+gentest_fixture_write_file("${_borrowed_dir}/consumer.cppm" [[
+export module gentest.retarget.borrowed_consumer;
+import gentest.retarget.borrowed_context;
+static_assert(borrowed_context_value() == 23);
+]])
+file(TO_CMAKE_PATH "${_borrowed_dir}" _borrowed_dir_norm)
+file(TO_CMAKE_PATH "${_borrowed_dir}/consumer.cppm" _borrowed_source_abs)
+file(TO_CMAKE_PATH "${_borrowed_dir}/provider.cppm" _borrowed_provider_abs)
+gentest_fixture_make_compdb_entry(_borrowed_entry
+  DIRECTORY "${_borrowed_dir_norm}"
+  FILE "${_borrowed_source_abs}"
+  ARGUMENTS "${_clangxx_norm}" "-std=c++20" "-isystem" "${_target_include_dir}"
+    "-c" "${_borrowed_source_abs}" "-o" "consumer.o")
+gentest_fixture_write_compdb("${_borrowed_dir}/compile_commands.json" "${_borrowed_entry}")
+_gentest_run_codegen_expect_success(
+  NAME "imported provider retains target system include context"
+  COMPDB_DIR "${_borrowed_dir}"
+  SOURCE_FILE "${_borrowed_source_abs}"
+  MODULE_SOURCES "gentest.retarget.borrowed_context=${_borrowed_provider_abs}"
+  CLANG_ARGS -isystem "${_fallback_include_dir}")
+
+# A deferred include option must stay adjacent to its separate directory value.
+_gentest_run_codegen_expect_success(
+  NAME "separate system-after directory remains an include argument"
+  COMPDB_DIR "${_borrowed_dir}"
+  SOURCE_FILE "${_borrowed_source_abs}"
+  MODULE_SOURCES "gentest.retarget.borrowed_context=${_borrowed_provider_abs}"
+  CLANG_ARGS -isystem-after "${_fallback_include_dir}")
 
 set(_env_fallback_dir "${_work_dir}/env_default_compiler")
 set(_env_fallback_generated_dir "${_env_fallback_dir}/generated")
@@ -289,8 +343,8 @@ export int shell_tail_value() { return 17; }
 file(TO_CMAKE_PATH "${_shell_tail_dir}" _shell_tail_dir_norm)
 file(TO_CMAKE_PATH "${_shell_tail_dir}/provider.cppm" _shell_tail_source_abs)
 set(_shell_tail_command
-  "${_clangxx_norm} -std=c++20 -c provider.cppm -o provider.o && ${CMAKE_COMMAND} -E cmake_transform_depfile "
-  "Ninja gccdepfile ${_shell_tail_dir_norm} ${_shell_tail_dir_norm} ${_shell_tail_dir_norm} ${_shell_tail_dir_norm} deps.d deps.out")
+  "\"${_clangxx_norm}\" -std=c++20 -c provider.cppm -o provider.o && \"${CMAKE_COMMAND}\" -E cmake_transform_depfile "
+  "Ninja gccdepfile \"${_shell_tail_dir_norm}\" \"${_shell_tail_dir_norm}\" \"${_shell_tail_dir_norm}\" \"${_shell_tail_dir_norm}\" deps.d deps.out")
 string(JOIN "" _shell_tail_command ${_shell_tail_command})
 gentest_fixture_make_compdb_entry(_shell_tail_entry
   DIRECTORY "${_shell_tail_dir_norm}"
