@@ -20,6 +20,13 @@ def atom(value):
 
 
 class FixtureTargetCommandTests(unittest.TestCase):
+    def assert_recorded_command(self, command, program, marker, argument):
+        self.assertEqual(command[:1], [marker])
+
+        # Windows may expand an 8.3 temporary path when CMake records the target.
+        self.assertTrue(Path(command[1]).samefile(program), command)
+        self.assertEqual(command[2:], [argument])
+
     def test_target_metadata_drives_direct_and_environment_wrapped_children(self):
         cmake = shutil.which("cmake")
         self.assertIsNotNone(cmake)
@@ -88,8 +95,9 @@ message(STATUS "${{cross_output}}${{native_output}}")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn(cross_argument, result.stdout)
             self.assertIn("passed native", result.stdout)
-            self.assertEqual([json.loads(line) for line in record.read_text().splitlines()],
-                             [[marker, targets["cross"].as_posix(), cross_argument]])
+            commands = [json.loads(line) for line in record.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(commands), 1)
+            self.assert_recorded_command(commands[0], targets["cross"], marker, cross_argument)
 
             # A nonzero guest result must remain a failure through the environment wrapper.
             run.write_text(f'''include("{ROOT.as_posix()}/tests/cmake/scripts/CheckRunOrFail.cmake")
@@ -98,8 +106,9 @@ gentest_check_run_or_fail(COMMAND "${{CMAKE_COMMAND}}" -E env "NESTED_CONTROL=1"
             result = subprocess.run([cmake, "-P", str(run)], capture_output=True, text=True, env=env)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("Command failed (7)", result.stderr)
-            self.assertEqual(json.loads(record.read_text().splitlines()[-1]),
-                             [marker, targets["cross"].as_posix(), "failed cross"])
+            commands = [json.loads(line) for line in record.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(commands), 2)
+            self.assert_recorded_command(commands[-1], targets["cross"], marker, "failed cross")
 
 
 if __name__ == "__main__":

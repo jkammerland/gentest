@@ -17,7 +17,7 @@ from llvm_tools import LLVM_MAJOR, POLICY
 
 class MatrixTests(unittest.TestCase):
     def test_full_selection_preserves_every_catalog_entry(self):
-        catalog = json.loads(MATRIX_FILE.read_text())
+        catalog = json.loads(MATRIX_FILE.read_text(encoding="utf-8"))
         selected = select_matrix()
         self.assertEqual(set(selected), {"linux", "windows", "macos"})
         for host, entries in catalog.items():
@@ -60,7 +60,7 @@ class MatrixTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cmake.yml").read_text()
         self.assertIn("if: matrix.preset == 'debug-system'", workflow)
         with tempfile.TemporaryDirectory() as temp:
-            catalog = json.loads(MATRIX_FILE.read_text())
+            catalog = json.loads(MATRIX_FILE.read_text(encoding="utf-8"))
             catalog["windows"].append({**catalog["windows"][0], "preset": "release-system"})
             source = Path(temp) / "matrix.json"
             source.write_text(json.dumps(catalog))
@@ -69,7 +69,7 @@ class MatrixTests(unittest.TestCase):
 
     def test_old_host_tooling_must_be_an_explicit_compatibility_lane(self):
         with tempfile.TemporaryDirectory() as temp:
-            catalog = json.loads(MATRIX_FILE.read_text())
+            catalog = json.loads(MATRIX_FILE.read_text(encoding="utf-8"))
             older = next(entry for entry in catalog["linux"] if entry["host_llvm_major"] != LLVM_MAJOR)
             older.pop("compatibility")
             source = Path(temp) / "matrix.json"
@@ -82,7 +82,7 @@ class MatrixTests(unittest.TestCase):
                                        ("windows", "llvm-version", "22.1.0"),
                                        ("macos", "compiler", "llvm@21")):
             with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temp:
-                catalog = json.loads(MATRIX_FILE.read_text())
+                catalog = json.loads(MATRIX_FILE.read_text(encoding="utf-8"))
                 primary = next(entry for entry in catalog[platform] if entry.get("primary"))
                 primary[field] = wrong
                 source = Path(temp) / "matrix.json"
@@ -96,7 +96,7 @@ class MatrixTests(unittest.TestCase):
             source.write_text(json.dumps({"linux": [], "windows": [], "macos": []}))
             with self.assertRaisesRegex(ValueError, "Empty"):
                 select_matrix(source)
-            catalog = json.loads(MATRIX_FILE.read_text())
+            catalog = json.loads(MATRIX_FILE.read_text(encoding="utf-8"))
             catalog["linux"][0]["routine"] = True
             source.write_text(json.dumps(catalog))
             with self.assertRaisesRegex(ValueError, "Routine CI profiles"):
@@ -111,7 +111,7 @@ class MatrixTests(unittest.TestCase):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / name, destination)
             (root / "scripts").mkdir()
-            matrix = json.loads(MATRIX_FILE.read_text())
+            matrix = json.loads(MATRIX_FILE.read_text(encoding="utf-8"))
             for row in matrix["linux"]:
                 row["name"] = "A freely editable display name"
 
