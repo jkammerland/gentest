@@ -45,9 +45,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ctest", required=True)
     parser.add_argument("--build-dir", required=True)
+    parser.add_argument("--config", default="", help="CTest configuration for a multi-config build")
     args = parser.parse_args()
-    result = subprocess.run([args.ctest, "--test-dir", args.build_dir, "--show-only=json-v1"],
-                            check=True, capture_output=True, text=True, encoding="utf-8")
+
+    # Multi-config inventories omit test commands until a configuration is selected.
+    command = [args.ctest, "--test-dir", args.build_dir, "--show-only=json-v1"]
+    if args.config:
+        command.extend(["-C", args.config])
+    result = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8")
     try:
         count = check_inventory(json.loads(result.stdout)["tests"])
     except ValueError as error:

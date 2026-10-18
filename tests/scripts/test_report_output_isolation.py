@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class ReportOutputIsolationTests(unittest.TestCase):
-    def configure(self, root, second_directory):
+    def configure(self, root, second_directory, generator):
         cmake, ctest = shutil.which("cmake"), shutil.which("ctest")
         self.assertIsNotNone(cmake)
         self.assertIsNotNone(ctest)
@@ -32,24 +32,28 @@ gentest_add_cmake_script_test(NAME timing PROG "${{CMAKE_COMMAND}}"
   SCRIPT "{ROOT.as_posix()}/cmake/RunAndCheckReportTime.cmake"
   ARGS --kind=jitter "--allure-dir=${{CMAKE_BINARY_DIR}}/{second_directory}")
 ''', encoding="utf-8")
-        result = subprocess.run([cmake, "-S", str(source), "-B", str(build)], capture_output=True, text=True)
+        result = subprocess.run([cmake, "-S", str(source), "-B", str(build), "-G", generator,
+                                 "-DCMAKE_BUILD_TYPE=RelWithDebInfo"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return [sys.executable, str(ROOT / "tests/scripts/check_allure_output_isolation.py"),
-                "--ctest", ctest, "--build-dir", str(build)]
+                "--ctest", ctest, "--build-dir", str(build), "--config=RelWithDebInfo"]
 
     def test_real_helpers_keep_independent_report_directories(self):
-        with tempfile.TemporaryDirectory() as temp:
-            command = self.configure(Path(temp), "timing directory")
-            result = subprocess.run(command, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("2 independent directories", result.stdout)
+        # Exercise both inventory shapes on every OS instead of relying on its default generator.
+        for generator in ("Ninja", "Ninja Multi-Config"):
+            with self.subTest(generator=generator), tempfile.TemporaryDirectory() as temp:
+                command = self.configure(Path(temp), "timing directory", generator)
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("2 independent directories", result.stdout)
 
     def test_real_helpers_reject_shared_directory_with_different_path_spelling(self):
-        with tempfile.TemporaryDirectory() as temp:
-            command = self.configure(Path(temp), "unused/../status directory")
-            result = subprocess.run(command, capture_output=True, text=True)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("shared by status and timing", result.stderr)
+        for generator in ("Ninja", "Ninja Multi-Config"):
+            with self.subTest(generator=generator), tempfile.TemporaryDirectory() as temp:
+                command = self.configure(Path(temp), "unused/../status directory", generator)
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("shared by status and timing", result.stderr)
 
     def test_empty_inventory_and_inventory_without_writers_are_rejected(self):
         for inventory in ([], [{"name": "unrelated", "command": ["runner", "--list"]}]):

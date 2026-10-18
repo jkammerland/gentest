@@ -2680,7 +2680,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     # Check the configured writers so new report tests cannot silently share files.
     add_test(NAME allure_output_isolation
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_allure_output_isolation.py
-            --ctest ${CMAKE_CTEST_COMMAND} --build-dir ${CMAKE_BINARY_DIR})
+            --ctest ${CMAKE_CTEST_COMMAND} --build-dir ${CMAKE_BINARY_DIR} "--config=$<CONFIG>")
     set_tests_properties(allure_output_isolation PROPERTIES LABELS "allure;scripts")
 
     # Allure results smoke: single test writes a result file with passed status
