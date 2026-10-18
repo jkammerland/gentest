@@ -222,7 +222,7 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_manual_ci.py)
 set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github")
 
-foreach(_gentest_validation_contract IN ITEMS full_ci ci_matrix llvm_tools llvm_dependency_shims package_fixtures target_command fixture_target_command tsan_death_tests backend_prerequisite_skips clang_leak_probes validate_local discovery_skip coverage_policy)
+foreach(_gentest_validation_contract IN ITEMS full_ci ci_matrix llvm_tools llvm_dependency_shims package_fixtures target_command fixture_target_command report_output_isolation tsan_death_tests backend_prerequisite_skips clang_leak_probes validate_local discovery_skip coverage_policy)
     add_test(NAME ${_gentest_validation_contract}_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_${_gentest_validation_contract}.py)
     set_property(TEST ${_gentest_validation_contract}_contract APPEND PROPERTY LABELS "scripts")
@@ -2677,6 +2677,12 @@ gentest_add_check_counts(
 
 option(GENTEST_ENABLE_ALLURE_TESTS "Enable Allure writer tests (off by default)" OFF)
 if(GENTEST_ENABLE_ALLURE_TESTS)
+    # Check the configured writers so new report tests cannot silently share files.
+    add_test(NAME allure_output_isolation
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_allure_output_isolation.py
+            --ctest ${CMAKE_CTEST_COMMAND} --build-dir ${CMAKE_BINARY_DIR})
+    set_tests_properties(allure_output_isolation PROPERTIES LABELS "allure;scripts")
+
     # Allure results smoke: single test writes a result file with passed status
     gentest_add_check_file_contains(
         NAME allure_smoke_single
