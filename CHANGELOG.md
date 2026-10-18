@@ -1,6 +1,44 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 - 2026-10-18
+
+### Added
+
+- One-shot benchmarks with `bench_once`, application-supplied primary durations
+  with `bench_time("supplied")`, named timing distributions, and owning
+  measurement snapshots available during local fixture teardown.
+- Measured reports include execution and timing policies, named summaries, and
+  P99 statistics. Comparisons identify incompatible timing or sampling policies.
+- `--list-selected` previews the execution selection without constructing
+  fixtures. `--fail-on-empty` and CTest discovery's `FAIL_ON_EMPTY` option can
+  reject empty selections before fixture setup.
+- Maintainers can request complete PR validation with `/full-ci`, a bot
+  checkbox, or manual dispatch. Requests validate permissions and pin the
+  candidate, base, and merge revisions.
+
+### Changed
+
+- Repository compiler and lint tooling consistently select LLVM 23. Older LLVM
+  versions remain explicit compatibility lanes in full CI.
+- Package integration tests share immutable installed-package fixtures. Full CI
+  preserves the supported OS, compiler, build-system, sanitizer, and QEMU lanes.
+- Coverage diagnostics are generated after completed tests even when tests fail;
+  incomplete coverage still fails the existing coverage gates.
+
+### Fixed
+
+- Machine-readable reports route fixture diagnostics to stderr, preserving
+  parseable report output on stdout.
+- Fatal analyzer assertion macros support MSVC's traditional preprocessor.
+- CMake discovery honors filters whose text resembles a false CMake value.
+- Installed module providers preserve importer preprocessing context, and
+  codegen searches target system includes before host fallback directories.
+- Host LLVM tools and SDK packages are selected coherently. Imported-library
+  configuration mappings, stale Windows DIA dependencies, and inherited scanner
+  settings are handled consistently across compatibility toolchains.
+- Cross-compiled test helpers preserve target execution and emulator metadata.
+- Parallel benchmark and jitter Allure checks use independent report directories;
+  report-isolation validation handles single-config and multi-config generators.
 
 ## 1.2.2 - 2026-10-04
 
