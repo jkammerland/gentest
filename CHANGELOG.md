@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Custom callback awaitables with typed, move-only results and application-defined
+  completion reasons. Continuations queue both value publication and coroutine
+  execution on the owning test runner, including worker and inline callbacks.
+- Custom operations compose with `wait_for` / `wait_until` through
+  `await_subscribe(completion, std::stop_token)` and receive cancellation requests.
+
+### Fixed
+
+- Async completion generations reject stale and competing callbacks before they
+  can publish into a later suspension. Deadline decisions retain queue-admission
+  time even when runner delivery is delayed.
+- Async task reset retains the coroutine frame while reentrant stop callbacks
+  release the task or its registrations.
+
 ## 1.3.0 - 2026-10-18
 
 ### Added

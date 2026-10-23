@@ -28,11 +28,20 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
         register_adopted_release_wake(ctx_, adopted_release_wake_);
         core_.set_wake_callback([this] { adopted_release_wake_->notify_one(); });
     }
-    ~BlockingAsyncScheduler() override { deactivate(); }
+    ~BlockingAsyncScheduler() override {
+        deactivate();
+        cancel_all_waiters();
+    }
+
+    void notify_completion() noexcept override { core_.notify_completion(); }
 
     void post(std::coroutine_handle<> handle) override { core_.post(handle); }
 
     void post_frame(const AsyncFramePtr &frame) override { core_.post(frame); }
+
+    [[nodiscard]] auto post_completion(AsyncCompletion &&completion) -> bool override {
+        return core_.post_completion(std::move(completion));
+    }
 
     [[nodiscard]] auto make_waiter(std::coroutine_handle<> handle) -> WaiterTokenPtr override {
         return core_.make_waiter(handle, control());
@@ -59,8 +68,9 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
         while (true) {
             while (true) {
                 core_.post_due_timers();
-                auto frame = core_.pop_ready();
-                if (!frame || !frame->handle) {
+                auto ready = core_.pop_ready();
+                auto frame = ready.frame;
+                if (!ready || !frame->handle) {
                     break;
                 }
                 if (frame->is_canceled() || frame->done()) {
@@ -69,7 +79,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
                 try {
                     gentest::runner::detail::CurrentTestContextScope current_scope(ctx_);
                     core_.clear_suspend_state(frame);
-                    frame->handle.resume();
+                    (void)ready.resume();
                 } catch (const std::exception &e) {
                     blocked_reason = fmt::format("async coroutine resume threw std::exception: {}", e.what());
                     return BlockingAsyncStatus::Blocked;
@@ -89,7 +99,8 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
                 return BlockingAsyncStatus::Completed;
             }
 
-            if ((!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.has_pending_timers()) {
+            if ((!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.has_pending_timers() &&
+                !core_.has_pending_external()) {
                 break;
             }
 
@@ -117,7 +128,8 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
   private:
     void wait_for_ready_or_adopted_release() {
         const auto no_pending_wait_locked = [&] {
-            return (!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.next_timer_deadline();
+            return (!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.next_timer_deadline() &&
+                   !core_.has_pending_external();
         };
         const auto ready_or_done_waiting_locked = [&] { return core_.has_ready() || no_pending_wait_locked(); };
 
@@ -136,7 +148,10 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
         }
     }
 
-    void cancel_all_waiters() { core_.cancel_all(); }
+    void cancel_all_waiters() {
+        gentest::runner::detail::CurrentTestContextScope scope(ctx_);
+        core_.cancel_all();
+    }
 
     std::shared_ptr<TestContextInfo>                     ctx_;
     std::shared_ptr<TestContextInfo::AdoptedReleaseWake> adopted_release_wake_;

@@ -106,8 +106,12 @@ using ::gentest::approx::operator!=;
 } // namespace approx
 
 namespace async {
+using ::gentest::async::bind_continuation;
+using ::gentest::async::continuation;
+using ::gentest::async::continuation_handle;
 using ::gentest::async::event;
 using ::gentest::async::future;
+using ::gentest::async::make_continuation;
 using ::gentest::async::manual_event;
 using ::gentest::async::promise;
 using ::gentest::async::sleep_for;

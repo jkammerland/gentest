@@ -43,11 +43,22 @@ BatchAsyncScheduler::BatchAsyncScheduler(std::vector<AsyncCaseRun> &runs, AsyncS
     : runs_(runs), renderer_(renderer), adopted_release_wake_(std::make_shared<gentest::detail::TestContextInfo::AdoptedReleaseWake>()),
       core_([this] { adopted_release_wake_->notify_one(); }) {}
 
-BatchAsyncScheduler::~BatchAsyncScheduler() { deactivate(); }
+BatchAsyncScheduler::~BatchAsyncScheduler() {
+    deactivate();
+    for (std::size_t owner = 0; owner < runs_.size(); ++owner) {
+        cancel_owner(owner);
+    }
+}
+
+void BatchAsyncScheduler::notify_completion() noexcept { core_.notify_completion(); }
 
 void BatchAsyncScheduler::post(std::coroutine_handle<> handle) { core_.post(handle); }
 
 void BatchAsyncScheduler::post_frame(const gentest::detail::AsyncFramePtr &frame) { core_.post(frame); }
+
+auto BatchAsyncScheduler::post_completion(gentest::detail::AsyncCompletion &&completion) -> bool {
+    return core_.post_completion(std::move(completion));
+}
 
 void BatchAsyncScheduler::block(std::coroutine_handle<> handle, std::string reason) { core_.block(handle, std::move(reason)); }
 
@@ -97,7 +108,12 @@ void BatchAsyncScheduler::run_ready() {
 
 auto BatchAsyncScheduler::has_ready() const noexcept -> bool { return core_.has_ready(); }
 
-void BatchAsyncScheduler::cancel_owner(std::size_t owner) { core_.cancel_owner(owner); }
+void BatchAsyncScheduler::cancel_owner(std::size_t owner) {
+    if (owner < runs_.size()) {
+        gentest::runner::detail::CurrentTestContextScope scope(runs_[owner].ctxinfo);
+        core_.cancel_owner(owner);
+    }
+}
 
 auto BatchAsyncScheduler::finish_unresumable(const StopCallback &should_stop, const ProgressCallback &after_progress) -> bool {
     if (drain_ready_and_adopted_work(should_stop, after_progress)) {
@@ -185,7 +201,8 @@ void BatchAsyncScheduler::complete(std::size_t owner) {
 }
 
 auto BatchAsyncScheduler::resume_one_ready() -> bool {
-    while (auto frame = core_.pop_ready()) {
+    while (auto ready = core_.pop_ready()) {
+        auto frame = ready.frame;
         if (!frame || !frame->handle) {
             continue;
         }
@@ -207,7 +224,7 @@ auto BatchAsyncScheduler::resume_one_ready() -> bool {
             }
             core_.clear_suspend_state(frame);
             try {
-                frame->handle.resume();
+                (void)ready.resume();
             } catch (const std::exception &e) {
                 run.exception = InvokeException::StdException;
                 run.message   = fmt::format("std::exception: {}", e.what());
@@ -246,7 +263,8 @@ auto BatchAsyncScheduler::has_unfinished_adopted_work() const -> bool {
 
 void BatchAsyncScheduler::wait_for_ready_or_adopted_release(const StopCallback &should_stop) {
     const auto stop_or_progress_locked = [&] {
-        return core_.has_ready() || (!has_unfinished_adopted_work() && !core_.next_timer_deadline()) || (should_stop && should_stop());
+        return core_.has_ready() || (!has_unfinished_adopted_work() && !core_.next_timer_deadline() && !core_.has_pending_external()) ||
+               (should_stop && should_stop());
     };
 
     while (true) {
@@ -300,7 +318,7 @@ auto BatchAsyncScheduler::drain_ready_and_adopted_work(const StopCallback &shoul
         if (should_stop && should_stop()) {
             return true;
         }
-        if (!has_unfinished_adopted_work() && !core_.has_pending_timers()) {
+        if (!has_unfinished_adopted_work() && !core_.has_pending_timers() && !core_.has_pending_external()) {
             return false;
         }
         wait_for_ready_or_adopted_release(should_stop);

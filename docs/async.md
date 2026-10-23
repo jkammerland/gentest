@@ -682,3 +682,108 @@ Non-terminal output is final-result only; it does not print the live block.
   stop callbacks. Signal the owning test and assert there.
 - Top-level `async_test<T>` values are discarded; only awaited helper tasks use
   their returned value.
+
+## Custom callback awaitables
+
+Custom awaiters can receive typed values and application-defined completion
+reasons without exposing runtime internals. Include `gentest/async.h`, or
+`import gentest;`. The promise's `make_continuation()` creates a copyable
+capability for its current suspension; copies compete for one queued completion.
+`bind_continuation<Args...>()` binds a nonthrowing result receiver, and
+`continuation<Args...>` provides move-only callback storage.
+
+```cpp
+enum class Reason { received, disconnected };
+
+struct Reply {
+    Reason reason;
+    std::unique_ptr<int> value;
+};
+
+// Source is an application-owned backend. start(stop, callback) registers one
+// operation; it owns the registration and any I/O resources through retirement.
+struct Receive {
+    Source& source;
+    std::optional<Reply> result;
+
+    bool await_ready() const noexcept { return false; }
+
+    void await_subscribe(gentest::async::continuation_handle next,
+                         std::stop_token stop) {
+        source.start(stop, gentest::async::bind_continuation<Reply>(
+            std::move(next), [this](Reply reply) noexcept {
+                result.emplace(std::move(reply));
+            }));
+    }
+
+    template<class Promise>
+    void await_suspend(std::coroutine_handle<Promise> parent) {
+        auto next = parent.promise().make_continuation();
+        auto stop = next.stop_token();
+        await_subscribe(std::move(next), stop);
+    }
+
+    Reply await_resume() { return std::move(result).value(); }
+};
+```
+
+The backend may invoke its callback from a worker thread:
+
+```cpp
+callback(Reply{Reason::received, std::make_unique<int>(42)});
+```
+
+Gentest first owns the callback arguments and admits the completion to its FIFO
+queue. The **receiver and coroutine execute later on the owning runner thread**,
+with the test's context restored. A callback invoked inline during registration
+also waits until registration has returned. Producers need no adopted test context
+to submit values; assertions belong to the resumed test. Backend registration and
+callback storage must themselves be safely synchronized by the backend.
+
+The concrete bound callback and `continuation_handle::try_invoke()` return `bool`:
+true means the completion was admitted, not that the coroutine ran or the value
+beat its deadline. Moving a bound callback into `continuation<Args...>` discards
+that status. Repeated or competing callbacks publish at most once. A callback
+from an earlier suspension, a canceled case, or a closed scheduler cannot publish
+into coroutine storage. Stored callbacks hold weak frame references, so they do
+not keep abandoned tests alive.
+
+Arguments are stored by value, including copies of reference callback parameters;
+move-only values are supported. Use `std::reference_wrapper` only when the
+referent will outlive queued delivery. The receiver must not throw. Binding and
+registration may allocate and throw on the runner; a failure in nonthrowing
+callback dispatch, including allocation or payload transport failure, terminates.
+Rejected arguments can be destroyed on the producer thread. Do not use an
+unprotected coroutine address to publish values or resume execution yourself.
+
+For timeout composition, provide `await_subscribe(next, std::stop_token)` alongside
+`await_ready()` and `await_resume()`. The wrapper supplies the continuation for
+its own deadline; use it for every completion reason:
+
+```cpp
+auto result = co_await gentest::async::wait_for(
+    Receive{source}, std::chrono::seconds{1});
+if (result.ready()) {
+    Reply reply = std::move(result).value();
+    // Inspect reply.reason and reply.value here.
+}
+```
+
+A suspended completion admitted before the deadline remains ready even if the
+runner delivers it later. Admission at or after the deadline produces timeout
+without invoking the value receiver. An already-ready awaitable still wins at the
+await site even when its deadline has expired. The timeout is a Gentest outcome;
+an application's disconnect or error reason remains part of its typed result.
+
+Timeout and case cancellation request the supplied stop token. An optional
+`cancel_wait() noexcept` hook can retire a registration. Cancellation suppresses
+queued publication and future resumes; it cannot interrupt a running coroutine.
+It does not prove the backend has stopped accessing an I/O buffer. The backend
+must keep its buffers, resources, and registrations alive until work retires.
+A custom operation without a deadline may wait indefinitely; its backend must
+complete or retire the registration. Unrelated cases in the same fixture group
+continue cooperatively on the runner.
+
+The implementation is self-contained Gentest code under BSL-1.0. It uses the
+existing coroutine frame owner and timer queue, with generation-guarded weak
+capabilities and queued value delivery; no external coroutine library is needed.

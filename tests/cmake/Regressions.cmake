@@ -113,6 +113,7 @@ set(_gentest_manual_regressions
     "gentest_regression_runtime_selection|runtime_selection_regressions.cpp"
     "gentest_regression_async_blocking_timer_starvation|async_blocking_timer_starvation.cpp"
     "gentest_regression_async_stale_waiter|async_stale_waiter.cpp"
+    "gentest_regression_async_completion|async_completion.cpp"
     "gentest_regression_async_adopted_ready_queue|async_adopted_ready_queue.cpp"
     "gentest_regression_reporting_attachment_collision|reporting_attachment_collision.cpp")
 
@@ -1429,6 +1430,14 @@ gentest_add_cmake_script_test(
         "EXPECT_RC=NONZERO"
         "REQUIRED_SUBSTRING=terminating after fatal assertion"
         "FORBID_SUBSTRING=async-local-fixture-teardown-noexc-second-marker")
+
+gentest_add_cmake_script_test(
+    NAME regression_async_completion_values_and_runner_delivery
+    PROG $<TARGET_FILE:gentest_regression_async_completion>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS --no-color
+    DEFINES "TIMEOUT_SEC=30" "EXPECT_RC=0" "REQUIRED_SUBSTRING=Summary: passed 2/2")
+set_tests_properties(regression_async_completion_values_and_runner_delivery PROPERTIES TIMEOUT 30)
 
 gentest_add_cmake_script_test(
     NAME regression_async_stale_waiter_tokens_ignore_canceled_posts

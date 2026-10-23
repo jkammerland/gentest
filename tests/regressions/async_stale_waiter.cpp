@@ -95,6 +95,15 @@ class TrackingScheduler final : public gentest::detail::AsyncScheduler {
         core_.post(frame);
     }
 
+    auto post_completion(gentest::detail::AsyncCompletion &&completion) -> bool override {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (record_late_posts_) {
+            ++late_posts_;
+            return false;
+        }
+        return core_.post_completion(std::move(completion));
+    }
+
     void block(std::coroutine_handle<> handle, std::string reason) override { core_.block(handle, std::move(reason)); }
 
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -123,13 +132,14 @@ class TrackingScheduler final : public gentest::detail::AsyncScheduler {
     void run_ready() {
         gentest::detail::AsyncSchedulerScope scheduler_scope(this);
         while (true) {
-            auto frame = core_.pop_ready();
-            if (!frame) {
+            auto ready = core_.pop_ready();
+            auto frame = ready.frame;
+            if (!ready) {
                 return;
             }
             if (frame->handle && !frame->is_canceled() && !frame->done()) {
                 core_.clear_suspend_state(frame);
-                frame->handle.resume();
+                (void)ready.resume();
             }
         }
     }

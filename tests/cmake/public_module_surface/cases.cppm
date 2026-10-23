@@ -5,6 +5,8 @@ module;
 #include <cmath>
 #include <coroutine>
 #include <fmt/format.h>
+#include <memory>
+#include <optional>
 #include <ostream>
 #include <stop_token>
 #include <string_view>
@@ -96,6 +98,43 @@ gentest::async_test<void> async_promise_case() {
     promise.set_value(42);
     int payload = co_await future;
     gentest::expect_eq(payload, 42);
+}
+
+struct CallbackWait {
+    std::unique_ptr<int> value;
+    bool                 registration_finished        = false;
+    bool                 delivered_after_registration = false;
+
+    bool await_ready() const noexcept { return false; }
+    void await_subscribe(gentest::async::continuation_handle next, std::stop_token) {
+        gentest::async::continuation<std::unique_ptr<int>> callback =
+            gentest::async::bind_continuation<std::unique_ptr<int>>(std::move(next), [this](std::unique_ptr<int> result) noexcept {
+                value                        = std::move(result);
+                delivered_after_registration = registration_finished;
+            });
+        callback(std::make_unique<int>(57));
+        registration_finished = true;
+    }
+    template <class Promise> void await_suspend(std::coroutine_handle<Promise> parent) {
+        auto next = parent.promise().make_continuation();
+        auto stop = next.stop_token();
+        await_subscribe(std::move(next), stop);
+    }
+    auto await_resume() -> std::unique_ptr<int> {
+        gentest::expect_true(delivered_after_registration);
+        return std::move(value);
+    }
+};
+
+[[using gentest: test("async_callback")]]
+gentest::async_test<void> async_callback_case() {
+    auto result = co_await gentest::async::wait_for(CallbackWait{}, std::chrono::seconds{1});
+    gentest::require(result.ready());
+    gentest::expect_eq(*std::move(result).value(), 57);
+
+    auto direct = co_await CallbackWait{};
+    gentest::require(direct != nullptr);
+    gentest::expect_eq(*direct, 57);
 }
 
 } // namespace public_module_surface
