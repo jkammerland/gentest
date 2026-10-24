@@ -10,7 +10,7 @@ if(NOT _producer_fmt_dir STREQUAL "")
   list(APPEND _example_cache_args "-Dfmt_DIR=${_producer_fmt_dir}")
 endif()
 
-foreach(_example IN ITEMS parameterized fixtures mocking measured metadata recording)
+foreach(_example IN ITEMS parameterized fixtures mocking measured metadata recording async)
   set(_example_source "${_work_dir}/examples/${_example}")
   set(_example_build "${_work_dir}/e_${_example}")
   message(STATUS "Build and validate example: ${_example}")

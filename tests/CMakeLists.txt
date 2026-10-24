@@ -315,6 +315,10 @@ gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
 # Coroutine async target (no default add_test; contains deliberate BLOCKED cases)
 gentest_add_suite(async TARGET ${PROJECT_NAME}_async_tests NO_CTEST)
 
+# Compile the public walkthrough in the default build and lint compilation database.
+gentest_add_suite(async_examples TARGET ${PROJECT_NAME}_async_examples_tests
+    CASES "${PROJECT_SOURCE_DIR}/examples/async/cases.cpp")
+
 # Slow coroutine live-renderer demo target (no default suite add_test; intended for terminal inspection)
 gentest_add_suite(async_live_slow TARGET ${PROJECT_NAME}_async_live_slow_tests NO_CTEST)
 
