@@ -106,7 +106,8 @@ class AsyncScheduler {
         }
         [[nodiscard]] auto active() const noexcept -> bool {
             return suspension_ && suspension_->active.load(std::memory_order_acquire) &&
-                   !suspension_->admitted.load(std::memory_order_acquire) && !canceled_->load(std::memory_order_acquire);
+                   (reason_ == ResumeReason::Timeout || !suspension_->admitted.load(std::memory_order_acquire)) &&
+                   !canceled_->load(std::memory_order_acquire);
         }
 
       private:
@@ -132,6 +133,7 @@ class AsyncScheduler {
 
     virtual void notify_completion() noexcept {}
 
+    virtual void               begin_wait(std::coroutine_handle<> handle) noexcept   = 0;
     virtual void               post(std::coroutine_handle<> handle)                  = 0;
     [[nodiscard]] virtual auto post_completion(AsyncCompletion &&completion) -> bool = 0;
     virtual void               post_frame(const AsyncFramePtr &frame) {
@@ -387,6 +389,7 @@ struct yield_awaitable {
         if (!scheduler) {
             std::abort();
         }
+        scheduler->begin_wait(handle);
         scheduler->yield_at(handle, loc);
     }
 
@@ -418,6 +421,7 @@ class sleep_awaitable {
         if (!scheduler) {
             std::abort();
         }
+        scheduler->begin_wait(handle);
         await_suspend_with_token(handle, *scheduler, scheduler->make_waiter(handle));
     }
 
@@ -555,6 +559,7 @@ template <typename T = std::any> class event {
             if (!scheduler) {
                 std::abort();
             }
+            scheduler->begin_wait(handle);
             await_suspend_with_token(handle, *scheduler, scheduler->make_waiter(handle));
         }
 
@@ -799,6 +804,7 @@ template <typename T> class async_test final : public detail::AsyncTask {
         if (!scheduler || !frame_ || !frame_->handle) {
             std::abort();
         }
+        scheduler->begin_wait(continuation);
         await_suspend_with_token(continuation, *scheduler, scheduler->make_waiter(continuation));
     }
 
@@ -933,6 +939,7 @@ template <> class async_test<void> final : public detail::AsyncTask {
         if (!scheduler || !frame_ || !frame_->handle) {
             std::abort();
         }
+        scheduler->begin_wait(continuation);
         await_suspend_with_token(continuation, *scheduler, scheduler->make_waiter(continuation));
     }
 
@@ -1101,6 +1108,7 @@ template <SupportedTimedAwaitable Awaitable, typename Clock = std::chrono::stead
         if (!scheduler) {
             std::abort();
         }
+        scheduler->begin_wait(handle);
         control_ = scheduler->control();
         if (Clock::now() >= deadline_) {
             (void)state_->try_timeout();
@@ -1130,12 +1138,26 @@ template <SupportedTimedAwaitable Awaitable, typename Clock = std::chrono::stead
 
         scheduler->schedule_timer(deadline_, timeout_token_);
         inner_wait_started_ = true;
-        if constexpr (SubscribableAwaitable<Awaitable>) {
-            scheduler->block_at(handle, "custom asynchronous operation", loc_);
-            awaitable_.await_subscribe(gentest::detail::AsyncContinuationAccess::from_token(ready_token_), ready_token_->stop_token());
-        } else {
-            awaitable_.await_suspend_with_token(handle, *scheduler, ready_token_);
+#if GENTEST_EXCEPTIONS_ENABLED
+        try {
+#endif
+            if constexpr (SubscribableAwaitable<Awaitable>) {
+                scheduler->block_at(handle, "custom asynchronous operation", loc_);
+                awaitable_.await_subscribe(gentest::detail::AsyncContinuationAccess::from_token(ready_token_), ready_token_->stop_token());
+            } else {
+                awaitable_.await_suspend_with_token(handle, *scheduler, ready_token_);
+            }
+#if GENTEST_EXCEPTIONS_ENABLED
+        } catch (...) {
+            // A named wrapper can outlive this exception. Roll back both
+            // competitors now, before the coroutine enters another await.
+            cancel_tokens();
+            inner_wait_started_ = false;
+            ready_token_->request_stop();
+            cancel_supported_awaitable(awaitable_, *control_);
+            throw;
         }
+#endif
     }
 
     [[nodiscard]] auto await_resume() -> result_type {

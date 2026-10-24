@@ -52,6 +52,8 @@ BatchAsyncScheduler::~BatchAsyncScheduler() {
 
 void BatchAsyncScheduler::notify_completion() noexcept { core_.notify_completion(); }
 
+void BatchAsyncScheduler::begin_wait(std::coroutine_handle<> handle) noexcept { core_.begin_wait(handle); }
+
 void BatchAsyncScheduler::post(std::coroutine_handle<> handle) { core_.post(handle); }
 
 void BatchAsyncScheduler::post_frame(const gentest::detail::AsyncFramePtr &frame) { core_.post(frame); }
@@ -263,8 +265,7 @@ auto BatchAsyncScheduler::has_unfinished_adopted_work() const -> bool {
 
 void BatchAsyncScheduler::wait_for_ready_or_adopted_release(const StopCallback &should_stop) {
     const auto stop_or_progress_locked = [&] {
-        return core_.has_ready() || (!has_unfinished_adopted_work() && !core_.next_timer_deadline() && !core_.has_pending_external()) ||
-               (should_stop && should_stop());
+        return core_.has_ready() || (!has_unfinished_adopted_work() && !core_.has_work()) || (should_stop && should_stop());
     };
 
     while (true) {
@@ -318,7 +319,7 @@ auto BatchAsyncScheduler::drain_ready_and_adopted_work(const StopCallback &shoul
         if (should_stop && should_stop()) {
             return true;
         }
-        if (!has_unfinished_adopted_work() && !core_.has_pending_timers() && !core_.has_pending_external()) {
+        if (!has_unfinished_adopted_work() && !core_.has_work()) {
             return false;
         }
         wait_for_ready_or_adopted_release(should_stop);

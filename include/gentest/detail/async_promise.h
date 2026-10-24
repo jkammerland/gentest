@@ -422,6 +422,7 @@ template <typename T> class future {
             if (!scheduler) {
                 std::abort();
             }
+            scheduler->begin_wait(handle);
             await_suspend_with_token(handle, *scheduler, scheduler->make_waiter(handle));
         }
 
@@ -614,6 +615,7 @@ template <> class future<void> {
             if (!scheduler) {
                 std::abort();
             }
+            scheduler->begin_wait(handle);
             await_suspend_with_token(handle, *scheduler, scheduler->make_waiter(handle));
         }
 

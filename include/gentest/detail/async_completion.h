@@ -88,6 +88,15 @@ class AsyncFrame {
 
     [[nodiscard]] auto try_claim_waiter() noexcept -> bool { return !std::exchange(waiter_claimed_, true); }
 
+    // A failed await_suspend (or one returning false) need not pass through
+    // resume_claimed(). Retire its capabilities when registering the next wait.
+    void begin_wait() noexcept {
+        auto previous = std::move(suspension_);
+        if (previous) {
+            previous->active.store(false, std::memory_order_release);
+        }
+    }
+
     // Called only on the runner. All competitors receive this same registration.
     [[nodiscard]] auto suspension() -> std::shared_ptr<AsyncSuspension> {
         if (!suspension_) {

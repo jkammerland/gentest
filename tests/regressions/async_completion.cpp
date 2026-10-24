@@ -1,11 +1,14 @@
 #include "../../src/async_scheduler_core.h"
+#include "../../src/runner_async_scheduler.h"
 #include "gentest/detail/registration_runtime.h"
 #include "gentest/detail/runtime_context.h"
 #include "gentest/runner.h"
 
+#include <algorithm>
 #include <atomic>
 #include <barrier>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <future>
 #include <latch>
@@ -26,8 +29,8 @@ using TimePoint = std::chrono::steady_clock::time_point;
 using Token     = gentest::detail::AsyncScheduler::WaiterTokenPtr;
 
 struct ManualClock {
-    static inline std::atomic<int> milliseconds{0};
-    static auto                    now() noexcept -> TimePoint { return TimePoint{std::chrono::milliseconds{milliseconds.load()}}; }
+    static inline std::atomic<std::int64_t> milliseconds{0};
+    static auto now() noexcept -> TimePoint { return TimePoint{std::chrono::milliseconds{milliseconds.load()}}; }
 };
 
 class Scheduler final : public gentest::detail::AsyncScheduler {
@@ -39,6 +42,7 @@ class Scheduler final : public gentest::detail::AsyncScheduler {
     }
 
     void post(std::coroutine_handle<> handle) override { core_.post(handle); }
+    void begin_wait(std::coroutine_handle<> handle) noexcept override { core_.begin_wait(handle); }
     void post_frame(const gentest::detail::AsyncFramePtr &frame) override { core_.post(frame); }
     auto post_completion(gentest::detail::AsyncCompletion &&completion) -> bool override {
         if (before_admission) {
@@ -75,6 +79,14 @@ class Scheduler final : public gentest::detail::AsyncScheduler {
                 token->post();
             }
         }
+    }
+    void advance_past_timers() {
+        for (const auto &[deadline, token] : timers_) {
+            (void)token;
+            const auto next           = std::chrono::duration_cast<std::chrono::milliseconds>(deadline.time_since_epoch()).count() + 1;
+            ManualClock::milliseconds = std::max(ManualClock::milliseconds.load(), next);
+        }
+        fire_timers();
     }
     void cancel_all() { core_.cancel_all(); }
 
@@ -124,7 +136,12 @@ struct Receive {
     template <typename Promise> void await_suspend(std::coroutine_handle<Promise> parent) {
         auto next = parent.promise().make_continuation();
         auto stop = next.stop_token();
-        await_subscribe(std::move(next), stop);
+        try {
+            await_subscribe(next, stop);
+        } catch (...) {
+            next.cancel();
+            throw;
+        }
     }
     void await_subscribe(gentest::async::continuation_handle next, std::stop_token stop) {
         source.next   = next;
@@ -143,6 +160,7 @@ struct Receive {
             source.callback(Reason::Received, std::make_unique<int>(31));
         }
         if (source.registration_throws) {
+            source.next.cancel();
             throw std::runtime_error("registration failure");
         }
         if (source.registered) {
@@ -263,6 +281,332 @@ auto inline_and_registration_failure() -> bool {
         }
     }
     return true;
+}
+
+auto caught_registration_failure_can_await_again(bool timed) -> bool {
+    Source source;
+    source.inline_completion   = true;
+    source.registration_throws = true;
+    gentest::async::event<int> later;
+    unsigned                   phase = 0;
+
+    auto recover = [](Source &failed, gentest::async::event<int> &event, unsigned &step, bool use_timeout) -> gentest::async_test<void> {
+        try {
+            if (use_timeout) {
+                (void)co_await gentest::async::wait_for(Receive{.source = failed, .result = {}}, 1h);
+            } else {
+                (void)co_await Receive{.source = failed, .result = {}};
+            }
+        } catch (const std::runtime_error &) { step = 1; }
+
+        // Neither the queued inline reply nor its admitted flag may leak into
+        // a new yield or resume an event that has not received its own value.
+        co_await gentest::async::yield();
+        step            = 2;
+        const int value = co_await event.wait("later");
+        if (value == 17) {
+            step = 3;
+        }
+    };
+    Scheduler scheduler;
+    auto      task = recover(source, later, phase, timed);
+    scheduler.start(task);
+    if (scheduler.pump() != 2 || task.handle().done() || phase != 2 || source.published != 0 || source.consumed != 0) {
+        return false;
+    }
+    source.alternate(Reason::Received, std::make_unique<int>(99));
+    if (scheduler.pump() != 0 || source.next) {
+        return false;
+    }
+
+    later.set("later", 17);
+    return scheduler.pump() == 1 && task.handle().done() && !task.exception() && phase == 3 && source.published == 0;
+}
+
+auto admitted_completion_is_still_work() -> bool {
+    Source                                     source;
+    std::optional<Reply>                       output;
+    std::vector<gentest::runner::AsyncCaseRun> runs(1);
+    runs.front().ctxinfo = std::make_shared<gentest::detail::TestContextInfo>();
+    gentest::detail::start_context(*runs.front().ctxinfo);
+    runs.front().task = gentest::detail::make_async_task(receive(source, output));
+    gentest::runner::BatchAsyncScheduler scheduler(runs, nullptr);
+    scheduler.add_top_level(0, *runs.front().task);
+
+    // The second progress callback runs after the ready queue was drained,
+    // immediately before the scheduler decides whether any work remains.
+    unsigned   progress    = 0;
+    const bool interrupted = scheduler.finish_unresumable({}, [&] {
+        if (++progress == 2) {
+            std::thread worker([&] { source.callback(Reason::Received, std::make_unique<int>(83)); });
+            worker.join();
+        }
+        return false;
+    });
+    return !interrupted && runs.front().task->handle().done() && runs.front().exception == gentest::runner::InvokeException::None &&
+           output && *output->value == 83 && source.published == 1 && source.consumed == 1;
+}
+
+auto child_value() -> gentest::async_test<int> {
+    co_await gentest::async::yield();
+    co_return 23;
+}
+
+auto child_void() -> gentest::async_test<void> { co_await gentest::async::yield(); }
+
+auto registration_failure_then_other_waits() -> bool {
+    enum class Next { Event, Future, VoidFuture, Sleep, Child, VoidChild, Timed, Custom };
+    struct State {
+        Source                        failed;
+        Source                        custom;
+        gentest::async::event<int>    event;
+        gentest::async::promise<int>  value;
+        gentest::async::promise<void> signal;
+        bool                          caught   = false;
+        int                           received = 0;
+    };
+    auto recover = [](State &state, Next next) -> gentest::async_test<void> {
+        try {
+            (void)co_await Receive{.source = state.failed, .result = {}};
+        } catch (const std::runtime_error &) { state.caught = true; }
+
+        switch (next) {
+        case Next::Event: state.received = co_await state.event.wait("reply"); break;
+        case Next::Future: state.received = co_await state.value.get_future(); break;
+        case Next::VoidFuture:
+            co_await state.signal.get_future();
+            state.received = 23;
+            break;
+        case Next::Sleep:
+            co_await gentest::async::sleep_for(1h);
+            state.received = 23;
+            break;
+        case Next::Child: state.received = co_await child_value(); break;
+        case Next::VoidChild:
+            co_await child_void();
+            state.received = 23;
+            break;
+        case Next::Timed: {
+            auto result = co_await gentest::async::wait_for(state.event.wait("reply"), 1h);
+            if (result.ready()) {
+                state.received = result.value();
+            }
+            break;
+        }
+        case Next::Custom: {
+            auto result    = co_await Receive{.source = state.custom, .result = {}};
+            state.received = *result.value;
+            break;
+        }
+        }
+    };
+
+    for (const auto next :
+         {Next::Event, Next::Future, Next::VoidFuture, Next::Sleep, Next::Child, Next::VoidChild, Next::Timed, Next::Custom}) {
+        ManualClock::milliseconds = 0;
+        State state;
+        state.failed.inline_completion   = true;
+        state.failed.registration_throws = true;
+        auto      task                   = recover(state, next);
+        Scheduler scheduler;
+        scheduler.start(task);
+        (void)scheduler.pump();
+
+        if (!state.caught || state.failed.published != 0) {
+            return false;
+        }
+        switch (next) {
+        case Next::Event:
+        case Next::Timed: state.event.set("reply", 23); break;
+        case Next::Future: state.value.set_value(23); break;
+        case Next::VoidFuture: state.signal.set_value(); break;
+        case Next::Sleep: scheduler.advance_past_timers(); break;
+        case Next::Custom: state.custom.callback(Reason::Received, std::make_unique<int>(23)); break;
+        case Next::Child:
+        case Next::VoidChild: break;
+        }
+        (void)scheduler.pump();
+        if (!task.handle().done() || task.exception() || state.received != 23 || state.failed.published != 0) {
+            (void)std::fprintf(stderr, "failed registration recovery: next=%d, received=%d, published=%u\n", static_cast<int>(next),
+                               state.received, state.failed.published);
+            return false;
+        }
+    }
+    return true;
+}
+
+struct ImmovableReady {
+    ImmovableReady()                       = default;
+    ImmovableReady(const ImmovableReady &) = delete;
+    ImmovableReady(ImmovableReady &&)      = delete;
+
+    auto await_ready() const noexcept -> bool { return true; }
+    void await_suspend(std::coroutine_handle<>) const noexcept {}
+    auto await_resume() const noexcept -> int { return 3; }
+};
+
+struct FreeAwaitable {
+    FreeAwaitable()                      = default;
+    FreeAwaitable(const FreeAwaitable &) = delete;
+    FreeAwaitable(FreeAwaitable &&)      = delete;
+};
+auto operator co_await(FreeAwaitable) noexcept -> ImmovableReady { return {}; }
+
+struct MemberAwaitable {
+    auto operator co_await() && noexcept -> ImmovableReady { return {}; }
+};
+
+struct FalseWait {
+    unsigned &published;
+
+    auto                             await_ready() const noexcept -> bool { return false; }
+    template <typename Promise> auto await_suspend(std::coroutine_handle<Promise> parent) const -> bool {
+        auto next = parent.promise().make_continuation();
+        (void)next.try_invoke([&count = published]() noexcept { ++count; });
+        // Returning false ends this await immediately; no callback may retain
+        // permission to resume it after the awaiter has been destroyed.
+        next.cancel();
+        return false;
+    }
+    auto await_resume() const noexcept -> int { return 5; }
+};
+
+struct HandleWait {
+    auto                             await_ready() const noexcept -> bool { return false; }
+    template <typename Promise> auto await_suspend(std::coroutine_handle<Promise> parent) const -> std::coroutine_handle<> {
+        (void)parent.promise().make_continuation().try_invoke();
+        return std::noop_coroutine();
+    }
+    void await_resume() const noexcept {}
+};
+
+auto standard_awaiter_forms() -> bool {
+    auto operation = [](unsigned &published) -> gentest::async_test<int> {
+        ImmovableReady local;
+        int            value = co_await local;
+        value += co_await ImmovableReady{};
+        value += co_await FreeAwaitable{};
+        value += co_await MemberAwaitable{};
+        value += co_await FalseWait{published};
+        co_await HandleWait{};
+        co_return value;
+    };
+
+    unsigned  published = 0;
+    auto      task      = operation(published);
+    Scheduler scheduler;
+    scheduler.start(task);
+    if (scheduler.pump() != 2 || !task.handle().done() || task.exception() || task.await_resume() != 17 || published != 0) {
+        return false;
+    }
+
+    auto void_operation = []() -> gentest::async_test<void> {
+        if (co_await FreeAwaitable{} != 3) {
+            throw std::logic_error("immovable awaitable operand lost its value");
+        }
+    };
+    auto void_task = void_operation();
+    scheduler.start(void_task);
+    return scheduler.pump() == 1 && void_task.handle().done() && !void_task.exception();
+}
+
+auto registration_cleanup_before_ordinary_await() -> bool {
+    struct Progress {
+        unsigned published = 0;
+        unsigned phase     = 0;
+    };
+
+    for (const bool throws : {false, true}) {
+        Source source;
+        source.inline_completion   = true;
+        source.registration_throws = true;
+        Progress progress;
+        auto     operation = [](Source &failed, Progress &state, bool registration_throws) -> gentest::async_test<void> {
+            if (registration_throws) {
+                try {
+                    (void)co_await Receive{.source = failed, .result = {}};
+                } catch (const std::runtime_error &) { state.phase = 1; }
+            } else {
+                (void)co_await FalseWait{state.published};
+                state.phase = 1;
+            }
+
+            // No framework registration occurs here to retire a generation.
+            // Awaiter-owned cancellation must already suppress the old callback.
+            co_await std::suspend_always{};
+            state.phase = 2;
+        };
+        auto      task = operation(source, progress, throws);
+        Scheduler scheduler;
+        scheduler.start(task);
+        if (scheduler.pump() != 1 || task.handle().done() || progress.phase != 1 || progress.published != 0 || source.published != 0) {
+            return false;
+        }
+        if (throws) {
+            source.alternate(Reason::Received, std::make_unique<int>(99));
+        }
+        if (scheduler.pump() != 0 || progress.phase != 1 || source.published != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+auto named_timeout_registration_failure() -> bool {
+    for (const bool inline_completion : {false, true}) {
+        Source source;
+        source.inline_completion   = inline_completion;
+        source.registration_throws = true;
+        unsigned phase             = 0;
+        auto     operation         = [](Source &failed, unsigned &step) -> gentest::async_test<void> {
+            auto wait = gentest::async::wait_for(Receive{.source = failed, .result = {}}, 1h);
+            try {
+                (void)co_await wait;
+            } catch (const std::runtime_error &) { step = 1; }
+            // The named wrapper remains alive through this unrelated suspension.
+            co_await std::suspend_always{};
+            step = 2;
+        };
+        auto      task = operation(source, phase);
+        Scheduler scheduler;
+        scheduler.start(task);
+        if (scheduler.pump() != 1 || phase != 1 || task.handle().done()) {
+            return false;
+        }
+        scheduler.advance_past_timers();
+        if (scheduler.pump() != 0 || phase != 1 || task.handle().done() || source.published != 0 || !source.stop.stop_requested()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+auto factory_issues_fresh_generation() -> bool {
+    struct Wait {
+        gentest::async::continuation_handle &first;
+        gentest::async::continuation_handle &second;
+        auto                                 await_ready() const noexcept -> bool { return false; }
+        void                                 await_suspend(std::coroutine_handle<gentest::async_test<void>::promise_type> parent) const {
+            first = parent.promise().make_continuation();
+            (void)first.try_invoke();
+            second = parent.promise().make_continuation();
+        }
+        void await_resume() const noexcept {}
+    };
+    auto operation = [](auto &first, auto &second) -> gentest::async_test<void> { co_await Wait{first, second}; };
+    gentest::async::continuation_handle first, second;
+    auto                                task = operation(first, second);
+    Scheduler                           scheduler;
+    scheduler.start(task);
+    if (scheduler.pump() != 1 || task.handle().done() || first || !second) {
+        return false;
+    }
+
+    auto competitor = second;
+    if (first.try_invoke() || !competitor.try_invoke() || second.try_invoke()) {
+        return false;
+    }
+    return scheduler.pump() == 1 && task.handle().done() && !task.exception();
 }
 
 auto stale_and_canceled() -> bool {
@@ -440,6 +784,34 @@ auto deadline_arbitration(int admitted_ms, bool timer_first = false, bool alread
            source.canceled == 1 && source.stop.stop_requested();
 }
 
+auto cancel_admitted_callback_preserves_timeout(bool timer_due_before_cancel) -> bool {
+    ManualClock::milliseconds = 0;
+    Source               source;
+    std::optional<Reply> output;
+    auto                 status = gentest::async::wait_status::ready;
+    auto                 task   = timed_receive(source, status, output);
+    Scheduler            scheduler;
+    scheduler.start(task);
+    if (scheduler.pump() != 1) {
+        return false;
+    }
+
+    ManualClock::milliseconds = 90;
+    source.callback(Reason::Received, std::make_unique<int>(42));
+    if (timer_due_before_cancel) {
+        ManualClock::milliseconds = 100;
+        scheduler.fire_timers();
+    }
+    source.next.cancel();
+
+    // Withdrawing the queued value must not withdraw the deadline competitor.
+    // Exercise both an already-due timer and a timer that expires afterward.
+    ManualClock::milliseconds = 100;
+    scheduler.fire_timers();
+    return scheduler.pump() == 1 && task.handle().done() && !task.exception() && status == gentest::async::wait_status::timeout &&
+           !output && source.published == 0 && source.consumed == 0 && source.canceled == 1 && source.stop.stop_requested();
+}
+
 auto reference_arguments_are_owned() -> bool {
     struct TextWait {
         gentest::async::continuation<const std::string &> &callback;
@@ -563,7 +935,19 @@ auto check(bool result, const char *name) -> bool {
 } // namespace
 
 int main(int argc, char **argv) try {
+    const bool admitted_work     = check(admitted_completion_is_still_work(), "completion admitted after drain is still work");
+    const bool recovered_untimed = check(caught_registration_failure_can_await_again(false), "caught untimed registration failure");
+    const bool recovered_timed   = check(caught_registration_failure_can_await_again(true), "caught timed registration failure");
+    if (!admitted_work || !recovered_untimed || !recovered_timed) {
+        return 1;
+    }
+
     if (!check(empty_and_void_callbacks(), "empty and void callbacks") ||
+        !check(standard_awaiter_forms(), "standard awaiter lookup, lifetimes, and suspension return forms") ||
+        !check(registration_cleanup_before_ordinary_await(), "awaiter cleanup precedes an ordinary C++ suspension") ||
+        !check(named_timeout_registration_failure(), "failed named timeout registration retires timer before rethrow") ||
+        !check(registration_failure_then_other_waits(), "caught registration failure followed by other wait registrations") ||
+        !check(factory_issues_fresh_generation(), "factory replaces capabilities while copies compete") ||
         !check(worker_competitors(), "worker payloads are published once on runner") ||
         !check(inline_and_registration_failure(), "inline and failed registration") ||
         !check(stale_and_canceled(), "stale generations and cancellation") ||
@@ -576,6 +960,8 @@ int main(int argc, char **argv) try {
         !check(deadline_arbitration(200), "late admission times out without publication") ||
         !check(deadline_arbitration(100, true), "timer wins before callback") ||
         !check(deadline_arbitration(200, false, true), "already-ready value wins expired deadline") ||
+        !check(cancel_admitted_callback_preserves_timeout(false), "canceling admitted value preserves pending timeout") ||
+        !check(cancel_admitted_callback_preserves_timeout(true), "canceling admitted value preserves already-due timeout") ||
         !check(reference_arguments_are_owned(), "queued callback arguments own their values") ||
         !check(blocking_external_completion(0), "blocking fixture waits for an external callback without adoption") ||
         !check(blocking_external_completion(1), "worker cancellation wakes blocking fixture") ||

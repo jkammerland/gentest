@@ -97,6 +97,9 @@ namespace gentest::async {
     if (!scheduler) {
         std::abort();
     }
+    // One factory call issues a new generation. Copy that handle when several
+    // callbacks compete to complete the same wait.
+    scheduler->begin_wait(handle);
     auto token = scheduler->make_waiter(handle);
     scheduler->block_at(handle, std::move(reason), loc);
     return detail::AsyncContinuationAccess::from_token(std::move(token));

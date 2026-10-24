@@ -92,6 +92,18 @@ class AsyncSchedulerCore {
         return token;
     }
 
+    void begin_wait(std::coroutine_handle<> handle) noexcept {
+        FramePtr frame;
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            frame = frame_for_locked(handle.address());
+            blocked_.erase(handle.address());
+        }
+        if (frame) {
+            frame->begin_wait();
+        }
+    }
+
     void post(std::coroutine_handle<> handle) {
         FramePtr frame;
         {
@@ -112,7 +124,10 @@ class AsyncSchedulerCore {
     [[nodiscard]] auto post_completion(Completion &&completion) -> bool {
         {
             std::lock_guard<std::mutex> lock(mtx_);
-            if (!completion.active() || completion.suspension->admitted.load(std::memory_order_acquire)) {
+            // A queued value can still be withdrawn. Keep its timeout competitor
+            // eligible; FIFO delivery and the frame claim select one outcome.
+            if (!completion.active() || (completion.reason != gentest::detail::AsyncResumeReason::Timeout &&
+                                         completion.suspension->admitted.load(std::memory_order_acquire))) {
                 return false;
             }
             completion.admitted_at = now_();
@@ -237,13 +252,13 @@ class AsyncSchedulerCore {
         return timers_.next_deadline();
     }
 
-    [[nodiscard]] auto has_pending_timers() -> bool {
-        std::lock_guard<std::mutex> lk(mtx_);
-        return timers_.has_pending();
-    }
-
-    [[nodiscard]] auto has_pending_external() const -> bool {
+    // Admission moves work from an external capability into ready_. Observe
+    // both sides under the same lock before declaring a task unresumable.
+    [[nodiscard]] auto has_work() -> bool {
         std::lock_guard<std::mutex> lock(mtx_);
+        if (!ready_.empty() || timers_.has_pending()) {
+            return true;
+        }
         for (const auto &[address, tokens] : waiter_tokens_) {
             (void)address;
             for (const auto &weak : tokens) {

@@ -35,6 +35,8 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
 
     void notify_completion() noexcept override { core_.notify_completion(); }
 
+    void begin_wait(std::coroutine_handle<> handle) noexcept override { core_.begin_wait(handle); }
+
     void post(std::coroutine_handle<> handle) override { core_.post(handle); }
 
     void post_frame(const AsyncFramePtr &frame) override { core_.post(frame); }
@@ -99,8 +101,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
                 return BlockingAsyncStatus::Completed;
             }
 
-            if ((!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.has_pending_timers() &&
-                !core_.has_pending_external()) {
+            if ((!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.has_work()) {
                 break;
             }
 
@@ -128,8 +129,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
   private:
     void wait_for_ready_or_adopted_release() {
         const auto no_pending_wait_locked = [&] {
-            return (!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.next_timer_deadline() &&
-                   !core_.has_pending_external();
+            return (!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.has_work();
         };
         const auto ready_or_done_waiting_locked = [&] { return core_.has_ready() || no_pending_wait_locked(); };
 

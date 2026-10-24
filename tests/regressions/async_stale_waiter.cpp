@@ -84,6 +84,8 @@ constexpr auto kLateCompletionDelay   = std::chrono::milliseconds(650);
 
 class TrackingScheduler final : public gentest::detail::AsyncScheduler {
   public:
+    void begin_wait(std::coroutine_handle<> handle) noexcept override { core_.begin_wait(handle); }
+
     void post(std::coroutine_handle<> handle) override { post_frame_from_core(handle); }
 
     void post_frame(const gentest::detail::AsyncFramePtr &frame) override {
