@@ -10,6 +10,9 @@
 
 namespace async_examples::polling {
 
+using namespace gentest;
+using namespace gentest::async;
+
 // This loop is entirely user-owned. Replace it with io_context::poll_one(),
 // an engine tick, or another executor's progress function.
 class Loop {
@@ -35,18 +38,18 @@ struct [[gentest::fixture(suite)]] Infrastructure {
 };
 
 [[gentest::test("drive_user_loop")]]
-inline auto driveUserLoop(Infrastructure &infrastructure) -> gentest::async_test<void> {
-    gentest::async::event<int> replies;
+inline auto driveUserLoop(Infrastructure &infrastructure) -> async_test<void> {
+    event<int> replies;
     infrastructure.loop.post([&replies] { replies.set("read", 42); });
 
     // The case chooses when the loop makes progress and when Gentest gets a turn.
     while (!replies.is_set("read")) {
-        gentest::asserts::ASSERT_TRUE(infrastructure.loop.pollOne());
-        co_await gentest::async::yield();
+        asserts::ASSERT_TRUE(infrastructure.loop.pollOne());
+        co_await yield();
     }
 
     const int value = co_await replies.wait("read");
-    gentest::expect_eq(value, 42);
+    expect_eq(value, 42);
 }
 
 } // namespace async_examples::polling

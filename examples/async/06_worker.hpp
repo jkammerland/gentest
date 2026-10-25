@@ -16,6 +16,9 @@
 
 namespace async_examples::worker {
 
+using namespace gentest;
+using namespace gentest::async;
+
 // A complete, small backend. No Gentest registration or loop interface is needed.
 class Loop {
   public:
@@ -32,7 +35,7 @@ class Loop {
         worker_.join();
     }
 
-    void post(gentest::async::continuation<> work) {
+    void post(continuation<> work) {
         {
             std::lock_guard lock(mutex_);
             queue_.push_back(std::move(work));
@@ -43,7 +46,7 @@ class Loop {
   private:
     void run() {
         while (true) {
-            gentest::async::continuation<> work;
+            continuation<> work;
             {
                 std::unique_lock lock(mutex_);
                 ready_.wait(lock, [this] { return closing_ || !queue_.empty(); });
@@ -57,11 +60,11 @@ class Loop {
         }
     }
 
-    std::mutex                                 mutex_;
-    std::condition_variable                    ready_;
-    std::deque<gentest::async::continuation<>> queue_;
-    bool                                       closing_ = false;
-    std::thread                                worker_;
+    std::mutex                 mutex_;
+    std::condition_variable    ready_;
+    std::deque<continuation<>> queue_;
+    bool                       closing_ = false;
+    std::thread                worker_;
 };
 
 enum class Reply { value, unavailable };
@@ -85,9 +88,9 @@ class Read {
         }
     }
 
-    void await_subscribe(gentest::async::continuation_handle next, std::stop_token stop) {
-        auto complete = gentest::async::bind_continuation<Reply, std::unique_ptr<int>>(
-            std::move(next), [this](Reply reply, std::unique_ptr<int> value) noexcept {
+    void await_subscribe(continuation_handle next, std::stop_token stop) {
+        auto complete =
+            bind_continuation<Reply, std::unique_ptr<int>>(std::move(next), [this](Reply reply, std::unique_ptr<int> value) noexcept {
                 reply_ = reply;
                 value_ = std::move(value);
             });
@@ -119,31 +122,31 @@ struct [[gentest::fixture(suite)]] Infrastructure {
 };
 
 [[gentest::test("callback_value_on_runner")]]
-inline auto callbackValueOnRunner(Infrastructure &infrastructure) -> gentest::async_test<void> {
+inline auto callbackValueOnRunner(Infrastructure &infrastructure) -> async_test<void> {
     const auto runner = std::this_thread::get_id();
     auto       value  = co_await Read{infrastructure.loop};
-    gentest::expect_eq(*value, 42);
-    gentest::expect_true(std::this_thread::get_id() == runner);
+    expect_eq(*value, 42);
+    expect_true(std::this_thread::get_id() == runner);
 }
 
 [[gentest::test("bounded_callback")]]
-inline auto boundedCallback(Infrastructure &infrastructure) -> gentest::async_test<void> {
+inline auto boundedCallback(Infrastructure &infrastructure) -> async_test<void> {
     using namespace std::chrono_literals;
-    auto result = co_await gentest::async::wait_for(Read{infrastructure.loop}, 5s);
+    auto result = co_await wait_for(Read{infrastructure.loop}, 5s);
     if (result.timed_out()) {
-        gentest::fail("backend did not complete the read");
+        fail("backend did not complete the read");
         co_return;
     }
-    gentest::expect_eq(*result.value(), 42);
+    expect_eq(*result.value(), 42);
 }
 
 [[gentest::test("backend_error")]]
-inline auto backendError(Infrastructure &infrastructure) -> gentest::async_test<void> {
+inline auto backendError(Infrastructure &infrastructure) -> async_test<void> {
     bool rejected = false;
     try {
         (void)co_await Read{infrastructure.loop, Reply::unavailable};
     } catch (const std::runtime_error &) { rejected = true; }
-    gentest::expect_true(rejected);
+    expect_true(rejected);
 }
 
 } // namespace async_examples::worker

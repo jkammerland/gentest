@@ -10,11 +10,14 @@
 
 namespace async_examples::cancellation {
 
+using namespace gentest;
+using namespace gentest::async;
+
 // Model a backend that has registered a read but has no reply yet.
 struct Backend {
-    gentest::async::continuation<> callback;
-    std::stop_token                stop;
-    bool                           retired = false;
+    continuation<>  callback;
+    std::stop_token stop;
+    bool            retired = false;
 };
 
 struct Read {
@@ -40,10 +43,10 @@ struct Read {
         }
     }
 
-    void await_subscribe(gentest::async::continuation_handle next, std::stop_token stop) {
+    void await_subscribe(continuation_handle next, std::stop_token stop) {
         registered       = true;
         backend.stop     = std::move(stop);
-        backend.callback = gentest::async::bind_continuation<>(std::move(next), []() noexcept {});
+        backend.callback = bind_continuation<>(std::move(next), []() noexcept {});
     }
 
     void await_resume() const noexcept {}
@@ -59,27 +62,27 @@ struct Read {
 };
 
 [[gentest::test("retire_timed_out_registration")]]
-inline auto retireTimedOutRegistration() -> gentest::async_test<void> {
+inline auto retireTimedOutRegistration() -> async_test<void> {
     using namespace std::chrono_literals;
     Backend backend;
 
-    auto result = co_await gentest::async::wait_for(Read{backend}, 1ms);
-    gentest::expect_true(result.timed_out());
+    auto result = co_await wait_for(Read{backend}, 1ms);
+    expect_true(result.timed_out());
     if (backend.stop.stop_possible()) {
-        gentest::expect_true(backend.stop.stop_requested());
-        gentest::expect_true(backend.retired);
+        expect_true(backend.stop.stop_requested());
+        expect_true(backend.retired);
     } else {
         // An expired deadline can prevent registration from starting at all.
-        gentest::expect_false(backend.retired);
+        expect_false(backend.retired);
     }
-    gentest::expect_true(!backend.callback);
+    expect_true(!backend.callback);
 
     Backend expired;
-    auto    immediate = co_await gentest::async::wait_for(Read{expired}, 0ms);
-    gentest::expect_true(immediate.timed_out());
-    gentest::expect_false(expired.stop.stop_possible());
-    gentest::expect_false(expired.retired);
-    gentest::expect_true(!expired.callback);
+    auto    immediate = co_await wait_for(Read{expired}, 0ms);
+    expect_true(immediate.timed_out());
+    expect_false(expired.stop.stop_possible());
+    expect_false(expired.retired);
+    expect_true(!expired.callback);
 }
 
 } // namespace async_examples::cancellation

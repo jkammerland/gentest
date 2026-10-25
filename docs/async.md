@@ -17,15 +17,18 @@ value:
 #include "gentest/async.h"
 #include "gentest/test.h"
 
-inline auto answer() -> gentest::async_test<int> {
-    co_await gentest::async::yield();
+using namespace gentest;
+using namespace gentest::async;
+
+inline auto answer() -> async_test<int> {
+    co_await yield();
     co_return 42;
 }
 
 [[gentest::test("uses_answer")]]
-inline auto usesAnswer() -> gentest::async_test<void> {
+inline auto usesAnswer() -> async_test<void> {
     const int value = co_await answer();
-    gentest::expect_eq(value, 42);
+    expect_eq(value, 42);
 }
 ```
 
@@ -90,12 +93,12 @@ success, and timeout. Use `wait_for(operation, duration)` or
 `wait_until(operation, deadline)` when the case owns a deadline:
 
 ```cpp
-auto result = co_await gentest::async::wait_for(replies.wait("request-1"), 1s);
+auto result = co_await wait_for(replies.wait("request-1"), 1s);
 if (result.timed_out()) {
-    gentest::fail("request-1 did not receive a reply");
+    fail("request-1 did not receive a reply");
     co_return;
 }
-gentest::expect_eq(result.value(), 42);
+expect_eq(result.value(), 42);
 ```
 
 `1s` requires `using namespace std::chrono_literals;`. A timeout is a returned
@@ -193,8 +196,7 @@ To support `wait_for`/`wait_until`, add this optional method alongside the usual
 awaiter methods:
 
 ```cpp
-void await_subscribe(gentest::async::continuation_handle next,
-                     std::stop_token stop);
+void await_subscribe(continuation_handle next, std::stop_token stop);
 ```
 
 The timeout wrapper supplies the capability shared with its timer competitor.
