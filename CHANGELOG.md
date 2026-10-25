@@ -1,22 +1,49 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 - Unreleased
+
+### Breaking changes
+
+- Async cases, helpers, and fixture hooks now return `gentest::awaitable<T = void>`
+  instead of `async_test<T>`. Headers, named modules, and generated adapters use
+  the same public type.
+- Custom operations use ordinary C++ awaiters directly or in composition and
+  deadline waits. The required `await_subscribe` / `cancel_wait` protocol and
+  public callback-storage alias are removed; scoped backend registrations own
+  cleanup.
+- `when_any`, `wait_for`, and `wait_until` require exceptions. Builds without
+  exceptions still support `awaitable` and `when_all`.
 
 ### Added
 
+- `when_all` returns an owning tuple in input order; `when_any` returns an owning
+  variant for the first completed input and requests stop for the others. Both
+  join every input before returning or propagating an exception.
 - Custom callback awaitables with typed, move-only results and application-defined
   completion reasons. Continuations queue both value publication and coroutine
   execution on the owning test runner, including worker and inline callbacks.
-- Custom operations compose with `wait_for` / `wait_until` through
-  `await_subscribe(completion, std::stop_token)` and receive cancellation requests.
+- Sixteen runnable async examples in eight stages cover awaitables, composition,
+  cancellation, fixtures, events and futures, polling, worker callbacks, and
+  cancellation acknowledgement.
+
+### Changed
+
+- Nested awaitables and built-in event, future, sleep, and yield waits inherit
+  cooperative cancellation. Explicit stop tokens override inheritance; an empty
+  token allows cleanup waits. Cancelling a future wait preserves its producer
+  and result.
+- Deadline waits use the same composition machinery, request stop on timeout,
+  and join the operation. Cancellation cleanup can extend beyond the deadline.
 
 ### Fixed
 
 - Async completion generations reject stale and competing callbacks before they
   can publish into a later suspension. Deadline decisions retain queue-admission
   time even when runner delivery is delayed.
-- Async task reset retains the coroutine frame while reentrant stop callbacks
-  release the task or its registrations.
+- Coroutine frames and composition inputs stay alive during reentrant stop
+  callbacks, and resumption restores the owning test context.
+- Fetched static fmt is built with position-independent code for the clang-tidy
+  plugin.
 
 ## 1.3.0 - 2026-10-18
 
