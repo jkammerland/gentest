@@ -169,6 +169,8 @@ gentest_check_run_or_fail(
     "-Dgentest_BUILD_TESTING=OFF"
     "-DGENTEST_BUILD_CODEGEN=OFF"
     "-DGENTEST_BUILD_TIDY_PLUGIN=ON"
+    # Exercise the static dependency's PIC requirement even when system fmt exists.
+    "-DCMAKE_DISABLE_FIND_PACKAGE_fmt=ON"
     "-DGENTEST_TIDY_PLUGIN_EXPECTED_LLVM_MAJOR=${_expected_llvm_major}"
     "-DGENTEST_ENABLE_PUBLIC_MODULES=OFF"
   WORKING_DIRECTORY "${_work_dir}"
