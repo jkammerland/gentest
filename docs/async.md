@@ -1,19 +1,20 @@
 # Async tests
 
-An async case returns `gentest::task<>`; a helper can return `gentest::task<T>`.
-Gentest runs and resumes these coroutines on its runner thread. Other ready
-cases in the same fixture group can run while a case is suspended.
+An async case returns `gentest::awaitable<>`; a helper can return
+`gentest::awaitable<T>`. Gentest runs and resumes these coroutines on its runner
+thread. Other ready cases in the same fixture group can run while a case is
+suspended.
 
 Start with the runnable [async examples](../examples/async/). The eight stages
-cover tasks, composition, cancellation, fixtures, events, and complete user
+cover coroutines, composition, cancellation, fixtures, events, and complete user
 backends. Each case works independently and with repeat and shuffle enabled.
 The normal `gentest::gentest_main` entry point is sufficient. Fixtures own the
 infrastructure; no event-loop registration or application runner is required.
 
-## 1. Tasks and yield
+## 1. Awaitables and yield
 
-[01_tasks.hpp](../examples/async/01_tasks.hpp) starts with a helper that returns a
-value:
+[01_awaitables.hpp](../examples/async/01_awaitables.hpp) starts with a helper that
+returns a value:
 
 ```cpp
 #include "gentest/async.h"
@@ -22,22 +23,22 @@ value:
 using namespace gentest;
 using namespace gentest::async;
 
-inline auto answer() -> task<int> {
+inline auto answer() -> awaitable<int> {
     co_await yield();
     co_return 42;
 }
 
 [[gentest::test("uses_answer")]]
-inline auto usesAnswer() -> task<> {
+inline auto usesAnswer() -> awaitable<> {
     const int value = co_await answer();
     expect_eq(value, 42);
 }
 ```
 
-`task<>` means `task<void>`. A task starts when awaited. Awaiting a helper
-propagates its value or exception. Top-level return values are discarded.
-Parameterized and template cases use the same return type. One task supports
-one active waiter; concurrent waits on the same task are rejected.
+`awaitable<>` means `awaitable<void>`. Its coroutine starts when awaited. Awaiting
+a helper propagates its value or exception. Top-level return values are discarded.
+Parameterized and template cases use the same return type. One awaitable object
+supports one active waiter; concurrent waits on the same object are rejected.
 
 `yield()` queues the current coroutine behind other ready work. `sleep_for()`
 and `sleep_until()` suspend until a scheduler timer expires. Neither needs a
@@ -45,8 +46,8 @@ user event loop. Time points use `std::chrono::steady_clock`.
 
 ## 2. Collect results or race operations
 
-[02_composition.hpp](../examples/async/02_composition.hpp) runs independent tasks
-together:
+[02_composition.hpp](../examples/async/02_composition.hpp) runs independent
+coroutines together:
 
 ```cpp
 auto [left, right] = co_await when_all(answer(), answer());
@@ -104,7 +105,7 @@ timeout result. This can take longer than the requested duration when a backend
 needs time to stop or ignores cancellation. A deadline cannot preempt running
 code. An already-ready value wins even when the deadline has expired.
 
-Task cancellation flows through nested tasks and compositions. Event, future,
+Cancellation flows through nested coroutines and compositions. Event, future,
 sleep, and yield waits inherit that stop request and throw `operation_cancelled`
 when cancelled. An explicit `std::stop_token` overrides the inherited token:
 
@@ -121,12 +122,12 @@ co_await yield(std::stop_token{}); // Cleanup may need an uncancelled wait.
 
 The token overloads are `event.wait(name, token)`, `future.wait(token)`,
 `sleep_for(duration, token)`, `sleep_until(deadline, token)`, and `yield(token)`.
-An explicit empty token permits cleanup to finish after a task has been stopped;
+An explicit empty token permits cleanup to finish after a coroutine has been stopped;
 use it only for work that must complete. A timeout or cancellation retires that
 wait, leaving a shared event, future, or executor available to other operations.
 
 `when_any()`, `wait_for()`, and `wait_until()` require exceptions for cooperative
-cancellation and joining. Exception-disabled builds can still use tasks and
+cancellation and joining. Exception-disabled builds can still use `awaitable<T>` and
 `when_all()`; no additional cancellation-status API is provided.
 
 ## 4. Fixtures own shared infrastructure
@@ -135,7 +136,7 @@ cancellation and joining. Exception-disabled builds can still use tasks and
 async setup/teardown and a shared server with async setup.
 
 Implement `gentest::AsyncFixtureSetup::setUp()` and/or
-`gentest::AsyncFixtureTearDown::tearDown()`, returning `task<>`. An unannotated
+`gentest::AsyncFixtureTearDown::tearDown()`, returning `awaitable<>`. An unannotated
 fixture is local to a case. `[[gentest::fixture(suite)]]` shares a fixture with
 consumers in its namespace and descendants; `[[gentest::fixture(global)]]`
 gives it run lifetime.

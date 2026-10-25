@@ -1,6 +1,6 @@
 #pragma once
 
-// Included by async.h after task and wait_result have been defined.
+// Included by async.h after awaitable and wait_result have been defined.
 
 #include <array>
 #include <tuple>
@@ -333,7 +333,7 @@ class AsyncCompositionState : public std::enable_shared_from_this<AsyncCompositi
         bool  skipped_ = false;
     };
 
-    template <std::size_t Index> static auto input_adapter(Self *state) -> task<void> {
+    template <std::size_t Index> static auto input_adapter(Self *state) -> awaitable<void> {
         using Item = std::tuple_element_t<Index, std::tuple<Input...>>;
         using Raw  = typename AsyncCompositionInput<Item>::Result;
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -367,10 +367,10 @@ class AsyncCompositionState : public std::enable_shared_from_this<AsyncCompositi
 #endif
     }
 
-    static auto timer_adapter() -> task<void> { co_return; }
+    static auto timer_adapter() -> awaitable<void> { co_return; }
 
-    auto timer_promise() -> task<void>::promise_type & {
-        return std::coroutine_handle<task<void>::promise_type>::from_address(adapters_[count].handle().address()).promise();
+    auto timer_promise() -> awaitable<void>::promise_type & {
+        return std::coroutine_handle<awaitable<void>::promise_type>::from_address(adapters_[count].handle().address()).promise();
     }
 
     template <std::size_t... Index>
@@ -386,7 +386,7 @@ class AsyncCompositionState : public std::enable_shared_from_this<AsyncCompositi
         // Ready delivery pins the state before either callback publication or
         // coroutine code runs. The weak dependency creates no suspended cycle.
         adapter.frame()->set_execution_lifetime(this->weak_from_this());
-        auto &promise       = std::coroutine_handle<task<void>::promise_type>::from_address(adapter.handle().address()).promise();
+        auto &promise       = std::coroutine_handle<awaitable<void>::promise_type>::from_address(adapter.handle().address()).promise();
         promise.on_complete = [weak = this->weak_from_this()]() noexcept {
             if (auto state = weak.lock()) {
                 state->template input_completed<Index>();
@@ -512,7 +512,7 @@ class AsyncCompositionState : public std::enable_shared_from_this<AsyncCompositi
 
     std::tuple<std::unique_ptr<AsyncCompositionInput<Input>>...> inputs_;
     std::tuple<std::optional<StoredResult<Input>>...>            values_;
-    std::array<task<void>, count + (timed ? 1 : 0)>              adapters_;
+    std::array<awaitable<void>, count + (timed ? 1 : 0)>         adapters_;
     std::array<std::exception_ptr, count>                        errors_{};
     AsyncTimePoint                                               deadline_;
     std::source_location                                         loc_;

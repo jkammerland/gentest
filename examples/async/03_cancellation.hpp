@@ -12,7 +12,7 @@ using namespace gentest;
 using namespace gentest::async;
 
 [[gentest::test("bounded_event")]]
-inline auto boundedEvent() -> task<> {
+inline auto boundedEvent() -> awaitable<> {
     using namespace std::chrono_literals;
     event<int> replies;
     replies.set("request-1", 42);
@@ -26,7 +26,7 @@ inline auto boundedEvent() -> task<> {
 }
 
 [[gentest::test("timeout_retires_only_this_wait")]]
-inline auto timeoutRetiresOnlyThisWait() -> task<> {
+inline auto timeoutRetiresOnlyThisWait() -> awaitable<> {
     using namespace std::chrono_literals;
     event<int> replies;
 
@@ -40,7 +40,7 @@ inline auto timeoutRetiresOnlyThisWait() -> task<> {
 }
 
 [[gentest::test("explicit_stop_token")]]
-inline auto explicitStopToken() -> task<> {
+inline auto explicitStopToken() -> awaitable<> {
     event<int>       pending;
     std::stop_source stop;
     stop.request_stop();

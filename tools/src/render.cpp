@@ -708,11 +708,11 @@ std::string make_async_await_expr(const std::string &fn, const std::string &args
 
 void append_async_local_teardown_call(std::string &body, const std::string &body_code, const std::string &teardown_code) {
     body += "    co_await gentest_run_async_with_local_teardown(\n";
-    body += "        [&]() -> ::gentest::task<void> {\n";
+    body += "        [&]() -> ::gentest::awaitable<void> {\n";
     body += body_code;
     body += "            co_return;\n";
     body += "        },\n";
-    body += "        [&]() -> ::gentest::task<void> {\n";
+    body += "        [&]() -> ::gentest::awaitable<void> {\n";
     body += teardown_code;
     body += "            co_return;\n";
     body += "        });\n";
@@ -723,7 +723,7 @@ void append_async_entrypoint(std::string &out, const WrapperSpec &spec, const st
     const std::string body_name    = "kCaseAsyncBody_" + suffix;
     const std::string wrapper_name = "kCaseAsyncInvoke_" + suffix;
 
-    out += "static ::gentest::task<void> " + body_name + "(void* ctx_) {\n";
+    out += "static ::gentest::awaitable<void> " + body_name + "(void* ctx_) {\n";
     out += body;
     out += "}\n\n";
     out += "static ::gentest::detail::AsyncTaskPtr " + wrapper_name + "(void* ctx_) {\n";

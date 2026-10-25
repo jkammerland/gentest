@@ -89,7 +89,7 @@ void require(bool condition, const char *message) {
     }
 }
 
-template <typename T> void requireDone(gentest::task<T> &task) {
+template <typename T> void requireDone(gentest::awaitable<T> &task) {
     require(task.handle().done(), "operation did not finish");
     if (task.exception()) {
         std::rethrow_exception(task.exception());
@@ -145,10 +145,10 @@ struct ReferenceReady {
     auto         await_resume() const noexcept -> std::string         &{ return value; }
 };
 
-auto voidValue() -> gentest::task<> { co_return; }
+auto voidValue() -> gentest::awaitable<> { co_return; }
 
 void readyFormsAndOwningResults() {
-    auto operation = []() -> gentest::task<> {
+    auto operation = []() -> gentest::awaitable<> {
         unsigned       member_lookups = 0;
         unsigned       free_lookups   = 0;
         ImmovableReady borrowed{3};
@@ -213,7 +213,7 @@ struct ThrowingResultReady {
 };
 
 void namedCompositionReleasesInputs() {
-    auto operation = []() -> gentest::task<> {
+    auto operation = []() -> gentest::awaitable<> {
         auto               resource = std::make_shared<int>(37);
         std::weak_ptr<int> lifetime = resource;
         auto               named    = gentest::async::when_any(ResourceReady{std::move(resource)}, voidValue());
@@ -228,7 +228,7 @@ void namedCompositionReleasesInputs() {
         std::weak_ptr<int> losing_lifetime = losing_resource;
         auto               second_race     = gentest::async::when_any(voidValue(), SharedResultReady{std::move(losing_resource)});
         auto               second_winner   = co_await second_race;
-        require(second_winner.index() == 0, "ready void task failed to win its race");
+        require(second_winner.index() == 0, "ready void awaitable failed to win its race");
         require(losing_lifetime.expired(), "named composition retained a losing result payload after joining");
 
         unsigned           moves             = 0;
@@ -292,7 +292,7 @@ struct FalseWait {
 void suspensionFormsAndOrderedJoin() {
     Source                                        first, second, third;
     std::optional<std::tuple<int, int, int, int>> output;
-    auto                                          operation = [](Source &a, Source &b, Source &c, auto &result) -> gentest::task<> {
+    auto                                          operation = [](Source &a, Source &b, Source &c, auto &result) -> gentest::awaitable<> {
         result = co_await gentest::async::when_all(Receive<Suspension::Void>{.source = a}, Receive<Suspension::Bool>{.source = b},
                                                    Receive<Suspension::Handle>{.source = c}, FalseWait{});
     };
@@ -358,12 +358,12 @@ template <OwnerRelease Mode> struct ReleaseGroupOwner {
 };
 
 template <OwnerRelease Mode> void groupOwnerReleaseCase(bool abandon_pending = false) {
-    Source             source;
-    Scheduler          scheduler;
-    gentest::task<>    parent;
-    auto               resource            = std::make_shared<int>(0);
-    std::weak_ptr<int> lifetime            = resource;
-    bool               retained_in_release = false;
+    Source               source;
+    Scheduler            scheduler;
+    gentest::awaitable<> parent;
+    auto                 resource            = std::make_shared<int>(0);
+    std::weak_ptr<int>   lifetime            = resource;
+    bool                 retained_in_release = false;
     struct Outcome {
         bool consumed        = false;
         bool parent_returned = false;
@@ -373,7 +373,8 @@ template <OwnerRelease Mode> void groupOwnerReleaseCase(bool abandon_pending = f
         scheduler.cancel_all();
         retained_in_release = !lifetime.expired();
     };
-    auto operation = [](Source &input, std::shared_ptr<int> hold, std::function<void()> &on_resume, Outcome &progress) -> gentest::task<> {
+    auto operation = [](Source &input, std::shared_ptr<int> hold, std::function<void()> &on_resume,
+                        Outcome &progress) -> gentest::awaitable<> {
         auto group = gentest::async::when_all(
             ReleaseGroupOwner<Mode>{.source = input, .resource = std::move(hold), .release = on_resume, .consumed = progress.consumed});
         (void)co_await group;
@@ -421,12 +422,12 @@ struct LiveParameter {
     unsigned &live;
 };
 
-auto synchronousChild(std::unique_ptr<LiveParameter> parameter) -> gentest::task<> {
+auto synchronousChild(std::unique_ptr<LiveParameter> parameter) -> gentest::awaitable<> {
     (void)parameter;
     co_return;
 }
 
-auto deepChild(unsigned depth) -> gentest::task<unsigned> {
+auto deepChild(unsigned depth) -> gentest::awaitable<unsigned> {
     if (depth == 0) {
         co_await gentest::async::yield();
         co_return 0;
@@ -435,7 +436,7 @@ auto deepChild(unsigned depth) -> gentest::task<unsigned> {
 }
 
 void nativeTransferDepthAndSiblingRetirement() {
-    auto operation = [](unsigned &live) -> gentest::task<> {
+    auto operation = [](unsigned &live) -> gentest::awaitable<> {
         // Parameter destruction requires frame destruction, so this detects
         // execution guards or scheduler registrations retaining finished siblings.
         for (unsigned index = 0; index != 512; ++index) {
@@ -453,7 +454,7 @@ void nativeTransferDepthAndSiblingRetirement() {
     require(live == 0, "native transfer test retained a coroutine parameter");
 }
 
-auto throwAfter(gentest::async::event<int> &gate, const char *message) -> gentest::task<int> {
+auto throwAfter(gentest::async::event<int> &gate, const char *message) -> gentest::awaitable<int> {
     (void)co_await gate.wait("exception gate");
     throw std::runtime_error(message);
 }
@@ -461,7 +462,7 @@ auto throwAfter(gentest::async::event<int> &gate, const char *message) -> gentes
 void allJoinsBeforeFirstException() {
     gentest::async::event<int> first, second;
     std::string                caught;
-    auto                       operation = [](auto &a, auto &b, std::string &message) -> gentest::task<> {
+    auto                       operation = [](auto &a, auto &b, std::string &message) -> gentest::awaitable<> {
         try {
             (void)co_await gentest::async::when_all(throwAfter(a, "first input"), throwAfter(b, "first completion"));
         } catch (const std::runtime_error &error) { message = error.what(); }
@@ -486,7 +487,7 @@ struct Cleanup {
     bool                       cleaned = false;
 };
 
-auto cancellableChild(Cleanup &state) -> gentest::task<int> {
+auto cancellableChild(Cleanup &state) -> gentest::awaitable<int> {
     try {
         (void)co_await state.work.wait("pending work");
         throw std::runtime_error("canceled work completed normally");
@@ -502,7 +503,7 @@ void anyCancelsAndJoinsWithoutChangingWinner() {
     Source                                first;
     Cleanup                               loser;
     std::optional<std::variant<int, int>> output;
-    auto                                  operation = [](Source &winner, Cleanup &other, auto &result) -> gentest::task<> {
+    auto                                  operation = [](Source &winner, Cleanup &other, auto &result) -> gentest::awaitable<> {
         result = co_await gentest::async::when_any(Receive<Suspension::Void>{.source = winner}, cancellableChild(other));
     };
     auto      task = operation(first, loser, output);
@@ -524,7 +525,7 @@ void anyKeepsFirstExceptionThroughCleanup() {
     gentest::async::event<int> fail;
     Cleanup                    loser;
     std::string                caught;
-    auto                       operation = [](auto &failure, Cleanup &other, std::string &message) -> gentest::task<> {
+    auto                       operation = [](auto &failure, Cleanup &other, std::string &message) -> gentest::awaitable<> {
         try {
             (void)co_await gentest::async::when_any(throwAfter(failure, "race failure"), cancellableChild(other));
         } catch (const std::runtime_error &error) { message = error.what(); }
@@ -545,8 +546,8 @@ void anyKeepsFirstExceptionThroughCleanup() {
 void timeoutCancelsAndJoins() {
     Cleanup                                    child;
     std::optional<gentest::async::wait_status> status;
-    auto                                       operation = [](Cleanup &state, auto &outcome) -> gentest::task<> {
-        auto result = co_await gentest::async::timeout_detail::timeout_awaitable<gentest::task<int>, ManualClock>{
+    auto                                       operation = [](Cleanup &state, auto &outcome) -> gentest::awaitable<> {
+        auto result = co_await gentest::async::timeout_detail::timeout_awaitable<gentest::awaitable<int>, ManualClock>{
             cancellableChild(state), TimePoint{100ms}, std::source_location::current()};
         outcome = result.status();
     };
@@ -564,7 +565,7 @@ void timeoutCancelsAndJoins() {
 }
 
 void directFutureAndExpiredDeadline() {
-    auto operation = []() -> gentest::task<> {
+    auto operation = []() -> gentest::awaitable<> {
         gentest::async::promise<std::unique_ptr<int>> ready;
         ready.set_value(std::make_unique<int>(61));
         auto result = co_await gentest::async::wait_for(ready.get_future(), -1ms);
@@ -593,7 +594,7 @@ void ordinaryCompletionDeadlineReceipt() {
     for (const auto received : {90ms, 100ms, 200ms}) {
         Source                                          source;
         std::optional<gentest::async::wait_result<int>> output;
-        auto                                            operation = [](Source &input, auto &result) -> gentest::task<> {
+        auto                                            operation = [](Source &input, auto &result) -> gentest::awaitable<> {
             result = co_await gentest::async::timeout_detail::timeout_awaitable<Receive<Suspension::Void>, ManualClock>{
                 Receive<Suspension::Void>{.source = input}, TimePoint{100ms}, std::source_location::current()};
         };
@@ -625,7 +626,7 @@ void pendingFutureTimeoutPreservesValue() {
     gentest::async::promise<int>               producer;
     auto                                       future = producer.get_future();
     std::optional<gentest::async::wait_status> status;
-    auto                                       operation = [](auto &input, auto &outcome) -> gentest::task<> {
+    auto                                       operation = [](auto &input, auto &outcome) -> gentest::awaitable<> {
         auto result = co_await gentest::async::timeout_detail::timeout_awaitable<decltype((input)), ManualClock>{
             input, TimePoint{100ms}, std::source_location::current()};
         outcome = result.status();
@@ -640,7 +641,7 @@ void pendingFutureTimeoutPreservesValue() {
     requireDone(task);
     require(status == gentest::async::wait_status::timeout, "pending future did not time out");
     producer.set_value(71);
-    auto consume = [](auto &input) -> gentest::task<int> { co_return co_await input; };
+    auto consume = [](auto &input) -> gentest::awaitable<int> { co_return co_await input; };
     auto second  = consume(future);
     scheduler.start(second);
     scheduler.pump();
@@ -649,7 +650,7 @@ void pendingFutureTimeoutPreservesValue() {
 }
 
 void inheritedStopPrecedesReadyBuiltins() {
-    auto operation = []() -> gentest::task<> {
+    auto operation = []() -> gentest::awaitable<> {
         gentest::async::event<int> event;
         event.set("ready", 89);
         bool event_canceled = false;
@@ -694,7 +695,7 @@ void inheritedStopPrecedesReadyBuiltins() {
     requireDone(task);
 }
 
-auto contextChild(gentest::detail::TestContextInfo *expected) -> gentest::task<int> {
+auto contextChild(gentest::detail::TestContextInfo *expected) -> gentest::awaitable<int> {
     require(gentest::detail::current_test().get() == expected, "composition child started outside owner context");
     co_await gentest::async::yield();
     require(gentest::detail::current_test().get() == expected, "composition child resumed outside owner context");
@@ -702,7 +703,7 @@ auto contextChild(gentest::detail::TestContextInfo *expected) -> gentest::task<i
 }
 
 void compositionKeepsContext() {
-    auto operation = []() -> gentest::task<> {
+    auto operation = []() -> gentest::awaitable<> {
         auto *context = gentest::detail::current_test().get();
         require(context != nullptr, "blocking runner did not install a context");
         auto all = co_await gentest::async::when_all(contextChild(context), contextChild(context));

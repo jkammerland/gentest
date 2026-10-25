@@ -228,7 +228,7 @@ struct TestCaseInfo {
     bool is_function_template = false;
     // True when the test function/method returns a non-void value.
     bool returns_value = false;
-    // True when the discovered callable returns gentest::task<T>.
+    // True when the discovered callable returns gentest::awaitable<T>.
     bool returns_async = false;
     // Tags and metadata
     std::vector<std::string> tags;

@@ -74,7 +74,7 @@ class Read {
 };
 
 [[gentest::test("stop_and_join_registration")]]
-inline auto stopAndJoinRegistration() -> task<> {
+inline auto stopAndJoinRegistration() -> awaitable<> {
     using namespace std::chrono_literals;
     Backend backend;
 

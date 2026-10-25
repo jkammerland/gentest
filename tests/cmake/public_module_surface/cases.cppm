@@ -80,13 +80,13 @@ void format_value_case() {
 }
 
 [[using gentest: test("async_yield")]]
-gentest::task<> async_yield_case() {
+gentest::awaitable<> async_yield_case() {
     co_await gentest::async::yield();
     gentest::expect_true(true);
 }
 
 [[using gentest: test("async_event")]]
-gentest::task<void> async_event_case() {
+gentest::awaitable<void> async_event_case() {
     gentest::async::event<int> event;
     event.set("module.event", 42);
     int &payload = co_await event.wait("module.event");
@@ -94,7 +94,7 @@ gentest::task<void> async_event_case() {
 }
 
 [[using gentest: test("async_promise")]]
-gentest::task<void> async_promise_case() {
+gentest::awaitable<void> async_promise_case() {
     gentest::async::promise<int> promise;
     auto                         future = promise.get_future();
     promise.set_value(42);
@@ -139,7 +139,7 @@ struct CallbackWait {
 };
 
 [[using gentest: test("async_callback")]]
-gentest::task<void> async_callback_case() {
+gentest::awaitable<void> async_callback_case() {
     auto result = co_await gentest::async::wait_for(CallbackWait{}, std::chrono::seconds{1});
     gentest::require(result.ready());
     gentest::expect_eq(*std::move(result).value(), 57);

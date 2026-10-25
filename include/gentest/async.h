@@ -29,7 +29,7 @@
 
 namespace gentest {
 
-template <typename T = void> class task;
+template <typename T = void> class awaitable;
 
 namespace detail {
 
@@ -775,7 +775,7 @@ template <> struct AsyncTaskResult<void> {
 
 } // namespace detail
 
-template <typename T> class task final : public detail::AsyncTask {
+template <typename T> class awaitable final : public detail::AsyncTask {
   public:
     struct promise_type : detail::AsyncTaskResult<T> {
         detail::AsyncFrame               *frame     = nullptr;
@@ -788,19 +788,19 @@ template <typename T> class task final : public detail::AsyncTask {
             return async::make_continuation(std::coroutine_handle<promise_type>::from_promise(*this), "custom asynchronous operation", loc);
         }
 
-        [[nodiscard]] auto get_return_object() -> task { return task{std::coroutine_handle<promise_type>::from_promise(*this)}; }
+        [[nodiscard]] auto get_return_object() -> awaitable { return awaitable{std::coroutine_handle<promise_type>::from_promise(*this)}; }
 
         [[nodiscard]] constexpr auto initial_suspend() const noexcept -> std::suspend_always { return {}; }
         [[nodiscard]] constexpr auto final_suspend() const noexcept -> detail::final_resume_awaiter { return {}; }
         void                         unhandled_exception() noexcept { exception = std::current_exception(); }
     };
 
-    task() = default;
-    explicit task(std::coroutine_handle<promise_type> handle) : frame_(std::make_shared<detail::AsyncFrame>(handle)) {
+    awaitable() = default;
+    explicit awaitable(std::coroutine_handle<promise_type> handle) : frame_(std::make_shared<detail::AsyncFrame>(handle)) {
         handle.promise().frame = frame_.get();
     }
-    task(task &&other) noexcept : frame_(std::move(other.frame_)) {}
-    auto operator=(task &&other) noexcept -> task & {
+    awaitable(awaitable &&other) noexcept : frame_(std::move(other.frame_)) {}
+    auto operator=(awaitable &&other) noexcept -> awaitable & {
         if (this != &other) {
             reset();
             frame_ = std::move(other.frame_);
@@ -808,9 +808,9 @@ template <typename T> class task final : public detail::AsyncTask {
         return *this;
     }
 
-    task(const task &)            = delete;
-    task &operator=(const task &) = delete;
-    ~task() override { reset(); }
+    awaitable(const awaitable &)            = delete;
+    awaitable &operator=(const awaitable &) = delete;
+    ~awaitable() override { reset(); }
 
     [[nodiscard]] auto handle() const noexcept -> std::coroutine_handle<> override {
         return frame_ ? frame_->handle : std::coroutine_handle<>{};
@@ -834,14 +834,14 @@ template <typename T> class task final : public detail::AsyncTask {
             std::abort();
         }
         if (!frame_->try_claim_waiter()) {
-            detail::async_task_error("gentest::task already has an active waiter (concurrent co_await is not supported)");
+            detail::async_task_error("gentest::awaitable already has an active waiter (concurrent co_await is not supported)");
         }
 
         // A native call has exactly one continuation. External callbacks keep
         // their generation-guarded queue path; they cannot compete with this link.
         auto parent_frame = scheduler->frame_for(parent);
         if (!parent_frame) {
-            detail::async_task_error("gentest::task awaited outside its owning Gentest case");
+            detail::async_task_error("gentest::awaitable awaited outside its owning Gentest case");
         }
         scheduler->begin_wait(parent);
         scheduler->attach_child_frame(frame_, parent);
@@ -855,7 +855,7 @@ template <typename T> class task final : public detail::AsyncTask {
     auto await_resume() -> T {
         auto handle = typed_handle();
         if (!handle || !handle.done()) {
-            detail::async_task_error("gentest::task resumed without a completed coroutine");
+            detail::async_task_error("gentest::awaitable resumed without a completed coroutine");
         }
         // Completion has transferred back to the parent, so removing the
         // scheduler's retained subtree cannot destroy a running child frame.
@@ -868,7 +868,7 @@ template <typename T> class task final : public detail::AsyncTask {
         }
         if constexpr (!std::is_void_v<T>) {
             if (!handle.promise().value) {
-                detail::async_task_error("gentest::task resumed without return value");
+                detail::async_task_error("gentest::awaitable resumed without return value");
             }
             return std::move(*handle.promise().value);
         }
@@ -898,22 +898,22 @@ namespace gentest {
 
 namespace detail {
 
-template <typename T> [[nodiscard]] inline auto make_async_task(task<T> operation) -> AsyncTaskPtr {
-    return std::make_unique<task<T>>(std::move(operation));
+template <typename T> [[nodiscard]] inline auto make_async_task(awaitable<T> operation) -> AsyncTaskPtr {
+    return std::make_unique<awaitable<T>>(std::move(operation));
 }
 
-GENTEST_RUNTIME_API auto run_async_task_blocking(task<void> task, std::string_view label, std::string &error_out) -> bool;
+GENTEST_RUNTIME_API auto run_async_task_blocking(awaitable<void> task, std::string_view label, std::string &error_out) -> bool;
 
 } // namespace detail
 
 struct AsyncFixtureSetup {
-    virtual ~AsyncFixtureSetup() = default;
-    virtual task<void> setUp()   = 0;
+    virtual ~AsyncFixtureSetup()    = default;
+    virtual awaitable<void> setUp() = 0;
 };
 
 struct AsyncFixtureTearDown {
-    virtual ~AsyncFixtureTearDown() = default;
-    virtual task<void> tearDown()   = 0;
+    virtual ~AsyncFixtureTearDown()    = default;
+    virtual awaitable<void> tearDown() = 0;
 };
 
 } // namespace gentest

@@ -26,7 +26,7 @@ struct [[gentest::fixture(suite)]] Notifications : FixtureSetup {
 };
 
 [[gentest::test("named_typed_value")]]
-inline auto namedTypedValue(Notifications &notifications) -> task<> {
+inline auto namedTypedValue(Notifications &notifications) -> awaitable<> {
     const auto &message = co_await notifications.connected.wait("primary");
     expect_eq(message.peer, std::string{"localhost"});
     expect_eq(message.port, 8080);
@@ -34,14 +34,14 @@ inline auto namedTypedValue(Notifications &notifications) -> task<> {
 
 // Waiting observes the latched value; it does not consume another case's message.
 [[gentest::test("another_observer")]]
-inline auto anotherObserver(Notifications &notifications) -> task<> {
+inline auto anotherObserver(Notifications &notifications) -> awaitable<> {
     co_await yield();
     const auto &message = co_await notifications.connected.wait("primary");
     expect_eq(message.port, 8080);
 }
 
 [[gentest::test("one_shot_value")]]
-inline auto oneShotValue() -> task<> {
+inline auto oneShotValue() -> awaitable<> {
     promise<std::unique_ptr<int>> reply;
     auto                          response = reply.get_future();
 

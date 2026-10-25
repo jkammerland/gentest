@@ -23,7 +23,7 @@ std::atomic<bool>                   releaser_case_resumed{false};
 
 void unused_sync(void *) {}
 
-auto completed_case_with_adopted_worker() -> gentest::task<void> {
+auto completed_case_with_adopted_worker() -> gentest::awaitable<void> {
     complete_first_case.reset_all();
     worker_release = std::make_shared<std::promise<void>>();
     first_case_resumed.store(false, std::memory_order_release);
@@ -51,7 +51,7 @@ auto completed_case_with_adopted_worker() -> gentest::task<void> {
     EXPECT_FALSE(releaser_case_resumed.load(std::memory_order_acquire));
 }
 
-auto release_adopted_worker_after_yield() -> gentest::task<void> {
+auto release_adopted_worker_after_yield() -> gentest::awaitable<void> {
     complete_first_case.set("later ready case released first adopted case");
     co_await gentest::async::yield();
 
@@ -76,7 +76,7 @@ struct StopConditionState {
     bool                        ready = false;
 };
 
-auto condition_variable_any_worker_observes_stop() -> gentest::task<void> {
+auto condition_variable_any_worker_observes_stop() -> gentest::awaitable<void> {
     auto context = gentest::get_current_context();
     ASSERT_TRUE(static_cast<bool>(context));
 
@@ -104,7 +104,7 @@ auto condition_variable_any_worker_observes_stop_fn(void *) -> gentest::detail::
     return gentest::detail::make_async_task(condition_variable_any_worker_observes_stop());
 }
 
-auto condition_variable_worker_observes_stop() -> gentest::task<void> {
+auto condition_variable_worker_observes_stop() -> gentest::awaitable<void> {
     auto context = gentest::get_current_context();
     ASSERT_TRUE(static_cast<bool>(context));
 
@@ -137,7 +137,7 @@ auto condition_variable_worker_observes_stop_fn(void *) -> gentest::detail::Asyn
     return gentest::detail::make_async_task(condition_variable_worker_observes_stop());
 }
 
-auto stop_callback_can_use_gentest_context() -> gentest::task<void> {
+auto stop_callback_can_use_gentest_context() -> gentest::awaitable<void> {
     auto context = gentest::get_current_context();
     ASSERT_TRUE(static_cast<bool>(context));
 

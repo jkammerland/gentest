@@ -104,7 +104,7 @@ void exported_template_alias_binding() {
 }
 
 [[using gentest: test("module_registration/exported_async")]]
-gentest::task<void> exported_async();
+gentest::awaitable<void> exported_async();
 
 [[using gentest: bench("module_registration/exported_bench")]]
 void exported_bench() {}

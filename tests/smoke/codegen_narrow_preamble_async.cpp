@@ -3,7 +3,7 @@
 namespace smoke::narrow_preamble {
 
 [[using gentest: test("narrow/full/async")]]
-gentest::task<void> asynchronous_case() {
+gentest::awaitable<void> asynchronous_case() {
     co_return;
 }
 

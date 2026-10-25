@@ -87,7 +87,7 @@ class Read {
             });
 
             // Only owned values cross threads. Even cancellation completes the
-            // wait so a task group can join this operation before returning.
+            // wait so a composition can join this operation before returning.
             loop_.post([complete = std::move(complete), stop, reply = reply_]() mutable {
                 if (stop.stop_requested()) {
                     (void)complete(Reply::cancelled, nullptr);
@@ -123,7 +123,7 @@ struct [[gentest::fixture(suite)]] Infrastructure {
 };
 
 [[gentest::test("callback_value_on_runner")]]
-inline auto callbackValueOnRunner(Infrastructure &infrastructure) -> task<> {
+inline auto callbackValueOnRunner(Infrastructure &infrastructure) -> awaitable<> {
     const auto runner = std::this_thread::get_id();
     auto       value  = co_await Read{infrastructure.loop};
     expect_eq(*value, 42);
@@ -131,7 +131,7 @@ inline auto callbackValueOnRunner(Infrastructure &infrastructure) -> task<> {
 }
 
 [[gentest::test("bounded_callback")]]
-inline auto boundedCallback(Infrastructure &infrastructure) -> task<> {
+inline auto boundedCallback(Infrastructure &infrastructure) -> awaitable<> {
     using namespace std::chrono_literals;
     auto result = co_await wait_for(Read{infrastructure.loop}, 5s);
     if (result.timed_out()) {
@@ -142,7 +142,7 @@ inline auto boundedCallback(Infrastructure &infrastructure) -> task<> {
 }
 
 [[gentest::test("backend_error")]]
-inline auto backendError(Infrastructure &infrastructure) -> task<> {
+inline auto backendError(Infrastructure &infrastructure) -> awaitable<> {
     bool rejected = false;
     try {
         (void)co_await Read{infrastructure.loop, Reply::unavailable};

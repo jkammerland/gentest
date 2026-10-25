@@ -29,27 +29,27 @@ inline auto count_log(std::string_view test_name, int count) -> std::string {
 }
 
 [[using gentest: test("panel/00_async_waits_for_sync")]]
-gentest::task<void> async_waits_for_sync();
+gentest::awaitable<void> async_waits_for_sync();
 
 [[using gentest: test("panel/01_sync_releases_async")]]
 void sync_releases_async_case();
 
 [[using gentest: test("panel/02_short_pass")]]
-gentest::task<void> short_pass();
+gentest::awaitable<void> short_pass();
 
 [[using gentest: test("panel/03_medium_pass")]]
-gentest::task<void> medium_pass();
+gentest::awaitable<void> medium_pass();
 
 [[using gentest: test("panel/04_long_driver")]]
-gentest::task<void> long_driver();
+gentest::awaitable<void> long_driver();
 
 [[using gentest: test("panel/05_waiting_on_driver")]]
-gentest::task<void> waiting_on_driver();
+gentest::awaitable<void> waiting_on_driver();
 
 [[using gentest: test("pingpong/00_ping")]]
-gentest::task<void> ping_counter();
+gentest::awaitable<void> ping_counter();
 
 [[using gentest: test("pingpong/01_pong")]]
-gentest::task<void> pong_counter();
+gentest::awaitable<void> pong_counter();
 
 } // namespace async_live_slow

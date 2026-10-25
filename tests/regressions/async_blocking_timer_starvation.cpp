@@ -9,13 +9,13 @@
 
 namespace {
 
-auto yield_forever() -> gentest::task<void> {
+auto yield_forever() -> gentest::awaitable<void> {
     while (true) {
         co_await gentest::async::yield();
     }
 }
 
-auto timeout_yielding_child() -> gentest::task<void> {
+auto timeout_yielding_child() -> gentest::awaitable<void> {
     auto result = co_await gentest::async::wait_for(yield_forever(), std::chrono::milliseconds(5));
     if (!result.timed_out()) {
         throw std::runtime_error("blocking scheduler allowed yielding child to beat expired timeout");

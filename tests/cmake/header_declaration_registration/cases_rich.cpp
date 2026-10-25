@@ -11,7 +11,7 @@ void rich_rows(int left, int right) { gentest::expect(right == left + 1); }
 
 void rich_range(int value) { gentest::expect(value >= 1 && value <= 3); }
 
-gentest::task<void> rich_async() {
+gentest::awaitable<void> rich_async() {
     co_await gentest::async::yield();
     gentest::expect(true);
 }

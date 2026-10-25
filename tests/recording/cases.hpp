@@ -78,8 +78,8 @@ namespace ok {
     payload("../same");
     gentest::record_data("empty", {}, "application/octet-stream");
 }
-[[gentest::test]] inline void                separate(LocalInfo &) { gentest::record_property("only_here", 1); }
-[[gentest::test]] inline gentest::task<void> asynchronous(LocalInfo &) {
+[[gentest::test]] inline void                     separate(LocalInfo &) { gentest::record_property("only_here", 1); }
+[[gentest::test]] inline gentest::awaitable<void> asynchronous(LocalInfo &) {
     gentest::record_property("before", true);
     co_await gentest::async::yield();
     gentest::record_property("after", true);
@@ -121,8 +121,8 @@ namespace bad {
 }
 } // namespace bad
 namespace cancel {
-inline gentest::async::manual_event          never;
-[[gentest::test]] inline gentest::task<void> a_wait(LocalInfo &) {
+inline gentest::async::manual_event               never;
+[[gentest::test]] inline gentest::awaitable<void> a_wait(LocalInfo &) {
     gentest::record_property("started", true);
     co_await never.wait("cancellation test");
 }

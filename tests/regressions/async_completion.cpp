@@ -206,11 +206,11 @@ struct Receive {
     }
 };
 
-auto receive(Source &source, std::optional<Reply> &output) -> gentest::task<void> {
+auto receive(Source &source, std::optional<Reply> &output) -> gentest::awaitable<void> {
     output = co_await Receive{.source = source, .result = {}};
 }
 
-auto timed_receive(Source &source, gentest::async::wait_status &status, std::optional<Reply> &output) -> gentest::task<void> {
+auto timed_receive(Source &source, gentest::async::wait_status &status, std::optional<Reply> &output) -> gentest::awaitable<void> {
     auto result = co_await gentest::async::timeout_detail::timeout_awaitable<Receive, ManualClock>{
         Receive{.source = source, .result = {}}, TimePoint{100ms}, std::source_location::current()};
     status = result.status();
@@ -230,13 +230,13 @@ auto empty_and_void_callbacks() -> bool {
         std::function<bool()> &callback;
         unsigned              &count;
         auto                   await_ready() const noexcept -> bool { return false; }
-        void                   await_suspend(std::coroutine_handle<gentest::task<void>::promise_type> parent) {
+        void                   await_suspend(std::coroutine_handle<gentest::awaitable<void>::promise_type> parent) {
             callback = gentest::async::bind_continuation<>(parent.promise().make_continuation(), [this]() noexcept { ++count; });
         }
         void await_resume() const noexcept {}
     };
     std::function<bool()> callback;
-    auto                  operation = [](auto &completion, unsigned &count) -> gentest::task<void> {
+    auto                  operation = [](auto &completion, unsigned &count) -> gentest::awaitable<void> {
         co_await VoidWait{.callback = completion, .count = count};
     };
     auto      task = operation(callback, published);
@@ -316,7 +316,7 @@ auto caught_registration_failure_can_await_again(bool timed) -> bool {
     gentest::async::event<int> later;
     unsigned                   phase = 0;
 
-    auto recover = [](Source &failed, gentest::async::event<int> &event, unsigned &step, bool use_timeout) -> gentest::task<void> {
+    auto recover = [](Source &failed, gentest::async::event<int> &event, unsigned &step, bool use_timeout) -> gentest::awaitable<void> {
         try {
             if (use_timeout) {
                 (void)co_await gentest::async::wait_for(Receive{.source = failed, .result = {}}, 1h);
@@ -376,12 +376,12 @@ auto admitted_completion_is_still_work() -> bool {
            output && *output->value == 83 && source.published == 1 && source.consumed == 1;
 }
 
-auto child_value() -> gentest::task<int> {
+auto child_value() -> gentest::awaitable<int> {
     co_await gentest::async::yield();
     co_return 23;
 }
 
-auto child_void() -> gentest::task<void> { co_await gentest::async::yield(); }
+auto child_void() -> gentest::awaitable<void> { co_await gentest::async::yield(); }
 
 auto registration_failure_then_other_waits() -> bool {
     enum class Next { Event, Future, VoidFuture, Sleep, Child, VoidChild, Timed, Custom };
@@ -394,7 +394,7 @@ auto registration_failure_then_other_waits() -> bool {
         bool                          caught   = false;
         int                           received = 0;
     };
-    auto recover = [](State &state, Next next) -> gentest::task<void> {
+    auto recover = [](State &state, Next next) -> gentest::awaitable<void> {
         try {
             (void)co_await Receive{.source = state.failed, .result = {}};
         } catch (const std::runtime_error &) { state.caught = true; }
@@ -510,7 +510,7 @@ struct HandleWait {
 };
 
 auto standard_awaiter_forms() -> bool {
-    auto operation = [](unsigned &published) -> gentest::task<int> {
+    auto operation = [](unsigned &published) -> gentest::awaitable<int> {
         ImmovableReady local;
         int            value = co_await local;
         value += co_await ImmovableReady{};
@@ -529,7 +529,7 @@ auto standard_awaiter_forms() -> bool {
         return false;
     }
 
-    auto void_operation = []() -> gentest::task<void> {
+    auto void_operation = []() -> gentest::awaitable<void> {
         if (co_await FreeAwaitable{} != 3) {
             throw std::logic_error("immovable awaitable operand lost its value");
         }
@@ -550,7 +550,7 @@ auto registration_cleanup_before_ordinary_await() -> bool {
         source.inline_completion   = true;
         source.registration_throws = true;
         Progress progress;
-        auto     operation = [](Source &failed, Progress &state, bool registration_throws) -> gentest::task<void> {
+        auto     operation = [](Source &failed, Progress &state, bool registration_throws) -> gentest::awaitable<void> {
             if (registration_throws) {
                 try {
                     (void)co_await Receive{.source = failed, .result = {}};
@@ -587,7 +587,7 @@ auto named_timeout_registration_failure() -> bool {
         source.inline_completion   = inline_completion;
         source.registration_throws = true;
         unsigned phase             = 0;
-        auto     operation         = [](Source &failed, unsigned &step) -> gentest::task<void> {
+        auto     operation         = [](Source &failed, unsigned &step) -> gentest::awaitable<void> {
             auto wait = gentest::async::wait_for(Receive{.source = failed, .result = {}}, 1h);
             try {
                 (void)co_await wait;
@@ -616,14 +616,14 @@ auto factory_issues_fresh_generation() -> bool {
         gentest::async::continuation_handle &first;
         gentest::async::continuation_handle &second;
         auto                                 await_ready() const noexcept -> bool { return false; }
-        void                                 await_suspend(std::coroutine_handle<gentest::task<void>::promise_type> parent) const {
+        void                                 await_suspend(std::coroutine_handle<gentest::awaitable<void>::promise_type> parent) const {
             first = parent.promise().make_continuation();
             (void)first.try_invoke();
             second = parent.promise().make_continuation();
         }
         void await_resume() const noexcept {}
     };
-    auto                                operation = [](auto &first, auto &second) -> gentest::task<void> { co_await Wait{first, second}; };
+    auto operation = [](auto &first, auto &second) -> gentest::awaitable<void> { co_await Wait{first, second}; };
     gentest::async::continuation_handle first, second;
     auto                                task = operation(first, second);
     Scheduler                           scheduler;
@@ -644,7 +644,7 @@ auto stale_and_canceled() -> bool {
     unsigned phase = 0;
     // Both sources intentionally exercise successive registrations of the same awaitable type.
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-    auto sequence = [](Source &a, Source &b, unsigned &step) -> gentest::task<void> {
+    auto sequence = [](Source &a, Source &b, unsigned &step) -> gentest::awaitable<void> {
         (void)co_await Receive{.source = a, .result = {}};
         step = 1;
         (void)co_await Receive{.source = b, .result = {}};
@@ -732,7 +732,7 @@ auto native_parent_resume_can_release_owner() -> bool {
     Source                                     source;
     std::optional<Reply>                       output;
     Scheduler                                  scheduler;
-    gentest::task<>                            parent;
+    gentest::awaitable<>                       parent;
     std::weak_ptr<gentest::detail::AsyncFrame> frame;
     std::function<void()>                      release = [&] {
         state.release_called = true;
@@ -743,7 +743,8 @@ auto native_parent_resume_can_release_owner() -> bool {
 
     // The queued completion retains the child. Its native transfer must also
     // retain the parent when resumed application code releases every other owner.
-    auto operation = [](Source &input, std::optional<Reply> &result, State &progress, std::function<void()> &on_resume) -> gentest::task<> {
+    auto operation = [](Source &input, std::optional<Reply> &result, State &progress,
+                        std::function<void()> &on_resume) -> gentest::awaitable<> {
         Scope lifetime{progress};
         co_await receive(input, result);
         on_resume();
@@ -901,7 +902,7 @@ auto reference_arguments_are_owned() -> bool {
         std::function<bool(const std::string &)> &callback;
         std::string                               value;
         auto                                      await_ready() const noexcept -> bool { return false; }
-        void                                      await_suspend(std::coroutine_handle<gentest::task<std::string>::promise_type> parent) {
+        void await_suspend(std::coroutine_handle<gentest::awaitable<std::string>::promise_type> parent) {
             callback = gentest::async::bind_continuation<const std::string &>(
                 parent.promise().make_continuation(), [this, owned = std::make_unique<int>(1)](std::string text) noexcept {
                     value = std::move(text);
@@ -911,7 +912,7 @@ auto reference_arguments_are_owned() -> bool {
         auto await_resume() -> std::string { return std::move(value); }
     };
     std::function<bool(const std::string &)> callback;
-    auto                                     text_task = [](auto &completion) -> gentest::task<std::string> {
+    auto                                     text_task = [](auto &completion) -> gentest::awaitable<std::string> {
         co_return co_await TextWait{.callback = completion, .value = {}};
     };
     auto      task = text_task(callback);
@@ -966,7 +967,7 @@ gentest::async::manual_event runner_finished;
 bool                         runner_received          = false;
 bool                         receiver_context_matches = false;
 
-auto runner_receive() -> gentest::task<void> {
+auto runner_receive() -> gentest::awaitable<void> {
     auto      *context       = gentest::detail::current_test().get();
     const auto thread        = std::this_thread::get_id();
     runner_source.on_publish = [context] { receiver_context_matches = gentest::detail::current_test().get() == context; };
@@ -980,7 +981,7 @@ auto runner_receive() -> gentest::task<void> {
     runner_finished.set("receiver completed");
 }
 
-auto runner_produce() -> gentest::task<void> {
+auto runner_produce() -> gentest::awaitable<void> {
     ASSERT_TRUE(static_cast<bool>(runner_source.callback));
     std::thread worker([] { runner_source.callback(Reason::Received, std::make_unique<int>(73)); });
     worker.join();

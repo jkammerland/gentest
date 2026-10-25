@@ -38,7 +38,7 @@ struct [[gentest::fixture(suite)]] Infrastructure {
 };
 
 [[gentest::test("drive_user_loop")]]
-inline auto driveUserLoop(Infrastructure &infrastructure) -> task<> {
+inline auto driveUserLoop(Infrastructure &infrastructure) -> awaitable<> {
     event<int> replies;
     infrastructure.loop.post([&replies] { replies.set("read", 42); });
 

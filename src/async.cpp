@@ -214,7 +214,7 @@ auto set_current_async_scheduler(AsyncScheduler *scheduler) noexcept -> AsyncSch
     return previous;
 }
 
-auto run_async_task_blocking(gentest::task<void> operation, std::string_view label, std::string &error_out) -> bool {
+auto run_async_task_blocking(gentest::awaitable<void> operation, std::string_view label, std::string &error_out) -> bool {
     error_out.clear();
     auto ctx = make_context(label);
 

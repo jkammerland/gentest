@@ -189,65 +189,66 @@ class TrackingScheduler final : public gentest::detail::AsyncScheduler {
     int                                 late_posts_        = 0;
 };
 
-auto wait_for_manual_event(gentest::async::manual_event &event) -> gentest::task<void> { co_await event.wait("ready"); }
+auto wait_for_manual_event(gentest::async::manual_event &event) -> gentest::awaitable<void> { co_await event.wait("ready"); }
 
-auto wait_for_manual_event_key(gentest::async::manual_event &event, std::string key) -> gentest::task<std::any *> {
+auto wait_for_manual_event_key(gentest::async::manual_event &event, std::string key) -> gentest::awaitable<std::any *> {
     std::any &payload = co_await event.wait(std::move(key));
     co_return &payload;
 }
 
-auto wait_for_int_event_key(gentest::async::event<int> &event, std::string key) -> gentest::task<int *> {
+auto wait_for_int_event_key(gentest::async::event<int> &event, std::string key) -> gentest::awaitable<int *> {
     int &payload = co_await event.wait(std::move(key));
     co_return &payload;
 }
 
-auto wait_for_int_event(gentest::async::event<int> &event, std::string key) -> gentest::task<void> {
+auto wait_for_int_event(gentest::async::event<int> &event, std::string key) -> gentest::awaitable<void> {
     (void)co_await event.wait(std::move(key));
 }
 
-auto wait_for_string_event_key(gentest::async::event<std::string> &event, std::string key) -> gentest::task<std::string *> {
+auto wait_for_string_event_key(gentest::async::event<std::string> &event, std::string key) -> gentest::awaitable<std::string *> {
     std::string &payload = co_await event.wait(std::move(key));
     co_return &payload;
 }
 
-auto wait_for_no_default_event_key(gentest::async::event<NoDefaultPayload> &event, std::string key) -> gentest::task<NoDefaultPayload *> {
+auto wait_for_no_default_event_key(gentest::async::event<NoDefaultPayload> &event, std::string key)
+    -> gentest::awaitable<NoDefaultPayload *> {
     NoDefaultPayload &payload = co_await event.wait(std::move(key));
     co_return &payload;
 }
 
 auto wait_for_no_move_construct_event_key(gentest::async::event<NoMoveConstructPayload> &event, std::string key)
-    -> gentest::task<NoMoveConstructPayload *> {
+    -> gentest::awaitable<NoMoveConstructPayload *> {
     NoMoveConstructPayload &payload = co_await event.wait(std::move(key));
     co_return &payload;
 }
 
-auto wait_for_promise(gentest::async::future<void> future) -> gentest::task<void> {
+auto wait_for_promise(gentest::async::future<void> future) -> gentest::awaitable<void> {
     co_await future.wait("promise stale waiter regression");
 }
 
-auto wait_for_int_future(gentest::async::future<int> future) -> gentest::task<int> {
+auto wait_for_int_future(gentest::async::future<int> future) -> gentest::awaitable<int> {
     co_return co_await future.wait("promise int payload regression");
 }
 
-auto wait_for_string_future(gentest::async::future<std::string> future) -> gentest::task<std::string> {
+auto wait_for_string_future(gentest::async::future<std::string> future) -> gentest::awaitable<std::string> {
     co_return co_await future.wait("promise string payload regression");
 }
 
-auto wait_for_unique_ptr_future(gentest::async::future<std::unique_ptr<int>> future) -> gentest::task<std::unique_ptr<int>> {
+auto wait_for_unique_ptr_future(gentest::async::future<std::unique_ptr<int>> future) -> gentest::awaitable<std::unique_ptr<int>> {
     co_return co_await future.wait("promise move-only payload regression");
 }
 
-auto wait_for_late_event_after_deadline(gentest::async::event<int> &event) -> gentest::task<gentest::async::wait_status> {
+auto wait_for_late_event_after_deadline(gentest::async::event<int> &event) -> gentest::awaitable<gentest::async::wait_status> {
     auto result = co_await gentest::async::wait_for(event.wait("late"), kLateCompletionTimeout);
     co_return result.status();
 }
 
-auto wait_for_late_future_after_deadline(gentest::async::future<int> future) -> gentest::task<gentest::async::wait_status> {
+auto wait_for_late_future_after_deadline(gentest::async::future<int> future) -> gentest::awaitable<gentest::async::wait_status> {
     auto result = co_await gentest::async::wait_for(future.wait("late future"), kLateCompletionTimeout);
     co_return result.status();
 }
 
-auto future_wait_after_timeout_task() -> gentest::task<void> {
+auto future_wait_after_timeout_task() -> gentest::awaitable<void> {
     gentest::async::promise<int> promise;
     auto                         future = promise.get_future();
 
@@ -263,7 +264,7 @@ auto future_wait_after_timeout_task() -> gentest::task<void> {
     }
 }
 
-auto future_wait_after_dropped_awaitable_task() -> gentest::task<void> {
+auto future_wait_after_dropped_awaitable_task() -> gentest::awaitable<void> {
     gentest::async::promise<int> promise;
     auto                         future = promise.get_future();
 
@@ -302,11 +303,11 @@ struct SchedulerLifetimeProbeAwaitable {
     std::shared_ptr<SchedulerLifetimeProbe> probe;
 };
 
-auto timed_wait_cleanup_after_scheduler_shutdown_task(std::shared_ptr<SchedulerLifetimeProbe> probe) -> gentest::task<void> {
+auto timed_wait_cleanup_after_scheduler_shutdown_task(std::shared_ptr<SchedulerLifetimeProbe> probe) -> gentest::awaitable<void> {
     (void)co_await gentest::async::wait_for(SchedulerLifetimeProbeAwaitable{std::move(probe)}, std::chrono::hours(1));
 }
 
-auto blocking_timer_stress_task() -> gentest::task<void> {
+auto blocking_timer_stress_task() -> gentest::awaitable<void> {
     for (int i = 0; i != 32; ++i) {
         auto result =
             co_await gentest::async::wait_for(gentest::async::sleep_for(std::chrono::milliseconds(2)), std::chrono::milliseconds(200));

@@ -104,7 +104,7 @@ class AsyncFrame {
 
     [[nodiscard]] auto try_claim_waiter() noexcept -> bool { return !std::exchange(waiter_claimed_, true); }
 
-    // A task binds its cancellation context once, before its first execution.
+    // A coroutine binds its cancellation context once, before its first execution.
     void set_stop_token(const std::stop_token &token) {
         stop_bound_ = true;
         parent_stop_.reset();

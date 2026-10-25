@@ -47,6 +47,7 @@ using ::gentest::assert_true;
 using ::gentest::assertion;
 using ::gentest::AsyncFixtureSetup;
 using ::gentest::AsyncFixtureTearDown;
+using ::gentest::awaitable;
 using ::gentest::Case;
 using ::gentest::CurrentContext;
 using ::gentest::CurrentContextLease;
@@ -95,7 +96,6 @@ using ::gentest::set_current_context;
 using ::gentest::set_current_token;
 using ::gentest::skip;
 using ::gentest::skip_if;
-using ::gentest::task;
 using ::gentest::xfail;
 using ::gentest::xfail_if;
 

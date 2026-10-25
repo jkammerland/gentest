@@ -13,12 +13,12 @@ using namespace gentest::async;
 struct Connection : AsyncFixtureSetup, AsyncFixtureTearDown {
     bool connected = false;
 
-    auto setUp() -> task<> override {
+    auto setUp() -> awaitable<> override {
         co_await yield();
         connected = true;
     }
 
-    auto tearDown() -> task<> override {
+    auto tearDown() -> awaitable<> override {
         co_await yield();
         connected = false;
     }
@@ -28,21 +28,21 @@ struct Connection : AsyncFixtureSetup, AsyncFixtureTearDown {
 struct [[gentest::fixture(suite)]] Server : AsyncFixtureSetup {
     int port = 0;
 
-    auto setUp() -> task<> override {
+    auto setUp() -> awaitable<> override {
         co_await yield();
         port = 8080;
     }
 };
 
 [[gentest::test("local_connection")]]
-inline auto localConnection(Connection &connection, Server &server) -> task<> {
+inline auto localConnection(Connection &connection, Server &server) -> awaitable<> {
     expect_true(connection.connected);
     expect_eq(server.port, 8080);
     co_return;
 }
 
 [[gentest::test("shared_server")]]
-inline auto sharedServer(Server &server) -> task<> {
+inline auto sharedServer(Server &server) -> awaitable<> {
     co_await yield();
     expect_eq(server.port, 8080);
 }

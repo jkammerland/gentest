@@ -18,7 +18,7 @@ loop; no application runner or event-loop registration is required.
 
 | Stage | Source | What it shows |
 | --- | --- | --- |
-| 1 | [Tasks](01_tasks.hpp) | `task<T>`, a returned value, and `yield()` |
+| 1 | [Awaitables](01_awaitables.hpp) | `awaitable<T>`, a returned value, and `yield()` |
 | 2 | [Composition](02_composition.hpp) | `when_all()` results and `when_any()` stopping and joining a loser |
 | 3 | [Cancellation](03_cancellation.hpp) | Deadlines, explicit stop tokens, and cleanup waits |
 | 4 | [Fixtures](04_fixtures.hpp) | Async setup/teardown and suite-owned infrastructure |
