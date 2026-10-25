@@ -399,23 +399,26 @@ template <typename T> class future {
 
     class awaitable {
       public:
-        using gentest_async_wait_supported = void;
-
-        awaitable(std::shared_ptr<detail::AsyncPromiseSharedState<T>> state, std::string reason, std::source_location loc)
+        awaitable(std::shared_ptr<detail::AsyncPromiseSharedState<T>> state, std::string reason, std::source_location loc,
+                  std::optional<std::stop_token> stop = {})
             : state_(std::move(state)), reason_(std::move(reason)), loc_(loc),
-              wait_state_(std::make_shared<detail::AsyncPromiseWaitState>()) {}
+              wait_state_(std::make_shared<detail::AsyncPromiseWaitState>()), cancellation_(std::move(stop)) {}
 
         awaitable(awaitable &&other) noexcept
             : state_(std::move(other.state_)), reason_(std::move(other.reason_)), loc_(other.loc_),
-              wait_state_(std::move(other.wait_state_)), registered_(std::exchange(other.registered_, false)) {}
+              wait_state_(std::move(other.wait_state_)), registered_(std::exchange(other.registered_, false)),
+              cancellation_(std::move(other.cancellation_)) {}
 
         awaitable &operator=(awaitable &&) noexcept = delete;
         awaitable(const awaitable &)                = delete;
         awaitable &operator=(const awaitable &)     = delete;
 
-        ~awaitable() { cancel_wait(); }
+        ~awaitable() { unregister(); }
 
-        [[nodiscard]] auto await_ready() const -> bool { return state_->is_ready(); }
+        [[nodiscard]] auto await_ready() const -> bool {
+            cancellation_.check();
+            return state_->is_ready();
+        }
 
         void await_suspend(std::coroutine_handle<> handle) {
             auto *scheduler = detail::current_async_scheduler();
@@ -423,31 +426,24 @@ template <typename T> class future {
                 std::abort();
             }
             scheduler->begin_wait(handle);
-            await_suspend_with_token(handle, *scheduler, scheduler->make_waiter(handle));
-        }
-
-        void await_suspend_with_token(std::coroutine_handle<> handle, detail::AsyncScheduler &scheduler,
-                                      const detail::AsyncScheduler::WaiterTokenPtr &token) {
-            switch (state_->wait_or_post(handle, scheduler, wait_state_, reason_, loc_, token)) {
-            case detail::AsyncPromiseWaitRegistration::Ready:
-                if (token) {
-                    token->post();
-                } else {
-                    scheduler.post(handle);
-                }
-                return;
-            case detail::AsyncPromiseWaitRegistration::Waiting: registered_ = true; return;
+            auto token = scheduler->make_waiter(handle);
+            switch (state_->wait_or_post(handle, *scheduler, wait_state_, reason_, loc_, token)) {
+            case detail::AsyncPromiseWaitRegistration::Ready: token->post(); break;
+            case detail::AsyncPromiseWaitRegistration::Waiting: registered_ = true; break;
             case detail::AsyncPromiseWaitRegistration::AlreadyWaiting:
                 detail::async_contract_violation("gentest::async::future already has a waiter");
             }
+            cancellation_.arm(token);
         }
 
-        [[nodiscard]] auto await_resume() const -> T { return state_->take_value(); }
-
-        void cancel_wait(const detail::AsyncScheduler::Control &) noexcept { cancel_wait(); }
+        [[nodiscard]] auto await_resume() -> T {
+            unregister();
+            cancellation_.check();
+            return state_->take_value();
+        }
 
       private:
-        void cancel_wait() noexcept {
+        void unregister() noexcept {
             if (!registered_ || !state_ || !wait_state_) {
                 return;
             }
@@ -460,12 +456,19 @@ template <typename T> class future {
         std::source_location                                loc_;
         std::shared_ptr<detail::AsyncPromiseWaitState>      wait_state_;
         bool                                                registered_ = false;
+        detail::AsyncWaitCancellation                       cancellation_;
     };
 
     [[nodiscard]] auto wait(std::string                 reason = "async promise was not completed",
                             const std::source_location &loc    = std::source_location::current()) -> awaitable {
         ensure_state();
         return awaitable{state_, std::move(reason), loc};
+    }
+
+    [[nodiscard]] auto wait(std::stop_token stop, std::string reason = "async promise was not completed",
+                            const std::source_location &loc = std::source_location::current()) -> awaitable {
+        ensure_state();
+        return awaitable{state_, std::move(reason), loc, stop};
     }
 
     [[nodiscard]] auto operator co_await() & -> awaitable { return wait(); }
@@ -592,23 +595,26 @@ template <> class future<void> {
 
     class awaitable {
       public:
-        using gentest_async_wait_supported = void;
-
-        awaitable(std::shared_ptr<detail::AsyncPromiseSharedState<void>> state, std::string reason, std::source_location loc)
+        awaitable(std::shared_ptr<detail::AsyncPromiseSharedState<void>> state, std::string reason, std::source_location loc,
+                  std::optional<std::stop_token> stop = {})
             : state_(std::move(state)), reason_(std::move(reason)), loc_(loc),
-              wait_state_(std::make_shared<detail::AsyncPromiseWaitState>()) {}
+              wait_state_(std::make_shared<detail::AsyncPromiseWaitState>()), cancellation_(std::move(stop)) {}
 
         awaitable(awaitable &&other) noexcept
             : state_(std::move(other.state_)), reason_(std::move(other.reason_)), loc_(other.loc_),
-              wait_state_(std::move(other.wait_state_)), registered_(std::exchange(other.registered_, false)) {}
+              wait_state_(std::move(other.wait_state_)), registered_(std::exchange(other.registered_, false)),
+              cancellation_(std::move(other.cancellation_)) {}
 
         awaitable &operator=(awaitable &&) noexcept = delete;
         awaitable(const awaitable &)                = delete;
         awaitable &operator=(const awaitable &)     = delete;
 
-        ~awaitable() { cancel_wait(); }
+        ~awaitable() { unregister(); }
 
-        [[nodiscard]] auto await_ready() const -> bool { return state_->is_ready(); }
+        [[nodiscard]] auto await_ready() const -> bool {
+            cancellation_.check();
+            return state_->is_ready();
+        }
 
         void await_suspend(std::coroutine_handle<> handle) {
             auto *scheduler = detail::current_async_scheduler();
@@ -616,31 +622,24 @@ template <> class future<void> {
                 std::abort();
             }
             scheduler->begin_wait(handle);
-            await_suspend_with_token(handle, *scheduler, scheduler->make_waiter(handle));
-        }
-
-        void await_suspend_with_token(std::coroutine_handle<> handle, detail::AsyncScheduler &scheduler,
-                                      const detail::AsyncScheduler::WaiterTokenPtr &token) {
-            switch (state_->wait_or_post(handle, scheduler, wait_state_, reason_, loc_, token)) {
-            case detail::AsyncPromiseWaitRegistration::Ready:
-                if (token) {
-                    token->post();
-                } else {
-                    scheduler.post(handle);
-                }
-                return;
-            case detail::AsyncPromiseWaitRegistration::Waiting: registered_ = true; return;
+            auto token = scheduler->make_waiter(handle);
+            switch (state_->wait_or_post(handle, *scheduler, wait_state_, reason_, loc_, token)) {
+            case detail::AsyncPromiseWaitRegistration::Ready: token->post(); break;
+            case detail::AsyncPromiseWaitRegistration::Waiting: registered_ = true; break;
             case detail::AsyncPromiseWaitRegistration::AlreadyWaiting:
                 detail::async_contract_violation("gentest::async::future already has a waiter");
             }
+            cancellation_.arm(token);
         }
 
-        void await_resume() const { state_->take_value(); }
-
-        void cancel_wait(const detail::AsyncScheduler::Control &) noexcept { cancel_wait(); }
+        void await_resume() {
+            unregister();
+            cancellation_.check();
+            state_->take_value();
+        }
 
       private:
-        void cancel_wait() noexcept {
+        void unregister() noexcept {
             if (!registered_ || !state_ || !wait_state_) {
                 return;
             }
@@ -653,12 +652,19 @@ template <> class future<void> {
         std::source_location                                   loc_;
         std::shared_ptr<detail::AsyncPromiseWaitState>         wait_state_;
         bool                                                   registered_ = false;
+        detail::AsyncWaitCancellation                          cancellation_;
     };
 
     [[nodiscard]] auto wait(std::string                 reason = "async promise was not completed",
                             const std::source_location &loc    = std::source_location::current()) -> awaitable {
         ensure_state();
         return awaitable{state_, std::move(reason), loc};
+    }
+
+    [[nodiscard]] auto wait(std::stop_token stop, std::string reason = "async promise was not completed",
+                            const std::source_location &loc = std::source_location::current()) -> awaitable {
+        ensure_state();
+        return awaitable{state_, std::move(reason), loc, stop};
     }
 
     [[nodiscard]] auto operator co_await() & -> awaitable { return wait(); }

@@ -678,12 +678,12 @@ gentest_add_check_counts(
     ARGS --filter=async/wait_for/future* --kind=test --no-color)
 
 gentest_add_check_counts(
-    NAME async_wait_for_async_test
+    NAME async_wait_for_task
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     PASS 5
     FAIL 0
     SKIP 0
-    ARGS --filter=async/wait_for/async_test* --kind=test --no-color)
+    ARGS --filter=async/wait_for/task* --kind=test --no-color)
 
 gentest_add_check_counts(
     NAME async_lvalue_concurrent_await
@@ -702,7 +702,7 @@ gentest_add_cmake_script_test(
     ARGS --filter=async/lvalue_await/* --kind=test --no-color
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRINGS=[ FAIL ] async/lvalue_await/01_concurrent_waiter|gentest::async_test already has an active waiter (concurrent co_await is not supported)")
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/lvalue_await/01_concurrent_waiter|gentest::task already has an active waiter (concurrent co_await is not supported)")
 
 gentest_add_cmake_script_test(
     NAME async_wait_for_no_raw_this_token_callbacks

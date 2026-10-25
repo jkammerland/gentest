@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <coroutine>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -35,7 +36,7 @@ class Loop {
         worker_.join();
     }
 
-    void post(continuation<> work) {
+    void post(std::function<void()> work) {
         {
             std::lock_guard lock(mutex_);
             queue_.push_back(std::move(work));
@@ -46,7 +47,7 @@ class Loop {
   private:
     void run() {
         while (true) {
-            continuation<> work;
+            std::function<void()> work;
             {
                 std::unique_lock lock(mutex_);
                 ready_.wait(lock, [this] { return closing_ || !queue_.empty(); });
@@ -60,16 +61,16 @@ class Loop {
         }
     }
 
-    std::mutex                 mutex_;
-    std::condition_variable    ready_;
-    std::deque<continuation<>> queue_;
-    bool                       closing_ = false;
-    std::thread                worker_;
+    std::mutex                        mutex_;
+    std::condition_variable           ready_;
+    std::deque<std::function<void()>> queue_;
+    bool                              closing_ = false;
+    std::thread                       worker_;
 };
 
-enum class Reply { value, unavailable };
+enum class Reply { value, unavailable, cancelled };
 
-// Ordinary C++ awaiter, with an optional subscription hook for wait_for/until.
+// The same ordinary C++ awaiter works directly and inside wait_for/until.
 class Read {
   public:
     explicit Read(Loop &loop, Reply reply = Reply::value) : loop_(loop), reply_(reply) {}
@@ -80,7 +81,20 @@ class Read {
         auto       next = handle.promise().make_continuation();
         const auto stop = next.stop_token();
         try {
-            await_subscribe(next, stop);
+            auto complete = bind_continuation<Reply, std::unique_ptr<int>>(next, [this](Reply reply, std::unique_ptr<int> value) noexcept {
+                reply_ = reply;
+                value_ = std::move(value);
+            });
+
+            // Only owned values cross threads. Even cancellation completes the
+            // wait so a task group can join this operation before returning.
+            loop_.post([complete = std::move(complete), stop, reply = reply_]() mutable {
+                if (stop.stop_requested()) {
+                    (void)complete(Reply::cancelled, nullptr);
+                } else {
+                    (void)complete(reply, reply == Reply::value ? std::make_unique<int>(42) : nullptr);
+                }
+            });
         } catch (...) {
             // Registration can have queued an inline callback before failing.
             next.cancel();
@@ -88,23 +102,10 @@ class Read {
         }
     }
 
-    void await_subscribe(continuation_handle next, std::stop_token stop) {
-        auto complete =
-            bind_continuation<Reply, std::unique_ptr<int>>(std::move(next), [this](Reply reply, std::unique_ptr<int> value) noexcept {
-                reply_ = reply;
-                value_ = std::move(value);
-            });
-
-        // Only the owned reply crosses threads. Gentest invokes the receiver
-        // above and resumes the coroutine on its runner thread.
-        loop_.post([complete = std::move(complete), stop = std::move(stop), reply = reply_]() mutable {
-            if (!stop.stop_requested()) {
-                (void)complete(reply, reply == Reply::value ? std::make_unique<int>(42) : nullptr);
-            }
-        });
-    }
-
     auto await_resume() -> std::unique_ptr<int> {
+        if (reply_ == Reply::cancelled) {
+            throw operation_cancelled{};
+        }
         if (reply_ != Reply::value || !value_) {
             throw std::runtime_error("backend could not read a value");
         }
@@ -122,7 +123,7 @@ struct [[gentest::fixture(suite)]] Infrastructure {
 };
 
 [[gentest::test("callback_value_on_runner")]]
-inline auto callbackValueOnRunner(Infrastructure &infrastructure) -> async_test<void> {
+inline auto callbackValueOnRunner(Infrastructure &infrastructure) -> task<> {
     const auto runner = std::this_thread::get_id();
     auto       value  = co_await Read{infrastructure.loop};
     expect_eq(*value, 42);
@@ -130,7 +131,7 @@ inline auto callbackValueOnRunner(Infrastructure &infrastructure) -> async_test<
 }
 
 [[gentest::test("bounded_callback")]]
-inline auto boundedCallback(Infrastructure &infrastructure) -> async_test<void> {
+inline auto boundedCallback(Infrastructure &infrastructure) -> task<> {
     using namespace std::chrono_literals;
     auto result = co_await wait_for(Read{infrastructure.loop}, 5s);
     if (result.timed_out()) {
@@ -141,7 +142,7 @@ inline auto boundedCallback(Infrastructure &infrastructure) -> async_test<void> 
 }
 
 [[gentest::test("backend_error")]]
-inline auto backendError(Infrastructure &infrastructure) -> async_test<void> {
+inline auto backendError(Infrastructure &infrastructure) -> task<> {
     bool rejected = false;
     try {
         (void)co_await Read{infrastructure.loop, Reply::unavailable};

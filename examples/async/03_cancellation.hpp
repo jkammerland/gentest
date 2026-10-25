@@ -4,25 +4,15 @@
 #include "gentest/test.h"
 
 #include <chrono>
-#include <memory>
+#include <stop_token>
 
 namespace async_examples::waits {
 
 using namespace gentest;
 using namespace gentest::async;
 
-[[gentest::test("one_shot_value")]]
-inline auto oneShotValue() -> async_test<void> {
-    promise<std::unique_ptr<int>> reply;
-    auto                          response = reply.get_future();
-
-    reply.set_value(std::make_unique<int>(42));
-    auto value = co_await std::move(response);
-    expect_eq(*value, 42);
-}
-
 [[gentest::test("bounded_event")]]
-inline auto boundedEvent() -> async_test<void> {
+inline auto boundedEvent() -> task<> {
     using namespace std::chrono_literals;
     event<int> replies;
     replies.set("request-1", 42);
@@ -36,7 +26,7 @@ inline auto boundedEvent() -> async_test<void> {
 }
 
 [[gentest::test("timeout_retires_only_this_wait")]]
-inline auto timeoutRetiresOnlyThisWait() -> async_test<void> {
+inline auto timeoutRetiresOnlyThisWait() -> task<> {
     using namespace std::chrono_literals;
     event<int> replies;
 
@@ -47,6 +37,22 @@ inline auto timeoutRetiresOnlyThisWait() -> async_test<void> {
     replies.set("next", 7);
     const int value = co_await replies.wait("next");
     expect_eq(value, 7);
+}
+
+[[gentest::test("explicit_stop_token")]]
+inline auto explicitStopToken() -> task<> {
+    event<int>       pending;
+    std::stop_source stop;
+    stop.request_stop();
+
+    bool cancelled = false;
+    try {
+        (void)co_await pending.wait("reply", stop.get_token());
+    } catch (const operation_cancelled &) { cancelled = true; }
+    expect_true(cancelled);
+
+    // An explicit empty token permits a cleanup wait after cancellation.
+    co_await yield(std::stop_token{});
 }
 
 } // namespace async_examples::waits

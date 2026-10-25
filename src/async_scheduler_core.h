@@ -47,6 +47,11 @@ class AsyncSchedulerCore {
     void set_wake_callback(WakeCallback wake) { wake_ = std::move(wake); }
     void notify_completion() { notify_wake(true); }
 
+    [[nodiscard]] auto frame_for(std::coroutine_handle<> handle) const -> FramePtr {
+        std::lock_guard<std::mutex> lock(mtx_);
+        return frame_for_locked(handle.address());
+    }
+
     void register_frame(std::size_t owner, const FramePtr &frame) {
         if (!frame || !frame->handle) {
             return;
@@ -192,6 +197,9 @@ class AsyncSchedulerCore {
     void attach_child(const FramePtr &child, std::coroutine_handle<> parent) {
         if (!child || !child->handle || !parent) {
             return;
+        }
+        if (auto parent_frame = frame_for(parent)) {
+            child->inherit_stop_token(parent_frame->stop_token());
         }
         std::lock_guard<std::mutex> lk(mtx_);
         const auto                  parent_owner = owner_for_locked(parent.address());

@@ -33,8 +33,8 @@ inline gentest::async::manual_event concurrent_lvalue_value_child_release;
 inline gentest::async::manual_event concurrent_lvalue_void_child_started;
 inline gentest::async::manual_event concurrent_lvalue_void_child_release;
 inline gentest::async::manual_event concurrent_lvalue_first_waiter_done;
-inline gentest::async_test<int>     concurrent_lvalue_value_task;
-inline gentest::async_test<void>    concurrent_lvalue_void_task;
+inline gentest::task<int>           concurrent_lvalue_value_task;
+inline gentest::task<void>          concurrent_lvalue_void_task;
 
 inline void reset_batch_if_previous_round_completed() {
     if (server_ready.is_set("batch server ready") && client_done.is_set("batch client done")) {
@@ -249,12 +249,12 @@ constexpr int kLiveDemoRounds = 10;
 struct LocalAsyncFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
     int value = 0;
 
-    gentest::async_test<void> setUp() override {
+    gentest::task<void> setUp() override {
         co_await gentest::async::yield();
         value = 42;
     }
 
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         value = 0;
     }
@@ -277,13 +277,13 @@ struct LocalAsyncLifecycleFixture : gentest::AsyncFixtureSetup, gentest::AsyncFi
         }
     }
 
-    gentest::async_test<void> setUp() override {
+    gentest::task<void> setUp() override {
         co_await gentest::async::yield();
         setup = true;
         value = 123;
     }
 
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         torn_down = true;
         value     = 0;
@@ -302,12 +302,12 @@ struct FailFastCancelLocalFixture : gentest::AsyncFixtureSetup, gentest::AsyncFi
         }
     }
 
-    gentest::async_test<void> setUp() override {
+    gentest::task<void> setUp() override {
         co_await gentest::async::yield();
         setup = true;
     }
 
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         torn_down = true;
     }
@@ -325,13 +325,13 @@ struct FailFastCancelAdoptedLocalFixture : gentest::AsyncFixtureSetup, gentest::
         }
     }
 
-    gentest::async_test<void> setUp() override {
+    gentest::task<void> setUp() override {
         co_await gentest::async::yield();
         fail_fast_cancel_adopted_local_fixture_torn_down.store(false, std::memory_order_release);
         setup = true;
     }
 
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         torn_down = true;
         fail_fast_cancel_adopted_local_fixture_torn_down.store(true, std::memory_order_release);
@@ -354,19 +354,19 @@ struct UnsupportedSuspend {
     constexpr void               await_resume() const noexcept {}
 };
 
-gentest::async_test<void> wait_for_child_pass();
+gentest::task<void> wait_for_child_pass();
 
-gentest::async_test<int> wait_for_child_value();
+gentest::task<int> wait_for_child_value();
 
-gentest::async_test<void> wait_for_child_throws();
+gentest::task<void> wait_for_child_throws();
 
-gentest::async_test<void> wait_for_child_never(gentest::async::manual_event &event);
+gentest::task<void> wait_for_child_never(gentest::async::manual_event &event);
 
-gentest::async_test<void> wait_for_nested_child_never(gentest::async::manual_event &event);
+gentest::task<void> wait_for_nested_child_never(gentest::async::manual_event &event);
 
-gentest::async_test<int> concurrent_lvalue_value_child();
+gentest::task<int> concurrent_lvalue_value_child();
 
-gentest::async_test<void> concurrent_lvalue_void_child();
+gentest::task<void> concurrent_lvalue_void_child();
 
 struct [[using gentest: fixture(suite)]] SharedSuiteAsyncFixture : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
     static inline int                      setups    = 0;
@@ -385,7 +385,7 @@ struct [[using gentest: fixture(suite)]] SharedSuiteAsyncFixture : gentest::Asyn
         }
     }
 
-    gentest::async_test<void> setUp() override {
+    gentest::task<void> setUp() override {
         co_await gentest::async::yield();
         ++setups;
         first     = nullptr;
@@ -398,7 +398,7 @@ struct [[using gentest: fixture(suite)]] SharedSuiteAsyncFixture : gentest::Asyn
         events.clear();
     }
 
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         if (saw_async || saw_sync || saw_check) {
             EXPECT_TRUE(saw_async);
@@ -428,7 +428,7 @@ struct [[using gentest: fixture(global)]] SharedGlobalAsyncFixture : gentest::As
         }
     }
 
-    gentest::async_test<void> setUp() override {
+    gentest::task<void> setUp() override {
         co_await gentest::async::yield();
         ++setups;
         first     = nullptr;
@@ -442,7 +442,7 @@ struct [[using gentest: fixture(global)]] SharedGlobalAsyncFixture : gentest::As
         events.clear();
     }
 
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         if (saw_seed || saw_async || saw_sync || saw_check) {
             EXPECT_TRUE(saw_seed);
@@ -458,7 +458,7 @@ struct [[using gentest: fixture(global)]] SharedGlobalAsyncFixture : gentest::As
 struct [[using gentest: fixture(suite)]] BlockingSchedulerAdoptedFixture : gentest::AsyncFixtureSetup {
     bool setup = false;
 
-    gentest::async_test<void> setUp() override {
+    gentest::task<void> setUp() override {
         gentest::async::manual_event release;
         auto                         context = gentest::get_current_context();
         auto                         started = std::make_shared<std::promise<void>>();
@@ -556,54 +556,54 @@ struct [[using gentest: fixture(suite)]] GroupFenceFirstSuiteFixture {};
 struct [[using gentest: fixture(suite)]] GroupFenceSecondSuiteFixture {};
 
 struct LocalAsyncThrowingTeardownFixture : gentest::AsyncFixtureTearDown {
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         throw std::runtime_error("async-teardown-secondary-marker");
     }
 };
 
 struct LocalAsyncFailingUnresumableTeardownFixture : gentest::AsyncFixtureTearDown {
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         EXPECT_TRUE(false, "async-local-unresumable-teardown-marker");
     }
 };
 
 [[using gentest: test("batch/server")]]
-gentest::async_test<void> server();
+gentest::task<void> server();
 
 [[using gentest: test("batch/client")]]
-gentest::async_test<void> client();
+gentest::task<void> client();
 
 [[using gentest: test("live_demo/00_suspended")]]
-gentest::async_test<void> live_demo_suspended();
+gentest::task<void> live_demo_suspended();
 
 [[using gentest: test("live_demo/01_driver")]]
-gentest::async_test<void> live_demo_driver();
+gentest::task<void> live_demo_driver();
 
 [[using gentest: test("fail_fast/00_async_fail")]]
-gentest::async_test<void> fail_fast_async_fail();
+gentest::task<void> fail_fast_async_fail();
 
 [[using gentest: test("fail_fast/01_sync_should_not_run")]]
 void fail_fast_sync_should_not_run();
 
 [[using gentest: test("fail_fast_snapshot/00_async_fail_after_release")]]
-gentest::async_test<void> fail_fast_snapshot_async_fail_after_release();
+gentest::task<void> fail_fast_snapshot_async_fail_after_release();
 
 [[using gentest: test("fail_fast_snapshot/01_async_should_not_run_after_failure")]]
-gentest::async_test<void> fail_fast_snapshot_async_should_not_run_after_failure();
+gentest::task<void> fail_fast_snapshot_async_should_not_run_after_failure();
 
 [[using gentest: test("fail_fast_snapshot/02_release")]]
 void fail_fast_snapshot_release_waiters();
 
 [[using gentest: test("fail_fast_self_adopted/00_async_fails_with_adopted_worker")]]
-gentest::async_test<void> fail_fast_self_adopted_async_fails_with_adopted_worker();
+gentest::task<void> fail_fast_self_adopted_async_fails_with_adopted_worker();
 
 [[using gentest: test("fail_fast_self_adopted/01_sync_should_not_run")]]
 void fail_fast_self_adopted_sync_should_not_run();
 
 [[using gentest: test("fail_fast_done_adopted_late/00_done_with_late_worker_log")]]
-gentest::async_test<void> fail_fast_done_adopted_late_done_with_late_worker_log();
+gentest::task<void> fail_fast_done_adopted_late_done_with_late_worker_log();
 
 [[using gentest: test("fail_fast_done_adopted_late/01_sync_failure")]]
 void fail_fast_done_adopted_late_sync_failure();
@@ -612,157 +612,157 @@ void fail_fast_done_adopted_late_sync_failure();
 void fail_fast_done_adopted_late_sync_should_not_run();
 
 [[using gentest: test("fail_fast_cancel_adopted_context/00_pending_worker_logs_after_cancel")]]
-gentest::async_test<void> fail_fast_cancel_adopted_context_pending_worker_logs_after_cancel();
+gentest::task<void> fail_fast_cancel_adopted_context_pending_worker_logs_after_cancel();
 
 [[using gentest: test("fail_fast_cancel_adopted_context/01_sync_failure")]]
 void fail_fast_cancel_adopted_context_sync_failure();
 
 [[using gentest: test("fail_fast_cancel_released_context/00_pending_worker_reuses_released_context"), death]]
-gentest::async_test<void> fail_fast_cancel_released_context_pending_worker_reuses_released_context();
+gentest::task<void> fail_fast_cancel_released_context_pending_worker_reuses_released_context();
 
 [[using gentest: test("fail_fast_cancel_released_context/01_sync_failure")]]
 void fail_fast_cancel_released_context_sync_failure();
 
 [[using gentest: test("fail_fast_cancel_local_fixture/00_pending")]]
-gentest::async_test<void> fail_fast_cancel_local_fixture_pending(FailFastCancelLocalFixture &);
+gentest::task<void> fail_fast_cancel_local_fixture_pending(FailFastCancelLocalFixture &);
 
 [[using gentest: test("fail_fast_cancel_local_fixture/01_sync_failure")]]
 void fail_fast_cancel_local_fixture_sync_failure();
 
 [[using gentest: test("fail_fast_cancel_adopted_local_fixture/00_pending")]]
-gentest::async_test<void> fail_fast_cancel_adopted_local_fixture_pending(FailFastCancelAdoptedLocalFixture &);
+gentest::task<void> fail_fast_cancel_adopted_local_fixture_pending(FailFastCancelAdoptedLocalFixture &);
 
 [[using gentest: test("fail_fast_cancel_adopted_local_fixture/01_sync_failure")]]
 void fail_fast_cancel_adopted_local_fixture_sync_failure();
 
 [[using gentest: test("fail_fast_cancel_slow_adopted/00_pending_needs_resume")]]
-gentest::async_test<void> fail_fast_cancel_slow_adopted_pending_needs_resume();
+gentest::task<void> fail_fast_cancel_slow_adopted_pending_needs_resume();
 
 [[using gentest: test("fail_fast_cancel_slow_adopted/01_sync_failure")]]
 void fail_fast_cancel_slow_adopted_sync_failure();
 
 [[using gentest: test("fail_fast_cancel_adopted_skip/00_pending_worker_logs_after_cancel")]]
-gentest::async_test<void> fail_fast_cancel_adopted_skip_pending_worker_logs_after_cancel();
+gentest::task<void> fail_fast_cancel_adopted_skip_pending_worker_logs_after_cancel();
 
 [[using gentest: test("fail_fast_cancel_adopted_skip/01_sync_failure")]]
 void fail_fast_cancel_adopted_skip_sync_failure();
 
 [[using gentest: test("fail_fast_final_drain/00_async_fail_after_adopted_release")]]
-gentest::async_test<void> fail_fast_final_drain_async_fail_after_adopted_release();
+gentest::task<void> fail_fast_final_drain_async_fail_after_adopted_release();
 
 [[using gentest: test("fail_fast_final_drain/01_async_should_not_run_after_failure")]]
-gentest::async_test<void> fail_fast_final_drain_async_should_not_run_after_failure();
+gentest::task<void> fail_fast_final_drain_async_should_not_run_after_failure();
 
 [[using gentest: test("timer/00_sleep_for_waits")]]
-gentest::async_test<void> timer_sleep_for_waits();
+gentest::task<void> timer_sleep_for_waits();
 
 [[using gentest: test("timer/01_yield_runs_while_sleep_pending")]]
-gentest::async_test<void> timer_yield_runs_while_sleep_pending();
+gentest::task<void> timer_yield_runs_while_sleep_pending();
 
 [[using gentest: test("timer/02_sleep_until_waits")]]
-gentest::async_test<void> timer_sleep_until_waits();
+gentest::task<void> timer_sleep_until_waits();
 
 [[using gentest: test("timer_stress/00_ready_wins_expired_timeout")]]
-gentest::async_test<void> timer_stress_ready_wins_expired_timeout();
+gentest::task<void> timer_stress_ready_wins_expired_timeout();
 
 [[using gentest: test("timer_stress/01_timeout_cancels_late_event_waiter")]]
-gentest::async_test<void> timer_stress_timeout_cancels_late_event_waiter();
+gentest::task<void> timer_stress_timeout_cancels_late_event_waiter();
 
 [[using gentest: test("timer_stress/02_timeout_cancels_inner_sleep_timer")]]
-gentest::async_test<void> timer_stress_timeout_cancels_inner_sleep_timer();
+gentest::task<void> timer_stress_timeout_cancels_inner_sleep_timer();
 
-auto timer_stress_simultaneous_sleeper() -> gentest::async_test<void>;
+auto timer_stress_simultaneous_sleeper() -> gentest::task<void>;
 
 [[using gentest: test("timer_stress/03_simultaneous_driver")]]
-gentest::async_test<void> timer_stress_simultaneous_driver();
+gentest::task<void> timer_stress_simultaneous_driver();
 
 [[using gentest: test("timer_stress/04_simultaneous_sleeper_a")]]
-gentest::async_test<void> timer_stress_simultaneous_sleeper_a();
+gentest::task<void> timer_stress_simultaneous_sleeper_a();
 
 [[using gentest: test("timer_stress/05_simultaneous_sleeper_b")]]
-gentest::async_test<void> timer_stress_simultaneous_sleeper_b();
+gentest::task<void> timer_stress_simultaneous_sleeper_b();
 
 [[using gentest: test("timer_stress/06_simultaneous_sleeper_c")]]
-gentest::async_test<void> timer_stress_simultaneous_sleeper_c();
+gentest::task<void> timer_stress_simultaneous_sleeper_c();
 
 [[using gentest: test("timer_stress/07_simultaneous_sleeper_d")]]
-gentest::async_test<void> timer_stress_simultaneous_sleeper_d();
+gentest::task<void> timer_stress_simultaneous_sleeper_d();
 
 [[using gentest: test("wait_for/event_ready_before_timeout")]]
-gentest::async_test<void> wait_for_event_ready_before_timeout();
+gentest::task<void> wait_for_event_ready_before_timeout();
 
 [[using gentest: test("wait_for/event_timeout_late_signal")]]
-gentest::async_test<void> wait_for_event_timeout_late_signal();
+gentest::task<void> wait_for_event_timeout_late_signal();
 
 [[using gentest: test("wait_for/future_void_ready")]]
-gentest::async_test<void> wait_for_future_void_ready();
+gentest::task<void> wait_for_future_void_ready();
 
 [[using gentest: test("wait_for/future_value_timeout")]]
-gentest::async_test<void> wait_for_future_value_timeout();
+gentest::task<void> wait_for_future_value_timeout();
 
 [[using gentest: test("wait_for/future_move_only_ready")]]
-gentest::async_test<void> wait_for_future_move_only_ready();
+gentest::task<void> wait_for_future_move_only_ready();
 
-[[using gentest: test("wait_for/async_test_pass")]]
-gentest::async_test<void> wait_for_async_test_pass();
+[[using gentest: test("wait_for/task_pass")]]
+gentest::task<void> wait_for_task_pass();
 
-[[using gentest: test("wait_for/async_test_value")]]
-gentest::async_test<void> wait_for_async_test_value();
+[[using gentest: test("wait_for/task_value")]]
+gentest::task<void> wait_for_task_value();
 
-[[using gentest: test("wait_for/async_test_exception")]]
-gentest::async_test<void> wait_for_async_test_exception();
+[[using gentest: test("wait_for/task_exception")]]
+gentest::task<void> wait_for_task_exception();
 
-[[using gentest: test("wait_for/async_test_timeout_cancels_stale_waiter")]]
-gentest::async_test<void> wait_for_async_test_timeout_cancels_stale_waiter();
+[[using gentest: test("wait_for/task_timeout_cancels_stale_waiter")]]
+gentest::task<void> wait_for_task_timeout_cancels_stale_waiter();
 
-[[using gentest: test("wait_for/async_test_timeout_cancels_nested_stale_waiter")]]
-gentest::async_test<void> wait_for_async_test_timeout_cancels_nested_stale_waiter();
+[[using gentest: test("wait_for/task_timeout_cancels_nested_stale_waiter")]]
+gentest::task<void> wait_for_task_timeout_cancels_nested_stale_waiter();
 
 [[using gentest: test("lvalue_await/00_first_waiter")]]
-gentest::async_test<void> lvalue_await_first_waiter();
+gentest::task<void> lvalue_await_first_waiter();
 
 [[using gentest: test("lvalue_await/01_concurrent_waiter")]]
-gentest::async_test<void> lvalue_await_concurrent_waiter();
+gentest::task<void> lvalue_await_concurrent_waiter();
 
 [[using gentest: test("lvalue_await/02_completed_reawait")]]
-gentest::async_test<void> lvalue_await_completed_task();
+gentest::task<void> lvalue_await_completed_task();
 
 [[using gentest: test("value/discard")]]
-gentest::async_test<int> value_discard();
+gentest::task<int> value_discard();
 
 [[using gentest: test("case_api/sync_fn_async_guard")]]
 void case_api_sync_fn_async_guard();
 
 [[using gentest: test("fixture/local_async")]]
-gentest::async_test<void> local_async_fixture(LocalAsyncFixture &fixture);
+gentest::task<void> local_async_fixture(LocalAsyncFixture &fixture);
 
 [[using gentest: test("fixture/mixed")]]
-gentest::async_test<void> mixed_fixtures(LocalSyncFixture &sync_fixture, LocalAsyncFixture &async_fixture);
+gentest::task<void> mixed_fixtures(LocalSyncFixture &sync_fixture, LocalAsyncFixture &async_fixture);
 
 [[using gentest: test("parameterized/value"), parameters(value, 1, 2, 3)]]
-gentest::async_test<void> parameterized_value(int value);
+gentest::task<void> parameterized_value(int value);
 
 template <typename T>
 [[using gentest: test("template/type"), template(T, int, long)]]
-inline gentest::async_test<void> template_type() {
+inline gentest::task<void> template_type() {
     co_await gentest::async::yield();
     EXPECT_TRUE(std::is_integral_v<T>);
 }
 
 [[using gentest: test("fixture/local_lifecycle/00_async_use")]]
-gentest::async_test<void> local_async_lifecycle_use(LocalAsyncLifecycleFixture &fixture);
+gentest::task<void> local_async_lifecycle_use(LocalAsyncLifecycleFixture &fixture);
 
 [[using gentest: test("fixture/shared_async_adopted_setup")]]
 void shared_async_adopted_setup(BlockingSchedulerAdoptedFixture &fixture);
 
 [[using gentest: test("fixture/local_teardown_dual_failure")]]
-gentest::async_test<void> local_async_teardown_preserves_primary_failure(LocalAsyncThrowingTeardownFixture &);
+gentest::task<void> local_async_teardown_preserves_primary_failure(LocalAsyncThrowingTeardownFixture &);
 
 [[using gentest: test("fixture/local_unresumable_teardown/00_async_never")]]
-gentest::async_test<void> local_async_unresumable_reports_teardown(LocalAsyncFailingUnresumableTeardownFixture &);
+gentest::task<void> local_async_unresumable_reports_teardown(LocalAsyncFailingUnresumableTeardownFixture &);
 
 [[using gentest: test("fixture/shared_suite/00_async_wait")]]
-gentest::async_test<void> shared_suite_async_wait(SharedSuiteAsyncFixture &fixture);
+gentest::task<void> shared_suite_async_wait(SharedSuiteAsyncFixture &fixture);
 
 [[using gentest: test("fixture/shared_suite/01_sync_release")]]
 void shared_suite_sync_release(SharedSuiteAsyncFixture &fixture);
@@ -774,7 +774,7 @@ void shared_suite_sync_check(SharedSuiteAsyncFixture &fixture);
 void shared_global_sync_seed(SharedGlobalAsyncFixture &fixture);
 
 [[using gentest: test("fixture/shared_global/01_async_wait")]]
-gentest::async_test<void> shared_global_async_wait(SharedGlobalAsyncHandle fixture);
+gentest::task<void> shared_global_async_wait(SharedGlobalAsyncHandle fixture);
 
 [[using gentest: test("fixture/shared_global/02_sync_release")]]
 void shared_global_sync_release(SharedGlobalAsyncRawAlias fixture);
@@ -783,19 +783,19 @@ void shared_global_sync_release(SharedGlobalAsyncRawAlias fixture);
 void shared_global_sync_check(SharedGlobalAsyncFixture &fixture);
 
 [[using gentest: test("fixture/shared_suite_unresumable/00_async_never")]]
-gentest::async_test<void> shared_suite_unresumable_never(SharedSuiteUnresumableFixture &fixture);
+gentest::task<void> shared_suite_unresumable_never(SharedSuiteUnresumableFixture &fixture);
 
 [[using gentest: test("fixture/shared_suite_unresumable/01_sync_after_never")]]
 void shared_suite_unresumable_sync_after(SharedSuiteUnresumableFixture &fixture);
 
 [[using gentest: test("fixture/shared_global_unresumable/00_async_never")]]
-gentest::async_test<void> shared_global_unresumable_never(SharedGlobalUnresumableFixture &fixture);
+gentest::task<void> shared_global_unresumable_never(SharedGlobalUnresumableFixture &fixture);
 
 [[using gentest: test("fixture/shared_global_unresumable/01_sync_after_never")]]
 void shared_global_unresumable_sync_after(SharedGlobalUnresumableFixture &fixture);
 
 [[using gentest: test("fixture/group_fence/00_async_wait")]]
-gentest::async_test<void> fixture_group_fence_async_wait();
+gentest::task<void> fixture_group_fence_async_wait();
 
 [[using gentest: test("fixture/group_fence/01_suite_release")]]
 void fixture_group_fence_suite_release(LocalSyncFixture &local_fixture, GroupFenceSuiteFixture &);
@@ -804,7 +804,7 @@ void fixture_group_fence_suite_release(LocalSyncFixture &local_fixture, GroupFen
 void fixture_group_fence_suite_check(GroupFenceSuiteFixture &);
 
 [[using gentest: test("fixture/group_fence_suite/00_async_wait")]]
-gentest::async_test<void> fixture_suite_group_fence_async_wait(GroupFenceFirstSuiteFixture &);
+gentest::task<void> fixture_suite_group_fence_async_wait(GroupFenceFirstSuiteFixture &);
 
 [[using gentest: test("fixture/group_fence_suite/01_second_release")]]
 void fixture_suite_group_fence_second_release(GroupFenceSecondSuiteFixture &);
@@ -813,60 +813,60 @@ void fixture_suite_group_fence_second_release(GroupFenceSecondSuiteFixture &);
 void fixture_suite_group_fence_second_check(GroupFenceSecondSuiteFixture &);
 
 [[using gentest: test("adopted_resume/worker_releases")]]
-gentest::async_test<void> adopted_worker_releases();
+gentest::task<void> adopted_worker_releases();
 
 [[using gentest: test("adopted_resume/worker_waits_for_resumed_ack")]]
-gentest::async_test<void> adopted_worker_waits_for_resumed_ack();
+gentest::task<void> adopted_worker_waits_for_resumed_ack();
 
 [[using gentest: test("promise/order/00_waiter")]]
-gentest::async_test<void> promise_first_terminal_waiter();
+gentest::task<void> promise_first_terminal_waiter();
 
 [[using gentest: test("promise/order/01_driver")]]
-gentest::async_test<void> promise_first_terminal_driver();
+gentest::task<void> promise_first_terminal_driver();
 
 [[using gentest: test("promise/pre_blocked_before_wait")]]
-gentest::async_test<void> promise_pre_blocked_before_wait();
+gentest::task<void> promise_pre_blocked_before_wait();
 
 [[using gentest: test("blocked/explicit/00_waiter")]]
-gentest::async_test<void> explicit_blocked_waiter();
+gentest::task<void> explicit_blocked_waiter();
 
 [[using gentest: test("blocked/explicit/01_driver")]]
-gentest::async_test<void> explicit_blocked_driver();
+gentest::task<void> explicit_blocked_driver();
 
 [[using gentest: test("blocked/after_failure")]]
-gentest::async_test<void> blocked_after_failure_reports_failure();
+gentest::task<void> blocked_after_failure_reports_failure();
 
 [[using gentest: test("blocked/empty_reason/00_waiter")]]
-gentest::async_test<void> empty_reason_blocked_waiter();
+gentest::task<void> empty_reason_blocked_waiter();
 
 [[using gentest: test("blocked/empty_reason/01_driver")]]
-gentest::async_test<void> empty_reason_blocked_driver();
+gentest::task<void> empty_reason_blocked_driver();
 
 [[using gentest: test("outcome/xfail_expect_fail_after_suspend")]]
-gentest::async_test<void> outcome_xfail_expect_fail_after_suspend();
+gentest::task<void> outcome_xfail_expect_fail_after_suspend();
 
 [[using gentest: test("outcome/xfail_throw_after_suspend")]]
-gentest::async_test<void> outcome_xfail_throw_after_suspend();
+gentest::task<void> outcome_xfail_throw_after_suspend();
 
 [[using gentest: test("outcome/xfail_xpass_after_suspend")]]
-gentest::async_test<void> outcome_xfail_xpass_after_suspend();
+gentest::task<void> outcome_xfail_xpass_after_suspend();
 
 [[using gentest: test("outcome/skip_overrides_xfail_after_suspend")]]
-gentest::async_test<void> outcome_skip_overrides_xfail_after_suspend();
+gentest::task<void> outcome_skip_overrides_xfail_after_suspend();
 
 [[using gentest: test("outcome/runtime_skip_after_suspend")]]
-gentest::async_test<void> outcome_runtime_skip_after_suspend();
+gentest::task<void> outcome_runtime_skip_after_suspend();
 
 [[using gentest: test("outcome/skip_after_failure_is_fail_after_suspend")]]
-gentest::async_test<void> outcome_skip_after_failure_is_fail_after_suspend();
+gentest::task<void> outcome_skip_after_failure_is_fail_after_suspend();
 
 [[using gentest: test("waiter_lifetime/process_exit_unresumable")]]
-gentest::async_test<void> waiter_lifetime_process_exit_unresumable();
+gentest::task<void> waiter_lifetime_process_exit_unresumable();
 
 [[using gentest: test("blocked/never")]]
-gentest::async_test<void> blocked_never();
+gentest::task<void> blocked_never();
 
 [[using gentest: test("yield/unsupported_suspend_after_yield")]]
-gentest::async_test<void> unsupported_suspend_after_yield();
+gentest::task<void> unsupported_suspend_after_yield();
 
 } // namespace async

@@ -26,6 +26,8 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     ~BatchAsyncScheduler() override;
 
     void               notify_completion() noexcept override;
+    [[nodiscard]] auto frame_for(std::coroutine_handle<> handle) const -> gentest::detail::AsyncFramePtr override;
+    void               prepare_transfer(const gentest::detail::AsyncFramePtr &frame) override;
     void               begin_wait(std::coroutine_handle<> handle) noexcept override;
     void               post(std::coroutine_handle<> handle) override;
     void               post_frame(const gentest::detail::AsyncFramePtr &frame) override;

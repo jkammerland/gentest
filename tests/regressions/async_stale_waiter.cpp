@@ -84,6 +84,11 @@ constexpr auto kLateCompletionDelay   = std::chrono::milliseconds(650);
 
 class TrackingScheduler final : public gentest::detail::AsyncScheduler {
   public:
+    auto frame_for(std::coroutine_handle<> handle) const -> gentest::detail::AsyncFramePtr override { return core_.frame_for(handle); }
+    void prepare_transfer(const gentest::detail::AsyncFramePtr &frame) override {
+        core_.clear_suspend_state(frame);
+        gentest::detail::AsyncScheduler::prepare_transfer(frame);
+    }
     void begin_wait(std::coroutine_handle<> handle) noexcept override { core_.begin_wait(handle); }
 
     void post(std::coroutine_handle<> handle) override { post_frame_from_core(handle); }
@@ -157,7 +162,11 @@ class TrackingScheduler final : public gentest::detail::AsyncScheduler {
         record_late_posts_ = true;
     }
 
-    void shutdown() noexcept { deactivate(); }
+    void shutdown() noexcept {
+        // Close admission before releasing the scheduler-owned native frames.
+        deactivate();
+        core_.cancel_all();
+    }
 
     [[nodiscard]] auto late_posts() const -> int {
         std::lock_guard<std::mutex> lk(mtx_);
@@ -180,66 +189,65 @@ class TrackingScheduler final : public gentest::detail::AsyncScheduler {
     int                                 late_posts_        = 0;
 };
 
-auto wait_for_manual_event(gentest::async::manual_event &event) -> gentest::async_test<void> { co_await event.wait("ready"); }
+auto wait_for_manual_event(gentest::async::manual_event &event) -> gentest::task<void> { co_await event.wait("ready"); }
 
-auto wait_for_manual_event_key(gentest::async::manual_event &event, std::string key) -> gentest::async_test<std::any *> {
+auto wait_for_manual_event_key(gentest::async::manual_event &event, std::string key) -> gentest::task<std::any *> {
     std::any &payload = co_await event.wait(std::move(key));
     co_return &payload;
 }
 
-auto wait_for_int_event_key(gentest::async::event<int> &event, std::string key) -> gentest::async_test<int *> {
+auto wait_for_int_event_key(gentest::async::event<int> &event, std::string key) -> gentest::task<int *> {
     int &payload = co_await event.wait(std::move(key));
     co_return &payload;
 }
 
-auto wait_for_int_event(gentest::async::event<int> &event, std::string key) -> gentest::async_test<void> {
+auto wait_for_int_event(gentest::async::event<int> &event, std::string key) -> gentest::task<void> {
     (void)co_await event.wait(std::move(key));
 }
 
-auto wait_for_string_event_key(gentest::async::event<std::string> &event, std::string key) -> gentest::async_test<std::string *> {
+auto wait_for_string_event_key(gentest::async::event<std::string> &event, std::string key) -> gentest::task<std::string *> {
     std::string &payload = co_await event.wait(std::move(key));
     co_return &payload;
 }
 
-auto wait_for_no_default_event_key(gentest::async::event<NoDefaultPayload> &event, std::string key)
-    -> gentest::async_test<NoDefaultPayload *> {
+auto wait_for_no_default_event_key(gentest::async::event<NoDefaultPayload> &event, std::string key) -> gentest::task<NoDefaultPayload *> {
     NoDefaultPayload &payload = co_await event.wait(std::move(key));
     co_return &payload;
 }
 
 auto wait_for_no_move_construct_event_key(gentest::async::event<NoMoveConstructPayload> &event, std::string key)
-    -> gentest::async_test<NoMoveConstructPayload *> {
+    -> gentest::task<NoMoveConstructPayload *> {
     NoMoveConstructPayload &payload = co_await event.wait(std::move(key));
     co_return &payload;
 }
 
-auto wait_for_promise(gentest::async::future<void> future) -> gentest::async_test<void> {
+auto wait_for_promise(gentest::async::future<void> future) -> gentest::task<void> {
     co_await future.wait("promise stale waiter regression");
 }
 
-auto wait_for_int_future(gentest::async::future<int> future) -> gentest::async_test<int> {
+auto wait_for_int_future(gentest::async::future<int> future) -> gentest::task<int> {
     co_return co_await future.wait("promise int payload regression");
 }
 
-auto wait_for_string_future(gentest::async::future<std::string> future) -> gentest::async_test<std::string> {
+auto wait_for_string_future(gentest::async::future<std::string> future) -> gentest::task<std::string> {
     co_return co_await future.wait("promise string payload regression");
 }
 
-auto wait_for_unique_ptr_future(gentest::async::future<std::unique_ptr<int>> future) -> gentest::async_test<std::unique_ptr<int>> {
+auto wait_for_unique_ptr_future(gentest::async::future<std::unique_ptr<int>> future) -> gentest::task<std::unique_ptr<int>> {
     co_return co_await future.wait("promise move-only payload regression");
 }
 
-auto wait_for_late_event_after_deadline(gentest::async::event<int> &event) -> gentest::async_test<gentest::async::wait_status> {
+auto wait_for_late_event_after_deadline(gentest::async::event<int> &event) -> gentest::task<gentest::async::wait_status> {
     auto result = co_await gentest::async::wait_for(event.wait("late"), kLateCompletionTimeout);
     co_return result.status();
 }
 
-auto wait_for_late_future_after_deadline(gentest::async::future<int> future) -> gentest::async_test<gentest::async::wait_status> {
+auto wait_for_late_future_after_deadline(gentest::async::future<int> future) -> gentest::task<gentest::async::wait_status> {
     auto result = co_await gentest::async::wait_for(future.wait("late future"), kLateCompletionTimeout);
     co_return result.status();
 }
 
-auto future_wait_after_timeout_task() -> gentest::async_test<void> {
+auto future_wait_after_timeout_task() -> gentest::task<void> {
     gentest::async::promise<int> promise;
     auto                         future = promise.get_future();
 
@@ -255,7 +263,7 @@ auto future_wait_after_timeout_task() -> gentest::async_test<void> {
     }
 }
 
-auto future_wait_after_dropped_awaitable_task() -> gentest::async_test<void> {
+auto future_wait_after_dropped_awaitable_task() -> gentest::task<void> {
     gentest::async::promise<int> promise;
     auto                         future = promise.get_future();
 
@@ -271,41 +279,34 @@ auto future_wait_after_dropped_awaitable_task() -> gentest::async_test<void> {
     }
 }
 
+struct SchedulerLifetimeProbe {
+    gentest::async::continuation_handle completion;
+    bool                                awaiter_destroyed = false;
+};
+
 struct SchedulerLifetimeProbeAwaitable {
-    using gentest_async_wait_supported = void;
-
-    explicit SchedulerLifetimeProbeAwaitable(std::shared_ptr<std::atomic<bool>> shutdown) : scheduler_shutdown(std::move(shutdown)) {}
-
-    [[nodiscard]] auto await_ready() const noexcept -> bool { return false; }
-
-    void await_suspend_with_token(std::coroutine_handle<> handle, gentest::detail::AsyncScheduler &scheduler,
-                                  gentest::detail::AsyncScheduler::WaiterTokenPtr token) {
-        waiter = std::move(token);
-        scheduler.block(handle, "scheduler lifetime probe blocked");
-    }
-
-    constexpr void await_resume() const noexcept {}
-
-    void cancel_wait(const gentest::detail::AsyncScheduler::Control &) noexcept {
-        if (scheduler_shutdown && scheduler_shutdown->load(std::memory_order_acquire)) {
-            raw_cancel_after_shutdown.fetch_add(1, std::memory_order_acq_rel);
+    explicit SchedulerLifetimeProbeAwaitable(std::shared_ptr<SchedulerLifetimeProbe> probe) : probe(std::move(probe)) {}
+    SchedulerLifetimeProbeAwaitable(SchedulerLifetimeProbeAwaitable &&) noexcept = default;
+    ~SchedulerLifetimeProbeAwaitable() {
+        if (probe) {
+            probe->awaiter_destroyed = true;
         }
     }
 
-    static inline std::atomic<int> raw_cancel_after_shutdown{0};
+    [[nodiscard]] auto               await_ready() const noexcept -> bool { return false; }
+    template <typename Promise> void await_suspend(std::coroutine_handle<Promise> parent) {
+        probe->completion = parent.promise().make_continuation();
+    }
+    void await_resume() const noexcept {}
 
-    std::shared_ptr<std::atomic<bool>>              scheduler_shutdown;
-    gentest::detail::AsyncScheduler::WaiterTokenPtr waiter;
+    std::shared_ptr<SchedulerLifetimeProbe> probe;
 };
 
-auto timed_wait_cleanup_after_scheduler_shutdown_task(std::shared_ptr<std::atomic<bool>> scheduler_shutdown) -> gentest::async_test<void> {
-    auto result = co_await gentest::async::wait_for(SchedulerLifetimeProbeAwaitable{std::move(scheduler_shutdown)}, std::chrono::hours(1));
-    if (!result.timed_out()) {
-        throw std::runtime_error("scheduler lifetime probe unexpectedly became ready");
-    }
+auto timed_wait_cleanup_after_scheduler_shutdown_task(std::shared_ptr<SchedulerLifetimeProbe> probe) -> gentest::task<void> {
+    (void)co_await gentest::async::wait_for(SchedulerLifetimeProbeAwaitable{std::move(probe)}, std::chrono::hours(1));
 }
 
-auto blocking_timer_stress_task() -> gentest::async_test<void> {
+auto blocking_timer_stress_task() -> gentest::task<void> {
     for (int i = 0; i != 32; ++i) {
         auto result =
             co_await gentest::async::wait_for(gentest::async::sleep_for(std::chrono::milliseconds(2)), std::chrono::milliseconds(200));
@@ -1117,18 +1118,19 @@ int main() try {
     }
 
     {
-        SchedulerLifetimeProbeAwaitable::raw_cancel_after_shutdown.store(0, std::memory_order_release);
-        auto              scheduler_shutdown = std::make_shared<std::atomic<bool>>(false);
+        auto              probe = std::make_shared<SchedulerLifetimeProbe>();
         TrackingScheduler scheduler;
-        auto              task = gentest::detail::make_async_task(timed_wait_cleanup_after_scheduler_shutdown_task(scheduler_shutdown));
+        auto              task = gentest::detail::make_async_task(timed_wait_cleanup_after_scheduler_shutdown_task(probe));
 
         scheduler.run_until_blocked(*task);
-        scheduler_shutdown->store(true, std::memory_order_release);
+        if (!probe->completion || probe->awaiter_destroyed) {
+            return fail("scheduler lifetime probe did not register its ordinary awaiter");
+        }
         scheduler.shutdown();
         task.reset();
 
-        if (SchedulerLifetimeProbeAwaitable::raw_cancel_after_shutdown.load(std::memory_order_acquire) != 0) {
-            return fail("timed wait cleanup used a deactivated raw scheduler");
+        if (!probe->awaiter_destroyed || probe->completion.try_invoke()) {
+            return fail("timed wait retained awaiter storage or allowed delivery after scheduler shutdown");
         }
     }
 

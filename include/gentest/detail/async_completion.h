@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gentest/detail/runtime_export.h"
+
 // Native coroutine lifetime and generation guards. The capability protocol is
 // adapted from the author's coroutine core under Gentest's BSL-1.0 license.
 
@@ -16,6 +18,13 @@
 #include <utility>
 
 namespace gentest::detail {
+
+class AsyncFrame;
+class AsyncFrameScope;
+GENTEST_RUNTIME_API auto current_async_frame() noexcept -> AsyncFrame *;
+GENTEST_RUNTIME_API auto set_current_async_frame(AsyncFrame *frame) noexcept -> AsyncFrame *;
+GENTEST_RUNTIME_API auto current_async_frame_scope() noexcept -> AsyncFrameScope *;
+GENTEST_RUNTIME_API auto set_current_async_frame_scope(AsyncFrameScope *scope) noexcept -> AsyncFrameScope *;
 
 // Only the void callback signature needed by asynchronous operations is erased.
 template <typename... Arguments> class AsyncCallback {
@@ -61,12 +70,18 @@ using AsyncTimePoint = std::chrono::steady_clock::time_point;
 
 // Admission flags cross the inbox boundary; frame and generation access do not.
 struct AsyncSuspension {
-    explicit AsyncSuspension(std::uint64_t value) : generation(value) {}
+    explicit AsyncSuspension(std::uint64_t value, const std::stop_token &inherited = {}) : generation(value) {
+        if (inherited.stop_possible()) {
+            parent_stop = std::make_unique<std::stop_callback<std::function<void()>>>(
+                inherited, [source = stop]() mutable noexcept { source.request_stop(); });
+        }
+    }
 
-    const std::uint64_t generation;
-    std::atomic_bool    active{true};
-    std::atomic_bool    admitted{false};
-    std::stop_source    stop;
+    const std::uint64_t                                        generation;
+    std::atomic_bool                                           active{true};
+    std::atomic_bool                                           admitted{false};
+    std::stop_source                                           stop;
+    std::unique_ptr<std::stop_callback<std::function<void()>>> parent_stop;
 };
 
 class AsyncFrame {
@@ -83,10 +98,43 @@ class AsyncFrame {
     }
 
     [[nodiscard]] auto address() const noexcept -> void * { return handle.address(); }
-    [[nodiscard]] auto done() const noexcept -> bool { return !handle || handle.done(); }
+    [[nodiscard]] auto done() const noexcept -> bool { return !handle || completed_; }
+    void               mark_completed() noexcept { completed_ = true; }
     [[nodiscard]] auto is_canceled() const noexcept -> bool { return canceled_; }
 
     [[nodiscard]] auto try_claim_waiter() noexcept -> bool { return !std::exchange(waiter_claimed_, true); }
+
+    // A task binds its cancellation context once, before its first execution.
+    void set_stop_token(const std::stop_token &token) {
+        stop_bound_ = true;
+        parent_stop_.reset();
+        if (token.stop_possible()) {
+            parent_stop_ = std::make_unique<std::stop_callback<std::function<void()>>>(
+                token, [source = stop_]() mutable noexcept { source.request_stop(); });
+        }
+    }
+
+    void inherit_stop_token(const std::stop_token &token) {
+        if (!stop_bound_) {
+            set_stop_token(token);
+        }
+    }
+
+    [[nodiscard]] auto stop_token() const noexcept -> std::stop_token { return stop_.get_token(); }
+
+    // Composition owns input awaiters outside their adapter coroutine. Pin that
+    // storage during delivery and execution, without retaining it while idle.
+    void set_execution_lifetime(std::weak_ptr<void> lifetime) noexcept { execution_lifetime_ = std::move(lifetime); }
+
+    using CompletionObserver = std::function<void(AsyncResumeReason, AsyncTimePoint)>;
+
+    // Timed composition installs this only at its actual input suspension.
+    void observe_next_completion(CompletionObserver observer) { completion_observer_ = std::move(observer); }
+    void notify_completion(AsyncResumeReason reason, AsyncTimePoint received) {
+        if (auto observer = std::exchange(completion_observer_, {})) {
+            observer(reason, received);
+        }
+    }
 
     // A failed await_suspend (or one returning false) need not pass through
     // resume_claimed(). Retire its capabilities when registering the next wait.
@@ -103,7 +151,7 @@ class AsyncFrame {
             if (++generation_ == 0) {
                 std::abort();
             }
-            suspension_ = std::make_shared<AsyncSuspension>(generation_);
+            suspension_ = std::make_shared<AsyncSuspension>(generation_, stop_token());
         }
         return suspension_;
     }
@@ -126,26 +174,109 @@ class AsyncFrame {
 
     void cancel() noexcept {
         invalidate();
+        if (done()) {
+            return;
+        }
+        stop_.request_stop();
         if (suspension_) {
             suspension_->stop.request_stop();
         }
     }
 
-    void resume_claimed() {
+    void prepare_resume() {
+        (void)set_current_async_frame(this);
         suspension_.reset();
+    }
+
+    void resume_claimed() {
+        prepare_resume();
         handle.resume();
     }
 
     std::coroutine_handle<> handle{};
 
   private:
-    std::shared_ptr<AsyncSuspension> suspension_;
-    std::uint64_t                    generation_     = 0;
-    bool                             canceled_       = false;
-    bool                             waiter_claimed_ = false;
+    friend class AsyncFrameScope;
+    // Execution ownership is separate from cancellable scheduler registration.
+    AsyncFrameScope                                           *execution_scope_    = nullptr;
+    AsyncFrame                                                *execution_previous_ = nullptr;
+    std::shared_ptr<AsyncFrame>                                execution_next_;
+    std::weak_ptr<void>                                        execution_lifetime_;
+    std::shared_ptr<void>                                      execution_lifetime_pin_;
+    std::shared_ptr<AsyncSuspension>                           suspension_;
+    std::uint64_t                                              generation_     = 0;
+    bool                                                       canceled_       = false;
+    bool                                                       completed_      = false;
+    bool                                                       waiter_claimed_ = false;
+    bool                                                       stop_bound_     = false;
+    std::stop_source                                           stop_;
+    std::unique_ptr<std::stop_callback<std::function<void()>>> parent_stop_;
+    CompletionObserver                                         completion_observer_;
 };
 
 using AsyncFramePtr = std::shared_ptr<AsyncFrame>;
+
+class AsyncFrameScope {
+  public:
+    explicit AsyncFrameScope(const AsyncFramePtr &frame) noexcept
+        : previous_(set_current_async_frame(frame.get())), previous_scope_(set_current_async_frame_scope(this)) {
+        retain(frame);
+    }
+    AsyncFrameScope(const AsyncFrameScope &)                     = delete;
+    auto operator=(const AsyncFrameScope &) -> AsyncFrameScope & = delete;
+    ~AsyncFrameScope() {
+        // Destructors may reenter the runtime; restore its surrounding context
+        // before releasing frames, and clear links before each destruction.
+        (void)set_current_async_frame_scope(previous_scope_);
+        (void)set_current_async_frame(previous_);
+        while (retained_) {
+            auto frame = std::move(retained_);
+            retained_  = std::move(frame->execution_next_);
+            if (retained_) {
+                retained_->execution_previous_ = nullptr;
+            }
+            frame->execution_scope_    = nullptr;
+            frame->execution_previous_ = nullptr;
+            auto lifetime              = std::move(frame->execution_lifetime_pin_);
+        }
+    }
+
+    void retain(const AsyncFramePtr &frame) noexcept {
+        if (!frame || frame->execution_scope_) {
+            return;
+        }
+        frame->execution_lifetime_pin_ = frame->execution_lifetime_.lock();
+        frame->execution_scope_        = this;
+        frame->execution_next_         = std::move(retained_);
+        if (frame->execution_next_) {
+            frame->execution_next_->execution_previous_ = frame.get();
+        }
+        retained_ = frame;
+    }
+
+    static void release_completed(const AsyncFramePtr &frame) noexcept {
+        if (!frame || !frame->done() || frame.get() == current_async_frame() || !frame->execution_scope_) {
+            return;
+        }
+        auto  retained = frame;
+        auto *previous = frame->execution_previous_;
+        auto &link     = previous ? previous->execution_next_ : frame->execution_scope_->retained_;
+        link           = std::move(frame->execution_next_);
+        if (link) {
+            link->execution_previous_ = previous;
+        }
+        frame->execution_scope_    = nullptr;
+        frame->execution_previous_ = nullptr;
+        auto lifetime              = std::move(frame->execution_lifetime_pin_);
+        lifetime.reset();
+        retained.reset();
+    }
+
+  private:
+    AsyncFrame      *previous_;
+    AsyncFrameScope *previous_scope_;
+    AsyncFramePtr    retained_;
+};
 
 struct AsyncCompletion {
     std::weak_ptr<AsyncFrame>                                           frame;
@@ -172,6 +303,11 @@ struct AsyncReadyEntry {
     // Called with the owning test context restored, outside every inbox lock.
     [[nodiscard]] auto resume() -> bool {
         if (!frame || !completion.active() || !frame->claim(completion.suspension)) {
+            return false;
+        }
+        AsyncFrameScope scope(frame);
+        frame->notify_completion(completion.reason, completion.admitted_at);
+        if (frame->is_canceled() || frame->done()) {
             return false;
         }
         auto reason = completion.select ? completion.select(completion.reason, completion.admitted_at) : completion.reason;

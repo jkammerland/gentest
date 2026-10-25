@@ -205,7 +205,7 @@ bool is_header_like_path(llvm::StringRef path) {
            ends_with_ci(path, ".inl") || ends_with_ci(path, ".ipp") || ends_with_ci(path, ".tpp");
 }
 
-bool is_gentest_async_test_return(QualType type) {
+bool is_gentest_task_return(QualType type) {
     const Type *type_ptr = type.getCanonicalType().getTypePtrOrNull();
     if (!type_ptr) {
         return false;
@@ -216,7 +216,7 @@ bool is_gentest_async_test_return(QualType type) {
         return false;
     }
     const auto *templ = spec->getSpecializedTemplate();
-    return templ && templ->getQualifiedNameAsString() == "gentest::async_test";
+    return templ && templ->getQualifiedNameAsString() == "gentest::task";
 }
 
 std::string mis_scoped_gentest_message(std::string_view attribute) {
@@ -946,10 +946,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
     }
 
-    const bool returns_async = is_gentest_async_test_return(func->getReturnType());
+    const bool returns_async = is_gentest_task_return(func->getReturnType());
     if (returns_async && (summary.is_benchmark || summary.is_jitter)) {
         had_error_ = true;
-        report("gentest::async_test<T> return types are supported only for test cases, not bench or jitter cases");
+        report("gentest::task<T> return types are supported only for test cases, not bench or jitter cases");
         return;
     }
 

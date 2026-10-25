@@ -86,7 +86,7 @@ inline void gentest_maybe_teardown(T& t) {
 }
 
 template <typename T>
-inline ::gentest::async_test<void> gentest_maybe_async_setup(T& t) {
+inline ::gentest::task<void> gentest_maybe_async_setup(T& t) {
     if constexpr (std::is_base_of_v<gentest::AsyncFixtureSetup, T>) {
         co_await t.setUp();
     } else if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) {
@@ -96,7 +96,7 @@ inline ::gentest::async_test<void> gentest_maybe_async_setup(T& t) {
 }
 
 template <typename T>
-inline ::gentest::async_test<void> gentest_maybe_async_teardown(T& t) {
+inline ::gentest::task<void> gentest_maybe_async_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::AsyncFixtureTearDown, T>) {
         co_await t.tearDown();
     } else if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) {
@@ -176,7 +176,7 @@ struct gentest_async_local_teardown_guard {
         state->run_blocking();
     }
 
-    ::gentest::async_test<void> run_now() {
+    ::gentest::task<void> run_now() {
         if (!ran && teardown) {
             ran = true;
             co_await (*teardown)();
@@ -200,7 +200,7 @@ struct gentest_async_local_teardown_guard {
 };
 
 template <typename BodyFn, typename TeardownFn>
-inline ::gentest::async_test<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+inline ::gentest::task<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
     auto teardown_fn = std::forward<TeardownFn>(teardown);
     gentest_async_local_teardown_guard<decltype(teardown_fn)> teardown_state{&teardown_fn};
 #if GENTEST_EXCEPTIONS_ENABLED

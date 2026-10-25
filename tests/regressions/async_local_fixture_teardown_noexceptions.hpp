@@ -14,24 +14,24 @@ extern gentest::async::manual_event release_plain;
 extern gentest::async::manual_event keep_fixture_suspended;
 
 struct LocalFx : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
-    gentest::async_test<void> setUp() override { co_await gentest::async::yield(); }
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> setUp() override { co_await gentest::async::yield(); }
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         (void)std::fputs("async-local-fixture-teardown-noexc-marker\n", stderr);
         (void)std::fflush(stderr);
     }
 };
 struct FirstInterleavedFx : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
-    gentest::async_test<void> setUp() override { co_await gentest::async::yield(); }
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> setUp() override { co_await gentest::async::yield(); }
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         (void)std::fputs("async-local-fixture-teardown-noexc-first-marker\n", stderr);
         (void)std::fflush(stderr);
     }
 };
 struct SecondInterleavedFx : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTearDown {
-    gentest::async_test<void> setUp() override { co_await gentest::async::yield(); }
-    gentest::async_test<void> tearDown() override {
+    gentest::task<void> setUp() override { co_await gentest::async::yield(); }
+    gentest::task<void> tearDown() override {
         co_await gentest::async::yield();
         (void)std::fputs("async-local-fixture-teardown-noexc-second-marker\n", stderr);
         (void)std::fflush(stderr);
@@ -39,14 +39,14 @@ struct SecondInterleavedFx : gentest::AsyncFixtureSetup, gentest::AsyncFixtureTe
 };
 
 [[using gentest: test("regressions/async_local_fixture_teardown_noexceptions/fatal_assert")]]
-gentest::async_test<void> fatal_assert(LocalFx &);
+gentest::task<void> fatal_assert(LocalFx &);
 [[using gentest: test("regressions/async_local_fixture_teardown_noexceptions/interleaved/00_first_fatal")]]
-gentest::async_test<void> interleaved_first_fatal(FirstInterleavedFx &);
+gentest::task<void> interleaved_first_fatal(FirstInterleavedFx &);
 [[using gentest: test("regressions/async_local_fixture_teardown_noexceptions/interleaved/01_second_holds_hook")]]
-gentest::async_test<void> interleaved_second_holds_hook(SecondInterleavedFx &);
+gentest::task<void> interleaved_second_holds_hook(SecondInterleavedFx &);
 [[using gentest: test("regressions/async_local_fixture_teardown_noexceptions/plain_interleaved/00_plain_fatal")]]
-gentest::async_test<void> plain_interleaved_fatal();
+gentest::task<void> plain_interleaved_fatal();
 [[using gentest: test("regressions/async_local_fixture_teardown_noexceptions/plain_interleaved/01_fixture_holds_hook")]]
-gentest::async_test<void> plain_interleaved_fixture_holds_hook(SecondInterleavedFx &);
+gentest::task<void> plain_interleaved_fixture_holds_hook(SecondInterleavedFx &);
 
 } // namespace regressions::async_local_teardown_noexceptions

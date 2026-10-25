@@ -24,7 +24,7 @@ example requires a gentest install configured with `-DGENTEST_ENABLE_PUBLIC_MODU
 | [measured](measured/) | Benchmark/jitter runs and a type × direction template matrix | 12 |
 | [recording](recording/) | Runtime properties, raw payloads, and optional JSON/CBOR snapshots | 3 |
 | [metadata](metadata/) | Declared metadata, JSON inventory, and JUnit requirements | 3 |
-| [async](async/) | Async fixtures, typed events, bounded waits, and user-owned event loops | 13 |
+| [async](async/) | Tasks, composition, cancellation, fixtures, events, and user-owned loops | 16 |
 
 Each directory is an independent CMake consumer with build commands and a
 checked case inventory. Start with the header-only hello, then pick a feature.

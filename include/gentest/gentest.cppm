@@ -45,7 +45,6 @@ using ::gentest::assert_eq;
 using ::gentest::assert_false;
 using ::gentest::assert_true;
 using ::gentest::assertion;
-using ::gentest::async_test;
 using ::gentest::AsyncFixtureSetup;
 using ::gentest::AsyncFixtureTearDown;
 using ::gentest::Case;
@@ -96,6 +95,7 @@ using ::gentest::set_current_context;
 using ::gentest::set_current_token;
 using ::gentest::skip;
 using ::gentest::skip_if;
+using ::gentest::task;
 using ::gentest::xfail;
 using ::gentest::xfail_if;
 
@@ -107,12 +107,12 @@ using ::gentest::approx::operator!=;
 
 namespace async {
 using ::gentest::async::bind_continuation;
-using ::gentest::async::continuation;
 using ::gentest::async::continuation_handle;
 using ::gentest::async::event;
 using ::gentest::async::future;
 using ::gentest::async::make_continuation;
 using ::gentest::async::manual_event;
+using ::gentest::async::operation_cancelled;
 using ::gentest::async::promise;
 using ::gentest::async::sleep_for;
 using ::gentest::async::sleep_until;
@@ -120,6 +120,8 @@ using ::gentest::async::wait_for;
 using ::gentest::async::wait_result;
 using ::gentest::async::wait_status;
 using ::gentest::async::wait_until;
+using ::gentest::async::when_all;
+using ::gentest::async::when_any;
 using ::gentest::async::yield;
 } // namespace async
 

@@ -4,6 +4,7 @@
 #include "gentest/fixture.h"
 #include "gentest/test.h"
 
+#include <memory>
 #include <string>
 
 namespace async_examples::events {
@@ -25,7 +26,7 @@ struct [[gentest::fixture(suite)]] Notifications : FixtureSetup {
 };
 
 [[gentest::test("named_typed_value")]]
-inline auto namedTypedValue(Notifications &notifications) -> async_test<void> {
+inline auto namedTypedValue(Notifications &notifications) -> task<> {
     const auto &message = co_await notifications.connected.wait("primary");
     expect_eq(message.peer, std::string{"localhost"});
     expect_eq(message.port, 8080);
@@ -33,10 +34,20 @@ inline auto namedTypedValue(Notifications &notifications) -> async_test<void> {
 
 // Waiting observes the latched value; it does not consume another case's message.
 [[gentest::test("another_observer")]]
-inline auto anotherObserver(Notifications &notifications) -> async_test<void> {
+inline auto anotherObserver(Notifications &notifications) -> task<> {
     co_await yield();
     const auto &message = co_await notifications.connected.wait("primary");
     expect_eq(message.port, 8080);
+}
+
+[[gentest::test("one_shot_value")]]
+inline auto oneShotValue() -> task<> {
+    promise<std::unique_ptr<int>> reply;
+    auto                          response = reply.get_future();
+
+    reply.set_value(std::make_unique<int>(42));
+    auto value = co_await std::move(response);
+    expect_eq(*value, 42);
 }
 
 } // namespace async_examples::events

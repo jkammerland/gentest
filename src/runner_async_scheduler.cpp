@@ -52,6 +52,15 @@ BatchAsyncScheduler::~BatchAsyncScheduler() {
 
 void BatchAsyncScheduler::notify_completion() noexcept { core_.notify_completion(); }
 
+auto BatchAsyncScheduler::frame_for(std::coroutine_handle<> handle) const -> gentest::detail::AsyncFramePtr {
+    return core_.frame_for(handle);
+}
+
+void BatchAsyncScheduler::prepare_transfer(const gentest::detail::AsyncFramePtr &frame) {
+    core_.clear_suspend_state(frame);
+    gentest::detail::AsyncScheduler::prepare_transfer(frame);
+}
+
 void BatchAsyncScheduler::begin_wait(std::coroutine_handle<> handle) noexcept { core_.begin_wait(handle); }
 
 void BatchAsyncScheduler::post(std::coroutine_handle<> handle) { core_.post(handle); }

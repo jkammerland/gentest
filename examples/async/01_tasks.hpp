@@ -8,13 +8,13 @@ namespace async_examples::cases {
 using namespace gentest;
 using namespace gentest::async;
 
-inline auto answer() -> async_test<int> {
+inline auto answer() -> task<int> {
     co_await yield();
     co_return 42;
 }
 
 [[gentest::test("yield_and_return")]]
-inline auto yieldAndReturn() -> async_test<void> {
+inline auto yieldAndReturn() -> task<> {
     const int value = co_await answer();
     expect_eq(value, 42);
 }

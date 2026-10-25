@@ -14,7 +14,9 @@
 namespace gentest::detail {
 namespace {
 
-thread_local AsyncScheduler *g_current_async_scheduler = nullptr;
+thread_local AsyncScheduler  *g_current_async_scheduler   = nullptr;
+thread_local AsyncFrame      *g_current_async_frame       = nullptr;
+thread_local AsyncFrameScope *g_current_async_frame_scope = nullptr;
 
 enum class BlockingAsyncStatus {
     Completed,
@@ -34,6 +36,13 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
     }
 
     void notify_completion() noexcept override { core_.notify_completion(); }
+
+    [[nodiscard]] auto frame_for(std::coroutine_handle<> handle) const -> AsyncFramePtr override { return core_.frame_for(handle); }
+
+    void prepare_transfer(const AsyncFramePtr &frame) override {
+        core_.clear_suspend_state(frame);
+        AsyncScheduler::prepare_transfer(frame);
+    }
 
     void begin_wait(std::coroutine_handle<> handle) noexcept override { core_.begin_wait(handle); }
 
@@ -189,20 +198,30 @@ auto runtime_skip_reason_or_default(const std::shared_ptr<TestContextInfo> &ctx)
 
 auto current_async_scheduler() noexcept -> AsyncScheduler * { return g_current_async_scheduler; }
 
+auto current_async_frame() noexcept -> AsyncFrame * { return g_current_async_frame; }
+
+auto set_current_async_frame(AsyncFrame *frame) noexcept -> AsyncFrame * { return std::exchange(g_current_async_frame, frame); }
+
+auto current_async_frame_scope() noexcept -> AsyncFrameScope * { return g_current_async_frame_scope; }
+
+auto set_current_async_frame_scope(AsyncFrameScope *scope) noexcept -> AsyncFrameScope * {
+    return std::exchange(g_current_async_frame_scope, scope);
+}
+
 auto set_current_async_scheduler(AsyncScheduler *scheduler) noexcept -> AsyncScheduler * {
     auto *previous            = g_current_async_scheduler;
     g_current_async_scheduler = scheduler;
     return previous;
 }
 
-auto run_async_task_blocking(async_test<void> task, std::string_view label, std::string &error_out) -> bool {
+auto run_async_task_blocking(gentest::task<void> operation, std::string_view label, std::string &error_out) -> bool {
     error_out.clear();
     auto ctx = make_context(label);
 
     AsyncTaskPtr task_ptr;
     {
         gentest::runner::detail::CurrentTestContextScope current_scope(ctx);
-        task_ptr = make_async_task(std::move(task));
+        task_ptr = make_async_task(std::move(operation));
     }
 
     std::string            blocked_reason;

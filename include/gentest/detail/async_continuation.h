@@ -61,8 +61,6 @@ class continuation_handle {
     detail::AsyncScheduler::WaiterTokenPtr token_;
 };
 
-template <typename... Arguments> using continuation = detail::AsyncCallback<Arguments...>;
-
 template <typename... Arguments, typename Receiver>
     requires std::is_nothrow_invocable_v<std::decay_t<Receiver> &, std::decay_t<Arguments> &&...>
 [[nodiscard]] auto bind_continuation(continuation_handle next, Receiver &&receiver) {

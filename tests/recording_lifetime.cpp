@@ -23,7 +23,7 @@ void record(void *) {
     gentest::record_data("snapshot", bytes, "application/octet-stream");
 }
 
-gentest::async_test<void> record_async() {
+gentest::task<void> record_async() {
     record(nullptr);
     co_return;
 }
