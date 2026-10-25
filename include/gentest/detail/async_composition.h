@@ -138,7 +138,7 @@ class AsyncCompositionState : public std::enable_shared_from_this<AsyncCompositi
 
     auto ready() -> bool {
         if constexpr (timed) {
-            if (std::get<0>(inputs_)->ready()) {
+            if (input_ready<0>()) {
                 selection_ = Selection::Ready;
                 return true;
             }
@@ -274,6 +274,10 @@ class AsyncCompositionState : public std::enable_shared_from_this<AsyncCompositi
 
   private:
     using ParentStop = std::stop_callback<std::function<void()>>;
+
+    // Defer tuple indexing until this helper is instantiated. MSVC otherwise
+    // checks get<0> in ready's discarded timed branch for an empty when_all.
+    template <std::size_t Index> auto input_ready() -> bool { return std::get<Index>(inputs_)->ready(); }
 
     template <std::size_t Index> class ObservedAwaiter {
       public:

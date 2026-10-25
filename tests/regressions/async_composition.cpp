@@ -147,6 +147,16 @@ struct ReferenceReady {
 
 auto voidValue() -> gentest::awaitable<> { co_return; }
 
+void emptyCompositionIsImmediatelyReady() {
+    // An empty join needs neither a scheduler nor a suspension to produce its result.
+    auto empty = gentest::async::when_all();
+    require(empty.await_ready(), "empty when_all must be immediately ready");
+
+    auto result = empty.await_resume();
+    static_assert(std::is_same_v<decltype(result), std::tuple<>>);
+    require(result == std::tuple<>{}, "empty when_all must return an empty tuple");
+}
+
 void readyFormsAndOwningResults() {
     auto operation = []() -> gentest::awaitable<> {
         unsigned       member_lookups = 0;
@@ -722,6 +732,7 @@ int main() {
         void (*run)();
     };
     const Test tests[] = {
+        {.name = "empty composition is immediately ready", .run = &emptyCompositionIsImmediatelyReady},
         {.name = "ready forms and owning results", .run = &readyFormsAndOwningResults},
         {.name = "named composition releases inputs", .run = &namedCompositionReleasesInputs},
         {.name = "ordinary suspension forms and ordered join", .run = &suspensionFormsAndOrderedJoin},
