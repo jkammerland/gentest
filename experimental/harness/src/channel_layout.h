@@ -13,6 +13,7 @@ struct Queue {
     pthread_mutex_t                     mutex;
     std::uint32_t                       head{}, count{};
     bool                                closed{};
+    bool                                ownerDied{};
     std::array<Slot, Channel::capacity> slots;
 };
 struct Shared {

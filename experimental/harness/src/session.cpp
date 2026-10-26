@@ -1,5 +1,6 @@
 #include "common.h"
 #include "gentest/harness.h"
+#include "process_signal.h"
 
 #include <algorithm>
 #include <csignal>
@@ -262,6 +263,8 @@ struct Session::Impl {
                         if (exitStatus == 1) {
                             throw std::runtime_error("rootless supervisor exited; check namespace/tool prerequisites and stderr");
                         }
+                    } catch (const ChannelClosed &) {
+                        failure = std::make_exception_ptr(std::runtime_error("supervisor control channel closed"));
                     } catch (...) { failure = std::current_exception(); }
                 }
                 for (auto it = operations.begin(); it != operations.end();) {
@@ -470,6 +473,26 @@ auto Session::inspect(std::size_t program) -> awaitable<ProcessResult> {
     writer.number(static_cast<unsigned>(Command::inspect));
     writer.number(static_cast<unsigned>(program));
     co_return processResult(co_await request(std::move(writer.bytes)));
+}
+auto Session::signal(std::size_t program, int signal) -> awaitable<SignalResult> {
+    checkActive();
+    if (program >= impl_->channels.size()) {
+        throw std::out_of_range("invalid program index");
+    }
+    validateSignal(signal);
+
+    Writer writer;
+    writer.number(static_cast<unsigned>(Command::signal));
+    writer.number(static_cast<unsigned>(program));
+    writer.number(static_cast<unsigned>(signal));
+    const auto message = co_await request(std::move(writer.bytes));
+    Reader     reader{message.payload};
+    const auto sent = reader.number();
+    reader.end();
+    if (sent > 1) {
+        throw std::runtime_error("invalid signal acknowledgement");
+    }
+    co_return sent ? SignalResult::sent : SignalResult::alreadyExited;
 }
 auto Session::execute(std::string node, std::vector<std::string> arguments, std::string input) -> awaitable<std::string> {
     Writer writer;

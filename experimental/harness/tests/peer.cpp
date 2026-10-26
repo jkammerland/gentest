@@ -17,6 +17,11 @@ int main(int argc, char **argv) {
     try {
         auto              channel = Channel::fromEnvironment();
         const std::string mode    = argc > 1 ? argv[1] : "echo";
+        if (mode == "exit_messages") {
+            channel.send({.tag = 1, .payload = "first"});
+            channel.send({.tag = 2, .payload = "last"});
+            return 0;
+        }
         if (mode == "output") {
             std::cout << std::string(100000, 'o') << "stdout tail\n";
             std::cerr << std::string(100000, 'e') << "stderr tail\n";

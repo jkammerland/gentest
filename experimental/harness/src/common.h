@@ -90,5 +90,5 @@ struct Reader {
     }
 };
 
-enum class Command : std::uint32_t { configure, launch, wait, execute, shutdown, inspect, cancel };
+enum class Command : std::uint32_t { configure, launch, wait, execute, shutdown, inspect, cancel, signal };
 } // namespace gentest::harness::detail

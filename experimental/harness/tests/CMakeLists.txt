@@ -2,14 +2,17 @@ add_executable(gentest_harness_peer peer.cpp)
 target_link_libraries(gentest_harness_peer PRIVATE gentest::harness_client)
 add_executable(gentest_harness_stalled stalled.cpp)
 target_link_libraries(gentest_harness_stalled PRIVATE gentest::harness_client)
+add_executable(gentest_harness_signal_cancellation_supervisor signal_cancellation_supervisor.cpp)
+target_link_libraries(gentest_harness_signal_cancellation_supervisor PRIVATE gentest::harness_client)
 
 add_executable(gentest_harness_tests cases.cpp)
 target_link_libraries(gentest_harness_tests PRIVATE gentest::gentest_main gentest::harness)
 target_compile_definitions(gentest_harness_tests PRIVATE
     HARNESS_SUPERVISOR="$<TARGET_FILE:gentest_harness_supervisor>"
     HARNESS_PEER="$<TARGET_FILE:gentest_harness_peer>"
-    HARNESS_STALLED="$<TARGET_FILE:gentest_harness_stalled>")
-add_dependencies(gentest_harness_tests gentest_harness_peer gentest_harness_stalled)
+    HARNESS_STALLED="$<TARGET_FILE:gentest_harness_stalled>"
+    HARNESS_SIGNAL_CANCELLATION_SUPERVISOR="$<TARGET_FILE:gentest_harness_signal_cancellation_supervisor>")
+add_dependencies(gentest_harness_tests gentest_harness_peer gentest_harness_stalled gentest_harness_signal_cancellation_supervisor)
 gentest_attach_codegen(gentest_harness_tests)
 
 # Exercise real setup unwinding when the IPv6 sysctl command cannot execute.
