@@ -64,7 +64,7 @@ struct CliOptions {
     std::uint64_t seed_value    = 0; // exact value from --seed
     std::uint64_t shuffle_seed  = 0; // actual seed used when shuffling
 
-    const char *run_exact   = nullptr;
+    const char *run_name    = nullptr;
     const char *filter_pat  = nullptr;
     const char *junit_path  = nullptr;
     const char *allure_dir  = nullptr;

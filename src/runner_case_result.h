@@ -12,9 +12,9 @@ namespace gentest::runner {
 
 long long duration_ms(double seconds);
 
-RunResult make_static_skip_result(TestRunContext &state, const gentest::Case &test, TestCounters &c);
-RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test, const InvokeResult &inv, TestCounters &c);
-RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c);
+CaseResult make_static_skip_result(TestRunContext &state, const gentest::Case &test, TestCounters &c);
+CaseResult finish_invoke_result(TestRunContext &state, const gentest::Case &test, const InvokeResult &inv, TestCounters &c);
+CaseResult execute_one(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c);
 
 void execute_and_record(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c);
 void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std::string reason, TestCounters &c,

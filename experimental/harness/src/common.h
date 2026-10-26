@@ -39,9 +39,9 @@ struct Fd {
     }
 };
 
-// Inherited descriptors: control at 3-5, participant triples starting at 6,
+// Inherited descriptors: control at 3-5, program channel triples starting at 6,
 // then the runner pidfd. Stdin carries the session liveness pipe.
-constexpr auto runnerDescriptor(std::size_t participants) -> int { return 6 + 3 * static_cast<int>(participants); }
+constexpr auto runnerDescriptor(std::size_t programCount) -> int { return 6 + 3 * static_cast<int>(programCount); }
 
 // A small length-prefixed protocol over the private supervisor channel.
 // It is local and same-version; no native pointers or C++ objects cross exec.
