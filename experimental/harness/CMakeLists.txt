@@ -1,0 +1,27 @@
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "The experimental Gentest harness requires Linux")
+endif()
+find_package(Threads REQUIRED)
+if(gentest_BUILD_TESTING AND
+        NOT GENTEST_BUILD_CODEGEN AND NOT GENTEST_CODEGEN_EXECUTABLE AND NOT GENTEST_CODEGEN_TARGET)
+    message(FATAL_ERROR "Harness tests/examples require GENTEST_BUILD_CODEGEN=ON or an external GENTEST_CODEGEN_EXECUTABLE")
+endif()
+
+add_library(gentest_harness_client STATIC src/channel.cpp)
+add_library(gentest::harness_client ALIAS gentest_harness_client)
+target_include_directories(gentest_harness_client PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(gentest_harness_client PUBLIC cxx_std_20)
+target_link_libraries(gentest_harness_client PUBLIC Threads::Threads)
+
+add_executable(gentest_harness_supervisor src/supervisor.cpp)
+target_link_libraries(gentest_harness_supervisor PRIVATE gentest_harness_client)
+
+add_library(gentest_harness STATIC src/session.cpp)
+add_library(gentest::harness ALIAS gentest_harness)
+target_link_libraries(gentest_harness PUBLIC gentest_harness_client gentest::gentest_runtime gentest::gentest)
+add_dependencies(gentest_harness gentest_harness_supervisor)
+
+if(gentest_BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

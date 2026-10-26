@@ -146,6 +146,11 @@ endif()
 include(GentestCodegen)
 add_subdirectory(src)
 
+option(GENTEST_BUILD_HARNESS "Build the experimental rootless Linux network harness" OFF)
+if(GENTEST_BUILD_HARNESS)
+    add_subdirectory(experimental/harness)
+endif()
+
 if(${PROJECT_NAME}_INSTALL)
     # This vendored helper runs in CMake on the host, outside any target sysroot.
     set(_gentest_target_install_package_root "${PROJECT_SOURCE_DIR}/third_party/target_install_package")

@@ -116,7 +116,7 @@ compile_commands_path = pathlib.Path(sys.argv[2])
 output_path = pathlib.Path(sys.argv[3])
 compile_commands = json.loads(compile_commands_path.read_text())
 
-allowed_prefixes = ("include/", "src/", "tools/", "tests/", "examples/async/")
+allowed_prefixes = ("include/", "src/", "tools/", "tests/", "examples/async/", "experimental/harness/")
 allowed_suffixes = (".c", ".cc", ".cpp", ".cxx", ".cu", ".c++", ".cppm", ".ixx", ".mpp")
 
 def repo_rel(path: pathlib.Path):
@@ -160,7 +160,7 @@ import sys
 
 repo_root = pathlib.Path(sys.argv[1]).resolve()
 suffixes = (".c", ".cc", ".cpp", ".cxx", ".cu", ".c++", ".h", ".hh", ".hpp", ".hxx", ".h++", ".ipp", ".inl", ".cppm", ".ixx", ".mpp")
-roots = ("include", "src", "tests", "tools", "examples/async")
+roots = ("include", "src", "tests", "tools", "examples/async", "experimental/harness")
 
 def filesystem_repo_files():
     files = []
@@ -216,7 +216,7 @@ done
 args=(
     -p "${tidy_compdb_dir}"
     --quiet
-    "--header-filter=^${repo_root}/(src|include|tests|tools|examples/async)/"
+    "--header-filter=^${repo_root}/(src|include|tests|tools|examples/async|experimental/harness)/"
     --exclude-header-filter='.*/(third_party|tests/generated)/.*'
 )
 
@@ -233,7 +233,7 @@ export CLANG_TIDY_BIN="${clang_tidy_bin}"
 export MODE="${mode}"
 export REPO_ROOT="${repo_root}"
 export TIDY_COMPDB_DIR="${tidy_compdb_dir}"
-export HEADER_FILTER_REGEX="^${repo_root}/(src|include|tests|tools|examples/async)/"
+export HEADER_FILTER_REGEX="^${repo_root}/(src|include|tests|tools|examples/async|experimental/harness)/"
 export LINE_FILTER_JSON="${line_filter_json}"
 run_normal_tidy_file() {
     local source_file="$1"
