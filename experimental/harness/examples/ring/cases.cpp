@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <limits>
 #include <numeric>
 #include <sstream>
 
@@ -17,12 +18,31 @@ using namespace std::chrono_literals;
 namespace {
 constexpr std::size_t minimumLaps = 256;
 
+// This example chooses the ring layout and addresses using the general topology API.
+auto makeRing(std::size_t count) -> Topology {
+    if (count < 3 || count > 16) {
+        throw std::invalid_argument("ring example requires 3..16 nodes");
+    }
+
+    Topology topology;
+    for (std::size_t i = 0; i < count; ++i) {
+        topology.nodes.push_back({.name = "peer_" + std::to_string(i), .forwarding = false, .bridgeAddress = {}});
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto subnet = "10.80." + std::to_string(i);
+        topology.links.push_back(
+            {.left  = {.node = topology.nodes[i].name, .interface = "next", .address = subnet + ".1/30"},
+             .right = {.node = topology.nodes[(i + 1) % count].name, .interface = "prev", .address = subnet + ".2/30"}});
+    }
+    return topology;
+}
+
 auto address(const LinkEnd &end) -> std::string { return end.address.substr(0, end.address.find('/')); }
 
 auto specification(std::size_t nodes, std::size_t tokens) -> SessionSpec {
     SessionSpec spec;
     spec.supervisor = HARNESS_SUPERVISOR;
-    spec.topology   = Topology::ring(nodes);
+    spec.topology   = makeRing(nodes);
     for (std::size_t i = 0; i < nodes; ++i) {
         // Addresses come from the topology: each peer receives from prev and sends through next.
         const auto previous = (i + nodes - 1) % nodes;
@@ -179,6 +199,16 @@ auto sixteenPeers() -> awaitable<> { co_await exercise(16, 8); }
 auto blockedLink() -> awaitable<> {
     // One token isolates the failing send from later traffic to the exited peer.
     co_await exercise(4, 1, true);
+}
+
+void topologyBounds() {
+    for (const auto count : {std::size_t{0}, std::size_t{1}, std::size_t{2}, std::size_t{17}, std::numeric_limits<std::size_t>::max()}) {
+        bool rejected = false;
+        try {
+            (void)makeRing(count);
+        } catch (const std::invalid_argument &) { rejected = true; }
+        expect_true(rejected, "ring example must reject unsupported node counts before constructing links");
+    }
 }
 
 void packetValidation() {

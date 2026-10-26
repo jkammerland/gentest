@@ -13,5 +13,4 @@ namespace harness_tests {
 [[gentest::test("harness/session/descriptor_limits")]] auto descriptorLimits() -> gentest::awaitable<>;
 [[gentest::test("harness/session/cleanup")]] auto           cleanup() -> gentest::awaitable<>;
 [[gentest::test("harness/network/stateful_nat")]] auto      statefulNat() -> gentest::awaitable<>;
-[[gentest::test("harness/session/ring_bounds")]] void       ringBounds();
 } // namespace harness_tests

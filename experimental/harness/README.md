@@ -49,7 +49,8 @@ gentest_attach_codegen(network_tests)
 
 An ordinary local fixture can hold a `gentest::harness::Session`. Start it from
 the async test, and keep the fixture alive until its operations finish. A local
-variable provides the same ownership:
+variable provides the same ownership. Describe the network in the test with
+ordinary nodes and links, then pass that data and the child programs to the session:
 
 ```cpp
 using namespace gentest;
@@ -60,8 +61,13 @@ using namespace std::chrono_literals;
 auto exercise() -> awaitable<> {
     SessionSpec spec;
     spec.supervisor = HARNESS_SUPERVISOR;
-    spec.topology = Topology::twoNat();
+    spec.topology.nodes = {{.name = "peer_a"}, {.name = "peer_b"}};
+    spec.topology.links = {{
+        .left = {.node = "peer_a", .interface = "eth0", .address = "10.0.0.1/30"},
+        .right = {.node = "peer_b", .interface = "eth0", .address = "10.0.0.2/30"},
+    }};
     spec.programs = {{"peer_a", {PEER}, {}, {}}, {"peer_b", {PEER}, {}, {}}};
+
     auto session = co_await Session::start(std::move(spec));
     co_await when_all(session.launch(0), session.launch(1));
 
@@ -120,9 +126,15 @@ This POC isolates network stacks and process lifetime, not hostile code or files
 
 ## Network model
 
-`Topology` contains nodes, veth links, routes and NAT gateways. A node may own an
-IPv4 bridge. An empty link-end address attaches that interface to the node's
-bridge. The `Topology::twoNat()` topology is:
+`Topology` is user-supplied data: populate its `nodes`, `links`, `routes` and
+`nats` fields, then pass it through `SessionSpec` to `Session::start()`. Your test
+chooses node names, addresses, connections and programs. The harness creates the
+network, applies its configuration and manages process lifetime; application
+protocols and traffic patterns belong to the child programs.
+
+A node may own an IPv4 bridge. An empty link-end address attaches that interface
+to the node's bridge. The NAT tests use a
+[test-local two-NAT recipe](examples/support/two_nat.h) built from these structures:
 
 ```text
 peer_a 10.0.1.2 -- 10.0.1.1 nat_a 198.18.0.2 --+
@@ -168,15 +180,27 @@ runner scheduling rules or fixture lifetimes change.
 
 ## Boost.Asio UDP ring
 
-`Topology::ring()` creates four peers by default; `Topology::ring(count)` accepts
-3 through 16. Each adjacent pair has its own veth link and IPv4 `/30` subnet.
-Every peer has a `prev` and `next` interface. The application receives UDP from
-its predecessor and forwards it to its successor; kernel IP forwarding is off.
+The [ring example](examples/ring/cases.cpp) constructs its own topology using
+the public nodes and links. Its local `makeRing()` helper supports 3 through 16
+peers. Each adjacent pair has its own veth link and IPv4 `/30` subnet. Every peer
+has a `prev` and `next` interface. The application receives UDP from its predecessor
+and forwards it to its successor; kernel IP forwarding is off.
+
+For example, a test can describe a three-peer ring directly:
 
 ```cpp
+Topology topology{
+    .nodes = {{.name = "a"}, {.name = "b"}, {.name = "c"}},
+    .links = {
+        {{"a", "next", "10.0.1.1/30"}, {"b", "prev", "10.0.1.2/30"}},
+        {{"b", "next", "10.0.2.1/30"}, {"c", "prev", "10.0.2.2/30"}},
+        {{"c", "next", "10.0.3.1/30"}, {"a", "prev", "10.0.3.2/30"}},
+    },
+};
+
 SessionSpec spec;
-spec.topology = Topology::ring(4);
-// peer_0 -> peer_1 -> peer_2 -> peer_3 -> peer_0
+spec.topology = std::move(topology);
+// Add your programs for nodes a, b and c, then start the session.
 ```
 
 The [controller](examples/ring/cases.cpp) assigns one
@@ -204,11 +228,11 @@ cmake --build build/harness --target gentest_ring_example
 ctest --test-dir build/harness -R '^harness_asio_ring$' --output-on-failure --no-tests=error
 ```
 
-The suite exercises 3-, 4- and 16-peer rings, malformed packets, and an nftables
-rule that breaks the ring. That fault case verifies the sender reports Linux's
-`EPERM` send error, the firewall counts a dropped packet, and the remaining peers
-stop through shared memory. Runs have deadlines and fail on unexpected packet
-loss or missing progress. The peer uses an Asio descriptor wait on a duplicate of
-`Channel::notificationFd()`; only
+The suite exercises 3-, 4- and 16-peer rings, the example's node-count bounds,
+malformed packets, and an nftables rule that breaks the ring. That fault case
+verifies the sender reports Linux's `EPERM` send error, the firewall counts a
+dropped packet, and the remaining peers stop through shared memory. Runs have
+deadlines and fail on unexpected packet loss or missing progress. The peer uses
+an Asio descriptor wait on a duplicate of `Channel::notificationFd()`; only
 `Channel::tryReceive()` consumes that notification, keeping control coordination
 on the same event loop as UDP without a polling thread.

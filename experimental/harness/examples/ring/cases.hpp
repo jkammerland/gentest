@@ -9,4 +9,5 @@ namespace ring_example {
 [[gentest::test("ring/sixteen_peers")]] auto     sixteenPeers() -> gentest::awaitable<>;
 [[gentest::test("ring/blocked_link")]] auto      blockedLink() -> gentest::awaitable<>;
 [[gentest::test("ring/packet_validation")]] void packetValidation();
+[[gentest::test("ring/topology_bounds")]] void   topologyBounds();
 } // namespace ring_example
