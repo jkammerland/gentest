@@ -122,6 +122,11 @@ processes and open descriptors. Commands receive argv directly; there is no
 shell, daemon, sudo, host firewall modification or persistent `/run/netns` entry.
 `bwrap` and Podman are unnecessary for this network/process isolation POC.
 
+Supervisor startup uses an empty signal mask, so signals blocked by the calling
+test thread do not remain blocked in the supervisor or launched programs. The
+caller's signal mask is unchanged; child SIGTERM and SIGINT dispositions are
+reset before exec.
+
 Session destruction closes a liveness pipe, requests child termination and reaps
 the supervisor. Each child gets a one-second TERM grace period, then KILL. The
 parent allows five seconds for cleanup before killing the `unshare` wrapper;

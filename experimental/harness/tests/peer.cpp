@@ -17,6 +17,18 @@ int main(int argc, char **argv) {
     try {
         auto              channel = Channel::fromEnvironment();
         const std::string mode    = argc > 1 ? argv[1] : "echo";
+        if (mode == "signal_mask") {
+            sigset_t mask{};
+            if (::sigprocmask(SIG_SETMASK, nullptr, &mask) != 0) {
+                throw std::runtime_error("read inherited signal mask");
+            }
+            channel.send(
+                {.tag = 1, .payload = std::to_string(::sigismember(&mask, SIGTERM)) + " " + std::to_string(::sigismember(&mask, SIGINT))});
+            for (;;) {
+                ::pause();
+            }
+        }
+
         if (mode == "exit_messages") {
             channel.send({.tag = 1, .payload = "first"});
             channel.send({.tag = 2, .payload = "last"});

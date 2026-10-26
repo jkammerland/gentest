@@ -15,6 +15,19 @@ target_compile_definitions(gentest_harness_tests PRIVATE
 add_dependencies(gentest_harness_tests gentest_harness_peer gentest_harness_stalled gentest_harness_signal_cancellation_supervisor)
 gentest_attach_codegen(gentest_harness_tests)
 
+# Isolate the caller's temporary signal mask from concurrent async test cases.
+add_executable(gentest_harness_signal_mask_tests signal_mask.cpp)
+target_link_libraries(gentest_harness_signal_mask_tests PRIVATE gentest::gentest_main gentest::harness)
+target_compile_definitions(gentest_harness_signal_mask_tests PRIVATE
+    HARNESS_SUPERVISOR="$<TARGET_FILE:gentest_harness_supervisor>"
+    HARNESS_PEER="$<TARGET_FILE:gentest_harness_peer>")
+add_dependencies(gentest_harness_signal_mask_tests gentest_harness_peer)
+gentest_attach_codegen(gentest_harness_signal_mask_tests)
+add_dependencies(gentest_harness_tests gentest_harness_signal_mask_tests)
+add_test(NAME harness_signal_mask COMMAND gentest_harness_signal_mask_tests
+    --run=harness_signal_mask_tests/harness/session/signal_mask --fail-on-empty)
+set_tests_properties(harness_signal_mask PROPERTIES TIMEOUT 30 LABELS harness)
+
 # Exercise real setup unwinding when the IPv6 sysctl command cannot execute.
 add_executable(gentest_harness_forwarding_failure_supervisor ../src/supervisor.cpp forwarding_failure.cpp)
 target_link_libraries(gentest_harness_forwarding_failure_supervisor PRIVATE gentest::harness_client)

@@ -173,7 +173,26 @@ struct Session::Impl {
             error = ::posix_spawn_file_actions_addclosefrom_np(&actions, runnerDescriptor(channels.size()) + 1);
         }
         if (!error) {
-            error = ::posix_spawnp(&pid, argv[0], &actions, nullptr, argv.data(), environ);
+            // The supervisor and its descendants need a fresh process mask,
+            // regardless of signals blocked by the calling test thread.
+            posix_spawnattr_t attributes;
+            error = ::posix_spawnattr_init(&attributes);
+            if (!error) {
+                sigset_t mask{};
+                if (::sigemptyset(&mask) != 0) {
+                    error = errno;
+                }
+                if (!error) {
+                    error = ::posix_spawnattr_setsigmask(&attributes, &mask);
+                }
+                if (!error) {
+                    error = ::posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSIGMASK);
+                }
+                if (!error) {
+                    error = ::posix_spawnp(&pid, argv[0], &actions, &attributes, argv.data(), environ);
+                }
+                ::posix_spawnattr_destroy(&attributes);
+            }
         }
         ::posix_spawn_file_actions_destroy(&actions);
         if (error) {
