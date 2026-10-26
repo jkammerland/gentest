@@ -50,19 +50,23 @@ struct PrimaryMeasurement {
     BenchmarkExecution  execution   = BenchmarkExecution::Calibrated;
     BenchmarkTimeSource time_source = BenchmarkTimeSource::Runner;
     MeasurementSampling sampling    = MeasurementSampling::EpochAverage;
-    TimingStatistics    statistics;
-    std::size_t         measured_calls        = 0;
-    std::size_t         calls_per_sample      = 0;
-    std::uint64_t       items_per_call        = 1;
-    double              elapsed_seconds       = 0;
-    double              measured_wall_seconds = 0;
-    double              warmup_seconds        = 0;
-    double              calibration_seconds   = 0;
-    std::size_t         calibration_calls     = 0;
-    std::size_t         warmup_epochs         = 0;
+
+    // Primary durations are nanoseconds per call, including epoch/batch averages.
+    // Supplied once timing describes the entire supplied interval; reports normalize by items_per_call.
+    TimingStatistics statistics;
+
+    std::size_t   measured_calls        = 0;
+    std::size_t   calls_per_sample      = 0;
+    std::uint64_t items_per_call        = 1;
+    double        elapsed_seconds       = 0;
+    double        measured_wall_seconds = 0;
+    double        warmup_seconds        = 0;
+    double        calibration_seconds   = 0;
+    std::size_t   calibration_calls     = 0;
+    std::size_t   warmup_epochs         = 0;
 };
 
-// An owning view of publications so far, not the final case outcome.
+// An owning snapshot of publications so far, not the final case outcome.
 struct MeasurementSnapshot {
     PrimaryMeasurement                 primary;
     std::vector<NamedTimingStatistics> timings;

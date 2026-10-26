@@ -37,7 +37,8 @@ Common statuses include:
 
 - `ok`: coverage data was found and the file had hits
 - `zero_hits`: the file had executable lines but no hits
-- `missing_obj`: the source did not appear in the compilation database
+- `missing_obj`: no object-file mapping was available for the source; its compile
+  command was absent or its object path could not be resolved
 - `missing_gcda`: the source compiled but no coverage data file was found
 - `stamp_mismatch`: stale coverage data did not match the notes file
 - `no_match`: a coverage tool ran but could not match the output back to the source
@@ -93,7 +94,7 @@ Notes:
 ## How CI Uses It
 
 The Linux coverage lane in
-[`.github/workflows/cmake.yml`](../.github/workflows/cmake.yml)
+[`.github/workflows/coverage.yml`](../.github/workflows/coverage.yml)
 does eight things:
 
 1. configures and builds the `coverage-system` preset with Clang

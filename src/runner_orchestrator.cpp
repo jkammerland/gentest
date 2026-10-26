@@ -548,7 +548,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --records=DIR         Export runtime records to a fresh run bundle\n");
         fmt::print("  --list-death          List death test names (one per line)\n");
         fmt::print("  --list-benches        List benchmark/jitter names (one per line)\n");
-        fmt::print("  --run=<name>          Run a single case by exact name\n");
+        fmt::print("  --run=<name>          Run one case by full name or unique suffix\n");
         fmt::print("  --filter=<pattern>    Run cases matching wildcard pattern (*, ?)\n");
         fmt::print("  --kind=<kind>         Restrict to kind: all|test|bench|jitter (default all)\n");
         fmt::print("  --include-death       Allow running tests tagged 'death'\n");

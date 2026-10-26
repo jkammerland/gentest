@@ -36,6 +36,7 @@ class CurrentContext {
     std::shared_ptr<detail::TestContextInfo> ctx_{};
 };
 
+// Legacy context spelling. Prefer CurrentContext; stop_token() separately exposes cooperative cancellation.
 using CurrentToken = CurrentContext;
 
 struct CurrentContextLease;
