@@ -9,6 +9,12 @@
     "libxml2"
   ],
   "features": {
+    "harness-asio": {
+      "description": "Optional Boost.Asio headers for the Linux UDP ring example",
+      "dependencies": [
+        "boost-asio"
+      ]
+    },
     "allure-boost-json": {
       "description": "Optional Boost.JSON headers for the Allure writer",
       "dependencies": [
