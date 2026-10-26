@@ -10,7 +10,10 @@
 namespace gentest::harness {
 struct Node {
     std::string name;
-    bool        forwarding{};
+
+    // Enable kernel IPv4 routing independently of application-level packet forwarding.
+    bool ipv4Forwarding{};
+
     std::string bridgeAddress;
 };
 struct LinkEnd {
@@ -23,7 +26,10 @@ struct Route {
     std::string node, destination, gateway;
 };
 struct Nat {
-    std::string node, inside, outside;
+    std::string node;
+
+    // Interface names within the node network namespace.
+    std::string insideInterface, outsideInterface;
 };
 struct Topology {
     std::vector<Node>  nodes;

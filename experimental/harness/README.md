@@ -132,6 +132,21 @@ chooses node names, addresses, connections and programs. The harness creates the
 network, applies its configuration and manages process lifetime; application
 protocols and traffic patterns belong to the child programs.
 
+`Node::ipv4Forwarding` enables kernel IPv4 routing. Application-level UDP
+forwarding, such as the ring example, works with this setting off.
+`Nat::insideInterface` and `Nat::outsideInterface` name interfaces within
+`Nat::node`'s network namespace.
+
+Callers using the earlier POC field names should update their initializers:
+
+| Earlier field | Current field |
+| --- | --- |
+| `Node::forwarding` | `Node::ipv4Forwarding` |
+| `Nat::inside` | `Nat::insideInterface` |
+| `Nat::outside` | `Nat::outsideInterface` |
+
+These source renames preserve the network configuration and private IPC layout.
+
 A node may own an IPv4 bridge. An empty link-end address attaches that interface
 to the node's bridge. The NAT tests use a
 [test-local two-NAT recipe](examples/support/two_nat.h) built from these structures:
