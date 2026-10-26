@@ -36,7 +36,7 @@ void fatal_path();
 
 - Death tests are registered with the `death/` prefix by default. If your test names already include `death/`,
   you'll see entries like `death/death/fatal_path` in CTest.
-- Discovery uses `--list` and infers death-tagged cases from the emitted gentest metadata (`tags=death`).
+- Discovery uses `--list-json` and identifies death-tagged cases from each inventory entry's `tags` array.
 - The harness runs `--include-death --run=<case>` and expects a non-zero exit code.
 - If the test binary reports a normal test failure (`[ FAIL ]`), the harness marks it as a failure.
 - If the test binary reports "Case not found:" (or legacy "Test not found:"), the harness marks the CTest

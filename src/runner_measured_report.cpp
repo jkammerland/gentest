@@ -706,6 +706,7 @@ std::vector<ReportAttachment> make_bench_allure_attachments(const gentest::Case 
     append_tsv_metric(metrics, "iters_per_epoch", result.iters_per_epoch);
     append_tsv_metric(metrics, "total_iters", result.total_iters);
     append_tsv_metric(metrics, "total_items", total_items(result, c));
+    // Preserve the legacy per_op keys as per-call values; only per_item keys normalize logical items.
     append_tsv_metric(metrics, "best_ns_per_op", result.best_ns);
     append_tsv_metric(metrics, "best_ns_per_call", result.best_ns);
     append_tsv_metric(metrics, "best_ns_per_item", per_item_ns(result.best_ns, c, result));
@@ -779,6 +780,7 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
     append_tsv_metric(metrics, "iters_per_epoch", result.iters_per_epoch);
     append_tsv_metric(metrics, "total_iters", result.total_iters);
     append_tsv_metric(metrics, "total_items", total_items(result, c));
+    // Preserve the same per_op compatibility meaning as benchmark metric attachments.
     append_tsv_metric(metrics, "min_ns_per_op", result.min_ns);
     append_tsv_metric(metrics, "min_ns_per_call", result.min_ns);
     append_tsv_metric(metrics, "min_ns_per_item", per_item_ns(result.min_ns, c, result));

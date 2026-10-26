@@ -41,7 +41,8 @@ string views and spans alive until `run_cases` returns.
 
 Return codes match `run_all_tests` for the same cases and arguments: `0` means the requested operation completed successfully
 (including an ordinary filter that selects no cases), `1` reports invalid CLI input or a test/runtime failure, and `3` means an
-exact `--run` case was not found. Benchmark- or jitter-only filters that match nothing retain their existing failure semantics.
+`--run` case was not found. `--run` prefers a full name, then accepts a unique suffix among cases matching `--kind`;
+ambiguous suffixes are errors. Benchmark- or jitter-only filters that match nothing retain their existing failure semantics.
 
 Manual benchmarks may set source-level execution policy with the final
 `Case::benchmark` field:

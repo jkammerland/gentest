@@ -147,7 +147,7 @@ Run:
 ./my_tests --list-tests
 ./my_tests --list
 ./my_tests --list-death
-./my_tests --run=<exact-name>
+./my_tests --run=<full-name-or-unique-suffix>
 ./my_tests --filter=unit/* --kind=test
 ./my_tests --include-death --run=death/fatal_path
 ./my_tests --fail-fast --repeat=2
@@ -158,6 +158,9 @@ Run:
 ```
 
 `--list-tests` prints only resolved test names (one per line).
+
+`--run` prefers a full case name. If no full name matches, it accepts a unique
+suffix among cases matching `--kind`; ambiguous suffixes are errors.
 
 Use `--list-selected --kind=test --filter="suite/*"` to preview the names that
 the same execution selector would run, without constructing fixtures or running
