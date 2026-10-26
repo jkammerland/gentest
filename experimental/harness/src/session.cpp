@@ -390,6 +390,25 @@ auto Topology::twoNat() -> Topology {
                        {.node = "peer_b", .destination = "default", .gateway = "10.0.2.1"}},
             .nats   = {{.node = "nat_a", .inside = "lan", .outside = "wan"}, {.node = "nat_b", .inside = "lan", .outside = "wan"}}};
 }
+
+auto Topology::ring(std::size_t count) -> Topology {
+    if (count < 3 || count > 16) {
+        throw std::invalid_argument("ring requires 3..16 nodes");
+    }
+
+    Topology topology;
+    for (std::size_t i = 0; i < count; ++i) {
+        topology.nodes.push_back({.name = "peer_" + std::to_string(i), .forwarding = false, .bridgeAddress = {}});
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto subnet = "10.80." + std::to_string(i);
+        topology.links.push_back(
+            {.left  = {.node = topology.nodes[i].name, .interface = "next", .address = subnet + ".1/30"},
+             .right = {.node = topology.nodes[(i + 1) % count].name, .interface = "prev", .address = subnet + ".2/30"}});
+    }
+    return topology;
+}
+
 Session::Session()                                        = default;
 Session::~Session()                                       = default;
 Session::Session(Session &&) noexcept                     = default;

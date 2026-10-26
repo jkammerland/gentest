@@ -147,8 +147,11 @@ include(GentestCodegen)
 add_subdirectory(src)
 
 option(GENTEST_BUILD_HARNESS "Build the experimental rootless Linux network harness" OFF)
+option(GENTEST_BUILD_RING_EXAMPLE "Build the experimental Boost.Asio UDP ring example" OFF)
 if(GENTEST_BUILD_HARNESS)
     add_subdirectory(experimental/harness)
+elseif(GENTEST_BUILD_RING_EXAMPLE)
+    message(FATAL_ERROR "Harness examples require GENTEST_BUILD_HARNESS=ON")
 endif()
 
 if(${PROJECT_NAME}_INSTALL)

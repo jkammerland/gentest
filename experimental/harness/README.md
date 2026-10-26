@@ -21,7 +21,7 @@ cmake --build build/harness --target gentest_harness_tests
 ctest --test-dir build/harness -R '^harness_' --output-on-failure --no-tests=error
 ```
 
-`GENTEST_BUILD_HARNESS` defaults to `OFF`.
+`GENTEST_BUILD_HARNESS` and `GENTEST_BUILD_RING_EXAMPLE` default to `OFF`.
 Enabling the harness on another OS fails at configure time. Explicitly selected
 network tests fail if prerequisites are missing; they do not silently skip.
 Building only the libraries does not require codegen. Tests/examples require
@@ -122,7 +122,7 @@ This POC isolates network stacks and process lifetime, not hostile code or files
 
 `Topology` contains nodes, veth links, routes and NAT gateways. A node may own an
 IPv4 bridge. An empty link-end address attaches that interface to the node's
-bridge. The supplied topology is:
+bridge. The `Topology::twoNat()` topology is:
 
 ```text
 peer_a 10.0.1.2 -- 10.0.1.1 nat_a 198.18.0.2 --+
@@ -165,3 +165,50 @@ ideas. Its long-lived coordinator, socket transport, manifests and remote modes
 are not needed here; its `netd-helper` was an unimplemented stub. Session lifetime
 and typed shared-memory messages now stay with the test. No codegen attributes,
 runner scheduling rules or fixture lifetimes change.
+
+## Boost.Asio UDP ring
+
+`Topology::ring()` creates four peers by default; `Topology::ring(count)` accepts
+3 through 16. Each adjacent pair has its own veth link and IPv4 `/30` subnet.
+Every peer has a `prev` and `next` interface. The application receives UDP from
+its predecessor and forwards it to its successor; kernel IP forwarding is off.
+
+```cpp
+SessionSpec spec;
+spec.topology = Topology::ring(4);
+// peer_0 -> peer_1 -> peer_2 -> peer_3 -> peer_0
+```
+
+The [controller](examples/ring/cases.cpp) assigns one
+[Boost.Asio peer](examples/ring/peer.cpp) to each node. Every peer binds UDP port
+5000 in its own network namespace. Peer zero seeds a fixed set of 256-byte tokens
+that keep circulating until the controller requests a drain. Each hop validates
+the source endpoint, token sequence and payload. After every token completes at
+least 256 laps, the controller asks peer zero to consume the returning tokens,
+then stops the other peers and compares all send/receive and per-token counts.
+Progress, readiness, statistics and shutdown use shared memory throughout.
+
+The example requires Boost 1.85 or newer headers. Boost is only discovered when
+this example is enabled; it adds no dependency to the harness libraries. With
+vcpkg, select the optional `harness-asio` manifest feature (for example,
+`-DVCPKG_MANIFEST_FEATURES=harness-asio`); its version uses the repository's
+pinned registry baseline. With system packages, install the Boost development
+headers.
+
+```sh
+cmake --preset=debug-system -B build/harness \
+  -DGENTEST_BUILD_HARNESS=ON -DGENTEST_BUILD_RING_EXAMPLE=ON \
+  -DGENTEST_ENABLE_PACKAGE_TESTS=OFF \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build build/harness --target gentest_ring_example
+ctest --test-dir build/harness -R '^harness_asio_ring$' --output-on-failure --no-tests=error
+```
+
+The suite exercises 3-, 4- and 16-peer rings, malformed packets, and an nftables
+rule that breaks the ring. That fault case verifies the sender reports Linux's
+`EPERM` send error, the firewall counts a dropped packet, and the remaining peers
+stop through shared memory. Runs have deadlines and fail on unexpected packet
+loss or missing progress. The peer uses an Asio descriptor wait on a duplicate of
+`Channel::notificationFd()`; only
+`Channel::tryReceive()` consumes that notification, keeping control coordination
+on the same event loop as UDP without a polling thread.

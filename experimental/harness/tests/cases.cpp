@@ -331,6 +331,16 @@ auto command(Session &session, unsigned peer, unsigned tag, std::string payload 
     expect_eq(message.tag, tag);
     co_return std::move(message.payload);
 }
+void ringBounds() {
+    for (const auto count : {std::size_t{0}, std::size_t{1}, std::size_t{2}, std::size_t{17}, std::numeric_limits<std::size_t>::max()}) {
+        bool rejected = false;
+        try {
+            (void)Topology::ring(count);
+        } catch (const std::invalid_argument &) { rejected = true; }
+        expect_true(rejected, "ring must reject unsupported node counts before constructing links");
+    }
+}
+
 auto statefulNat() -> awaitable<> {
     SessionSpec spec;
     spec.supervisor = HARNESS_SUPERVISOR;

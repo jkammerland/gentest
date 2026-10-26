@@ -33,6 +33,9 @@ struct Topology {
 
     // internet: 198.18.0.1; gateways: .2/.3; peers: 10.0.1.2/10.0.2.2.
     static auto twoNat() -> Topology;
+
+    // 3..16 peers, each with a prev/next veth interface. Applications forward packets.
+    static auto ring(std::size_t count = 4) -> Topology;
 };
 struct Program {
     std::string                                      node;
