@@ -404,7 +404,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         }
 
         if (const OptionParseResult run_result = parse_value_option(
-                i, s, "--run", [&](std::string_view value) { return set_unique_string_option(opt.run_exact, "--run", value); });
+                i, s, "--run", [&](std::string_view value) { return set_unique_string_option(opt.run_name, "--run", value); });
             run_result != OptionParseResult::NoMatch) {
             if (run_result == OptionParseResult::Error)
                 return false;

@@ -200,7 +200,7 @@ void record_runner_level_failure(RunAccumulator &acc, std::string_view name, std
     acc.infra_errors.push_back(std::move(message));
 }
 
-void record_case_result(RunAccumulator &acc, const gentest::Case &test, RunResult result, bool include_report_item) {
+void record_case_result(RunAccumulator &acc, const gentest::Case &test, CaseResult result, bool include_report_item) {
     if (!result.summary_issues.empty()) {
         record_failure_summary(acc, test.name, std::move(result.summary_issues), test.file, test.line);
     }

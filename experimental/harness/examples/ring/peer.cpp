@@ -123,7 +123,7 @@ class Peer {
             throw std::runtime_error("incomplete ring send");
         }
         if (++sent_ == 1) {
-            control_.send({.tag = forwarded, .payload = {}});
+            control_.send({.tag = firstSent, .payload = {}});
         }
     }
 

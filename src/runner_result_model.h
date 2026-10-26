@@ -28,7 +28,8 @@ struct ReportAttachment {
     std::string                        shared_source; // Runner-generated filename for shared runtime payloads.
 };
 
-struct RunResult {
+// One case occurrence, including one occurrence of a repeated case.
+struct CaseResult {
     std::shared_ptr<gentest::detail::RecordingTarget> recording;
     double                                            time_s  = 0.0;
     bool                                              skipped = false;

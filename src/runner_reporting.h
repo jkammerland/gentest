@@ -62,7 +62,7 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
 void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vector<std::string> issues, std::string_view file = {},
                             unsigned line = 0);
 void record_runner_level_failure(RunAccumulator &acc, std::string_view name, std::string message);
-void record_case_result(RunAccumulator &acc, const gentest::Case &test, RunResult result, bool include_report_item);
+void record_case_result(RunAccumulator &acc, const gentest::Case &test, CaseResult result, bool include_report_item);
 void add_error_annotation(RunAccumulator &acc, std::string_view file, unsigned line, std::string_view title, std::string_view message);
 void emit_github_annotations(const RunAccumulator &acc, FILE *stream = stdout);
 bool write_reports(RunAccumulator &acc, const ReportConfig &cfg);

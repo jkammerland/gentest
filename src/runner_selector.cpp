@@ -74,15 +74,15 @@ std::string_view kind_to_string(KindFilter kind) {
 SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOptions &opt) {
     SelectionResult          result;
     std::vector<std::size_t> idxs;
-    result.has_selection = (opt.run_exact != nullptr) || (opt.filter_pat != nullptr);
+    result.has_selection = (opt.run_name != nullptr) || (opt.filter_pat != nullptr);
 
-    if (opt.run_exact) {
-        const std::string_view exact = opt.run_exact;
+    if (opt.run_name) {
+        const std::string_view requested_name = opt.run_name;
 
         std::vector<std::size_t> exact_matches;
         std::vector<std::size_t> exact_kind_matches;
         for (std::size_t i = 0; i < cases.size(); ++i) {
-            if (cases[i].name != exact)
+            if (cases[i].name != requested_name)
                 continue;
             exact_matches.push_back(i);
             if (case_matches_kind(cases[i], opt.kind))
@@ -104,9 +104,9 @@ SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOpti
             std::vector<std::size_t> suffix_matches;
             std::vector<std::size_t> suffix_kind_matches;
             for (std::size_t i = 0; i < cases.size(); ++i) {
-                if (cases[i].name.size() < exact.size())
+                if (cases[i].name.size() < requested_name.size())
                     continue;
-                if (!cases[i].name.ends_with(exact))
+                if (!cases[i].name.ends_with(requested_name))
                     continue;
                 suffix_matches.push_back(i);
                 if (case_matches_kind(cases[i], opt.kind))
@@ -172,7 +172,7 @@ SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOpti
             kept.push_back(idx);
         }
         if (kept.empty() && result.filtered_death > 0) {
-            result.status = opt.run_exact ? SelectionStatus::DeathExcludedExact : SelectionStatus::DeathExcludedAll;
+            result.status = opt.run_name ? SelectionStatus::DeathExcludedRun : SelectionStatus::DeathExcludedAll;
             return result;
         }
         idxs = std::move(kept);

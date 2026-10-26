@@ -80,7 +80,7 @@ auto processResult(const Message &message) -> ProcessResult {
 
 struct Session::Impl {
     struct Operation {
-        std::optional<std::size_t>                       participant;
+        std::optional<std::size_t>                       programIndex;
         std::uint32_t                                    request{};
         std::stop_token                                  stop;
         std::function<void(Message, std::exception_ptr)> complete;
@@ -218,7 +218,7 @@ struct Session::Impl {
     void retire(const std::shared_ptr<Operation> &operation) noexcept {
         std::lock_guard lock(mutex);
         std::erase(operations, operation);
-        if (!operation->participant) {
+        if (!operation->programIndex) {
             const auto reply = replies.find(operation->request);
             if (reply != replies.end() && !reply->second && !closing && !failure) {
                 // A cancelled wait must also release its supervisor-side slot.
@@ -271,8 +271,8 @@ struct Session::Impl {
                         if (operation->stop.stop_requested()) {
                             throw async::operation_cancelled{};
                         }
-                        if (operation->participant) {
-                            result = channels.at(*operation->participant).tryReceive();
+                        if (operation->programIndex) {
+                            result = channels.at(*operation->programIndex).tryReceive();
                         } else {
                             result = std::move(replies.at(operation->request));
                         }
@@ -289,9 +289,9 @@ struct Session::Impl {
                         });
                         it = operations.erase(it);
                     } else {
-                        if (operation->participant) {
+                        if (operation->programIndex) {
                             descriptors.push_back(
-                                {.fd = channels[*operation->participant].notificationFd(), .events = POLLIN, .revents = 0});
+                                {.fd = channels[*operation->programIndex].notificationFd(), .events = POLLIN, .revents = 0});
                         }
                         ++it;
                     }
@@ -328,10 +328,10 @@ struct Session::Read {
     Message                                                    message;
     std::exception_ptr                                         error;
 
-    Read(std::shared_ptr<Impl> owner, std::optional<std::size_t> participant, std::uint32_t request = 0)
+    Read(std::shared_ptr<Impl> owner, std::optional<std::size_t> programIndex, std::uint32_t request = 0)
         : session(std::move(owner)), operation(std::make_shared<Impl::Operation>()) {
-        operation->participant = participant;
-        operation->request     = request;
+        operation->programIndex = programIndex;
+        operation->request      = request;
     }
     Read(const Read &)                     = delete;
     auto operator=(const Read &) -> Read & = delete;
@@ -354,9 +354,9 @@ struct Session::Read {
             if (session->closing) {
                 throw std::logic_error("session closed");
             }
-            if (operation->participant && std::any_of(session->operations.begin(), session->operations.end(),
-                                                      [&](const auto &other) { return other->participant == operation->participant; })) {
-                throw std::logic_error("one active receive per participant is supported");
+            if (operation->programIndex && std::any_of(session->operations.begin(), session->operations.end(),
+                                                       [&](const auto &other) { return other->programIndex == operation->programIndex; })) {
+                throw std::logic_error("one active receive per program is supported");
             }
             session->operations.push_back(operation);
         }
@@ -446,14 +446,14 @@ void Session::send(std::size_t program, const Message &message) {
 auto Session::receive(std::size_t program) -> awaitable<Message> {
     checkActive();
     if (program >= impl_->channels.size()) {
-        throw std::out_of_range("invalid participant");
+        throw std::out_of_range("invalid program index");
     }
     co_return co_await Read{impl_, program};
 }
 auto Session::wait(std::size_t program) -> awaitable<ProcessResult> {
     checkActive();
     if (program >= impl_->channels.size()) {
-        throw std::out_of_range("invalid participant");
+        throw std::out_of_range("invalid program index");
     }
     Writer writer;
     writer.number(static_cast<unsigned>(Command::wait));
@@ -463,7 +463,7 @@ auto Session::wait(std::size_t program) -> awaitable<ProcessResult> {
 auto Session::inspect(std::size_t program) -> awaitable<ProcessResult> {
     checkActive();
     if (program >= impl_->channels.size()) {
-        throw std::out_of_range("invalid participant");
+        throw std::out_of_range("invalid program index");
     }
     Writer writer;
     writer.number(static_cast<unsigned>(Command::inspect));

@@ -32,8 +32,8 @@ auto collect_pass_visible_timeline(const std::vector<std::string> &event_lines, 
 
 long long duration_ms(double seconds) { return std::llround(seconds * 1000.0); }
 
-RunResult make_static_skip_result(TestRunContext &state, const gentest::Case &test, TestCounters &c) {
-    RunResult rr;
+CaseResult make_static_skip_result(TestRunContext &state, const gentest::Case &test, TestCounters &c) {
+    CaseResult rr;
     ++c.total;
     ++c.skipped;
     rr.skipped             = true;
@@ -59,9 +59,9 @@ RunResult make_static_skip_result(TestRunContext &state, const gentest::Case &te
     return rr;
 }
 
-RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test, const InvokeResult &inv, TestCounters &c) {
-    RunResult rr;
-    auto      ctxinfo = inv.ctxinfo;
+CaseResult finish_invoke_result(TestRunContext &state, const gentest::Case &test, const InvokeResult &inv, TestCounters &c) {
+    CaseResult rr;
+    auto       ctxinfo = inv.ctxinfo;
     // Context cleanup is complete; only the result/exporter should retain captures.
     rr.recording               = std::move(ctxinfo->recording);
     const bool runtime_skipped = (inv.exception == gentest::runner::InvokeException::Skip);
@@ -316,7 +316,7 @@ RunResult finish_invoke_result(TestRunContext &state, const gentest::Case &test,
     return rr;
 }
 
-RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c) {
+CaseResult execute_one(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c) {
     if (test.should_skip) {
         return make_static_skip_result(state, test, c);
     }
@@ -327,7 +327,7 @@ RunResult execute_one(TestRunContext &state, const gentest::Case &test, void *ct
 }
 
 void execute_and_record(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c) {
-    RunResult rr = execute_one(state, test, ctx, c);
+    CaseResult rr = execute_one(state, test, ctx, c);
     if (!state.acc) {
         return;
     }
@@ -371,7 +371,7 @@ void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std
         return;
     }
 
-    RunResult rr;
+    CaseResult rr;
     rr.skipped     = true;
     rr.outcome     = infra_failure ? Outcome::Blocked : Outcome::Skip;
     rr.skip_reason = infra_failure ? fmt::format("blocked: {}", issue) : std::move(reason);
