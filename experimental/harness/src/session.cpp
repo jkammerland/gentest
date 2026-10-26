@@ -56,6 +56,91 @@ auto encode(const Topology &topology) -> std::string {
     }
     return writer.bytes;
 }
+void validateDescriptor(int fd, bool output) {
+    if (fd < 0) {
+        throw std::invalid_argument("invalid borrowed descriptor");
+    }
+    systemCheck(::fcntl(fd, F_GETFD) >= 0, "invalid borrowed descriptor");
+    if (output) {
+        struct stat info{};
+        systemCheck(::fstat(fd, &info) == 0, "inspect redirected output");
+        const int flags = ::fcntl(fd, F_GETFL);
+        systemCheck(flags >= 0, "inspect output access mode");
+        if (!S_ISREG(info.st_mode) || (flags & O_ACCMODE) == O_RDONLY || (flags & O_PATH)) {
+            throw std::invalid_argument("redirected output requires a writable regular file");
+        }
+    }
+}
+
+auto encodeProgram(const Program &program, std::size_t index, std::size_t count, std::vector<int> &sources) -> std::string {
+    if (program.argv.empty() || program.argv.front().empty() || program.argv.size() > Channel::maxPayload / 4 ||
+        program.environment.size() > Channel::maxPayload / 8 || program.inheritedFds.size() > maxInheritedFds) {
+        throw std::invalid_argument("invalid program arguments, environment or descriptor count");
+    }
+    if (program.node.find('\0') != std::string::npos || program.workingDirectory.find('\0') != std::string::npos) {
+        throw std::invalid_argument("NUL in program node or working directory");
+    }
+    Writer writer;
+    writer.number(static_cast<unsigned>(Command::launch));
+    writer.number(static_cast<unsigned>(index));
+    writer.text(program.node);
+    writer.number(static_cast<unsigned>(program.argv.size()));
+    for (const auto &argument : program.argv) {
+        if (argument.find('\0') != std::string::npos) {
+            throw std::invalid_argument("NUL in program argument");
+        }
+        writer.text(argument);
+    }
+    writer.number(static_cast<unsigned>(program.environment.size()));
+    for (const auto &[key, value] : program.environment) {
+        if (key.empty() || key.find_first_of(std::string_view("=\0", 2)) != std::string::npos || value.find('\0') != std::string::npos ||
+            key == "GENTEST_HARNESS_CHANNEL") {
+            throw std::invalid_argument("invalid child environment");
+        }
+        writer.text(key);
+        writer.text(value);
+    }
+    writer.text(program.workingDirectory);
+
+    // Commands refer only to validated slots, never to borrowed caller fd numbers.
+    auto sourceIndex = [&](int fd, bool output) {
+        validateDescriptor(fd, output);
+        writer.number(static_cast<unsigned>(sources.size()));
+        sources.push_back(fd);
+    };
+    int              highest = 8 + 3 * static_cast<int>(index);
+    std::vector<int> targets;
+    writer.number(static_cast<unsigned>(program.inheritedFds.size()));
+    for (const auto &mapping : program.inheritedFds) {
+        validateTarget(mapping.target, count);
+        if (std::find(targets.begin(), targets.end(), mapping.target) != targets.end()) {
+            throw std::invalid_argument("duplicate child descriptor target");
+        }
+        targets.push_back(mapping.target);
+        highest = std::max(highest, mapping.target);
+        sourceIndex(mapping.source, false);
+        writer.number(static_cast<unsigned>(mapping.target));
+    }
+    for (const auto &fd : {program.standardOutputFd, program.standardErrorFd}) {
+        writer.number(fd.has_value());
+        if (fd) {
+            sourceIndex(*fd, true);
+        }
+    }
+    Limits limits{};
+    if (program.childLimits) {
+        const auto &value = *program.childLimits;
+        limits            = {value.coreBytes, value.openFiles, value.fileBytes, value.cpuSeconds};
+    }
+    validateLimits(limits, highest);
+    for (const auto &limit : limits) {
+        writer.number(limit.has_value());
+        if (limit) {
+            writer.wideNumber(*limit);
+        }
+    }
+    return writer.bytes;
+}
 auto response(const Message &message) -> Message {
     Reader     reader{message.payload};
     const auto ok    = reader.number();
@@ -88,7 +173,9 @@ struct Session::Impl {
         std::function<void(Message, std::exception_ptr)> complete;
     };
     SessionSpec                                     spec;
-    Channel                                         control = Channel::create();
+    Channel                                         control;
+    std::vector<Fd>                                 retained;
+    std::vector<std::string>                        launchCommands;
     std::vector<Channel>                            channels;
     Fd                                              notification, liveness, process;
     pid_t                                           pid{-1};
@@ -104,6 +191,18 @@ struct Session::Impl {
         if (spec.programs.size() > 16 || spec.supervisor.empty()) {
             throw std::invalid_argument("session requires supervisor path and at most 16 programs");
         }
+        // Validate every program and complete encoded command before allocating
+        // infrastructure or starting the supervisor. Snapshot borrowed fds first.
+        std::vector<int> sources;
+        for (std::size_t i = 0; i != spec.programs.size(); ++i) {
+            launchCommands.push_back(encodeProgram(spec.programs[i], i, spec.programs.size(), sources));
+        }
+        for (int source : sources) {
+            Fd fd(::fcntl(source, F_DUPFD_CLOEXEC, 3));
+            systemCheck(fd.value >= 0, "retain borrowed program descriptor");
+            retained.push_back(std::move(fd));
+        }
+        control = Channel::create();
         notification.reset(::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
         systemCheck(notification.value >= 0, "session eventfd");
         for (std::size_t i = 0; i != spec.programs.size(); ++i) {
@@ -121,9 +220,15 @@ struct Session::Impl {
 
         // Copy sources above the complete destination range before adding dup2
         // actions. This avoids overwriting another channel's source descriptor.
+        int firstScratch = runnerDescriptor(channels.size()) + 1 + static_cast<int>(retained.size());
+        for (const auto &program : spec.programs) {
+            for (const auto &mapping : program.inheritedFds) {
+                firstScratch = std::max(firstScratch, mapping.target + 1);
+            }
+        }
         std::vector<Fd> inherited;
         auto            retain = [&](int source) {
-            Fd fd(::fcntl(source, F_DUPFD_CLOEXEC, 128));
+            Fd fd(::fcntl(source, F_DUPFD_CLOEXEC, firstScratch));
             systemCheck(fd.value >= 0, "retain inherited descriptor");
             inherited.push_back(std::move(fd));
         };
@@ -136,6 +241,9 @@ struct Session::Impl {
             }
         }
         retain(runner.value);
+        for (const auto &fd : retained) {
+            retain(fd.value);
+        }
         retain(input.value);
         struct stat original{};
         systemCheck(::stat("/proc/self/ns/net", &original) == 0, "inspect original network namespace");
@@ -149,7 +257,8 @@ struct Session::Impl {
                                            "--mount-proc",
                                            spec.supervisor,
                                            std::to_string(channels.size()),
-                                           std::to_string(original.st_ino)};
+                                           std::to_string(original.st_ino),
+                                           std::to_string(retained.size())};
         std::vector<char *>      argv;
         argv.reserve(arguments.size() + 1);
         argv.reserve(arguments.size());
@@ -170,7 +279,8 @@ struct Session::Impl {
             error = ::posix_spawn_file_actions_adddup2(&actions, inherited.back().value, STDIN_FILENO);
         }
         if (!error) {
-            error = ::posix_spawn_file_actions_addclosefrom_np(&actions, runnerDescriptor(channels.size()) + 1);
+            error = ::posix_spawn_file_actions_addclosefrom_np(&actions,
+                                                               runnerDescriptor(channels.size()) + 1 + static_cast<int>(retained.size()));
         }
         if (!error) {
             // The supervisor and its descendants need a fresh process mask,
@@ -437,26 +547,9 @@ auto Session::start(SessionSpec spec) -> awaitable<Session> {
 }
 auto Session::launch(std::size_t program) -> awaitable<> {
     checkActive();
-    const auto &spec = impl_->spec.programs.at(program);
-    Writer      writer;
-    writer.number(static_cast<unsigned>(Command::launch));
-    writer.number(static_cast<unsigned>(program));
-    writer.text(spec.node);
-    writer.number(static_cast<unsigned>(spec.argv.size()));
-    for (const auto &argument : spec.argv) {
-        if (argument.find('\0') != std::string::npos) {
-            throw std::invalid_argument("NUL in program argument");
-        }
-        writer.text(argument);
-    }
-    writer.number(static_cast<unsigned>(spec.environment.size()));
-    for (const auto &[key, value] : spec.environment) {
-        writer.text(key);
-        writer.text(value);
-    }
-    writer.text(spec.workingDirectory);
+    auto command = impl_->launchCommands.at(program);
     try {
-        (void)co_await request(std::move(writer.bytes));
+        (void)co_await request(std::move(command));
     } catch (...) {
         impl_->close();
         throw;

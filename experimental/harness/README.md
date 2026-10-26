@@ -136,7 +136,7 @@ keeps the liveness pipe open. Both signals are watched during setup, command
 execution and normal operation. Tests cover partial setup, failed exec, abrupt
 peer death, cancellation, TERM-ignoring descendants and a killed test runner
 whose forked child retains the pipe writer.
-Only explicitly selected channel descriptors survive child exec.
+Only explicitly selected channels and program descriptor mappings survive child exec.
 
 Run trusted test binaries: they retain the calling user's filesystem access.
 This POC isolates network stacks and process lifetime, not hostile code or files.
@@ -282,3 +282,43 @@ deadlines and fail on unexpected packet loss or missing progress. The peer uses
 an Asio descriptor wait on a duplicate of `Channel::notificationFd()`; only
 `Channel::tryReceive()` consumes that notification, keeping control coordination
 on the same event loop as UDP without a polling thread.
+
+## Child descriptors, output files and limits
+
+`Program::inheritedFds` accepts up to eight `InheritedFd{source, target}` mappings.
+Sources are borrowed caller descriptors. Keep them open until the awaited
+`Session::start()` returns; startup retains owned copies for every program,
+including programs launched later. Closing the originals afterwards is safe.
+The copies share file offsets and status flags with the originals. Directory
+sources can serve as `openat()` anchors even if their pathname is replaced.
+
+Targets must be unique integers from 3 through 255. The session reserves channel
+descriptors 3 through `5 + 3 * programCount`; explicit mappings cannot use that
+range. The selected program's own channel and explicit mappings survive exec;
+other programs' descriptors do not. Sources and targets may overlap or form
+cycles. Startup validates all program descriptions and their complete 4096-byte
+encoded messages before starting the supervisor.
+
+Set `Program::standardOutputFd` or `standardErrorFd` to a writable regular-file
+descriptor to send that stream directly to the file. The harness does not open,
+truncate, rotate or copy the file, and preserves its append mode. A redirected
+stream has an empty `ProcessResult` capture field. Unredirected streams retain
+the usual 1500-byte tails; `outputTruncated` describes discarded captured output
+only. No supervisor thread writes or tees log data.
+
+`Program::childLimits` optionally holds `ChildLimits`, whose optional
+`std::uint64_t` fields are `coreBytes`, `openFiles`, `fileBytes` and `cpuSeconds`.
+They set both the soft and hard Linux `RLIMIT_CORE`, `RLIMIT_NOFILE`,
+`RLIMIT_FSIZE` and `RLIMIT_CPU` limits, respectively. Omitted fields preserve the
+inherited soft/hard pair. Requested values must be finite and no greater than
+the inherited hard limit; `cpuSeconds` must be positive. `openFiles` must exceed
+every final descriptor number, including the selected channel. Limits apply in
+the child after descriptor mappings, without changing the runner or supervisor.
+A file-size limit can terminate a logging child with `SIGXFSZ`; inspect the exit
+result to distinguish a bounded log from a successful run.
+
+Descriptor or resource-limit validation errors fail startup. Child setup errors
+(such as failed `chdir()` or `setrlimit()`) fail `launch()` with a diagnostic even
+when stderr is redirected. Executable lookup failures remain exit results with
+code 127 and a diagnostic on the selected stderr stream. A launch failure closes
+the session and cleans up its children.

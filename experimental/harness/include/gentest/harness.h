@@ -3,7 +3,9 @@
 #include "gentest/async.h"
 #include "gentest/harness_client.h"
 
+#include <cstdint>
 #include <functional>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -39,11 +41,22 @@ struct Topology {
     std::vector<Route> routes;
     std::vector<Nat>   nats;
 };
+struct InheritedFd {
+    int source{-1}, target{-1};
+};
+struct ChildLimits {
+    std::optional<std::uint64_t> coreBytes, openFiles, fileBytes, cpuSeconds;
+};
 struct Program {
     std::string                                      node;
     std::vector<std::string>                         argv;
     std::vector<std::pair<std::string, std::string>> environment;
     std::string                                      workingDirectory;
+
+    // Borrowed until awaited Session::start() returns; the session retains copies.
+    std::vector<InheritedFd>   inheritedFds;
+    std::optional<int>         standardOutputFd, standardErrorFd;
+    std::optional<ChildLimits> childLimits;
 };
 struct ProcessResult {
     bool        running{};
