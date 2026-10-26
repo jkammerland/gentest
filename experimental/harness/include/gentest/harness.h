@@ -11,8 +11,10 @@ namespace gentest::harness {
 struct Node {
     std::string name;
 
-    // Enable kernel IPv4 routing independently of application-level packet forwarding.
+    // Enable kernel routing independently for each address family. False leaves
+    // the new network namespace's default unchanged.
     bool ipv4Forwarding{};
+    bool ipv6Forwarding{};
 
     std::string bridgeAddress;
 };

@@ -275,7 +275,7 @@ struct Network {
         }
     }
     auto fd(const std::string &name) -> int { return nodes.at(name).value; }
-    void node(const std::string &name, bool ipv4Forwarding, const std::string &bridge) {
+    void node(const std::string &name, bool ipv4Forwarding, bool ipv6Forwarding, const std::string &bridge) {
         owner.check();
         identifier(name);
         if (nodes.contains(name)) {
@@ -320,6 +320,9 @@ struct Network {
         if (ipv4Forwarding) {
             run(owner, fd(name), {"sysctl", "-q", "-w", "net.ipv4.ip_forward=1"});
         }
+        if (ipv6Forwarding) {
+            run(owner, fd(name), {"sysctl", "-q", "-w", "net.ipv6.conf.all.forwarding=1"});
+        }
         if (!bridge.empty()) {
             run(owner, fd(name), {"ip", "link", "add", "br0", "type", "bridge"});
             run(owner, fd(name), {"ip", "address", "add", bridge, "dev", "br0"});
@@ -334,8 +337,9 @@ struct Network {
         for (unsigned i = 0; i != count; ++i) {
             const auto name           = reader.text();
             const auto ipv4Forwarding = reader.number();
+            const auto ipv6Forwarding = reader.number();
             const auto bridge         = reader.text();
-            node(name, ipv4Forwarding != 0, bridge);
+            node(name, ipv4Forwarding != 0, ipv6Forwarding != 0, bridge);
         }
         const auto links = reader.number();
         for (unsigned i = 0; i != links; ++i) {

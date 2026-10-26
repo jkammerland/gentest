@@ -30,6 +30,7 @@ auto encode(const Topology &topology) -> std::string {
     for (const auto &node : topology.nodes) {
         writer.text(node.name);
         writer.number(node.ipv4Forwarding);
+        writer.number(node.ipv6Forwarding);
         writer.text(node.bridgeAddress);
     }
     writer.number(static_cast<unsigned>(topology.links.size()));

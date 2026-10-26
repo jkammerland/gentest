@@ -326,6 +326,67 @@ auto cleanup() -> awaitable<> {
     expect_eq(namespaceProcesses(inode), 0U);
 }
 
+auto forwarding() -> awaitable<> {
+    SessionSpec spec;
+    spec.supervisor     = HARNESS_SUPERVISOR;
+    spec.topology.nodes = {{.name = "defaults"},
+                           {.name = "ipv4", .ipv4Forwarding = true},
+                           {.name = "ipv6", .ipv6Forwarding = true},
+                           {.name = "both", .ipv4Forwarding = true, .ipv6Forwarding = true}};
+    for (const auto &node : spec.topology.nodes) {
+        spec.programs.push_back({.node             = node.name,
+                                 .argv             = {"sysctl", "-n", "net.ipv4.ip_forward", "net.ipv6.conf.all.forwarding"},
+                                 .environment      = {},
+                                 .workingDirectory = {}});
+    }
+
+    // Observe fresh kernel defaults independently of the harness configuration.
+    // A false flag must preserve them even on hosts whose IPv4 default is one.
+    spec.programs.push_back({.node        = "defaults",
+                             .argv        = {"unshare", "--net", "sysctl", "-n", "net.ipv4.ip_forward", "net.ipv6.conf.all.forwarding"},
+                             .environment = {},
+                             .workingDirectory = {}});
+    auto                       session = co_await Session::start(std::move(spec));
+    std::array<std::string, 5> observed;
+    for (std::size_t i = 0; i != observed.size(); ++i) {
+        co_await session.launch(i);
+        const auto result = co_await session.wait(i);
+        assert_true(result.succeeded(), result.standardError);
+        expect_false(result.outputTruncated);
+        observed[i] = result.standardOutput;
+    }
+    co_await session.stop();
+
+    std::istringstream baseline(observed[4]);
+    unsigned           ipv4{}, ipv6{};
+    assert_true(static_cast<bool>(baseline >> ipv4 >> ipv6), "missing fresh namespace forwarding defaults");
+    expect_eq(observed[0], observed[4]);
+    expect_eq(observed[1], "1\n" + std::to_string(ipv6) + '\n');
+    expect_eq(observed[2], std::to_string(ipv4) + "\n1\n");
+    expect_eq(observed[3], std::string("1\n1\n"));
+}
+
+auto forwardingFailure() -> awaitable<> {
+    auto spec           = local({});
+    spec.supervisor     = HARNESS_FORWARDING_FAILURE_SUPERVISOR;
+    spec.topology.nodes = {{.name = "configured", .ipv4Forwarding = true}, {.name = "failing", .ipv6Forwarding = true}};
+
+    std::string failure;
+    try {
+        (void)co_await Session::start(std::move(spec));
+    } catch (const std::runtime_error &error) { failure = error.what(); }
+    expect_true(failure.starts_with("namespace command failed: sysctl:"));
+
+    // The failing command publishes its live PID namespace before unwinding.
+    // Its supervisor and all previously created keepers must already be gone.
+    const std::string marker   = "injected IPv6 forwarding failure in PID namespace ";
+    const auto        position = failure.find(marker);
+    assert_true(position != std::string::npos, failure);
+    const auto inode = std::stoull(failure.substr(position + marker.size()));
+    assert_true(inode != 0, "missing failed session namespace");
+    expect_eq(namespaceProcesses(inode), 0U);
+}
+
 auto command(Session &session, unsigned peer, unsigned tag, std::string payload = {}) -> awaitable<std::string> {
     session.send(peer, {.tag = tag, .payload = std::move(payload)});
     auto message = co_await session.receive(peer);

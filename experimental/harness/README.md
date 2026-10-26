@@ -132,8 +132,14 @@ chooses node names, addresses, connections and programs. The harness creates the
 network, applies its configuration and manages process lifetime; application
 protocols and traffic patterns belong to the child programs.
 
-`Node::ipv4Forwarding` enables kernel IPv4 routing. Application-level UDP
-forwarding, such as the ring example, works with this setting off.
+`Node::ipv4Forwarding` and `Node::ipv6Forwarding` independently enable kernel
+IPv4 and IPv6 routing in that node's network namespace. Both flags default to
+`false`, which leaves the new namespace's kernel defaults unchanged; it does not
+force forwarding off. Setting both flags enables dual-stack routing. Application-level
+UDP forwarding, such as the ring example, does not require either flag.
+Enabling IPv6 forwarding requires kernel IPv6 support; a failed sysctl fails
+session startup and tears down the partially configured topology.
+
 `Nat::insideInterface` and `Nat::outsideInterface` name interfaces within
 `Nat::node`'s network namespace.
 

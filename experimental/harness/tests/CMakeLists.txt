@@ -12,6 +12,14 @@ target_compile_definitions(gentest_harness_tests PRIVATE
 add_dependencies(gentest_harness_tests gentest_harness_peer gentest_harness_stalled)
 gentest_attach_codegen(gentest_harness_tests)
 
+# Exercise real setup unwinding when the IPv6 sysctl command cannot execute.
+add_executable(gentest_harness_forwarding_failure_supervisor ../src/supervisor.cpp forwarding_failure.cpp)
+target_link_libraries(gentest_harness_forwarding_failure_supervisor PRIVATE gentest::harness_client)
+target_link_options(gentest_harness_forwarding_failure_supervisor PRIVATE "LINKER:--wrap=execvp")
+target_compile_definitions(gentest_harness_tests PRIVATE
+    HARNESS_FORWARDING_FAILURE_SUPERVISOR="$<TARGET_FILE:gentest_harness_forwarding_failure_supervisor>")
+add_dependencies(gentest_harness_tests gentest_harness_forwarding_failure_supervisor)
+
 add_executable(gentest_harness_owner owner.cpp)
 target_link_libraries(gentest_harness_owner PRIVATE gentest::gentest_main gentest::harness)
 target_compile_definitions(gentest_harness_owner PRIVATE
