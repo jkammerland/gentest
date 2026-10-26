@@ -242,13 +242,17 @@ struct Session::Impl {
                 stop = closing;
                 if (!failure) {
                     try {
+                        // Observe exit before draining so the supervisor's final
+                        // replies still complete their requests after it exits.
+                        pollfd    exited{.fd = process.value, .events = POLLIN, .revents = 0};
+                        const int exitStatus = ::poll(&exited, 1, 0);
+                        systemCheck(exitStatus >= 0 || errno == EINTR, "poll supervisor exit");
                         while (auto message = control.tryReceive()) {
                             if (auto it = replies.find(message->tag); it != replies.end()) {
                                 it->second = std::move(*message);
                             }
                         }
-                        pollfd exited{.fd = process.value, .events = POLLIN, .revents = 0};
-                        if (::poll(&exited, 1, 0) == 1) {
+                        if (exitStatus == 1) {
                             throw std::runtime_error("rootless supervisor exited; check namespace/tool prerequisites and stderr");
                         }
                     } catch (...) { failure = std::current_exception(); }

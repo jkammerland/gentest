@@ -21,6 +21,19 @@ gentest_attach_codegen(gentest_harness_owner)
 target_compile_definitions(gentest_harness_tests PRIVATE HARNESS_OWNER="$<TARGET_FILE:gentest_harness_owner>")
 add_dependencies(gentest_harness_tests gentest_harness_owner)
 
+# Keep scheduling instrumentation out of the ordinary session test executable.
+add_executable(gentest_harness_shutdown_supervisor shutdown_supervisor.cpp)
+target_link_libraries(gentest_harness_shutdown_supervisor PRIVATE gentest::harness_client)
+add_executable(gentest_harness_shutdown_tests shutdown.cpp)
+target_link_libraries(gentest_harness_shutdown_tests PRIVATE gentest::harness)
+target_link_options(gentest_harness_shutdown_tests PRIVATE "LINKER:--wrap=poll")
+target_compile_definitions(gentest_harness_shutdown_tests PRIVATE
+    HARNESS_SHUTDOWN_SUPERVISOR="$<TARGET_FILE:gentest_harness_shutdown_supervisor>")
+add_dependencies(gentest_harness_shutdown_tests gentest_harness_shutdown_supervisor)
+add_test(NAME harness_shutdown_ack COMMAND gentest_harness_shutdown_tests ack)
+add_test(NAME harness_shutdown_missing_ack COMMAND gentest_harness_shutdown_tests missing)
+set_tests_properties(harness_shutdown_ack harness_shutdown_missing_ack PROPERTIES TIMEOUT 30 LABELS harness)
+
 # Explicit opt-in gates fail on missing prerequisites, never skip network claims.
 add_test(NAME harness_ipc COMMAND gentest_harness_tests --filter=harness_tests/harness/ipc/* --fail-on-empty)
 add_test(NAME harness_session COMMAND gentest_harness_tests --filter=harness_tests/harness/session/* --fail-on-empty)
