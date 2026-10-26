@@ -31,7 +31,7 @@ struct Directory {
 auto shutdown(bool acknowledge) -> gentest::awaitable<> {
     gentest::harness::SessionSpec spec;
     spec.supervisor = HARNESS_SHUTDOWN_SUPERVISOR;
-    spec.topology.nodes.push_back({.name = "host", .forwarding = false, .bridgeAddress = {}});
+    spec.topology.nodes.push_back({.name = "host", .ipv4Forwarding = false, .bridgeAddress = {}});
     auto session = co_await gentest::harness::Session::start(std::move(spec));
 
     std::string failure;

@@ -127,7 +127,7 @@ void channelOwnerDeath() {
 auto local(std::vector<std::string> modes) -> SessionSpec {
     SessionSpec spec;
     spec.supervisor = HARNESS_SUPERVISOR;
-    spec.topology.nodes.push_back({.name = "host", .forwarding = false, .bridgeAddress = {}});
+    spec.topology.nodes.push_back({.name = "host", .ipv4Forwarding = false, .bridgeAddress = {}});
     for (auto &mode : modes) {
         spec.programs.push_back({.node = "host", .argv = {HARNESS_PEER, std::move(mode)}, .environment = {}, .workingDirectory = {}});
     }
@@ -212,7 +212,7 @@ auto failures() -> awaitable<> {
     co_await session.stop();
 
     auto invalid = local({});
-    invalid.topology.nodes.push_back({.name = "bad!name", .forwarding = false, .bridgeAddress = {}});
+    invalid.topology.nodes.push_back({.name = "bad!name", .ipv4Forwarding = false, .bridgeAddress = {}});
     bool rejected = false;
     try {
         (void)co_await Session::start(std::move(invalid));

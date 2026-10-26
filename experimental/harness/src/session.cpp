@@ -29,7 +29,7 @@ auto encode(const Topology &topology) -> std::string {
     writer.number(static_cast<unsigned>(topology.nodes.size()));
     for (const auto &node : topology.nodes) {
         writer.text(node.name);
-        writer.number(node.forwarding);
+        writer.number(node.ipv4Forwarding);
         writer.text(node.bridgeAddress);
     }
     writer.number(static_cast<unsigned>(topology.links.size()));
@@ -49,8 +49,8 @@ auto encode(const Topology &topology) -> std::string {
     writer.number(static_cast<unsigned>(topology.nats.size()));
     for (const auto &nat : topology.nats) {
         writer.text(nat.node);
-        writer.text(nat.inside);
-        writer.text(nat.outside);
+        writer.text(nat.insideInterface);
+        writer.text(nat.outsideInterface);
     }
     return writer.bytes;
 }

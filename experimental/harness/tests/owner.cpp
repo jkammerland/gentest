@@ -11,7 +11,7 @@ auto ownerVictim() -> gentest::awaitable<> {
     using namespace gentest::harness;
     SessionSpec spec;
     spec.supervisor = HARNESS_SUPERVISOR;
-    spec.topology.nodes.push_back({.name = "host", .forwarding = false, .bridgeAddress = {}});
+    spec.topology.nodes.push_back({.name = "host", .ipv4Forwarding = false, .bridgeAddress = {}});
     spec.programs.push_back({.node = "host", .argv = {HARNESS_PEER, "fork"}, .environment = {}, .workingDirectory = {}});
     auto session = co_await Session::start(std::move(spec));
     co_await session.launch(0);
