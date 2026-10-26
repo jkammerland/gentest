@@ -112,6 +112,11 @@ struct Session::Impl {
         Fd input(life[0]);
         liveness.reset(life[1]);
 
+        // A forked child can retain the liveness writer after the runner dies.
+        // Pass the runner's identity separately so such copies cannot hide exit.
+        Fd runner(static_cast<int>(::syscall(SYS_pidfd_open, ::getpid(), 0)));
+        systemCheck(runner.value >= 0, "runner pidfd_open");
+
         // Copy sources above the complete destination range before adding dup2
         // actions. This avoids overwriting another channel's source descriptor.
         std::vector<Fd> inherited;
@@ -128,6 +133,7 @@ struct Session::Impl {
                 retain(fd);
             }
         }
+        retain(runner.value);
         retain(input.value);
         struct stat original{};
         systemCheck(::stat("/proc/self/ns/net", &original) == 0, "inspect original network namespace");
@@ -162,7 +168,7 @@ struct Session::Impl {
             error = ::posix_spawn_file_actions_adddup2(&actions, inherited.back().value, STDIN_FILENO);
         }
         if (!error) {
-            error = ::posix_spawn_file_actions_addclosefrom_np(&actions, 2 + static_cast<int>(inherited.size()));
+            error = ::posix_spawn_file_actions_addclosefrom_np(&actions, runnerDescriptor(channels.size()) + 1);
         }
         if (!error) {
             error = ::posix_spawnp(&pid, argv[0], &actions, nullptr, argv.data(), environ);
@@ -184,8 +190,8 @@ struct Session::Impl {
 
     ~Impl() { close(); }
     void close() noexcept {
-        // Closing the sole writer requests cleanup even if the owner never
-        // reached the explicit async stop operation.
+        // Closing liveness requests cleanup without an explicit async stop.
+        // The bounded fallback also handles writers retained by forked children.
         liveness.reset();
         if (pid > 0) {
             pollfd pending{.fd = process.value, .events = POLLIN, .revents = 0};

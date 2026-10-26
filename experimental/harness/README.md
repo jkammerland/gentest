@@ -107,9 +107,12 @@ shell, daemon, sudo, host firewall modification or persistent `/run/netns` entry
 Session destruction closes a liveness pipe, requests child termination and reaps
 the supervisor. Each child gets a one-second TERM grace period, then KILL. The
 parent allows five seconds for cleanup before killing the `unshare` wrapper;
-`--kill-child=KILL` and PID-namespace teardown kill remaining descendants. The
-same pipe detects runner crashes. Tests cover partial setup, failed exec, abrupt
-peer death, cancellation, TERM-ignoring descendants and a killed test runner.
+`--kill-child=KILL` and PID-namespace teardown kill remaining descendants. An
+inherited runner pidfd independently detects runner exit, even if a forked child
+keeps the liveness pipe open. Both signals are watched during setup, command
+execution and normal operation. Tests cover partial setup, failed exec, abrupt
+peer death, cancellation, TERM-ignoring descendants and a killed test runner
+whose forked child retains the pipe writer.
 Only explicitly selected channel descriptors survive child exec.
 
 Run trusted test binaries: they retain the calling user's filesystem access.

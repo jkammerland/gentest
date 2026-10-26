@@ -241,6 +241,24 @@ auto startup() -> awaitable<> {
     co_await recovered.stop();
 }
 
+auto descriptorLimits() -> awaitable<> {
+    // The runner pidfd follows all participant triples. Exercise both ends of
+    // that layout and exchange distinct payloads through every populated slot.
+    for (const std::size_t count : {0U, 16U}) {
+        auto session = co_await Session::start(local(std::vector<std::string>(count, "echo")));
+        for (std::size_t i = 0; i != count; ++i) {
+            co_await session.launch(i);
+            expect_eq((co_await session.receive(i)).payload, std::string("ready"));
+            const auto payload = "participant-" + std::to_string(i);
+            session.send(i, {.tag = 1, .payload = payload});
+            expect_eq((co_await session.receive(i)).payload, payload);
+            session.send(i, {.tag = 9, .payload = {}});
+            expect_true((co_await session.wait(i)).succeeded());
+        }
+        co_await session.stop();
+    }
+}
+
 auto namespaceProcesses(std::uint64_t inode) -> unsigned {
     unsigned found{};
     for (const auto &entry : std::filesystem::directory_iterator("/proc")) {

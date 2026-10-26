@@ -45,6 +45,38 @@ void identifier(std::string_view text) {
     }
 }
 
+struct OwnerExited : std::runtime_error {
+    OwnerExited() : std::runtime_error("session owner exited") {}
+};
+
+struct OwnerWatch {
+    Fd process;
+    explicit OwnerWatch(unsigned participants) : process(runnerDescriptor(participants)) {
+        systemCheck(::fcntl(process.value, F_SETFD, FD_CLOEXEC) == 0, "protect runner pidfd");
+    }
+
+    // The pipe detects session destruction; the pidfd detects runner death even
+    // when an unrelated forked child still holds a copy of the pipe writer.
+    void check() const {
+        std::array<pollfd, 2> fds{
+            {{.fd = STDIN_FILENO, .events = POLLHUP, .revents = 0}, {.fd = process.value, .events = POLLIN, .revents = 0}}};
+        int result;
+        do {
+            result = ::poll(fds.data(), fds.size(), 0);
+        } while (result < 0 && errno == EINTR);
+        systemCheck(result >= 0, "poll session owner");
+        for (const auto &fd : fds) {
+            if (static_cast<unsigned>(fd.revents) & (static_cast<unsigned>(POLLERR) | static_cast<unsigned>(POLLNVAL))) {
+                throw std::runtime_error("invalid session owner descriptor");
+            }
+        }
+        if ((static_cast<unsigned>(fds[0].revents) & POLLHUP) ||
+            (static_cast<unsigned>(fds[1].revents) & (static_cast<unsigned>(POLLIN) | static_cast<unsigned>(POLLHUP)))) {
+            throw OwnerExited{};
+        }
+    }
+};
+
 struct Child {
     pid_t       pid{-1};
     Fd          pidfd, output, error;
@@ -197,7 +229,8 @@ void stopChild(Child &child) {
     }
     collect(child);
 }
-auto run(int net, std::vector<std::string> arguments, std::string input = {}) -> std::string {
+auto run(const OwnerWatch &owner, int net, std::vector<std::string> arguments, std::string input = {}) -> std::string {
+    owner.check();
     auto       child    = spawn(net, arguments, std::move(input));
     const auto deadline = std::chrono::steady_clock::now() + 5s;
     try {
@@ -206,14 +239,13 @@ auto run(int net, std::vector<std::string> arguments, std::string input = {}) ->
             if (remaining <= 0 || interrupted) {
                 throw std::runtime_error("namespace command timed out/cancelled: " + arguments[0]);
             }
-            std::array<pollfd, 4> fds{{{.fd = child.pidfd.value, .events = POLLIN, .revents = 0},
+            std::array<pollfd, 5> fds{{{.fd = child.pidfd.value, .events = POLLIN, .revents = 0},
                                        {.fd = child.output.value, .events = POLLIN, .revents = 0},
                                        {.fd = child.error.value, .events = POLLIN, .revents = 0},
-                                       {.fd = STDIN_FILENO, .events = POLLHUP, .revents = 0}}};
+                                       {.fd = STDIN_FILENO, .events = POLLHUP, .revents = 0},
+                                       {.fd = owner.process.value, .events = POLLIN, .revents = 0}}};
             systemCheck(::poll(fds.data(), fds.size(), static_cast<int>(remaining)) >= 0 || errno == EINTR, "poll command");
-            if (static_cast<unsigned>(fds[3].revents) & POLLHUP) {
-                throw std::runtime_error("session owner exited");
-            }
+            owner.check();
             collect(child);
         }
     } catch (...) {
@@ -227,8 +259,10 @@ auto run(int net, std::vector<std::string> arguments, std::string input = {}) ->
 }
 
 struct Network {
+    const OwnerWatch         &owner;
     std::map<std::string, Fd> nodes;
     std::vector<Child>        keepers;
+    explicit Network(const OwnerWatch &watch) : owner(watch) {}
     ~Network() {
         for (auto &keeper : keepers) {
             try {
@@ -242,6 +276,7 @@ struct Network {
     }
     auto fd(const std::string &name) -> int { return nodes.at(name).value; }
     void node(const std::string &name, bool forwarding, const std::string &bridge) {
+        owner.check();
         identifier(name);
         if (nodes.contains(name)) {
             throw std::runtime_error("duplicate network node");
@@ -269,22 +304,26 @@ struct Network {
             throw std::runtime_error("namespace keeper pidfd_open failed");
         }
         keepers.push_back(std::move(keeper));
-        pollfd pending{.fd = ready[0].value, .events = POLLIN, .revents = 0};
-        char   byte{};
-        if (::poll(&pending, 1, 3000) != 1 || ::read(ready[0].value, &byte, 1) != 1) {
+        std::array<pollfd, 3> pending{{{.fd = ready[0].value, .events = POLLIN, .revents = 0},
+                                       {.fd = STDIN_FILENO, .events = POLLHUP, .revents = 0},
+                                       {.fd = owner.process.value, .events = POLLIN, .revents = 0}}};
+        const int             result = ::poll(pending.data(), pending.size(), 3000);
+        owner.check();
+        char byte{};
+        if (result <= 0 || !(static_cast<unsigned>(pending[0].revents) & POLLIN) || ::read(ready[0].value, &byte, 1) != 1) {
             throw std::runtime_error("network namespace startup failed");
         }
         Fd descriptor(::open(("/proc/" + std::to_string(pid) + "/ns/net").c_str(), O_RDONLY | O_CLOEXEC));
         systemCheck(descriptor.value >= 0, "open network namespace");
         nodes.emplace(name, std::move(descriptor));
-        run(fd(name), {"ip", "link", "set", "dev", "lo", "up"});
+        run(owner, fd(name), {"ip", "link", "set", "dev", "lo", "up"});
         if (forwarding) {
-            run(fd(name), {"sysctl", "-q", "-w", "net.ipv4.ip_forward=1"});
+            run(owner, fd(name), {"sysctl", "-q", "-w", "net.ipv4.ip_forward=1"});
         }
         if (!bridge.empty()) {
-            run(fd(name), {"ip", "link", "add", "br0", "type", "bridge"});
-            run(fd(name), {"ip", "address", "add", bridge, "dev", "br0"});
-            run(fd(name), {"ip", "link", "set", "dev", "br0", "up"});
+            run(owner, fd(name), {"ip", "link", "add", "br0", "type", "bridge"});
+            run(owner, fd(name), {"ip", "address", "add", bridge, "dev", "br0"});
+            run(owner, fd(name), {"ip", "link", "set", "dev", "br0", "up"});
         }
     }
     void configure(Reader &reader) {
@@ -307,24 +346,24 @@ struct Network {
             // Namespace descriptors remain open in the supervisor, so ip can
             // reference them without persistent names or host namespace mounts.
             const auto destination = "/proc/" + std::to_string(::getpid()) + "/fd/";
-            run(-1, {"ip", "link", "add", "vleft", "type", "veth", "peer", "name", "vright"});
-            run(-1, {"ip", "link", "set", "dev", "vleft", "netns", destination + std::to_string(fd(left))});
-            run(-1, {"ip", "link", "set", "dev", "vright", "netns", destination + std::to_string(fd(right))});
+            run(owner, -1, {"ip", "link", "add", "vleft", "type", "veth", "peer", "name", "vright"});
+            run(owner, -1, {"ip", "link", "set", "dev", "vleft", "netns", destination + std::to_string(fd(left))});
+            run(owner, -1, {"ip", "link", "set", "dev", "vright", "netns", destination + std::to_string(fd(right))});
             for (const auto &[name, temporary, interface, address] :
                  {std::tuple{left, std::string("vleft"), li, la}, std::tuple{right, std::string("vright"), ri, ra}}) {
-                run(fd(name), {"ip", "link", "set", "dev", temporary, "name", interface});
+                run(owner, fd(name), {"ip", "link", "set", "dev", temporary, "name", interface});
                 if (address.empty()) {
-                    run(fd(name), {"ip", "link", "set", "dev", interface, "master", "br0"});
+                    run(owner, fd(name), {"ip", "link", "set", "dev", interface, "master", "br0"});
                 } else {
-                    run(fd(name), {"ip", "address", "add", address, "dev", interface});
+                    run(owner, fd(name), {"ip", "address", "add", address, "dev", interface});
                 }
-                run(fd(name), {"ip", "link", "set", "dev", interface, "up"});
+                run(owner, fd(name), {"ip", "link", "set", "dev", interface, "up"});
             }
         }
         const auto routes = reader.number();
         for (unsigned i = 0; i != routes; ++i) {
             const auto name = reader.text(), destination = reader.text(), gateway = reader.text();
-            run(fd(name), {"ip", "route", "add", destination, "via", gateway});
+            run(owner, fd(name), {"ip", "route", "add", destination, "via", gateway});
         }
         const auto nats = reader.number();
         for (unsigned i = 0; i != nats; ++i) {
@@ -352,7 +391,7 @@ struct Network {
                   << outside << "\" oifname \"" << inside
                   << "\" ct state established,related counter name inbound accept\n"
                      "counter name blocked drop\n}\n}\n";
-            run(fd(name), {"nft", "-f", "-"}, rules.str());
+            run(owner, fd(name), {"nft", "-f", "-"}, rules.str());
         }
         reader.end();
     }
@@ -380,13 +419,14 @@ void supervise(unsigned count, std::string_view originalNamespace) {
         throw std::runtime_error("supervisor requires a private rootless user/network/PID namespace tree");
     }
     systemCheck(::signal(SIGTERM, interrupt) != SIG_ERR && ::signal(SIGINT, interrupt) != SIG_ERR, "supervisor signals");
+    OwnerWatch           owner(count);
     auto                 control = Channel::attach({3, 4, 5});
     std::vector<Channel> channels;
     for (unsigned i = 0; i != count; ++i) {
         const int base = 6 + static_cast<int>(i) * 3;
         channels.push_back(Channel::attach({base, base + 1, base + 2}));
     }
-    Network                                         network;
+    Network                                         network(owner);
     std::map<unsigned, Child>                       children;
     std::vector<std::pair<std::uint32_t, unsigned>> waiters;
     auto                                            reply = [&](std::uint32_t tag, bool ok, const std::string &value) {
@@ -395,9 +435,16 @@ void supervise(unsigned count, std::string_view originalNamespace) {
         body.text(value);
         control.send({.tag = tag, .payload = std::move(body.bytes)});
     };
+    const auto stopChildren = [&] {
+        for (auto &[index, child] : children) {
+            stopChild(child);
+        }
+    };
+
     bool stopping = false;
     try {
         while (!stopping && !interrupted) {
+            owner.check();
             for (auto &[index, child] : children) {
                 collect(child);
                 if (child.done) {
@@ -413,6 +460,7 @@ void supervise(unsigned count, std::string_view originalNamespace) {
                 }
             }
             while (auto message = control.tryReceive()) {
+                owner.check();
                 try {
                     Reader     reader{message->payload};
                     const auto command = static_cast<Command>(reader.number());
@@ -471,7 +519,7 @@ void supervise(unsigned count, std::string_view originalNamespace) {
                         if (arguments.empty() || (arguments[0] != "ip" && arguments[0] != "nft" && arguments[0] != "tc")) {
                             throw std::runtime_error("execute supports ip, nft and tc only");
                         }
-                        reply(message->tag, true, run(network.fd(node), arguments, input));
+                        reply(message->tag, true, run(owner, network.fd(node), arguments, input));
                         continue;
                     } else if (command == Command::shutdown) {
                         reader.end();
@@ -484,7 +532,9 @@ void supervise(unsigned count, std::string_view originalNamespace) {
                         throw std::runtime_error("unknown supervisor command");
                     }
                     reply(message->tag, true, {});
-                } catch (const std::exception &failure) { reply(message->tag, false, failure.what()); }
+                } catch (const OwnerExited &) { throw; } catch (const std::exception &failure) {
+                    reply(message->tag, false, failure.what());
+                }
                 if (stopping) {
                     break;
                 }
@@ -493,6 +543,7 @@ void supervise(unsigned count, std::string_view originalNamespace) {
                 break;
             }
             std::vector<pollfd> fds{{.fd = STDIN_FILENO, .events = POLLHUP, .revents = 0},
+                                    {.fd = owner.process.value, .events = POLLIN, .revents = 0},
                                     {.fd = control.notificationFd(), .events = POLLIN, .revents = 0}};
             for (auto &[index, child] : children) {
                 if (!child.done) {
@@ -506,17 +557,18 @@ void supervise(unsigned count, std::string_view originalNamespace) {
                 }
             }
             systemCheck(::poll(fds.data(), fds.size(), -1) >= 0 || errno == EINTR, "poll supervisor");
-            stopping = static_cast<unsigned>(fds[0].revents) & POLLHUP;
+            owner.check();
         }
+    } catch (const OwnerExited &) {
+        // There is no caller left to acknowledge. Use the same bounded cleanup
+        // as explicit shutdown, including PID-namespace descendant teardown.
+        stopChildren();
+        return;
     } catch (...) {
-        for (auto &[index, child] : children) {
-            stopChild(child);
-        }
+        stopChildren();
         throw;
     }
-    for (auto &[index, child] : children) {
-        stopChild(child);
-    }
+    stopChildren();
     // Exiting namespace PID 1 also kills/reaps descendants that outlived their
     // immediate parent, including programs which double-forked.
 }

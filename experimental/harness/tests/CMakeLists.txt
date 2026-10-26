@@ -21,6 +21,15 @@ gentest_attach_codegen(gentest_harness_owner)
 target_compile_definitions(gentest_harness_tests PRIVATE HARNESS_OWNER="$<TARGET_FILE:gentest_harness_owner>")
 add_dependencies(gentest_harness_tests gentest_harness_owner)
 
+# Run subreaping in a separate process, away from concurrent async test cases.
+add_executable(gentest_harness_runner_death_tests runner_death.cpp)
+target_link_libraries(gentest_harness_runner_death_tests PRIVATE gentest::harness_client)
+target_compile_definitions(gentest_harness_runner_death_tests PRIVATE HARNESS_OWNER="$<TARGET_FILE:gentest_harness_owner>")
+add_dependencies(gentest_harness_runner_death_tests gentest_harness_owner)
+add_test(NAME harness_runner_inherited_writer COMMAND gentest_harness_runner_death_tests idle)
+add_test(NAME harness_runner_during_command COMMAND gentest_harness_runner_death_tests execute)
+set_tests_properties(harness_runner_inherited_writer harness_runner_during_command PROPERTIES TIMEOUT 30 LABELS harness)
+
 # Keep scheduling instrumentation out of the ordinary session test executable.
 add_executable(gentest_harness_shutdown_supervisor shutdown_supervisor.cpp)
 target_link_libraries(gentest_harness_shutdown_supervisor PRIVATE gentest::harness_client)
