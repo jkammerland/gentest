@@ -18,7 +18,7 @@ target_link_libraries(gentest_harness_supervisor PRIVATE gentest_harness_client)
 
 add_library(gentest_harness STATIC src/session.cpp)
 add_library(gentest::harness ALIAS gentest_harness)
-target_link_libraries(gentest_harness PUBLIC gentest_harness_client gentest::gentest_runtime gentest::gentest)
+target_link_libraries(gentest_harness PUBLIC gentest_harness_client gentest::gentest_runtime gentest::gentest gentest::notifications_linux)
 add_dependencies(gentest_harness gentest_harness_supervisor)
 
 if(gentest_BUILD_TESTING)

@@ -1,9 +1,11 @@
 #include "common.h"
 #include "gentest/harness.h"
 #include "gentest/harness_run.h"
+#include "gentest/notification_linux.h"
 #include "process_signal.h"
 
 #include <algorithm>
+#include <atomic>
 #include <charconv>
 #include <csignal>
 #include <cstdio>
@@ -40,6 +42,11 @@ auto exceptionMessage(const std::exception_ptr &error) -> std::string {
     } catch (const std::exception &failure) { return failure.what(); } catch (...) {
         return "unknown exception";
     }
+}
+
+auto watchdogMessage(std::size_t program, const WatchdogFailure &failure) -> std::string {
+    return "program " + std::to_string(program) + " watchdog subject " + std::to_string(failure.subject) + " (" + failure.label +
+           "): " + (failure.detail.empty() ? "notification supervision failed" : failure.detail);
 }
 
 void wake(int fd) noexcept {
@@ -211,6 +218,194 @@ struct Session::Impl {
     std::thread                                     monitor;
     std::optional<Clock::time_point>                cleanupDeadline;
     std::exception_ptr                              cleanupFailure;
+    // Collection has one owner even when a progress monitor initiates teardown
+    // concurrently with an explicit stop or destruction.
+    std::mutex                                           collectionMutex;
+    Fd                                                   watchdogStop;
+    std::thread                                          cleanupWorker;
+    std::atomic<bool>                                    cleanupWorkerExit{};
+    std::vector<std::optional<LinuxNotificationChannel>> notificationChannels;
+    std::vector<std::shared_ptr<WatchdogMonitor>>        watchdogs;
+    std::vector<ProducerIdentity>                        producerIdentities;
+    std::exception_ptr                                   watchdogFailure;
+
+    void prepareWatchdogs() {
+        static std::atomic<std::uint64_t> nextSession{1};
+        const auto                        generation = nextSession.fetch_add(1);
+        if (!generation) {
+            throw std::overflow_error("notification session identities exhausted");
+        }
+        notificationChannels.resize(spec.programs.size());
+        watchdogs.resize(spec.programs.size());
+        producerIdentities.resize(spec.programs.size());
+        for (std::size_t i = 0; i < spec.programs.size(); ++i) {
+            auto &program = spec.programs[i];
+            if (!program.watchdog) {
+                continue;
+            }
+            WatchdogModel validation(*program.watchdog);
+            if (validation.failure() || program.inheritedFds.size() > maxInheritedFds - 2) {
+                throw std::invalid_argument("invalid program watchdog configuration or descriptor capacity");
+            }
+            for (const auto &[key, value] : program.environment) {
+                if (key == "GENTEST_NOTIFY_FDS" || key == "GENTEST_NOTIFY_ID") {
+                    throw std::invalid_argument("notification environment is owned by the session");
+                }
+            }
+            notificationChannels[i].emplace(LinuxNotificationChannel::create());
+            const auto descriptors = notificationChannels[i]->producer();
+            const auto identity    = ProducerIdentity{static_cast<std::uint64_t>(i + 1), generation};
+            producerIdentities[i]  = identity;
+            auto target            = runnerDescriptor(spec.programs.size()) + 1;
+            auto mapDescriptor     = [&](int source) {
+                while (std::any_of(program.inheritedFds.begin(), program.inheritedFds.end(),
+                                   [&](const auto &mapping) { return mapping.target == target; })) {
+                    ++target;
+                }
+                validateTarget(target, spec.programs.size());
+                program.inheritedFds.push_back({source, target});
+                return target++;
+            };
+            const auto socketTarget = mapDescriptor(descriptors.socket);
+            const auto faultTarget  = mapDescriptor(descriptors.fault);
+            program.environment.emplace_back("GENTEST_NOTIFY_FDS", std::to_string(socketTarget) + "," + std::to_string(faultTarget));
+            program.environment.emplace_back("GENTEST_NOTIFY_ID", std::to_string(identity.id) + "," + std::to_string(identity.generation));
+        }
+    }
+
+    void startCleanupWorker() {
+        if (std::none_of(spec.programs.begin(), spec.programs.end(), [](const auto &p) { return p.watchdog.has_value(); })) {
+            return;
+        }
+        watchdogStop.reset(::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
+        systemCheck(watchdogStop.value >= 0, "watchdog cleanup eventfd");
+        cleanupWorker = std::thread([this] {
+            pollfd pending{watchdogStop.value, POLLIN, 0};
+            for (;;) {
+                int result;
+                do {
+                    result = ::poll(&pending, 1, -1);
+                } while (result < 0 && errno == EINTR);
+                if (cleanupWorkerExit.load()) {
+                    return;
+                }
+                std::uint64_t count{};
+                while (::read(watchdogStop.value, &count, sizeof(count)) < 0 && errno == EINTR) {}
+                try {
+                    auto limit = Clock::now() + std::chrono::seconds(2);
+                    {
+                        std::lock_guard lock(mutex);
+                        if (cleanupDeadline) {
+                            limit = std::min(limit, *cleanupDeadline);
+                        }
+                        if (!watchdogFailure) {
+                            for (std::size_t i = 0; i < watchdogs.size(); ++i) {
+                                if (watchdogs[i]) {
+                                    const auto outcome = watchdogs[i]->outcome();
+                                    if (outcome.failure) {
+                                        watchdogFailure = std::make_exception_ptr(std::runtime_error(watchdogMessage(i, *outcome.failure)));
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!watchdogFailure) {
+                                watchdogFailure = std::make_exception_ptr(std::runtime_error("program watchdog requested session cleanup"));
+                            }
+                        }
+                        if (!failure) {
+                            failure = watchdogFailure;
+                        }
+                        liveness.reset();
+                    }
+                    wake(notification.value);
+                    close_until(limit);
+                } catch (...) {
+                    // close_until retains physical collection failures for the
+                    // explicit stop path; the worker must never terminate.
+                }
+                return;
+            }
+        });
+    }
+
+    void armWatchdog(std::size_t index) {
+        if (!spec.programs[index].watchdog) {
+            return;
+        }
+        WatchdogMonitorOptions options;
+        {
+            std::lock_guard lock(mutex);
+            if (cleanupDeadline) {
+                const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(*cleanupDeadline - Clock::now());
+                if (remaining <= std::chrono::milliseconds(1)) {
+                    throw std::runtime_error("cleanup deadline expired before watchdog registration");
+                }
+                options.shutdownCutoff = std::min(options.shutdownCutoff, remaining);
+                options.shutdownGrace  = std::min(options.shutdownGrace, options.shutdownCutoff - std::chrono::milliseconds(1));
+            }
+        }
+        auto watcher =
+            std::make_shared<WatchdogMonitor>(notificationChannels[index]->releaseMonitor(), producerIdentities[index],
+                                              *spec.programs[index].watchdog, spec.programs[index].notificationObserver, options);
+        watcher->setProcessOwner(namespaceProcess.value, watchdogStop.value);
+        {
+            std::lock_guard lock(mutex);
+            watchdogs[index] = watcher;
+        }
+        watcher->start();
+    }
+
+    void finishWatchdog(std::size_t index) {
+        std::shared_ptr<WatchdogMonitor> watcher;
+        {
+            std::lock_guard lock(mutex);
+            watcher = watchdogs[index];
+        }
+        if (watcher) {
+            watcher->finish();
+        }
+    }
+
+    void disarmWatchdogs() {
+        for (std::size_t i = 0; i < watchdogs.size(); ++i) {
+            std::shared_ptr<WatchdogMonitor> watcher;
+            {
+                std::lock_guard lock(mutex);
+                watcher = watchdogs[i];
+            }
+            if (watcher) {
+                watcher->disarm();
+            }
+        }
+    }
+
+    void settleWatchdogs() {
+        // Concurrent stop callers share one join owner, just as they share the
+        // physical collector. Never join a monitor twice concurrently.
+        std::lock_guard collectionLock(collectionMutex);
+
+        // Normal stop waits for the notification verdict as well as physical
+        // collection. The cleanup worker may not have consumed its wake yet.
+        for (std::size_t i = 0; i < watchdogs.size(); ++i) {
+            std::shared_ptr<WatchdogMonitor> watcher;
+            {
+                std::lock_guard lock(mutex);
+                watcher = watchdogs[i];
+            }
+            if (!watcher) {
+                continue;
+            }
+            watcher->finish();
+            watcher->close();
+            const auto outcome = watcher->outcome();
+            if (outcome.failure) {
+                std::lock_guard lock(mutex);
+                if (!watchdogFailure) {
+                    watchdogFailure = std::make_exception_ptr(std::runtime_error(watchdogMessage(i, *outcome.failure)));
+                }
+            }
+        }
+    }
 
     explicit Impl(SessionSpec value, std::optional<Clock::time_point> deadline = {}) : spec(std::move(value)), cleanupDeadline(deadline) {
         if (deadline && *deadline <= Clock::now()) {
@@ -219,6 +414,7 @@ struct Session::Impl {
         if (spec.programs.size() > 16 || spec.supervisor.empty()) {
             throw std::invalid_argument("session requires supervisor path and at most 16 programs");
         }
+        prepareWatchdogs();
         // Validate every program and complete encoded command before allocating
         // infrastructure or starting the supervisor. Snapshot borrowed fds first.
         std::vector<int> sources;
@@ -361,7 +557,22 @@ struct Session::Impl {
         }
     }
 
-    ~Impl() { close(); }
+    ~Impl() {
+        close();
+        cleanupWorkerExit.store(true);
+        if (watchdogStop.value >= 0) {
+            wake(watchdogStop.value);
+        }
+        if (cleanupWorker.joinable()) {
+            cleanupWorker.join();
+        }
+        for (auto &watcher : watchdogs) {
+            if (watcher) {
+                watcher->finish();
+                watcher->close();
+            }
+        }
+    }
 
     auto signalWrapper(int signal) const noexcept -> int {
         long result;
@@ -456,15 +667,21 @@ struct Session::Impl {
 
     void close() noexcept {
         try {
-            close_until(cleanupDeadline.value_or(Clock::now() + std::chrono::seconds(5)));
+            Clock::time_point limit;
+            {
+                std::lock_guard lock(mutex);
+                limit = cleanupDeadline.value_or(Clock::now() + std::chrono::seconds(5));
+            }
+            disarmWatchdogs();
+            close_until(limit);
         } catch (...) {
             // Destruction cannot report failure. Keep it available to an
             // explicit stop after another operation initiated cleanup.
-            cleanupFailure = std::current_exception();
         }
     }
 
     void close_until(Clock::time_point deadline) {
+        std::lock_guard collectionLock(collectionMutex);
         {
             std::lock_guard lock(mutex);
             if (closing) {
@@ -835,6 +1052,7 @@ auto Session::start(SessionSpec spec) -> awaitable<Session> {
     session.impl_ = std::make_shared<Impl>(std::move(spec));
     (void)co_await session.request(std::move(topology));
     session.impl_->retainNamespaceProcess();
+    session.impl_->startCleanupWorker();
     co_return std::move(session);
 }
 auto Session::start(SessionSpec spec, Clock::time_point cleanup_deadline) -> awaitable<Session> {
@@ -849,6 +1067,7 @@ auto Session::start(SessionSpec spec, Clock::time_point cleanup_deadline) -> awa
     try {
         (void)co_await session.request(std::move(topology));
         session.impl_->retainNamespaceProcess();
+        session.impl_->startCleanupWorker();
     } catch (...) { workFailure = std::current_exception(); }
     if (workFailure) {
         try {
@@ -863,6 +1082,7 @@ auto Session::launch(std::size_t program) -> awaitable<> {
     auto command = impl_->launchCommands.at(program);
     try {
         (void)co_await request(std::move(command));
+        impl_->armWatchdog(program);
     } catch (...) {
         impl_->close();
         throw;
@@ -887,7 +1107,11 @@ auto Session::wait(std::size_t program) -> awaitable<ProcessResult> {
     Writer writer;
     writer.number(static_cast<unsigned>(Command::wait));
     writer.number(static_cast<unsigned>(program));
-    co_return processResult(co_await request(std::move(writer.bytes)));
+    auto result = processResult(co_await request(std::move(writer.bytes)));
+    if (!result.running) {
+        impl_->finishWatchdog(program);
+    }
+    co_return result;
 }
 auto Session::inspect(std::size_t program) -> awaitable<ProcessResult> {
     checkActive();
@@ -897,7 +1121,11 @@ auto Session::inspect(std::size_t program) -> awaitable<ProcessResult> {
     Writer writer;
     writer.number(static_cast<unsigned>(Command::inspect));
     writer.number(static_cast<unsigned>(program));
-    co_return processResult(co_await request(std::move(writer.bytes)));
+    auto result = processResult(co_await request(std::move(writer.bytes)));
+    if (!result.running) {
+        impl_->finishWatchdog(program);
+    }
+    co_return result;
 }
 auto Session::signal(std::size_t program, int signal) -> awaitable<SignalResult> {
     checkActive();
@@ -917,6 +1145,9 @@ auto Session::signal(std::size_t program, int signal) -> awaitable<SignalResult>
     if (sent > 1) {
         throw std::runtime_error("invalid signal acknowledgement");
     }
+    if (!sent) {
+        impl_->finishWatchdog(program);
+    }
     co_return sent ? SignalResult::sent : SignalResult::alreadyExited;
 }
 auto Session::execute(std::string node, std::vector<std::string> arguments, std::string input) -> awaitable<std::string> {
@@ -935,32 +1166,34 @@ auto Session::stop_until(Clock::time_point cleanup_deadline) -> awaitable<> {
     if (!impl_) {
         co_return;
     }
+    bool alreadyClosing;
     {
         std::lock_guard lock(impl_->mutex);
-        if (impl_->closing) {
-            if (impl_->cleanupFailure) {
-                std::rethrow_exception(impl_->cleanupFailure);
-            }
-            co_return;
-        }
+        alreadyClosing = impl_->closing;
         if (impl_->cleanupDeadline) {
             cleanup_deadline = std::min(cleanup_deadline, *impl_->cleanupDeadline);
         }
     }
 
+    impl_->disarmWatchdogs();
     std::exception_ptr failure;
     try {
-        if (cleanup_deadline <= Clock::now()) {
-            throw std::runtime_error("session cleanup deadline exceeded");
-        }
-        Writer writer;
-        writer.number(static_cast<unsigned>(Command::shutdown));
-        writer.wideNumber(
-            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(cleanup_deadline.time_since_epoch()).count()));
+        if (alreadyClosing) {
+            // Collection is serialized below, including a concurrent watchdog
+            // shutdown whose monitor has stopped but whose join is unfinished.
+        } else {
+            if (cleanup_deadline <= Clock::now()) {
+                throw std::runtime_error("session cleanup deadline exceeded");
+            }
+            Writer writer;
+            writer.number(static_cast<unsigned>(Command::shutdown));
+            writer.wideNumber(static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(cleanup_deadline.time_since_epoch()).count()));
 
-        // Read uses an explicit token, so inherited cancellation cannot skip
-        // cleanup. The monitor enforces this independent absolute deadline.
-        (void)co_await request(std::move(writer.bytes), std::stop_token{}, cleanup_deadline);
+            // Read uses an explicit token, so inherited cancellation cannot skip
+            // cleanup. The monitor enforces this independent absolute deadline.
+            (void)co_await request(std::move(writer.bytes), std::stop_token{}, cleanup_deadline);
+        }
     } catch (...) { failure = std::current_exception(); }
     try {
         impl_->close_until(cleanup_deadline);
@@ -970,6 +1203,15 @@ auto Session::stop_until(Clock::time_point cleanup_deadline) -> awaitable<> {
                 std::make_exception_ptr(std::runtime_error(exceptionMessage(failure) + "; " + exceptionMessage(std::current_exception())));
         } else {
             failure = std::current_exception();
+        }
+    }
+    impl_->settleWatchdogs();
+    if (!failure) {
+        std::lock_guard lock(impl_->mutex);
+        // Watchdog cleanup can finish before the awaiting test resumes. Never
+        // turn that terminal failure into a successful explicit stop.
+        if (impl_->watchdogFailure) {
+            failure = impl_->watchdogFailure;
         }
     }
     if (failure) {

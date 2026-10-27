@@ -88,6 +88,15 @@ foreach(mode IN ITEMS preflight ownership output limits cleanup boundary)
     set_tests_properties(harness_descriptors_${mode} PROPERTIES TIMEOUT 40 LABELS harness)
 endforeach()
 
+add_executable(gentest_harness_watchdog_tests watchdog.cpp)
+target_link_libraries(gentest_harness_watchdog_tests PRIVATE gentest::harness)
+target_compile_definitions(gentest_harness_watchdog_tests PRIVATE HARNESS_SUPERVISOR="$<TARGET_FILE:gentest_harness_supervisor>")
+add_dependencies(gentest_harness_watchdog_tests gentest_harness_supervisor)
+foreach(mode IN ITEMS normal freeze sibling inspect)
+    add_test(NAME harness_watchdog_${mode} COMMAND gentest_harness_watchdog_tests ${mode})
+    set_tests_properties(harness_watchdog_${mode} PROPERTIES TIMEOUT 20 LABELS "harness;notifications")
+endforeach()
+
 # Session runner failures and process collection are checked outside codegen.
 add_executable(gentest_harness_session_run_supervisor session_run_supervisor.cpp)
 target_link_libraries(gentest_harness_session_run_supervisor PRIVATE gentest::harness_client)

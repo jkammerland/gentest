@@ -153,6 +153,114 @@ deadline: cancellation cannot preempt blocking application code or guarantee
 immediate kernel reaping. `when_all` still joins all inputs without cancelling
 siblings on failure.
 
+## Per-program progress watchdogs
+
+Set `Program::watchdog` to opt a child into progress supervision. This adds a
+separate notification socket and fault eventfd; the application control channel
+continues to carry its existing messages. Programs without a watchdog retain
+their existing behavior.
+
+```cpp
+using namespace std::chrono_literals;
+
+gentest::harness::Program worker{
+    .node = "worker",
+    .argv = {WORKER},
+    .watchdog = gentest::WatchdogConfig{
+        .inactivityTimeout = 2s,
+        .maximumSilence = 10s,
+        .maximumSubjects = 16,
+    },
+};
+```
+
+The child links `gentest::notifications_linux` in addition to any application
+channel library and attaches once with `gentest::notifierFromEnvironment()`.
+The session supplies its producer identity and inherited descriptors. Keep and
+copy the resulting handle; a successful attachment consumes those descriptors
+and removes the environment variables.
+
+```cpp
+#include <gentest/notification_linux.h>
+
+int main() {
+    auto notifications = gentest::notifierFromEnvironment();
+    const auto accepted = [](gentest::NotifyResult result) {
+        return result == gentest::NotifyResult::accepted ||
+               result == gentest::NotifyResult::disabled;
+    };
+    if (!accepted(notifications.start("worker request"))) {
+        return 1;
+    }
+
+    // Advance the application operation, then report that specific progress.
+    if (!accepted(notifications.progress("request processed"))) {
+        return 1;
+    }
+    return accepted(notifications.finish()) ? 0 : 1;
+}
+```
+
+A child running Gentest cases can pass this attached notifier to
+`RunConfiguration` instead; the runner then owns per-case subjects and automatic
+framework suspension progress. The default Gentest main does not automatically
+attach the Linux transport. See the complete
+[notification and source-event API](../../docs/notifications.md).
+
+Each subject has its own inactivity deadline. Another subject or another
+program making progress cannot renew it. Ordinary application messages, logging,
+stdout, and stderr are not progress reports. An explicit, finite
+`allowSilenceFor(duration, reason)` temporarily sets a quiet deadline from
+monitor receipt time, subject to `maximumSilence`; the next `progress()` restores
+the normal inactivity timeout. Use this only for intended quiet work and keep
+that operation's own deadline. A timer wait or long benchmark does not grant an
+allowance automatically.
+
+A watchdog is armed when the program is launched. It covers startup before the
+first subject and idle gaps between subjects, as well as active subjects. A child
+that never attaches or stops reporting can therefore fail without yielding or
+sending an application message. The monitor operates independently of the
+Gentest runner and application channel.
+
+Watchdog expiry, invalid notifications, queue overflow, transport failure, or
+observer failure fail the session and request cleanup of the entire private
+process tree, including other programs. Cleanup does not depend on the stalled
+child responding. It requests cooperative termination, then escalates through
+pidfds to the namespace owner and launcher if necessary. Explicit session
+cleanup deadlines also bound the watchdog shutdown grace and cutoff. Normal
+`stop()`/`stop_until()` disarms inactivity during collection, drains notification
+results, and preserves an already-recorded watchdog failure.
+
+A completed child must be acknowledged promptly by awaiting `Session::wait()`,
+inspecting its terminal result with `Session::inspect()`, or receiving
+`SignalResult::alreadyExited` from `Session::signal()`. These operations finish
+its watchdog. The harness monitor owns a pidfd for the containing namespace,
+so a child that sends `finish()` and exits without a parent acknowledgement can
+still hit the idle timeout while the parent keeps the session open. An
+application-channel EOF is not that acknowledgement. The standalone Linux
+monitor can instead own the individual service pidfd and observe its exit
+directly.
+
+`Program::notificationObserver` optionally supplies a shared
+`NotificationObserver`. Its callbacks are serialized on a separate bounded
+dispatcher, never on the enforcement thread. They must return promptly: callback
+exceptions or queue overflow are terminal observation failures, and a callback
+that never returns can delay observer drainage. It cannot prevent process
+termination. Source visitors are a separate synchronous interface inside the
+child runtime.
+
+Watchdog configuration consumes two of the eight inherited descriptor mappings,
+leaving at most six caller-supplied `inheritedFds` for that program. The session
+selects unused descriptor targets and owns `GENTEST_NOTIFY_FDS` and
+`GENTEST_NOTIFY_ID`; specifying either environment key yourself is rejected.
+`ChildLimits::openFiles`, when supplied, must exceed every final target,
+including the two automatically added notification descriptors. Invalid budgets
+or configuration fail startup before the supervisor is launched.
+
+A watchdog detects absence of the progress signals you selected. Reporting from
+an unrelated heartbeat while application work is stuck can conceal that failure;
+it is not a general proof that the application is free of deadlocks.
+
 ## Isolation and cleanup
 
 One parent monitor thread watches shared-memory notifications and the supervisor
@@ -336,6 +444,8 @@ on the same event loop as UDP without a polling thread.
 ## Child descriptors, output files and limits
 
 `Program::inheritedFds` accepts up to eight `InheritedFd{source, target}` mappings.
+An enabled `Program::watchdog` reserves two of those mappings, leaving six for
+caller-supplied descriptors.
 Sources are borrowed caller descriptors. Keep them open until the awaited
 `Session::start()` returns; startup retains owned copies for every program,
 including programs launched later. Closing the originals afterwards is safe.
@@ -362,7 +472,8 @@ They set both the soft and hard Linux `RLIMIT_CORE`, `RLIMIT_NOFILE`,
 `RLIMIT_FSIZE` and `RLIMIT_CPU` limits, respectively. Omitted fields preserve the
 inherited soft/hard pair. Requested values must be finite and no greater than
 the inherited hard limit; `cpuSeconds` must be positive. `openFiles` must exceed
-every final descriptor number, including the selected channel. Limits apply in
+every final descriptor number, including the selected channel and any watchdog
+notification descriptors. Limits apply in
 the child after descriptor mappings, without changing the runner or supervisor.
 A file-size limit can terminate a logging child with `SIGXFSZ`; inspect the exit
 result to distinguish a bounded log from a successful run.

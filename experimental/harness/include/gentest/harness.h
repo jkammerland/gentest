@@ -2,6 +2,7 @@
 
 #include "gentest/async.h"
 #include "gentest/harness_client.h"
+#include "gentest/notification.h"
 
 #include <chrono>
 #include <cstdint>
@@ -58,6 +59,11 @@ struct Program {
     std::vector<InheritedFd>   inheritedFds;
     std::optional<int>         standardOutputFd, standardErrorFd;
     std::optional<ChildLimits> childLimits;
+
+    // Opt-in activity supervision uses a separate notification lane. The child
+    // attaches through notifierFromEnvironment(), independently of its app IPC.
+    std::optional<WatchdogConfig>         watchdog;
+    std::shared_ptr<NotificationObserver> notificationObserver;
 };
 struct ProcessResult {
     bool        running{};
