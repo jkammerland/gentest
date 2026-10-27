@@ -1,0 +1,12 @@
+add_executable(gentest_notification_core_tests core.cpp)
+target_link_libraries(gentest_notification_core_tests PRIVATE gentest::notifications Threads::Threads)
+target_compile_features(gentest_notification_core_tests PRIVATE cxx_std_20)
+add_test(NAME notification_core_contract COMMAND gentest_notification_core_tests)
+set_tests_properties(notification_core_contract PROPERTIES LABELS "notifications;public-api")
+
+if(TARGET gentest_notifications_linux)
+    add_executable(gentest_notification_linux_tests linux.cpp)
+    target_link_libraries(gentest_notification_linux_tests PRIVATE gentest::notifications_linux)
+    add_test(NAME notification_linux_contract COMMAND gentest_notification_linux_tests)
+    set_tests_properties(notification_linux_contract PROPERTIES TIMEOUT 45 LABELS notifications)
+endif()
