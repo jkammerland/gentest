@@ -386,15 +386,21 @@ void notifierOwnershipConcurrencyAndDisabled() {
 } // namespace
 
 int main() {
+    // Store function pointers explicitly instead of relying on pair deduction.
+    struct TestCase {
+        const char *name;
+        void (*run)();
+    };
+
     const std::array tests{
-        std::pair{"independent wire vector", independentWireVector},
-        std::pair{"malformed wire", malformedWire},
-        std::pair{"independent subjects", independentSubjectsAndOrdinaryNotifications},
-        std::pair{"same-time order", sameTimeOrderAndDeadlineEquality},
-        std::pair{"stale identity", staleSequencesAndGenerations},
-        std::pair{"quiet allowance", quietAllowanceAndProgressReset},
-        std::pair{"configuration and failure", boundsConfigurationAndExternalFailures},
-        std::pair{"notifier ownership", notifierOwnershipConcurrencyAndDisabled},
+        TestCase{.name = "independent wire vector", .run = independentWireVector},
+        TestCase{.name = "malformed wire", .run = malformedWire},
+        TestCase{.name = "independent subjects", .run = independentSubjectsAndOrdinaryNotifications},
+        TestCase{.name = "same-time order", .run = sameTimeOrderAndDeadlineEquality},
+        TestCase{.name = "stale identity", .run = staleSequencesAndGenerations},
+        TestCase{.name = "quiet allowance", .run = quietAllowanceAndProgressReset},
+        TestCase{.name = "configuration and failure", .run = boundsConfigurationAndExternalFailures},
+        TestCase{.name = "notifier ownership", .run = notifierOwnershipConcurrencyAndDisabled},
     };
     unsigned failures = 0;
     for (const auto &[name, run] : tests) {
