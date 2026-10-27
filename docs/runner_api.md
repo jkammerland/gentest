@@ -58,3 +58,14 @@ Manual benchmarks may set source-level execution policy with the final
 Omit the field for ordinary calibrated runner timing. Invalid combinations are
 rejected before fixture setup. See [benchmark measurements](benchmark_measurements.md)
 for publication, count normalization and snapshot contracts.
+
+## Notifications and source events
+
+Pass a `RunConfiguration` as the final argument to `run_cases` or either
+`run_all_tests` overload to install a notifier and an optional shared
+`FrameworkEventVisitor`. Existing overloads remain available. The configuration
+covers shared fixtures, case occurrences, adopted work, and final cleanup;
+notification infrastructure failures make the run fail even for an expected
+test failure. See [notifications and progress watchdogs](notifications.md) for
+complete setup, source-hook semantics, explicit quiet periods, and Linux process
+supervision.

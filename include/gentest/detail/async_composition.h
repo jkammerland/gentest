@@ -155,6 +155,7 @@ class AsyncCompositionState : public std::enable_shared_from_this<AsyncCompositi
         if (!scheduler) {
             std::abort();
         }
+        scheduler->suspension_point(parent, SuspensionKind::composition, loc_);
         if constexpr (timed) {
             // No operation registration occurs if the deadline passed between
             // await_ready and await_suspend.

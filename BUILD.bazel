@@ -166,6 +166,15 @@ cc_library(
 )
 
 cc_library(
+    name = 'gentest_notifications',
+    srcs = ['src/notification.cpp'],
+    hdrs = ['include/gentest/notification.h'],
+    copts = _gentest_public_copts,
+    includes = ['include'],
+    visibility = ['//visibility:public'],
+)
+
+cc_library(
     name = 'gentest_runtime',
     srcs = [
         'src/async_scheduler_core.h',
@@ -175,6 +184,7 @@ cc_library(
         'src/benchmark.cpp',
         'src/benchmark_internal.h',
         'src/context_api.cpp',
+        'src/framework_events.cpp',
         'src/recording.cpp',
         'src/recording_report.cpp',
         'src/recording_internal.h',
@@ -229,7 +239,7 @@ cc_library(
     copts = _gentest_public_copts,
     includes = ['include', 'third_party/include'],
     linkopts = _gentest_linkopts,
-    deps = [':gentest_bench_escape', '@fmt//:fmt'],
+    deps = [':gentest_bench_escape', ':gentest_notifications', '@fmt//:fmt'],
     visibility = ['//visibility:public'],
 )
 

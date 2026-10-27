@@ -3,6 +3,7 @@
 #include "gentest/detail/async_api.h"
 #include "gentest/detail/async_completion.h"
 #include "gentest/detail/runtime_base.h"
+#include "gentest/framework_events.h"
 
 #include <any>
 #include <atomic>
@@ -139,6 +140,14 @@ class AsyncScheduler {
             scope->retain(frame);
         }
         frame->prepare_resume();
+    }
+
+    // Call only at public suspension boundaries, before acquiring scheduler or
+    // awaiter locks. Raw begin_wait also rearms waits and must stay unobserved.
+    void suspension_point(std::coroutine_handle<> handle, SuspensionKind kind, const std::source_location &location = {}) noexcept {
+        if (const auto frame = frame_for(handle)) {
+            framework_suspend(frame->framework_context.lock(), kind, location);
+        }
     }
 
     virtual void               begin_wait(std::coroutine_handle<> handle) noexcept   = 0;
@@ -398,6 +407,7 @@ class yield_awaitable {
         if (!scheduler) {
             std::abort();
         }
+        scheduler->suspension_point(handle, SuspensionKind::yield, loc_);
         scheduler->begin_wait(handle);
         cancellation_.arm(scheduler->make_waiter(handle));
         scheduler->yield_at(handle, loc_);
@@ -435,6 +445,7 @@ class sleep_awaitable {
         if (!scheduler) {
             std::abort();
         }
+        scheduler->suspension_point(handle, SuspensionKind::timer, loc_);
         scheduler->begin_wait(handle);
         token_ = scheduler->make_waiter(handle);
         cancellation_.arm(token_);
@@ -576,6 +587,7 @@ template <typename T = std::any> class event {
             if (!scheduler) {
                 std::abort();
             }
+            scheduler->suspension_point(handle, SuspensionKind::event, loc_);
             scheduler->begin_wait(handle);
             auto token       = scheduler->make_waiter(handle);
             bool should_post = false;
@@ -843,6 +855,7 @@ template <typename T> class awaitable final : public detail::AsyncTask {
         if (!parent_frame) {
             detail::async_task_error("gentest::awaitable awaited outside its owning Gentest case");
         }
+        scheduler->suspension_point(parent, SuspensionKind::native_child, {});
         scheduler->begin_wait(parent);
         scheduler->attach_child_frame(frame_, parent);
         auto &promise        = typed_handle().promise();

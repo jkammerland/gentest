@@ -317,6 +317,7 @@ CaseResult finish_invoke_result(TestRunContext &state, const gentest::Case &test
 }
 
 CaseResult execute_one(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c) {
+    gentest::detail::FrameworkSubjectScope subject(test.name);
     if (test.should_skip) {
         return make_static_skip_result(state, test, c);
     }
@@ -335,6 +336,7 @@ void execute_and_record(TestRunContext &state, const gentest::Case &test, void *
 }
 
 void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std::string reason, TestCounters &c, bool infra_failure) {
+    gentest::detail::FrameworkSubjectScope subject(test.name);
     ++c.total;
     const std::string issue  = reason.empty() ? std::string("fixture allocation returned null") : reason;
     const long long   dur_ms = 0LL;

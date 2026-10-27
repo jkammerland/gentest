@@ -51,6 +51,8 @@ auto CurrentContext::stop_token() const noexcept -> std::stop_token {
 
 auto CurrentContext::stop_requested() const noexcept -> bool { return stop_token().stop_requested(); }
 
+auto currentNotifier() noexcept -> Notifier { return detail::context_notifier(detail::current_test_storage()); }
+
 auto get_current_context() -> CurrentContext { return CurrentContext(detail::current_test()); }
 
 auto set_current_context(CurrentContext context) -> CurrentContextLease { return CurrentContextLease(std::move(context)); }

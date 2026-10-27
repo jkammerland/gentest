@@ -338,9 +338,10 @@ bool setup_shared_fixtures() {
             break;
         }
 
-        gentest::detail::RecordingTargetScope recording_scope(gentest::detail::make_fixture_recording(suite_name, global_recording));
-        std::string                           error;
-        std::shared_ptr<void>                 instance;
+        gentest::detail::FrameworkSubjectScope subject(fixture_name, true);
+        gentest::detail::RecordingTargetScope  recording_scope(gentest::detail::make_fixture_recording(suite_name, global_recording));
+        std::string                            error;
+        std::shared_ptr<void>                  instance;
         if (!create_fn) {
             error = "missing factory";
         } else {
@@ -481,7 +482,8 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
 
     bool teardown_ok = true;
     for (const auto &item : work) {
-        gentest::detail::RecordingTargetScope recording_scope(gentest::detail::make_fixture_recording(item.suite, item.global_recording));
+        gentest::detail::FrameworkSubjectScope subject(item.fixture_name, true);
+        gentest::detail::RecordingTargetScope  recording_scope(gentest::detail::make_fixture_recording(item.suite, item.global_recording));
         if (item.teardown) {
             std::string       error;
             const std::string label = fmt::format("fixture teardown {}", item.fixture_name);

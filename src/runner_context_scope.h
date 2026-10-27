@@ -13,6 +13,7 @@ inline auto make_active_test_context(std::string_view display_name) -> std::shar
     auto ctx          = std::make_shared<gentest::detail::TestContextInfo>();
     ctx->display_name = std::string(display_name);
     ctx->recording    = gentest::detail::current_recording_target();
+    gentest::detail::inherit_framework_context(*ctx);
     gentest::detail::start_context(*ctx);
     return ctx;
 }
@@ -50,6 +51,7 @@ inline void finish_active_test_context(const std::shared_ptr<gentest::detail::Te
     gentest::detail::wait_for_adopted_contexts(ctx);
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
     gentest::detail::close_context_to_late_operations(*ctx);
+    gentest::detail::finish_framework_case(*ctx);
 }
 
 inline void deactivate_active_test_context_without_wait(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {

@@ -34,6 +34,7 @@ add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/bench_util.cpp
     ${PROJECT_SOURCE_DIR}/src/benchmark.cpp
     ${PROJECT_SOURCE_DIR}/src/context_api.cpp
+    ${PROJECT_SOURCE_DIR}/src/framework_events.cpp
     ${PROJECT_SOURCE_DIR}/src/recording.cpp
     ${PROJECT_SOURCE_DIR}/src/recording_report.cpp
     ${PROJECT_SOURCE_DIR}/src/log_sink.cpp
@@ -89,6 +90,7 @@ endif()
 
 target_link_libraries(gentest_runtime
     PUBLIC
+        gentest::notifications
         ${GENTEST_FMT_LINK_TARGET})
 
 if(GENTEST_USE_BOOST_JSON)

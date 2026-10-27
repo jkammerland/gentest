@@ -96,6 +96,7 @@ void BatchAsyncScheduler::cancel_waiters(std::coroutine_handle<> handle) noexcep
 void BatchAsyncScheduler::add_top_level(std::size_t run_index, gentest::detail::AsyncTask &task) {
     register_adopted_release_wake_for(run_index);
     task.set_scheduler(this);
+    task.frame()->framework_context = runs_[run_index].ctxinfo;
     core_.register_frame(run_index, task.frame());
     core_.post(task.frame());
 }

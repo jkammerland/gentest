@@ -645,7 +645,9 @@ bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn
     };
 
     auto run_phase = [&](gentest::detail::BenchPhase phase) {
-        MeasurementPhaseResult pr{};
+        gentest::detail::FrameworkPhaseScope events(phase == gentest::detail::BenchPhase::Setup ? FrameworkPhase::setup
+                                                                                                : FrameworkPhase::teardown);
+        MeasurementPhaseResult               pr{};
         pr.ok = run_measurement_phase(c, ctx, phase, pr.reason, pr.allocation_failure, pr.runtime_skipped, pr.skip_reason, pr.skip_kind,
                                       out_failure);
         return pr;
@@ -704,7 +706,11 @@ bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn
         return false;
     }
 
-    out_result         = run_call(c, ctx, out_failure);
+    {
+        // Notify only around the entire measurement operation, outside timed loops.
+        gentest::detail::FrameworkPhaseScope events(FrameworkPhase::call);
+        out_result = run_call(c, ctx, out_failure);
+    }
     out_failure.time_s = out_result.wall_time_s;
 
     // Primary results are observable during local teardown, before final case success.
@@ -829,10 +835,11 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
                                   const SuccessFn &on_success, const MeasurementFailureFn &on_failure) {
     TimedRunStatus status{};
     for (auto i : idxs) {
-        const auto                           &c = kCases[i];
-        gentest::detail::RecordingTargetScope recording_scope(gentest::detail::make_case_recording(c));
-        Result                                result{};
-        MeasurementCaseFailure                failure{};
+        const auto                            &c = kCases[i];
+        gentest::detail::FrameworkSubjectScope subject(c.name);
+        gentest::detail::RecordingTargetScope  recording_scope(gentest::detail::make_case_recording(c));
+        Result                                 result{};
+        MeasurementCaseFailure                 failure{};
         ++status.total;
         if (!run_measured_case(c, config, run_call, result, failure)) {
             if (failure.skipped) {
