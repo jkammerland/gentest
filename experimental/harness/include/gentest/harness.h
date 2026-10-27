@@ -3,6 +3,7 @@
 #include "gentest/async.h"
 #include "gentest/harness_client.h"
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -85,6 +86,7 @@ class Session {
     auto operator=(const Session &) -> Session & = delete;
 
     static auto start(SessionSpec spec) -> awaitable<Session>;
+    static auto start(SessionSpec spec, std::chrono::steady_clock::time_point cleanup_deadline) -> awaitable<Session>;
     auto        launch(std::size_t program) -> awaitable<>;
     void        send(std::size_t program, const Message &message);
     auto        receive(std::size_t program) -> awaitable<Message>;
@@ -97,11 +99,16 @@ class Session {
     auto execute(std::string node, std::vector<std::string> arguments, std::string input = {}) -> awaitable<std::string>;
     auto stop() -> awaitable<>;
 
+    // Ignore inherited cancellation while collecting the session. Deadline
+    // expiry escalates to KILL, then still joins and reaps before reporting it.
+    auto stop_until(std::chrono::steady_clock::time_point cleanup_deadline) -> awaitable<>;
+
   private:
     struct Impl;
     struct Read;
     std::shared_ptr<Impl> impl_;
     void                  checkActive() const;
-    auto                  request(std::string command) -> awaitable<Message>;
+    auto                  request(std::string command, std::optional<std::stop_token> stop = {},
+                                  std::optional<std::chrono::steady_clock::time_point> deadline = {}) -> awaitable<Message>;
 };
 } // namespace gentest::harness

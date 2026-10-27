@@ -105,6 +105,54 @@ waiting for acknowledgement; it cannot undo a submitted signal. Process groups
 and descendants are not signal targets; session cleanup still handles the whole
 private process tree.
 
+## Running a session with deadlines
+
+Include `gentest/harness_run.h` to let `run_session` own startup, a scenario and
+cleanup. Its callable is stored by value until the invocation and cleanup finish;
+references captured by the callable still borrow their objects. The callback
+returns `gentest::awaitable<>` and receives `Session&`.
+
+```cpp
+auto checkWorkers(gentest::harness::SessionSpec spec) -> gentest::awaitable<> {
+    using namespace gentest::harness;
+    using namespace std::chrono_literals;
+    const auto started = std::chrono::steady_clock::now();
+
+    co_await run_session(
+        std::move(spec), RunOptions{started + 50s, started + 55s},
+        [](Session& session) -> gentest::awaitable<> {
+            co_await session.launch(0);
+            auto result = co_await session.wait(0);
+            if (!result.succeeded()) {
+                throw std::runtime_error("worker failed");
+            }
+        });
+}
+```
+
+The work deadline covers startup and the callback. Timeout requests cancellation
+and joins work before cleanup begins. Work exceptions, including errors raised
+while responding to cancellation, are retained outside the timed operation.
+Cleanup ignores inherited cancellation and uses its own absolute deadline,
+including during partial startup. `cleanup_deadline` must be finite and strictly
+after `work_deadline`; invalid options throw `std::invalid_argument` before any
+resources are acquired. An already-expired work deadline does not start a session.
+
+Operational failures throw `SessionRunError`. Its `timed_out()`, `work_error()`
+and `cleanup_error()` accessors independently expose timeout and both original
+exception pointers; its diagnostic includes both errors. Expected-failure tests
+can rethrow either pointer to check its original type. Ordinary tests should let
+the error propagate. Cancellation is retained as the work exception. Successful
+cleanup does not imply successful child exit: the callback checks `ProcessResult`.
+
+Await `run_session` directly. An outer `wait_until(run_session(...), deadline)`
+can hide errors raised during cleanup after that outer timeout wins. Standalone
+session owners can call `stop_until(deadline)` for explicit cleanup with the same
+cancellation policy. Keep an external process watchdog beyond the cleanup
+deadline: cancellation cannot preempt blocking application code or guarantee
+immediate kernel reaping. `when_all` still joins all inputs without cancelling
+siblings on failure.
+
 ## Isolation and cleanup
 
 One parent monitor thread watches shared-memory notifications and the supervisor
@@ -128,8 +176,10 @@ caller's signal mask is unchanged; child SIGTERM and SIGINT dispositions are
 reset before exec.
 
 Session destruction closes a liveness pipe, requests child termination and reaps
-the supervisor. Each child gets a one-second TERM grace period, then KILL. The
-parent allows five seconds for cleanup before killing the `unshare` wrapper;
+the supervisor. Programs and namespace keepers receive TERM together and share
+one grace period of at most one second, followed by KILL for survivors. An
+explicit cleanup deadline also caps that grace period. The parent normally
+allows five seconds for cleanup before killing the `unshare` wrapper;
 `--kill-child=KILL` and PID-namespace teardown kill remaining descendants. An
 inherited runner pidfd independently detects runner exit, even if a forked child
 keeps the liveness pipe open. Both signals are watched during setup, command

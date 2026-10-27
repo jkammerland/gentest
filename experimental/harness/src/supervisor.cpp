@@ -12,6 +12,7 @@
 #include <map>
 #include <poll.h>
 #include <sched.h>
+#include <span>
 #include <sstream>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -85,7 +86,17 @@ struct Child {
     bool        done{}, truncated{};
     int         status{};
 };
-void append(Fd &fd, std::string &text, bool &truncated) {
+using CleanupClock = std::chrono::steady_clock;
+
+auto cleanupDeadline(std::uint64_t encoded) -> CleanupClock::time_point {
+    if (encoded > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+        throw std::invalid_argument("invalid session cleanup deadline");
+    }
+    return CleanupClock::time_point(
+        std::chrono::duration_cast<CleanupClock::duration>(std::chrono::nanoseconds(static_cast<std::int64_t>(encoded))));
+}
+
+void append(Fd &fd, std::string &text, bool &truncated, CleanupClock::time_point deadline = CleanupClock::time_point::max()) {
     // Drain a snapshot so a continuously writing child cannot starve liveness
     // or cancellation. After waitpid, this includes all of that child's writes.
     int available{};
@@ -93,6 +104,9 @@ void append(Fd &fd, std::string &text, bool &truncated) {
     auto                   remaining = static_cast<std::size_t>(std::max(available, 1));
     std::array<char, 1024> buffer{};
     while (remaining) {
+        if (CleanupClock::now() >= deadline) {
+            throw std::runtime_error("session cleanup deadline expired while draining output");
+        }
         const auto size = ::read(fd.value, buffer.data(), std::min(buffer.size(), remaining));
         if (size <= 0) {
             if (size == 0) {
@@ -111,7 +125,7 @@ void append(Fd &fd, std::string &text, bool &truncated) {
         }
     }
 }
-void collect(Child &child) {
+void collect(Child &child, CleanupClock::time_point deadline = CleanupClock::time_point::max()) {
     // Reap before draining, so an exit result includes the final writes. Pipes
     // may remain open in descendants; never wait for EOF to report this process.
     if (!child.done) {
@@ -120,10 +134,10 @@ void collect(Child &child) {
         child.done = result == child.pid;
     }
     if (child.output.value >= 0) {
-        append(child.output, child.stdoutText, child.truncated);
+        append(child.output, child.stdoutText, child.truncated, deadline);
     }
     if (child.error.value >= 0) {
-        append(child.error, child.stderrText, child.truncated);
+        append(child.error, child.stderrText, child.truncated, deadline);
     }
 }
 
@@ -308,23 +322,125 @@ auto spawn(const OwnerWatch &owner, int net, const std::vector<std::string> &arg
     return child;
 }
 
-void signalChild(Child &child, int signal) {
-    if (!child.done) {
-        ::syscall(SYS_pidfd_send_signal, child.pidfd.value, signal, nullptr, 0);
+void stopChildren(std::span<Child *> children, CleanupClock::time_point deadline) {
+    const auto          grace = std::min(CleanupClock::now() + 1s, deadline);
+    std::exception_ptr  failure;
+    std::vector<pollfd> pending;
+    pending.reserve(children.size() * 3);
+
+    auto rememberFailure = [&] {
+        if (!failure) {
+            failure = std::current_exception();
+        }
+    };
+    auto checkDeadline = [&] {
+        if (CleanupClock::now() >= deadline && !failure) {
+            failure = std::make_exception_ptr(std::runtime_error("session cleanup deadline expired"));
+        }
+    };
+    auto signalAll = [&](int signal) {
+        for (auto *child : children) {
+            for (;;) {
+                try {
+                    submitSignal(child->pidfd.value, child->done, signal);
+                    break;
+                } catch (const std::system_error &error) {
+                    if (error.code() == std::errc::interrupted) {
+                        checkDeadline();
+                        if (signal == SIGKILL || CleanupClock::now() < deadline) {
+                            continue;
+                        }
+                    }
+                    rememberFailure();
+                    break;
+                } catch (...) {
+                    rememberFailure();
+                    break;
+                }
+            }
+        }
+    };
+
+    // Every process receives TERM before the first wait. Namespace keepers and
+    // programs share this grace period, including during exception unwinding.
+    signalAll(SIGTERM);
+    checkDeadline();
+    while (CleanupClock::now() < grace) {
+        pending.clear();
+        for (auto *child : children) {
+            try {
+                collect(*child, deadline);
+            } catch (...) { rememberFailure(); }
+
+            if (!child->done) {
+                pending.push_back({.fd = child->pidfd.value, .events = POLLIN, .revents = 0});
+                if (child->output.value >= 0) {
+                    pending.push_back({.fd = child->output.value, .events = POLLIN, .revents = 0});
+                }
+                if (child->error.value >= 0) {
+                    pending.push_back({.fd = child->error.value, .events = POLLIN, .revents = 0});
+                }
+            }
+        }
+        if (pending.empty()) {
+            break;
+        }
+
+        // EINTR returns to this calculation; it never restarts the grace period.
+        const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(grace - CleanupClock::now()).count();
+        if (remaining <= 0) {
+            break;
+        }
+        if (::poll(pending.data(), pending.size(), static_cast<int>(remaining)) < 0 && errno != EINTR) {
+            try {
+                systemCheck(false, "poll child cleanup");
+            } catch (...) { rememberFailure(); }
+            break;
+        }
+    }
+
+    // Escalate the entire group before collecting any survivor. Reaping remains
+    // mandatory after deadline expiry; that overrun is reported as failure.
+    signalAll(SIGKILL);
+    checkDeadline();
+    for (auto *child : children) {
+        if (!child->done) {
+            pid_t result;
+            int   waitError;
+            bool  retry;
+            do {
+                result    = ::waitpid(child->pid, &child->status, 0);
+                waitError = errno;
+                retry     = result < 0 && waitError == EINTR;
+                checkDeadline();
+            } while (retry);
+            try {
+                if (result != child->pid) {
+                    throw std::system_error(waitError, std::generic_category(), "reap child cleanup");
+                }
+                child->done = true;
+            } catch (...) { rememberFailure(); }
+        }
+        // Descendants may retain a pipe writer. Drain only currently available
+        // bytes; namespace PID 1 exit supplies the final descendant boundary.
+        try {
+            if (child->output.value >= 0) {
+                append(child->output, child->stdoutText, child->truncated, deadline);
+            }
+            if (child->error.value >= 0) {
+                append(child->error, child->stderrText, child->truncated, deadline);
+            }
+        } catch (...) { rememberFailure(); }
+    }
+    checkDeadline();
+    if (failure) {
+        std::rethrow_exception(failure);
     }
 }
+
 void stopChild(Child &child) {
-    collect(child);
-    signalChild(child, SIGTERM);
-    pollfd pending{.fd = child.pidfd.value, .events = POLLIN, .revents = 0};
-    if (!child.done && ::poll(&pending, 1, 1000) <= 0) {
-        signalChild(child, SIGKILL);
-    }
-    if (!child.done) {
-        while (::waitpid(child.pid, &child.status, 0) < 0 && errno == EINTR) {}
-        child.done = true;
-    }
-    collect(child);
+    std::array<Child *, 1> children{&child};
+    stopChildren(children, CleanupClock::now() + 2s);
 }
 auto run(const OwnerWatch &owner, int net, std::vector<std::string> arguments, std::string input = {}) -> std::string {
     owner.check();
@@ -359,16 +475,20 @@ struct Network {
     const OwnerWatch         &owner;
     std::map<std::string, Fd> nodes;
     std::vector<Child>        keepers;
+    bool                      cleanupHandled{};
     explicit Network(const OwnerWatch &watch) : owner(watch) {}
     ~Network() {
-        for (auto &keeper : keepers) {
-            try {
-                stopChild(keeper);
-            } catch (...) {
-                // Namespace PID 1 exit is the final cleanup boundary even if
-                // an individual keeper cannot be collected during unwinding.
-                signalChild(keeper, SIGKILL);
+        if (cleanupHandled) {
+            return;
+        }
+        try {
+            std::vector<Child *> remaining;
+            for (auto &keeper : keepers) {
+                remaining.push_back(&keeper);
             }
+            stopChildren(remaining, CleanupClock::now() + 2s);
+        } catch (...) {
+            // Namespace PID 1 exit still kills and reaps every descendant.
         }
     }
     auto fd(const std::string &name) -> int { return nodes.at(name).value; }
@@ -509,7 +629,8 @@ auto processResult(const Child &child) -> std::string {
     return result.bytes;
 }
 
-void supervise(unsigned count, std::string_view originalNamespace, unsigned descriptorCount) {
+void supervise(unsigned count, std::string_view originalNamespace, unsigned descriptorCount,
+               CleanupClock::time_point initialDeadline = CleanupClock::time_point::max()) {
     struct stat current{};
     systemCheck(::stat("/proc/self/ns/net", &current) == 0, "inspect supervisor namespace");
     std::ifstream mapping("/proc/self/uid_map");
@@ -542,9 +663,31 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
         body.text(value);
         control.send({.tag = tag, .payload = std::move(body.bytes)});
     };
-    const auto stopChildren = [&] {
+    bool       cleanupHandled{};
+    const auto fallbackDeadline = [&] { return std::min(CleanupClock::now() + 2s, initialDeadline); };
+    const auto cleanupChildren  = [&](CleanupClock::time_point deadline) {
+        if (cleanupHandled) {
+            return;
+        }
+
+        std::vector<Child *> remaining;
         for (auto &[index, child] : children) {
-            stopChild(child);
+            remaining.push_back(&child);
+        }
+        for (auto &keeper : network.keepers) {
+            remaining.push_back(&keeper);
+        }
+        cleanupHandled         = true;
+        network.cleanupHandled = true;
+        std::exception_ptr failure;
+        try {
+            stopChildren(remaining, deadline);
+        } catch (...) { failure = std::current_exception(); }
+        for (auto &[index, child] : children) {
+            channels[index].close();
+        }
+        if (failure) {
+            std::rethrow_exception(failure);
         }
     };
 
@@ -691,12 +834,15 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
                         reply(message->tag, true, run(owner, network.fd(node), arguments, input));
                         continue;
                     } else if (command == Command::shutdown) {
+                        // Both processes share the same monotonic clock. Older
+                        // same-tree control fixtures may omit the deadline.
+                        auto deadline = fallbackDeadline();
+                        if (!reader.bytes.empty()) {
+                            deadline = std::min(cleanupDeadline(reader.wideNumber()), initialDeadline);
+                        }
                         reader.end();
                         stopping = true;
-                        for (auto &[index, child] : children) {
-                            stopChild(child);
-                            channels[index].close();
-                        }
+                        cleanupChildren(deadline);
                     } else {
                         throw std::runtime_error("unknown supervisor command");
                     }
@@ -731,13 +877,13 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
     } catch (const OwnerExited &) {
         // There is no caller left to acknowledge. Use the same bounded cleanup
         // as explicit shutdown, including PID-namespace descendant teardown.
-        stopChildren();
+        cleanupChildren(fallbackDeadline());
         return;
     } catch (...) {
-        stopChildren();
+        cleanupChildren(fallbackDeadline());
         throw;
     }
-    stopChildren();
+    cleanupChildren(fallbackDeadline());
     // Exiting namespace PID 1 also kills/reaps descendants that outlived their
     // immediate parent, including programs which double-forked.
 }
@@ -745,8 +891,9 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
 
 int main(int argc, char **argv) {
     try {
-        if (argc != 4) {
-            throw std::runtime_error("supervisor requires program count, original namespace identity and descriptor count");
+        if (argc != 4 && argc != 5) {
+            throw std::runtime_error(
+                "supervisor requires program count, original namespace identity, descriptor count and optional deadline");
         }
         unsigned               count{};
         const std::string_view value(argv[1]);
@@ -761,7 +908,17 @@ int main(int argc, char **argv) {
             descriptors > count * (maxInheritedFds + 2)) {
             throw std::runtime_error("invalid program descriptor count");
         }
-        supervise(count, argv[2], descriptors);
+        auto deadline = CleanupClock::time_point::max();
+        if (argc == 5) {
+            std::uint64_t          encoded{};
+            const std::string_view deadlineText(argv[4]);
+            const auto deadlineParsed = std::from_chars(deadlineText.data(), deadlineText.data() + deadlineText.size(), encoded);
+            if (deadlineParsed.ec != std::errc{} || deadlineParsed.ptr != deadlineText.data() + deadlineText.size()) {
+                throw std::invalid_argument("invalid session cleanup deadline");
+            }
+            deadline = cleanupDeadline(encoded);
+        }
+        supervise(count, argv[2], descriptors, deadline);
         return 0;
     } catch (const std::exception &failure) {
         std::cerr << "gentest harness supervisor: " << failure.what() << '\n';
