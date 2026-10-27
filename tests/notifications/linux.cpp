@@ -2,6 +2,7 @@
 #include <barrier>
 #include <cerrno>
 #include <condition_variable>
+#include <csignal>
 #include <cstdlib>
 #include <exception>
 #include <fcntl.h>
@@ -11,7 +12,6 @@
 #include <mutex>
 #include <poll.h>
 #include <set>
-#include <signal.h>
 #include <stdexcept>
 #include <string>
 #include <sys/eventfd.h>
@@ -24,7 +24,7 @@
 
 namespace {
 using namespace std::chrono_literals;
-constexpr gentest::ProducerIdentity identity{71, 3};
+constexpr gentest::ProducerIdentity identity{.id = 71, .generation = 3};
 
 void require(bool condition, const char *message) {
     if (!condition) {
@@ -111,10 +111,10 @@ void waitReady(int fd) {
 
 enum class ChildMode { spin, normal, flood, silent };
 
-void childBody(gentest::NotificationDescriptors producer, gentest::NotificationDescriptors monitor, int readyFd, ChildMode mode) {
-    closeDescriptors(monitor);
-    ::signal(SIGTERM, SIG_IGN);
-    auto              sink = gentest::LinuxNotificationSink::attach(producer, identity);
+void childBody(gentest::LinuxNotificationChannel &channel, int readyFd, ChildMode mode) {
+    closeDescriptors(channel.releaseMonitor());
+    require(std::signal(SIGTERM, SIG_IGN) != SIG_ERR, "ignoring SIGTERM failed");
+    auto              sink = gentest::LinuxNotificationSink::attach(channel.releaseProducer(), identity);
     gentest::Notifier notifier(sink, identity, 1);
     if (mode != ChildMode::silent) {
         require(notifier.start("service operation") == gentest::NotifyResult::accepted, "start rejected");
@@ -150,7 +150,7 @@ void processCase(ChildMode mode, bool freeze, bool slowObserver, bool throwingOb
     if (child.pid == 0) {
         ::close(barrier[0]);
         try {
-            childBody(channel.releaseProducer(), channel.releaseMonitor(), barrier[1], mode);
+            childBody(channel, barrier[1], mode);
         } catch (const std::exception &error) {
             std::cerr << "notification child failed: " << error.what() << '\n';
             ::_exit(90);
@@ -166,8 +166,10 @@ void processCase(ChildMode mode, bool freeze, bool slowObserver, bool throwingOb
     auto observer    = std::make_shared<Observer>();
     observer->block  = slowObserver;
     observer->throws = throwingObserver;
-    gentest::WatchdogConfig         config{mode == ChildMode::normal ? 3s : 200ms, 2s, 16};
-    gentest::WatchdogMonitorOptions options{slowObserver ? 2u : 256u, 50ms, 500ms};
+    gentest::WatchdogConfig         config{.inactivityTimeout = mode == ChildMode::normal ? 3s : 200ms,
+                                           .maximumSilence    = 2s,
+                                           .maximumSubjects   = 16};
+    gentest::WatchdogMonitorOptions options{.observerCapacity = slowObserver ? 2u : 256u, .shutdownGrace = 50ms, .shutdownCutoff = 500ms};
     gentest::WatchdogMonitor        monitor(channel.releaseMonitor(), identity, config, observer, options);
     monitor.setProcessOwner(child.pidfd);
     monitor.start();
@@ -191,7 +193,9 @@ void processCase(ChildMode mode, bool freeze, bool slowObserver, bool throwingOb
         require(!result.failure && WIFEXITED(status) && WEXITSTATUS(status) == 0, "normal service failed");
         require(observer->sequences == std::vector<std::uint64_t>({1, 2, 3}), "records lost or reordered");
     } else {
-        require(result.failure.has_value(), "failure was not recorded");
+        if (!result.failure) {
+            throw std::runtime_error("failure was not recorded");
+        }
         const auto expected =
             slowObserver || throwingObserver ? gentest::WatchdogFailureCode::observation_failure : gentest::WatchdogFailureCode::inactivity;
         if (result.failure->code != expected) {
@@ -209,13 +213,13 @@ void malformedCase(bool wrongIdentity, bool eof) {
     auto       channel  = gentest::LinuxNotificationChannel::create();
     const auto producer = channel.producer();
     if (wrongIdentity || eof) {
-        gentest::Notification        notification{wrongIdentity ? gentest::ProducerIdentity{99, 1} : identity,
-                                                  1,
-                                                  1,
-                                                  gentest::NotificationKind::subject_started,
-                                                  {},
-                                                  {},
-                                                  "active"};
+        gentest::Notification notification{.producer  = wrongIdentity ? gentest::ProducerIdentity{.id = 99, .generation = 1} : identity,
+                                           .subject   = 1,
+                                           .sequence  = 1,
+                                           .kind      = gentest::NotificationKind::subject_started,
+                                           .allowance = {},
+                                           .topic     = {},
+                                           .payload   = "active"};
         gentest::EncodedNotification record;
         require(gentest::encodeNotification(notification, record) == gentest::NotifyResult::accepted, "encode failed");
         require(::send(producer.socket, record.bytes.data(), record.size, MSG_NOSIGNAL) == static_cast<ssize_t>(record.size),
@@ -226,7 +230,8 @@ void malformedCase(bool wrongIdentity, bool eof) {
     if (eof) {
         ::shutdown(producer.socket, SHUT_WR);
     }
-    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity, {1s, 1s, 16});
+    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity,
+                                     {.inactivityTimeout = 1s, .maximumSilence = 1s, .maximumSubjects = 16});
     monitor.start();
     require(monitor.waitFor(3s), "malformed/EOF monitor did not finish");
     const auto result = monitor.outcome();
@@ -247,15 +252,24 @@ void overloadCase() {
     require(result == gentest::NotifyResult::queue_overflow, "bounded producer did not report overload");
     require(notifier.progress() == result, "producer terminal fault was not sticky");
 
-    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity, {1s, 1s, 16});
+    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity,
+                                     {.inactivityTimeout = 1s, .maximumSilence = 1s, .maximumSubjects = 16});
     monitor.start();
     require(monitor.waitFor(3s), "producer overload monitor did not finish");
-    require(monitor.outcome().failure->code == gentest::WatchdogFailureCode::producer_overload, "out-of-band overload signal was lost");
+    const auto outcome = monitor.outcome();
+    require(outcome.failure && outcome.failure->code == gentest::WatchdogFailureCode::producer_overload,
+            "out-of-band overload signal was lost");
     require(!sink->close(), "faulted producer reported successful drain");
 }
 
-void sendRecord(int socket, std::uint64_t sequence, gentest::NotificationKind kind) {
-    gentest::Notification        notification{identity, 1, sequence, kind, {}, {}, "drain"};
+void sendRecord(int socket, gentest::NotificationKind kind, std::uint64_t sequence) {
+    gentest::Notification        notification{.producer  = identity,
+                                              .subject   = 1,
+                                              .sequence  = sequence,
+                                              .kind      = kind,
+                                              .allowance = {},
+                                              .topic     = {},
+                                              .payload   = "drain"};
     gentest::EncodedNotification record;
     require(gentest::encodeNotification(notification, record) == gentest::NotifyResult::accepted, "drain record encode failed");
     require(::send(socket, record.bytes.data(), record.size, MSG_NOSIGNAL) == static_cast<ssize_t>(record.size),
@@ -265,9 +279,10 @@ void sendRecord(int socket, std::uint64_t sequence, gentest::NotificationKind ki
 void disarmCase(bool beforeStart) {
     auto       channel  = gentest::LinuxNotificationChannel::create();
     const auto producer = channel.producer();
-    sendRecord(producer.socket, 1, gentest::NotificationKind::subject_started);
+    sendRecord(producer.socket, gentest::NotificationKind::subject_started, 1);
     auto                     observer = std::make_shared<Observer>();
-    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity, {beforeStart ? 1ns : 3s, 1s, 16}, observer);
+    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity,
+                                     {.inactivityTimeout = beforeStart ? 1ns : 3s, .maximumSilence = 1s, .maximumSubjects = 16}, observer);
     if (beforeStart) {
         monitor.disarm();
     }
@@ -277,7 +292,7 @@ void disarmCase(bool beforeStart) {
     // More than one receive batch must be drained, even with an active subject
     // and records whose original progress budget has already elapsed.
     for (std::uint64_t sequence = 2; sequence <= 130; ++sequence) {
-        sendRecord(producer.socket, sequence, gentest::NotificationKind::progress);
+        sendRecord(producer.socket, gentest::NotificationKind::progress, sequence);
     }
     ::shutdown(producer.socket, SHUT_WR);
     monitor.finish();
@@ -289,7 +304,9 @@ void disarmCase(bool beforeStart) {
 
 void deadlineBoundaryCase() {
     auto                     channel = gentest::LinuxNotificationChannel::create();
-    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity, {std::chrono::nanoseconds::max() - 1ns, 1s, 16});
+    gentest::WatchdogMonitor monitor(
+        channel.releaseMonitor(), identity,
+        {.inactivityTimeout = std::chrono::nanoseconds::max() - 1ns, .maximumSilence = 1s, .maximumSubjects = 16});
     monitor.start();
     monitor.finish();
     monitor.close();
@@ -299,7 +316,9 @@ void deadlineBoundaryCase() {
     const auto owned          = invalidChannel.releaseMonitor();
     bool       rejected       = false;
     try {
-        gentest::WatchdogMonitor invalid(owned, identity, {1s, 1s, 16}, {}, {256, 1s, std::chrono::milliseconds::max()});
+        gentest::WatchdogMonitor invalid(
+            owned, identity, {.inactivityTimeout = 1s, .maximumSilence = 1s, .maximumSubjects = 16}, {},
+            {.observerCapacity = 256, .shutdownGrace = 1s, .shutdownCutoff = std::chrono::milliseconds::max()});
     } catch (const std::invalid_argument &) { rejected = true; }
     require(rejected, "overflowing shutdown duration was accepted");
     require(::fcntl(owned.socket, F_GETFD) == -1 && errno == EBADF, "failed monitor construction leaked socket");
@@ -343,7 +362,9 @@ void shutdownCutoffCase(bool earlierFailure) {
     auto      channel = gentest::LinuxNotificationChannel::create();
     const int stop    = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     require(stop >= 0, "cutoff stop eventfd failed");
-    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity, {3s, 1s, 16}, {}, {256, 10ms, 30ms});
+    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity,
+                                     {.inactivityTimeout = 3s, .maximumSilence = 1s, .maximumSubjects = 16}, {},
+                                     {.observerCapacity = 256, .shutdownGrace = 10ms, .shutdownCutoff = 30ms});
     monitor.setProcessOwner(owner.pidfd, stop);
     ::close(stop);
     monitor.addEscalationPidfd(escalation.pidfd);
@@ -363,10 +384,13 @@ void shutdownCutoffCase(bool earlierFailure) {
     require(result.complete && result.stopRequested && result.killSent && !result.processExited,
             "ineffective escalation incorrectly reported process retirement");
     const auto expected = earlierFailure ? gentest::WatchdogFailureCode::invalid_record : gentest::WatchdogFailureCode::shutdown_timeout;
-    require(result.failure && result.failure->code == expected, "shutdown cutoff lost its failure or overwrote the original failure");
+    if (!result.failure) {
+        throw std::runtime_error("shutdown cutoff lost its failure");
+    }
+    require(result.failure->code == expected, "shutdown cutoff overwrote the original failure");
     require(result.failure->detail == (earlierFailure ? "original terminal failure" : "process remained alive after the shutdown cutoff"),
             "shutdown cutoff lost the failure detail");
-    pollfd ownerState{owner.pidfd, POLLIN, 0};
+    pollfd ownerState{.fd = owner.pidfd, .events = POLLIN, .revents = 0};
     require(::poll(&ownerState, 1, 0) == 0, "cutoff regression did not retain a live owner process");
 }
 
@@ -384,7 +408,7 @@ void concurrentAdmissionCase(bool raceClose) {
             gentest::EncodedNotification record;
             const auto                   size = ::recv(receiver.socket, record.bytes.data(), record.bytes.size(), 0);
             if (size < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
-                pollfd wait{receiver.socket, POLLIN, 0};
+                pollfd wait{.fd = receiver.socket, .events = POLLIN, .revents = 0};
                 static_cast<void>(::poll(&wait, 1, -1));
                 continue;
             }
@@ -462,20 +486,108 @@ void concurrentAdmissionCase(bool raceClose) {
     }
 }
 
-void forkReuseCase() {
-    auto  channel = gentest::LinuxNotificationChannel::create();
-    auto  sink    = gentest::LinuxNotificationSink::attach(channel.releaseProducer(), identity);
+void forkReuseCase(bool closeBeforeFork) {
+    auto channel = gentest::LinuxNotificationChannel::create();
+    auto sink    = gentest::LinuxNotificationSink::attach(channel.releaseProducer(), identity);
+    if (closeBeforeFork) {
+        require(sink->close(), "sink did not close before fork");
+    }
+
     Child child;
     child.pid = ::fork();
     require(child.pid >= 0, "fork failed");
     if (child.pid == 0) {
-        const gentest::Notifier notifier(sink, identity, 1);
-        ::_exit(notifier.progress() == gentest::NotifyResult::transport_error ? 0 : 1);
+        bool rejected;
+        {
+            const gentest::Notifier notifier(sink, identity, 1);
+            rejected = notifier.progress() == gentest::NotifyResult::transport_error;
+        }
+        // A drained sink has no writer capture retaining its state, so this also
+        // exercises cleanup of the inherited state after fork.
+        sink.reset();
+        ::_exit(rejected ? 0 : 1);
     }
     const int status = child.reap();
     require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "inherited live sink was reused after fork");
     require(sink->status() == gentest::NotifyResult::accepted, "fork misuse corrupted parent sink");
     require(sink->close(), "unused sink did not close cleanly");
+}
+
+void environmentChecks(gentest::LinuxNotificationChannel &channel) {
+    closeDescriptors(channel.releaseMonitor());
+    const auto producer = channel.releaseProducer();
+    const auto fds      = std::to_string(producer.socket) + "," + std::to_string(producer.fault);
+    require(::unsetenv("GENTEST_NOTIFY_FDS") == 0 && ::unsetenv("GENTEST_NOTIFY_ID") == 0, "clear environment failed");
+    require(!gentest::notifierFromEnvironment().active(), "missing environment enabled notification");
+
+    // Parse failures must preserve the endpoints for a later valid attachment.
+    constexpr const char *malformed[]{
+        "", ",", "1", "1,", ",1", " 1,1", "+1,1", "1,2x", "1,2,3", "18446744073709551616,1", "1,18446744073709551616"};
+    for (const bool identityField : {false, true}) {
+        for (const auto *value : malformed) {
+            require(::setenv("GENTEST_NOTIFY_FDS", identityField ? fds.c_str() : value, 1) == 0 &&
+                        ::setenv("GENTEST_NOTIFY_ID", identityField ? value : "71,3", 1) == 0,
+                    "set malformed environment failed");
+            bool rejected = false;
+            try {
+                const auto notifier = gentest::notifierFromEnvironment();
+                require(!notifier.active(), "malformed environment enabled notification");
+            } catch (const std::invalid_argument &) { rejected = true; }
+            require(rejected, "malformed integer pair was accepted");
+            require(::fcntl(producer.socket, F_GETFD) >= 0 && ::fcntl(producer.fault, F_GETFD) >= 0,
+                    "parse failure consumed producer endpoints");
+        }
+    }
+
+    // Simulate descriptors inherited through exec, then verify adoption and use.
+    require(::fcntl(producer.socket, F_SETFD, 0) == 0 && ::fcntl(producer.fault, F_SETFD, 0) == 0, "clear close-on-exec failed");
+    require(::setenv("GENTEST_NOTIFY_FDS", fds.c_str(), 1) == 0 && ::setenv("GENTEST_NOTIFY_ID", "71,3", 1) == 0,
+            "set valid environment failed");
+    {
+        const auto notifier = gentest::notifierFromEnvironment(42);
+        require(notifier.active() && notifier.producer() == identity && notifier.subject() == 42, "valid environment parsed incorrectly");
+        require(::fcntl(producer.socket, F_GETFD) == FD_CLOEXEC && ::fcntl(producer.fault, F_GETFD) == FD_CLOEXEC,
+                "adopted endpoints did not set close-on-exec");
+        require(std::getenv("GENTEST_NOTIFY_FDS") == nullptr && std::getenv("GENTEST_NOTIFY_ID") == nullptr,
+                "adoption did not clear notification environment");
+        require(!gentest::notifierFromEnvironment().active(), "endpoints were adopted twice");
+        require(notifier.start("environment") == gentest::NotifyResult::accepted, "environment start rejected");
+        require(notifier.finish() == gentest::NotifyResult::accepted, "environment finish rejected");
+    }
+    require(::fcntl(producer.socket, F_GETFD) == -1 && errno == EBADF, "environment notifier leaked socket");
+    require(::fcntl(producer.fault, F_GETFD) == -1 && errno == EBADF, "environment notifier leaked fault descriptor");
+}
+
+void environmentCase() {
+    auto  channel = gentest::LinuxNotificationChannel::create();
+    Child child;
+    child.pid = ::fork();
+    require(child.pid >= 0, "environment fork failed");
+    if (child.pid == 0) {
+        try {
+            environmentChecks(channel);
+            ::_exit(0);
+        } catch (const std::exception &error) {
+            std::cerr << "environment child failed: " << error.what() << '\n';
+            ::_exit(1);
+        }
+    }
+    closeDescriptors(channel.releaseProducer());
+    const auto status = child.reap();
+    require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "environment parsing or adoption failed");
+
+    // Validate the child's records independently of the environment parser.
+    for (const auto kind : {gentest::NotificationKind::subject_started, gentest::NotificationKind::subject_finished}) {
+        gentest::EncodedNotification record;
+        const auto                   received = ::recv(channel.monitor().socket, record.bytes.data(), record.bytes.size(), MSG_DONTWAIT);
+        require(received > 0, "environment notification was not delivered");
+        record.size = static_cast<std::size_t>(received);
+        gentest::Notification notification;
+        require(gentest::decodeNotification(record.view(), notification) == gentest::NotifyResult::accepted,
+                "environment notification was malformed");
+        require(notification.producer == identity && notification.subject == 42 && notification.kind == kind,
+                "environment notification fields were incorrect");
+    }
 }
 } // namespace
 
@@ -491,7 +603,9 @@ int main() {
         malformedCase(true, false);
         malformedCase(false, true);
         overloadCase();
-        forkReuseCase();
+        forkReuseCase(false);
+        forkReuseCase(true);
+        environmentCase();
         disarmCase(false);
         disarmCase(true);
         deadlineBoundaryCase();

@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <charconv>
 #include <condition_variable>
+#include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
@@ -11,7 +12,6 @@
 #include <limits>
 #include <mutex>
 #include <poll.h>
-#include <signal.h>
 #include <stdexcept>
 #include <string>
 #include <sys/eventfd.h>
@@ -58,8 +58,14 @@ int duplicate(int fd) {
 void configureFd(int fd) {
     const int descriptorFlags = ::fcntl(fd, F_GETFD);
     const int statusFlags     = ::fcntl(fd, F_GETFL);
-    if (descriptorFlags < 0 || statusFlags < 0 || ::fcntl(fd, F_SETFD, descriptorFlags | FD_CLOEXEC) < 0 ||
-        ::fcntl(fd, F_SETFL, statusFlags | O_NONBLOCK) < 0) {
+    if (descriptorFlags < 0 || statusFlags < 0) {
+        systemFailure("inspect notification descriptor flags");
+    }
+
+    // fcntl takes int flags; perform bit operations only after validating them.
+    const auto closeOnExec = static_cast<int>(static_cast<unsigned>(descriptorFlags) | FD_CLOEXEC);
+    const auto nonblocking = static_cast<int>(static_cast<unsigned>(statusFlags) | O_NONBLOCK);
+    if (::fcntl(fd, F_SETFD, closeOnExec) < 0 || ::fcntl(fd, F_SETFL, nonblocking) < 0) {
         systemFailure("configure notification descriptor");
     }
 }
@@ -86,8 +92,8 @@ void drainEvent(int fd) noexcept {
 }
 
 bool readable(int fd) noexcept {
-    pollfd descriptor{fd, POLLIN, 0};
-    return ::poll(&descriptor, 1, 0) > 0 && (descriptor.revents & (POLLIN | POLLHUP)) != 0;
+    pollfd descriptor{.fd = fd, .events = POLLIN, .revents = 0};
+    return ::poll(&descriptor, 1, 0) > 0 && (static_cast<unsigned>(descriptor.revents) & static_cast<unsigned>(POLLIN | POLLHUP)) != 0;
 }
 
 void signalProcess(int pidfd, int signal) noexcept {
@@ -119,16 +125,16 @@ WatchdogFailure failureFor(ProducerIdentity producer, WatchdogFailureCode code, 
 }
 } // namespace
 
-LinuxNotificationChannel::LinuxNotificationChannel(NotificationDescriptors producer, NotificationDescriptors monitor) noexcept
-    : producer_(producer), monitor_(monitor) {}
+LinuxNotificationChannel::LinuxNotificationChannel(Endpoints endpoints) noexcept
+    : producer_(endpoints.producer), monitor_(endpoints.monitor) {}
 
 LinuxNotificationChannel LinuxNotificationChannel::create() {
     int sockets[2]{-1, -1};
     if (::socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, sockets) < 0) {
         systemFailure("create notification socketpair");
     }
-    NotificationDescriptors producer{sockets[0], -1};
-    NotificationDescriptors monitor{sockets[1], -1};
+    NotificationDescriptors producer{.socket = sockets[0], .fault = -1};
+    NotificationDescriptors monitor{.socket = sockets[1], .fault = -1};
     try {
         producer.fault = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
         if (producer.fault < 0) {
@@ -140,7 +146,7 @@ LinuxNotificationChannel LinuxNotificationChannel::create() {
         closeDescriptors(monitor);
         throw;
     }
-    return {producer, monitor};
+    return LinuxNotificationChannel({.producer = producer, .monitor = monitor});
 }
 
 LinuxNotificationChannel::~LinuxNotificationChannel() {
@@ -177,7 +183,7 @@ struct LinuxNotificationSink::State {
         EncodedNotification record;
         std::atomic<bool>   ready{false};
     };
-    static constexpr std::uint64_t closedBit = std::uint64_t{1} << 63;
+    static constexpr std::uint64_t closedBit = std::uint64_t{1} << 63u;
     std::unique_ptr<Slot[]>        queue;
     const std::size_t              capacity;
     std::atomic<std::size_t>       producerPosition{0};
@@ -210,9 +216,10 @@ struct LinuxNotificationSink::State {
     }
 
     ~State() {
-        // A fork child has no copy of the parent's writer thread to join.
+        // A fork child cannot join or destroy the absent parent's thread.
+        // Abandon its inherited object until process exit reclaims the memory.
         if (creator != ::getpid()) {
-            static_cast<void>(writer.release());
+            [[maybe_unused]] auto *inheritedWriter = writer.release();
         }
         closeDescriptors(descriptors);
         closeFd(wake);
@@ -246,7 +253,7 @@ struct LinuxNotificationSink::State {
                 break;
             }
             if (!haveRecord) {
-                pollfd waiting{wake, POLLIN, 0};
+                pollfd waiting{.fd = wake, .events = POLLIN, .revents = 0};
                 if (::poll(&waiting, 1, -1) < 0 && errno != EINTR) {
                     fault(NotifyResult::transport_error);
                 }
@@ -268,14 +275,15 @@ struct LinuxNotificationSink::State {
             }
             while (status.load() == NotifyResult::accepted) {
                 const auto sent = ::send(descriptors.socket, sequenced.bytes.data(), sequenced.size, MSG_DONTWAIT | MSG_NOSIGNAL);
-                if (sent == static_cast<ssize_t>(sequenced.size)) {
+                if (std::cmp_equal(sent, sequenced.size)) {
                     break;
                 }
                 if (sent < 0 && errno == EINTR) {
                     continue;
                 }
                 if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                    pollfd waiting[2]{{descriptors.socket, POLLOUT, 0}, {wake, POLLIN, 0}};
+                    pollfd waiting[2]{{.fd = descriptors.socket, .events = POLLOUT, .revents = 0},
+                                      {.fd = wake, .events = POLLIN, .revents = 0}};
                     if (::poll(waiting, 2, -1) < 0 && errno != EINTR) {
                         fault(NotifyResult::transport_error);
                     }
@@ -414,10 +422,12 @@ Notifier notifierFromEnvironment(std::uint64_t subject) {
         if (comma == std::string_view::npos) {
             throw std::invalid_argument("notification environment requires a comma-separated integer pair");
         }
-        const auto left  = std::from_chars(input.data(), input.data() + comma, first);
-        const auto right = std::from_chars(input.data() + comma + 1, input.data() + input.size(), second);
-        if (left.ec != std::errc{} || left.ptr != input.data() + comma || right.ec != std::errc{} ||
-            right.ptr != input.data() + input.size()) {
+        const auto leftInput  = input.substr(0, comma);
+        const auto rightInput = input.substr(comma + 1);
+        const auto left       = std::from_chars(leftInput.data(), leftInput.data() + leftInput.size(), first);
+        const auto right      = std::from_chars(rightInput.data(), rightInput.data() + rightInput.size(), second);
+        if (left.ec != std::errc{} || left.ptr != leftInput.data() + leftInput.size() || right.ec != std::errc{} ||
+            right.ptr != rightInput.data() + rightInput.size()) {
             throw std::invalid_argument("invalid notification descriptor or producer identity");
         }
     };
@@ -428,7 +438,7 @@ Notifier notifierFromEnvironment(std::uint64_t subject) {
     auto sink = LinuxNotificationSink::attach(descriptors, producer);
     ::unsetenv("GENTEST_NOTIFY_FDS");
     ::unsetenv("GENTEST_NOTIFY_ID");
-    return Notifier(std::move(sink), producer, subject);
+    return {std::move(sink), producer, subject};
 }
 
 struct WatchdogMonitor::State {
@@ -639,7 +649,7 @@ struct WatchdogMonitor::State {
             terminateOwner(false);
             const auto deadline = deadlineAfter(Clock::now(), options.shutdownGrace);
             while (Clock::now() < deadline) {
-                pollfd wait{wake, POLLIN, 0};
+                pollfd wait{.fd = wake, .events = POLLIN, .revents = 0};
                 static_cast<void>(::poll(&wait, 1, pollTimeout(deadline)));
                 drainEvent(wake);
             }
@@ -714,7 +724,7 @@ struct WatchdogMonitor::State {
                     }
                     break;
                 }
-                if (received < 0 || received > static_cast<ssize_t>(record.bytes.size())) {
+                if (received < 0 || std::cmp_greater(received, record.bytes.size())) {
                     recordFailure(failureFor(producer, WatchdogFailureCode::invalid_record, "invalid or truncated notification packet"));
                     break;
                 }
@@ -830,10 +840,10 @@ struct WatchdogMonitor::State {
             if (!receiveDrained && !stopping) {
                 deadline = now;
             }
-            pollfd    waits[4]{{wake, POLLIN, 0},
-                               {eof || model.failure() ? -1 : descriptors.socket, POLLIN, 0},
-                               {model.failure() ? -1 : descriptors.fault, POLLIN, 0},
-                               {ownedProcess, POLLIN, 0}};
+            pollfd    waits[4]{{.fd = wake, .events = POLLIN, .revents = 0},
+                               {.fd = eof || model.failure() ? -1 : descriptors.socket, .events = POLLIN, .revents = 0},
+                               {.fd = model.failure() ? -1 : descriptors.fault, .events = POLLIN, .revents = 0},
+                               {.fd = ownedProcess, .events = POLLIN, .revents = 0}};
             const int polled = ::poll(waits, 4, pollTimeout(deadline));
             if (polled < 0 && errno != EINTR) {
                 recordFailure(failureFor(producer, WatchdogFailureCode::transport_error, "watchdog poll failed"));
@@ -841,7 +851,7 @@ struct WatchdogMonitor::State {
             if (waits[0].revents != 0) {
                 drainEvent(wake);
             }
-            if ((waits[1].revents & (POLLERR | POLLNVAL)) != 0) {
+            if ((static_cast<unsigned>(waits[1].revents) & static_cast<unsigned>(POLLERR | POLLNVAL)) != 0) {
                 recordFailure(failureFor(producer, WatchdogFailureCode::transport_error, "notification socket failed"));
             }
         }

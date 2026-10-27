@@ -16,7 +16,7 @@ extern char **environ;
 
 namespace {
 using namespace std::chrono_literals;
-constexpr gentest::ProducerIdentity identity{1, 1};
+constexpr gentest::ProducerIdentity identity{.id = 1, .generation = 1};
 
 void requireAccepted(gentest::NotifyResult result) {
     if (result != gentest::NotifyResult::accepted) {
@@ -75,6 +75,7 @@ int supervise(const char *executable, bool stall) {
     environment.emplace_back("GENTEST_NOTIFY_FDS=200,201");
     environment.emplace_back("GENTEST_NOTIFY_ID=1,1");
     std::vector<char *> environmentPointers;
+    environmentPointers.reserve(environment.size() + 1);
     for (auto &entry : environment) {
         environmentPointers.push_back(entry.data());
     }
@@ -98,8 +99,9 @@ int supervise(const char *executable, bool stall) {
         ::waitpid(child, nullptr, 0);
         throw std::runtime_error("pidfd_open failed");
     }
-    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity, {500ms, 2s, 16}, std::make_shared<ConsoleObserver>(),
-                                     {256, 100ms, 1s});
+    gentest::WatchdogMonitor monitor(
+        channel.releaseMonitor(), identity, {.inactivityTimeout = 500ms, .maximumSilence = 2s, .maximumSubjects = 16},
+        std::make_shared<ConsoleObserver>(), {.observerCapacity = 256, .shutdownGrace = 100ms, .shutdownCutoff = 1s});
     monitor.setProcessOwner(pidfd);
     ::close(pidfd);
     monitor.start();

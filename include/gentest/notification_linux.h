@@ -30,7 +30,11 @@ class LinuxNotificationChannel {
     [[nodiscard]] NotificationDescriptors releaseMonitor() noexcept;
 
   private:
-    LinuxNotificationChannel(NotificationDescriptors producer, NotificationDescriptors monitor) noexcept;
+    struct Endpoints {
+        NotificationDescriptors producer;
+        NotificationDescriptors monitor;
+    };
+    explicit LinuxNotificationChannel(Endpoints endpoints) noexcept;
     NotificationDescriptors producer_;
     NotificationDescriptors monitor_;
 };
