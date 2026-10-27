@@ -50,16 +50,21 @@ auto validate(const Notification &notification, bool requireSequence) noexcept -
     return NotifyResult::accepted;
 }
 
-void putUnsigned(std::span<std::byte> bytes, std::size_t offset, std::uint64_t value, std::size_t width) noexcept {
-    for (std::size_t i = 0; i < width; ++i) {
-        bytes[offset + i] = static_cast<std::byte>((value >> (i * 8)) & 0xffU);
+// Each span identifies one complete wire field and bounds shifts to the value type.
+template <std::size_t Width> void putUnsigned(std::span<std::byte, Width> field, std::uint64_t value) noexcept {
+    static_assert(Width > 0 && Width <= sizeof(value));
+
+    for (std::size_t i = 0; i < Width; ++i) {
+        field[i] = static_cast<std::byte>((value >> (i * 8)) & 0xffU);
     }
 }
 
-auto getUnsigned(std::span<const std::byte> bytes, std::size_t offset, std::size_t width) noexcept -> std::uint64_t {
+template <std::size_t Width> auto getUnsigned(std::span<const std::byte, Width> field) noexcept -> std::uint64_t {
+    static_assert(Width > 0 && Width <= sizeof(std::uint64_t));
+
     std::uint64_t value = 0;
-    for (std::size_t i = 0; i < width; ++i) {
-        value |= static_cast<std::uint64_t>(std::to_integer<unsigned char>(bytes[offset + i])) << (i * 8);
+    for (std::size_t i = 0; i < Width; ++i) {
+        value |= static_cast<std::uint64_t>(std::to_integer<unsigned char>(field[i])) << (i * 8);
     }
     return value;
 }
@@ -84,17 +89,17 @@ auto encodeNotification(const Notification &notification, EncodedNotification &e
 
     const auto size  = wireHeaderSize + notification.topic.size() + notification.payload.size();
     auto       bytes = std::span(encoded.bytes);
-    putUnsigned(bytes, 0, notificationProtocolVersion, 2);
-    putUnsigned(bytes, 2, static_cast<std::uint8_t>(notification.kind), 1);
-    putUnsigned(bytes, 3, 0, 1);
-    putUnsigned(bytes, 4, size, 4);
-    putUnsigned(bytes, 8, notification.producer.id, 8);
-    putUnsigned(bytes, 16, notification.producer.generation, 8);
-    putUnsigned(bytes, 24, notification.subject, 8);
-    putUnsigned(bytes, 32, notification.sequence, 8);
-    putUnsigned(bytes, 40, static_cast<std::uint64_t>(notification.allowance.count()), 8);
-    putUnsigned(bytes, 48, notification.topic.size(), 2);
-    putUnsigned(bytes, 50, notification.payload.size(), 2);
+    putUnsigned(bytes.subspan<0, 2>(), notificationProtocolVersion);
+    putUnsigned(bytes.subspan<2, 1>(), static_cast<std::uint8_t>(notification.kind));
+    putUnsigned(bytes.subspan<3, 1>(), 0);
+    putUnsigned(bytes.subspan<4, 4>(), size);
+    putUnsigned(bytes.subspan<8, 8>(), notification.producer.id);
+    putUnsigned(bytes.subspan<16, 8>(), notification.producer.generation);
+    putUnsigned(bytes.subspan<24, 8>(), notification.subject);
+    putUnsigned(bytes.subspan<32, 8>(), notification.sequence);
+    putUnsigned(bytes.subspan<40, 8>(), static_cast<std::uint64_t>(notification.allowance.count()));
+    putUnsigned(bytes.subspan<48, 2>(), notification.topic.size());
+    putUnsigned(bytes.subspan<50, 2>(), notification.payload.size());
 
     std::size_t offset = wireHeaderSize;
     for (char ch : notification.topic) {
@@ -115,26 +120,26 @@ auto decodeNotification(std::span<const std::byte> encoded, Notification &notifi
     if (encoded.size() < wireHeaderSize) {
         return NotifyResult::invalid_record;
     }
-    if (getUnsigned(encoded, 0, 2) != notificationProtocolVersion) {
+    if (getUnsigned(encoded.subspan<0, 2>()) != notificationProtocolVersion) {
         return NotifyResult::unsupported_version;
     }
-    if (getUnsigned(encoded, 3, 1) != 0 || getUnsigned(encoded, 4, 4) != encoded.size()) {
+    if (getUnsigned(encoded.subspan<3, 1>()) != 0 || getUnsigned(encoded.subspan<4, 4>()) != encoded.size()) {
         return NotifyResult::invalid_record;
     }
 
-    const auto topicSize   = static_cast<std::size_t>(getUnsigned(encoded, 48, 2));
-    const auto payloadSize = static_cast<std::size_t>(getUnsigned(encoded, 50, 2));
-    const auto allowance   = getUnsigned(encoded, 40, 8);
+    const auto topicSize   = static_cast<std::size_t>(getUnsigned(encoded.subspan<48, 2>()));
+    const auto payloadSize = static_cast<std::size_t>(getUnsigned(encoded.subspan<50, 2>()));
+    const auto allowance   = getUnsigned(encoded.subspan<40, 8>());
     if (topicSize + payloadSize != encoded.size() - wireHeaderSize ||
         allowance > static_cast<std::uint64_t>(std::chrono::nanoseconds::max().count())) {
         return NotifyResult::invalid_record;
     }
 
     Notification decoded;
-    decoded.producer  = {getUnsigned(encoded, 8, 8), getUnsigned(encoded, 16, 8)};
-    decoded.subject   = getUnsigned(encoded, 24, 8);
-    decoded.sequence  = getUnsigned(encoded, 32, 8);
-    decoded.kind      = static_cast<NotificationKind>(getUnsigned(encoded, 2, 1));
+    decoded.producer  = {.id = getUnsigned(encoded.subspan<8, 8>()), .generation = getUnsigned(encoded.subspan<16, 8>())};
+    decoded.subject   = getUnsigned(encoded.subspan<24, 8>());
+    decoded.sequence  = getUnsigned(encoded.subspan<32, 8>());
+    decoded.kind      = static_cast<NotificationKind>(getUnsigned(encoded.subspan<2, 1>()));
     decoded.allowance = std::chrono::nanoseconds(static_cast<std::chrono::nanoseconds::rep>(allowance));
     const auto *text  = reinterpret_cast<const char *>(encoded.data() + wireHeaderSize);
     decoded.topic     = {text, topicSize};
@@ -156,7 +161,13 @@ auto Notifier::send(NotificationKind kind, std::string_view topic, std::string_v
     if (!sink_) {
         return NotifyResult::disabled;
     }
-    const Notification notification{producer_, subject_, 0, kind, allowance, topic, payload};
+    const Notification notification{.producer  = producer_,
+                                    .subject   = subject_,
+                                    .sequence  = 0,
+                                    .kind      = kind,
+                                    .allowance = allowance,
+                                    .topic     = topic,
+                                    .payload   = payload};
     const auto         result = validate(notification, false);
     if (result != NotifyResult::accepted) {
         sink_->onError(result);
@@ -242,7 +253,7 @@ auto WatchdogModel::advance(TimePoint now) noexcept -> WatchdogResult {
         return WatchdogResult::failed;
     }
     if (impl_->previousTime && now < *impl_->previousTime) {
-        return fail({WatchdogFailureCode::invalid_time});
+        return fail({.code = WatchdogFailureCode::invalid_time});
     }
     impl_->previousTime = now;
 
@@ -270,7 +281,10 @@ auto WatchdogModel::accept(const Notification &notification, TimePoint now) noex
         return WatchdogResult::failed;
     }
     const auto invalid = [&] {
-        return fail({WatchdogFailureCode::invalid_record, notification.producer, notification.subject, notification.sequence});
+        return fail({.code     = WatchdogFailureCode::invalid_record,
+                     .producer = notification.producer,
+                     .subject  = notification.subject,
+                     .sequence = notification.sequence});
     };
     if (validate(notification, true) != NotifyResult::accepted) {
         return invalid();
@@ -307,9 +321,12 @@ auto WatchdogModel::accept(const Notification &notification, TimePoint now) noex
             // Producer high-water marks are bounded too. A monitor is intended
             // for one bounded producer session, not an unbounded registry.
             if (impl_->producers.size() == impl_->config.maximumSubjects) {
-                return fail({WatchdogFailureCode::capacity_exceeded, notification.producer, notification.subject, notification.sequence});
+                return fail({.code     = WatchdogFailureCode::capacity_exceeded,
+                             .producer = notification.producer,
+                             .subject  = notification.subject,
+                             .sequence = notification.sequence});
             }
-            impl_->producers.push_back({notification.producer, notification.sequence});
+            impl_->producers.push_back({.identity = notification.producer, .sequence = notification.sequence});
         } else {
             producer->identity = notification.producer;
             producer->sequence = notification.sequence;
@@ -317,14 +334,23 @@ auto WatchdogModel::accept(const Notification &notification, TimePoint now) noex
 
         if (notification.kind == NotificationKind::subject_started) {
             if (impl_->subjects.size() == impl_->config.maximumSubjects) {
-                return fail({WatchdogFailureCode::capacity_exceeded, notification.producer, notification.subject, notification.sequence});
+                return fail({.code     = WatchdogFailureCode::capacity_exceeded,
+                             .producer = notification.producer,
+                             .subject  = notification.subject,
+                             .sequence = notification.sequence});
             }
             const auto deadline = deadlineAfter(now, impl_->config.inactivityTimeout);
             if (!deadline) {
-                return fail({WatchdogFailureCode::invalid_time, notification.producer, notification.subject, notification.sequence});
+                return fail({.code     = WatchdogFailureCode::invalid_time,
+                             .producer = notification.producer,
+                             .subject  = notification.subject,
+                             .sequence = notification.sequence});
             }
-            impl_->subjects.push_back(
-                {notification.producer, notification.subject, notification.sequence, *deadline, std::string(notification.payload)});
+            impl_->subjects.push_back({.producer = notification.producer,
+                                       .id       = notification.subject,
+                                       .sequence = notification.sequence,
+                                       .deadline = *deadline,
+                                       .label    = std::string(notification.payload)});
             return WatchdogResult::accepted;
         }
         if (subject == impl_->subjects.end()) {
@@ -339,7 +365,10 @@ auto WatchdogModel::accept(const Notification &notification, TimePoint now) noex
                 notification.kind == NotificationKind::progress ? impl_->config.inactivityTimeout : notification.allowance;
             const auto deadline = deadlineAfter(now, interval);
             if (!deadline) {
-                return fail({WatchdogFailureCode::invalid_time, notification.producer, notification.subject, notification.sequence});
+                return fail({.code     = WatchdogFailureCode::invalid_time,
+                             .producer = notification.producer,
+                             .subject  = notification.subject,
+                             .sequence = notification.sequence});
             }
             subject->deadline = *deadline;
             if (notification.kind == NotificationKind::progress && !notification.payload.empty()) {
@@ -353,7 +382,10 @@ auto WatchdogModel::accept(const Notification &notification, TimePoint now) noex
         }
         return WatchdogResult::accepted;
     } catch (...) {
-        return fail({WatchdogFailureCode::resource_exhausted, notification.producer, notification.subject, notification.sequence});
+        return fail({.code     = WatchdogFailureCode::resource_exhausted,
+                     .producer = notification.producer,
+                     .subject  = notification.subject,
+                     .sequence = notification.sequence});
     }
 }
 
