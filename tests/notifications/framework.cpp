@@ -30,13 +30,14 @@ void check(bool condition, const char *message) {
 }
 
 struct Record {
-    NotificationKind      kind{};
+    NotificationKind      kind = NotificationKind::custom;
     std::uint64_t         subject{};
     std::array<char, 128> text{};
 };
 
 struct CaptureSink final : gentest::NotificationSink {
-    std::array<Record, 1024> records{};
+    // Each record's member initializers provide valid defaults for unused slots.
+    std::array<Record, 1024> records;
     std::atomic<std::size_t> size{0};
     bool                     failProgress = false;
 
@@ -52,7 +53,7 @@ struct CaptureSink final : gentest::NotificationSink {
         record.kind      = notification.kind;
         record.subject   = notification.subject;
         const auto count = std::min(notification.payload.size(), record.text.size() - 1);
-        std::copy_n(notification.payload.data(), count, record.text.data());
+        std::ranges::copy(notification.payload.substr(0, count), record.text.begin());
         return NotifyResult::accepted;
     }
 
@@ -226,7 +227,7 @@ auto makeCase(std::string_view name, void (*body)(void *) = nullptr) -> gentest:
 auto run(std::span<const gentest::Case> cases, const std::shared_ptr<CaptureSink> &sink, const std::shared_ptr<Visitor> &hooks = {},
          std::span<const char *> arguments = {}) -> int {
     const char               *defaults[] = {"framework-events", "--no-color"};
-    gentest::RunConfiguration configuration{.notifier = gentest::Notifier(sink, {71, 3}, 0), .frameworkEvents = hooks};
+    gentest::RunConfiguration configuration{.notifier = gentest::Notifier(sink, {.id = 71, .generation = 3}, 0), .frameworkEvents = hooks};
     visitor = hooks.get();
     return gentest::run_cases(cases, arguments.empty() ? std::span<const char *>(defaults) : arguments, configuration);
 }
@@ -510,7 +511,10 @@ int main() {
         fixturesAndInfrastructureFailure();
         check(!gentest::currentNotifier().active(), "notifier escaped run scope");
     } catch (const std::exception &error) {
-        std::fprintf(stderr, "framework notification regression: %s\n", error.what());
+        // A diagnostic write failure must retain the failing process result.
+        if (std::fprintf(stderr, "framework notification regression: %s\n", error.what()) < 0) {
+            return 1;
+        }
         return 1;
     }
     return 0;
