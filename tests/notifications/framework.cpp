@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -112,9 +113,13 @@ struct Visitor final : gentest::FrameworkEventVisitor {
     void onSuspend(const gentest::FrameworkEvent &event) noexcept override {
         ++suspensions[static_cast<std::size_t>(event.suspension)];
         suspensionSubjects.emplace_back(event.suspension, event.notifier.subject());
-        if (auto action = std::move(nextAction)) {
+
+        // A moved std::function may remain callable. Consume this one-shot hook
+        // before invoking it so the callback can safely install its successor.
+        if (auto action = std::exchange(nextAction, {})) {
             action(event.suspension);
         }
+
         if (!filter) {
             FrameworkEventVisitor::onSuspend(event);
         }
