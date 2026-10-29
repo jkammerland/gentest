@@ -18,6 +18,14 @@ std::atomic<std::size_t> allocations{0};
 
 // Count allocations independently of Notifier's implementation to verify the
 // disabled path remains usable even when no transport has been configured.
+#if defined(GENTEST_TEST_WRAP_NEW)
+// Keep TSan's allocator in charge while counting calls from the tested code.
+extern "C" void *GENTEST_TEST_REAL_NEW(std::size_t size);
+extern "C" void *GENTEST_TEST_WRAP_NEW(std::size_t size) {
+    allocations.fetch_add(1, std::memory_order_relaxed);
+    return GENTEST_TEST_REAL_NEW(size);
+}
+#else
 void *operator new(std::size_t size) {
     allocations.fetch_add(1, std::memory_order_relaxed);
     if (auto *memory = std::malloc(size == 0 ? 1 : size)) {
@@ -28,6 +36,7 @@ void *operator new(std::size_t size) {
 
 void operator delete(void *memory) noexcept { std::free(memory); }
 void operator delete(void *memory, std::size_t) noexcept { std::free(memory); }
+#endif
 
 namespace {
 
@@ -323,6 +332,12 @@ class CopyingSink final : public gentest::NotificationSink {
 };
 
 void notifierOwnershipConcurrencyAndDisabled() {
+    // Verify the counter observes a real allocation before trusting a zero delta.
+    const auto beforeProbe = allocations.load(std::memory_order_relaxed);
+    void      *probe       = ::operator new(1);
+    ::operator delete(probe);
+    CHECK(allocations.load(std::memory_order_relaxed) == beforeProbe + 1);
+
     const auto        before = allocations.load(std::memory_order_relaxed);
     gentest::Notifier inactive;
     const auto        copy = inactive.forSubject(7);
