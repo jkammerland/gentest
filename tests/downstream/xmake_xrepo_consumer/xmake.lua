@@ -86,6 +86,23 @@ gentest_configure({
     },
 })
 
+-- Package metadata must supply the runtime's dependencies without the helper.
+target("gentest_xrepo_runtime")
+    set_kind("binary")
+    add_downstream_packages()
+    add_files("tests/runtime.cpp")
+
+-- The installed helper must also work without package-provided Gentest links.
+target("gentest_installed_header_only")
+    set_kind("binary")
+    gentest_attach_codegen({
+        name = "gentest_installed_header_only",
+        kind = "textual",
+        headerfiles = {"tests/header_only_cases.hpp"},
+        main = "tests/main.cpp",
+        output_dir = path.join(current_gen_root(), fixture_output_leaf("installed_header_only", "ih")),
+    })
+
 target("gentest_xrepo_textual_mocks")
     set_kind("static")
     add_downstream_packages()
