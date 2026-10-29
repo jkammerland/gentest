@@ -1686,8 +1686,9 @@ void prime_llvm_statistics_registry() {
         return true;
     }
 
-    const std::filesystem::path build_dir =
-        options.compilation_database ? options.compilation_database->lexically_normal() : std::filesystem::current_path();
+    // Build systems resolve depfile paths from the command's working directory.
+    // The compilation database can live elsewhere, including a per-target snapshot.
+    const std::filesystem::path              build_dir   = std::filesystem::current_path();
     const std::vector<std::filesystem::path> dep_targets = depfile_targets_for(options);
     if (dep_targets.empty()) {
         return true;
