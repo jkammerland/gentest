@@ -275,7 +275,7 @@ struct Network {
         }
     }
     auto fd(const std::string &name) -> int { return nodes.at(name).value; }
-    void node(const std::string &name, bool forwarding, const std::string &bridge) {
+    void node(const std::string &name, bool ipv4Forwarding, const std::string &bridge) {
         owner.check();
         identifier(name);
         if (nodes.contains(name)) {
@@ -317,7 +317,7 @@ struct Network {
         systemCheck(descriptor.value >= 0, "open network namespace");
         nodes.emplace(name, std::move(descriptor));
         run(owner, fd(name), {"ip", "link", "set", "dev", "lo", "up"});
-        if (forwarding) {
+        if (ipv4Forwarding) {
             run(owner, fd(name), {"sysctl", "-q", "-w", "net.ipv4.ip_forward=1"});
         }
         if (!bridge.empty()) {
@@ -332,10 +332,10 @@ struct Network {
             throw std::runtime_error("topology requires 1-16 nodes and one configuration");
         }
         for (unsigned i = 0; i != count; ++i) {
-            const auto name       = reader.text();
-            const auto forwarding = reader.number();
-            const auto bridge     = reader.text();
-            node(name, forwarding != 0, bridge);
+            const auto name           = reader.text();
+            const auto ipv4Forwarding = reader.number();
+            const auto bridge         = reader.text();
+            node(name, ipv4Forwarding != 0, bridge);
         }
         const auto links = reader.number();
         for (unsigned i = 0; i != links; ++i) {
@@ -367,9 +367,9 @@ struct Network {
         }
         const auto nats = reader.number();
         for (unsigned i = 0; i != nats; ++i) {
-            const auto name = reader.text(), inside = reader.text(), outside = reader.text();
-            identifier(inside);
-            identifier(outside);
+            const auto name = reader.text(), insideInterface = reader.text(), outsideInterface = reader.text();
+            identifier(insideInterface);
+            identifier(outsideInterface);
             // Drop unmapped WAN traffic before conntrack confirmation. An
             // accepted packet to a closed gateway port can otherwise reserve
             // the reverse tuple and force a later hole punch to change ports.
@@ -377,18 +377,18 @@ struct Network {
             rules << "table ip gentest {\n"
                      "counter outbound {}\ncounter inbound {}\ncounter blocked {}\n"
                      "chain postrouting { type nat hook postrouting priority srcnat; oifname \""
-                  << outside
+                  << outsideInterface
                   << "\" masquerade; }\n"
                      "chain input { type filter hook input priority filter; ct state established,related accept;\n"
                      "iifname \""
-                  << outside
+                  << outsideInterface
                   << "\" counter name blocked drop; }\n"
                      "chain forward { type filter hook forward priority filter; policy drop;\n"
                      "iifname \""
-                  << inside << "\" oifname \"" << outside
+                  << insideInterface << "\" oifname \"" << outsideInterface
                   << "\" counter name outbound accept\n"
                      "iifname \""
-                  << outside << "\" oifname \"" << inside
+                  << outsideInterface << "\" oifname \"" << insideInterface
                   << "\" ct state established,related counter name inbound accept\n"
                      "counter name blocked drop\n}\n}\n";
             run(owner, fd(name), {"nft", "-f", "-"}, rules.str());

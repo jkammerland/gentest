@@ -26,7 +26,7 @@ auto makeRing(std::size_t count) -> Topology {
 
     Topology topology;
     for (std::size_t i = 0; i < count; ++i) {
-        topology.nodes.push_back({.name = "peer_" + std::to_string(i), .forwarding = false, .bridgeAddress = {}});
+        topology.nodes.push_back({.name = "peer_" + std::to_string(i), .ipv4Forwarding = false, .bridgeAddress = {}});
     }
     for (std::size_t i = 0; i < count; ++i) {
         const auto subnet = "10.80." + std::to_string(i);
