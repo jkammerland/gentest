@@ -52,6 +52,9 @@ struct ProcessResult {
     bool        outputTruncated{};
     auto        succeeded() const noexcept -> bool { return !running && exitCode == 0 && signal == 0; }
 };
+
+enum class SignalResult { sent, alreadyExited };
+
 struct SessionSpec {
     Topology             topology;
     std::vector<Program> programs;
@@ -74,8 +77,12 @@ class Session {
     auto        receive(std::size_t program) -> awaitable<Message>;
     auto        wait(std::size_t program) -> awaitable<ProcessResult>;
     auto        inspect(std::size_t program) -> awaitable<ProcessResult>;
-    auto        execute(std::string node, std::vector<std::string> arguments, std::string input = {}) -> awaitable<std::string>;
-    auto        stop() -> awaitable<>;
+
+    // Acknowledges pidfd submission, not termination. Signal zero probes existence.
+    auto signal(std::size_t program, int signal) -> awaitable<SignalResult>;
+
+    auto execute(std::string node, std::vector<std::string> arguments, std::string input = {}) -> awaitable<std::string>;
+    auto stop() -> awaitable<>;
 
   private:
     struct Impl;

@@ -1,4 +1,5 @@
 #include "common.h"
+#include "process_signal.h"
 
 #include <algorithm>
 #include <array>
@@ -495,6 +496,23 @@ void supervise(unsigned count, std::string_view originalNamespace) {
                         const auto cwd = reader.text();
                         reader.end();
                         children.emplace(index, spawn(network.fd(node), arguments, {}, environment, cwd, channels[index].descriptors()));
+                    } else if (command == Command::signal) {
+                        const auto index  = reader.number();
+                        const auto signal = reader.number();
+                        reader.end();
+                        if (index >= count || !children.contains(index)) {
+                            throw std::runtime_error("invalid or unlaunched program");
+                        }
+                        if (signal >= NSIG) {
+                            throw std::invalid_argument("invalid process signal");
+                        }
+
+                        auto &child = children.at(index);
+                        collect(child);
+                        Writer result;
+                        result.number(submitSignal(child.pidfd.value, child.done, static_cast<int>(signal)));
+                        reply(message->tag, true, result.bytes);
+                        continue;
                     } else if (command == Command::wait || command == Command::inspect) {
                         const auto index = reader.number();
                         reader.end();

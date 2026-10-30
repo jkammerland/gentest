@@ -18,7 +18,7 @@ using detail::Fd;
 using detail::Queue;
 using detail::Shared;
 using detail::systemCheck;
-constexpr std::uint32_t magic = 0x47544831;
+constexpr std::uint32_t magic = 0x47544832;
 
 void notify(int fd) noexcept {
     const std::uint64_t one = 1;
@@ -34,14 +34,26 @@ class Lock {
         ++limit.tv_sec;
         const int error = ::pthread_mutex_clocklock(&queue_.mutex, CLOCK_MONOTONIC, &limit);
         if (error == EOWNERDEAD) {
-            queue_.closed = true;
-            queue_.count  = 0;
+            queue_.closed    = true;
+            queue_.ownerDied = true;
+            queue_.count     = 0;
             ::pthread_mutex_consistent(&queue_.mutex);
             ::pthread_mutex_unlock(&queue_.mutex);
             throw std::runtime_error("shared-memory channel owner died");
         }
         if (error) {
             throw std::system_error(error, std::generic_category(), "shared-memory channel lock");
+        }
+
+        // A recovered robust mutex does not make the abandoned queue valid.
+        // Preserve that distinction even after cleanup closes the channel.
+        if (queue_.ownerDied) {
+            ::pthread_mutex_unlock(&queue_.mutex);
+            throw std::runtime_error("shared-memory channel owner died");
+        }
+        if (queue_.head >= Channel::capacity || queue_.count > Channel::capacity) {
+            ::pthread_mutex_unlock(&queue_.mutex);
+            throw std::runtime_error("corrupt shared-memory queue");
         }
     }
     ~Lock() { ::pthread_mutex_unlock(&queue_.mutex); }
@@ -185,7 +197,7 @@ auto Channel::tryReceive() -> std::optional<Message> {
     while (::read(impl_->events[incoming].value, &signals, sizeof(signals)) < 0 && errno == EINTR) {}
     if (!queue.count) {
         if (queue.closed) {
-            throw std::runtime_error("shared-memory channel closed");
+            throw ChannelClosed{};
         }
         return std::nullopt;
     }

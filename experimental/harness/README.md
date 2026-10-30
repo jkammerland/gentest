@@ -93,6 +93,18 @@ waiting; inspect `running` before interpreting exit status. `outputTruncated`
 reports discarded output. There is one launch per program and at most 16 programs
 and 16 topology nodes per session.
 
+`signal(program, signal)` targets the original launched process through its
+retained pidfd. It returns `SignalResult::sent` when the kernel accepts the
+submission, or `SignalResult::alreadyExited` when the process has exited,
+including an exit racing submission. The acknowledgement does not mean the
+process terminated: use `wait()` to observe termination. Signal zero is an
+existence probe and delivers no signal. Negative signals, values at least `NSIG`,
+invalid indices and unlaunched programs are errors, including after another
+program exits. Program indices never shift or get reused. Cancellation stops
+waiting for acknowledgement; it cannot undo a submitted signal. Process groups
+and descendants are not signal targets; session cleanup still handles the whole
+private process tree.
+
 ## Isolation and cleanup
 
 One parent monitor thread watches shared-memory notifications and the supervisor
@@ -109,6 +121,11 @@ namespace before configuring anything. Node namespaces are held by child
 processes and open descriptors. Commands receive argv directly; there is no
 shell, daemon, sudo, host firewall modification or persistent `/run/netns` entry.
 `bwrap` and Podman are unnecessary for this network/process isolation POC.
+
+Supervisor startup uses an empty signal mask, so signals blocked by the calling
+test thread do not remain blocked in the supervisor or launched programs. The
+caller's signal mask is unchanged; child SIGTERM and SIGINT dispositions are
+reset before exec.
 
 Session destruction closes a liveness pipe, requests child termination and reaps
 the supervisor. Each child gets a one-second TERM grace period, then KILL. The
@@ -188,9 +205,13 @@ also fit a single control message, including framing.
 
 `Channel::receive(deadline, stop_token)` provides a blocking child API;
 `Session::receive()` provides the parent's async API. Already queued messages are
-read before closure is reported. `Channel::tryReceive()` does not wait for message
+read before normal closure is reported as `ChannelClosed`, including after a
+program exits. This EOF says nothing about process success: check `wait()`'s
+exit code and signal separately. `Channel::tryReceive()` does not wait for message
 arrival, but still acquires the queue mutex and can throw on lock failure or
-closure of an empty queue. A dead mutex owner invalidates that queue; a
+closure of an empty queue. Owner death, corruption, lock failures and supervisor
+failure remain separate errors and are never converted into `ChannelClosed`.
+A dead mutex owner permanently invalidates that queue; a
 live but stalled holder is bounded by a one-second lock deadline. Child exit is
 detected by the supervisor and wakes receivers. Standalone channels require
 explicit `close()` or a deadline to detect abandonment. This is a trusted,

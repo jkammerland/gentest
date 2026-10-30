@@ -2,6 +2,7 @@
 
 #include "../examples/support/two_nat.h"
 #include "../src/channel_layout.h"
+#include "../src/process_signal.h"
 #include "gentest/test.h"
 
 #include <csignal>
@@ -68,8 +69,21 @@ void queue() {
     expect_true(expired);
 
     parent.send({.tag = 6, .payload = "before close"});
+    parent.send({.tag = 7, .payload = "last message"});
     child.close();
     expect_eq(child.receive(std::chrono::steady_clock::now() + 1s).payload, std::string("before close"));
+    expect_eq(child.tryReceive().value().payload, std::string("last message"));
+    bool eof = false;
+    try {
+        (void)child.tryReceive();
+    } catch (const ChannelClosed &) { eof = true; }
+    expect_true(eof);
+    eof = false;
+    try {
+        (void)child.receive(std::chrono::steady_clock::now() + 1s);
+    } catch (const ChannelClosed &) { eof = true; }
+    expect_true(eof);
+
     bool closed = false;
     try {
         parent.send({.tag = 1, .payload = "closed"});
@@ -117,11 +131,114 @@ void channelOwnerDeath() {
     int status{};
     expect_eq(::waitpid(pid, &status, 0), pid);
     assert_true(WIFEXITED(status) && WEXITSTATUS(status) == 0, "owner-death setup failed");
-    bool died = false;
+
+    // Recovery and explicit closure must never disguise owner death as EOF.
+    for (unsigned attempt = 0; attempt != 2; ++attempt) {
+        bool died = false;
+        try {
+            (void)child.tryReceive();
+        } catch (const ChannelClosed &) {
+            throw std::runtime_error("owner death was reported as normal EOF");
+        } catch (const std::runtime_error &failure) {
+            died = std::string_view(failure.what()).find("owner died") != std::string_view::npos;
+        }
+        expect_true(died);
+        parent.close();
+    }
+}
+
+void channelFailures() {
+    using gentest::harness::detail::Shared;
+    auto  parent = Channel::create();
+    auto  child  = Channel::attach(parent.descriptors());
+    void *memory = ::mmap(nullptr, sizeof(Shared), PROT_READ | PROT_WRITE, MAP_SHARED, parent.descriptors()[0], 0);
+    assert_true(memory != MAP_FAILED, "map channel test layout");
+    auto &queue = static_cast<Shared *>(memory)->queues[0];
+
+    // A live mutex holder produces a lock error, independently of closure.
+    assert_eq(::pthread_mutex_lock(&queue.mutex), 0);
+    bool locked = false;
     try {
         (void)child.tryReceive();
-    } catch (const std::runtime_error &failure) { died = std::string_view(failure.what()).find("owner died") != std::string_view::npos; }
-    expect_true(died);
+    } catch (const std::system_error &error) { locked = error.code().value() == ETIMEDOUT; }
+    const auto unlocked = ::pthread_mutex_unlock(&queue.mutex);
+    expect_eq(unlocked, 0);
+    expect_true(locked);
+
+    // A malformed queued message remains a corruption error after close.
+    parent.send({.tag = 1, .payload = "queued"});
+    queue.slots[queue.head].size = Channel::maxPayload + 1;
+    parent.close();
+    bool corrupt = false;
+    try {
+        (void)child.tryReceive();
+    } catch (const ChannelClosed &) {
+        throw std::runtime_error("corruption was reported as normal EOF");
+    } catch (const std::runtime_error &error) { corrupt = std::string_view(error.what()).find("corrupt") != std::string_view::npos; }
+    expect_true(corrupt);
+
+    // Validate metadata before indexing the ring buffer.
+    queue.head = Channel::capacity;
+    corrupt    = false;
+    try {
+        (void)child.tryReceive();
+    } catch (const std::runtime_error &error) { corrupt = std::string_view(error.what()).find("corrupt") != std::string_view::npos; }
+    expect_true(corrupt);
+    expect_eq(::munmap(memory, sizeof(Shared)), 0);
+}
+
+void processSignal() {
+    using gentest::harness::detail::Fd;
+    using gentest::harness::detail::submitSignal;
+    const auto pid = ::fork();
+    assert_true(pid >= 0, "fork signal target");
+    if (pid == 0) {
+        for (;;) {
+            ::pause();
+        }
+    }
+    Fd process(static_cast<int>(::syscall(SYS_pidfd_open, pid, 0)));
+    if (process.value < 0) {
+        ::kill(pid, SIGKILL);
+        ::waitpid(pid, nullptr, 0);
+        throw std::runtime_error("open signal target pidfd");
+    }
+    struct Reap {
+        pid_t pid;
+        int   pidfd;
+        bool  done{};
+        ~Reap() {
+            if (!done) {
+                ::syscall(SYS_pidfd_send_signal, pidfd, SIGKILL, nullptr, 0);
+                while (::waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {}
+            }
+        }
+    } cleanup{pid, process.value};
+
+    expect_true(submitSignal(process.value, false, 0));
+    expect_true(submitSignal(process.value, false, SIGTERM));
+    pollfd pending{.fd = process.value, .events = POLLIN, .revents = 0};
+    assert_eq(::poll(&pending, 1, 5000), 1);
+    int status{};
+    expect_eq(::waitpid(pid, &status, 0), pid);
+    cleanup.done = true;
+    expect_true(WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM);
+
+    // Reaping between collection and submission deterministically takes ESRCH.
+    expect_false(submitSignal(process.value, false, SIGTERM));
+    expect_false(submitSignal(process.value, true, SIGTERM));
+    for (int value : {-1, NSIG, std::numeric_limits<int>::max()}) {
+        bool invalid = false;
+        try {
+            (void)submitSignal(process.value, true, value);
+        } catch (const std::invalid_argument &) { invalid = true; }
+        expect_true(invalid);
+    }
+    bool badDescriptor = false;
+    try {
+        (void)submitSignal(-1, false, SIGTERM);
+    } catch (const std::system_error &error) { badDescriptor = error.code().value() == EBADF; }
+    expect_true(badDescriptor);
 }
 
 auto local(std::vector<std::string> modes) -> SessionSpec {
@@ -179,6 +296,76 @@ auto composition() -> awaitable<> {
     expect_true(closed);
 }
 
+auto signals() -> awaitable<> {
+    auto session    = co_await Session::start(local({"echo", "echo", "exit_messages"}));
+    bool unlaunched = false;
+    try {
+        (void)co_await session.signal(0, SIGTERM);
+    } catch (const std::runtime_error &) { unlaunched = true; }
+    expect_true(unlaunched);
+    bool invalidIndex = false;
+    try {
+        (void)co_await session.signal(std::numeric_limits<std::size_t>::max(), SIGTERM);
+    } catch (const std::out_of_range &) { invalidIndex = true; }
+    expect_true(invalidIndex);
+
+    co_await when_all(session.launch(0), session.launch(1));
+    (void)co_await when_all(session.receive(0), session.receive(1));
+    expect_eq(co_await session.signal(0, 0), SignalResult::sent);
+    expect_eq(co_await session.signal(0, SIGSTOP), SignalResult::sent);
+    expect_true((co_await session.inspect(0)).running);
+    expect_eq(co_await session.signal(0, SIGCONT), SignalResult::sent);
+    expect_eq(co_await session.signal(0, SIGTERM), SignalResult::sent);
+    expect_eq((co_await session.wait(0)).signal, SIGTERM);
+    expect_eq(co_await session.signal(0, SIGKILL), SignalResult::alreadyExited);
+
+    // Invalid signals remain errors even after that program exits.
+    for (int value : {-1, NSIG, std::numeric_limits<int>::max()}) {
+        bool invalid = false;
+        try {
+            (void)co_await session.signal(0, value);
+        } catch (const std::invalid_argument &) { invalid = true; }
+        expect_true(invalid);
+    }
+    session.send(1, {.tag = 7, .payload = "other program survives"});
+    expect_eq((co_await session.receive(1)).payload, std::string("other program survives"));
+
+    // Exit and signal may win in either order; both results retain the index.
+    session.send(1, {.tag = 9, .payload = {}});
+    const auto submitted = co_await session.signal(1, SIGTERM);
+    expect_true(submitted == SignalResult::sent || submitted == SignalResult::alreadyExited);
+    const auto exited = co_await session.wait(1);
+    expect_true(exited.succeeded() || exited.signal == SIGTERM);
+    expect_eq(co_await session.signal(1, SIGTERM), SignalResult::alreadyExited);
+
+    // Process completion does not discard final application messages.
+    co_await session.launch(2);
+    expect_true((co_await session.wait(2)).succeeded());
+    expect_eq((co_await session.receive(2)).payload, std::string("first"));
+    expect_eq((co_await session.receive(2)).payload, std::string("last"));
+    bool closed = false;
+    try {
+        (void)co_await session.receive(2);
+    } catch (const ChannelClosed &) { closed = true; }
+    expect_true(closed);
+    co_await session.stop();
+}
+
+auto signalCancellation() -> awaitable<> {
+    auto spec       = local({"echo"});
+    spec.supervisor = HARNESS_SIGNAL_CANCELLATION_SUPERVISOR;
+    auto session    = co_await Session::start(std::move(spec));
+    co_await session.launch(0);
+
+    // The helper withholds the acknowledgement until it sees cancellation.
+    // Its message is published only after the real target has received TERM.
+    const auto completed = co_await when_any(session.signal(0, SIGTERM), session.receive(0));
+    expect_eq(completed.index(), std::size_t{1});
+    expect_eq((co_await session.wait(0)).signal, SIGTERM);
+    expect_eq(co_await session.signal(0, SIGTERM), SignalResult::alreadyExited);
+    co_await session.stop();
+}
+
 auto failures() -> awaitable<> {
     auto spec             = local({"echo", "crash", "output"});
     spec.programs[0].argv = {"/gentest-missing-executable"};
@@ -193,7 +380,7 @@ auto failures() -> awaitable<> {
     bool died = false;
     try {
         (void)co_await session.receive(1);
-    } catch (const std::runtime_error &) { died = true; }
+    } catch (const ChannelClosed &) { died = true; }
     expect_true(died);
     expect_eq((co_await session.wait(1)).exitCode, 23);
     co_await session.launch(2);
@@ -231,6 +418,8 @@ auto startup() -> awaitable<> {
     bool rejected      = false;
     try {
         (void)co_await Session::start(std::move(missing));
+    } catch (const ChannelClosed &) {
+        throw std::runtime_error("supervisor failure was reported as normal EOF");
     } catch (const std::runtime_error &) { rejected = true; }
     expect_true(rejected);
 
