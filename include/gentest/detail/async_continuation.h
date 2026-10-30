@@ -97,6 +97,7 @@ namespace gentest::async {
     }
     // One factory call issues a new generation. Copy that handle when several
     // callbacks compete to complete the same wait.
+    scheduler->suspension_point(handle, SuspensionKind::continuation, loc);
     scheduler->begin_wait(handle);
     auto token = scheduler->make_waiter(handle);
     scheduler->block_at(handle, std::move(reason), loc);

@@ -133,7 +133,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Docs: [Async tests](docs/async.md), [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md), [Deprecations](DEPRECATIONS.md).
+Docs: [Async tests](docs/async.md), [Notifications and watchdogs](docs/notifications.md), [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md), [Deprecations](DEPRECATIONS.md).
 
 Non-CMake downstream consumers:
 - [Downstream consumers overview](docs/buildsystems/downstream_consumers.md)

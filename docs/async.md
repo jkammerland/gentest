@@ -313,3 +313,14 @@ plain output; CI and captured output already use that mode.
 All public async APIs are available from `gentest/async.h` or `import gentest;`.
 The implementation is native Gentest code under BSL-1.0; consuming these APIs
 does not require another coroutine library.
+
+## Progress observation
+
+A configured `FrameworkEventVisitor` observes framework suspension registration
+points, including ready races and custom continuation registration followed by
+`await_suspend(false)` or an exception. Its default `onSuspend` publishes progress
+on that coroutine's owning case subject. Ready operations that skip
+`await_suspend` do not publish an event, and ordinary logging does not renew
+progress. See [notifications and progress watchdogs](notifications.md) for custom
+filtering, context adoption, and explicit finite allowances for intended quiet
+periods. Operation deadlines and cooperative cancellation remain independent.

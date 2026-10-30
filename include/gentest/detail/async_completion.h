@@ -19,6 +19,7 @@
 
 namespace gentest::detail {
 
+struct TestContextInfo;
 class AsyncFrame;
 class AsyncFrameScope;
 GENTEST_RUNTIME_API auto current_async_frame() noexcept -> AsyncFrame *;
@@ -96,6 +97,9 @@ class AsyncFrame {
             handle.destroy();
         }
     }
+
+    // Bound by the scheduler, never borrowed from whichever producer thread resumes.
+    std::weak_ptr<TestContextInfo> framework_context;
 
     [[nodiscard]] auto address() const noexcept -> void * { return handle.address(); }
     [[nodiscard]] auto done() const noexcept -> bool { return !handle || completed_; }

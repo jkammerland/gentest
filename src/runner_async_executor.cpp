@@ -259,9 +259,13 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                 continue;
             }
             gentest::detail::wait_for_adopted_contexts(deferred.ctx);
-            deferred.task.reset();
+            {
+                gentest::runner::detail::CurrentTestContextScope current_scope(deferred.ctx);
+                deferred.task.reset();
+            }
             if (deferred.ctx) {
                 gentest::detail::close_context_if_released(*deferred.ctx);
+                gentest::detail::finish_framework_case(*deferred.ctx);
             }
             if (deferred.record_result_on_cleanup) {
                 record_canceled_completed_result(deferred);
@@ -288,9 +292,13 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
 
         gentest::detail::wait_for_adopted_contexts(run.ctxinfo);
-        run.task.reset();
+        {
+            gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);
+            run.task.reset();
+        }
         if (run.ctxinfo) {
             gentest::detail::close_context_if_released(*run.ctxinfo);
+            gentest::detail::finish_framework_case(*run.ctxinfo);
         }
 
         gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
@@ -440,6 +448,13 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                                                                        .run_index                = run_index,
                                                                        .record_result_on_cleanup = run.ready_to_finalize});
             }
+            if (!adopted_work) {
+                {
+                    gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);
+                    run.task.reset();
+                }
+                gentest::detail::finish_framework_case(*run.ctxinfo);
+            }
             run.finalized = true;
         }
         destroy_canceled_tasks_after_adopted_release();
@@ -454,7 +469,8 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         }
         const auto &test = cases[i];
         if (test.should_skip) {
-            CaseResult rr = make_static_skip_result(renderer.enabled() ? final_state : state, test, counters);
+            gentest::detail::FrameworkSubjectScope subject(test.name);
+            CaseResult                             rr = make_static_skip_result(renderer.enabled() ? final_state : state, test, counters);
             if (renderer.enabled()) {
                 renderer.result_line(deferred_case_line(test.name, rr, final_state.color_output));
                 log_async_details(renderer, rr);

@@ -73,6 +73,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
     [[nodiscard]] auto run(AsyncTask &task, std::string &blocked_reason) -> BlockingAsyncStatus {
         AsyncSchedulerScope scheduler_scope(this);
         task.set_scheduler(this);
+        task.frame()->framework_context = ctx_;
         core_.register_frame(0, task.frame());
         core_.post(task.frame());
 
@@ -171,6 +172,7 @@ auto make_context(std::string_view label) -> std::shared_ptr<TestContextInfo> {
     auto ctx          = std::make_shared<TestContextInfo>();
     ctx->display_name = std::string(label);
     ctx->recording    = current_test() ? current_test()->recording : current_recording_target();
+    inherit_framework_context(*ctx);
     start_context(*ctx);
     return ctx;
 }
@@ -224,12 +226,20 @@ auto run_async_task_blocking(gentest::awaitable<void> operation, std::string_vie
         task_ptr = make_async_task(std::move(operation));
     }
 
-    std::string            blocked_reason;
-    BlockingAsyncScheduler scheduler(ctx);
-    const auto             status = task_ptr ? scheduler.run(*task_ptr, blocked_reason) : BlockingAsyncStatus::Blocked;
+    std::string blocked_reason;
+    auto        status = BlockingAsyncStatus::Blocked;
+    {
+        BlockingAsyncScheduler scheduler(ctx);
+        status = task_ptr ? scheduler.run(*task_ptr, blocked_reason) : BlockingAsyncStatus::Blocked;
+    }
+    const auto exception = task_ptr ? task_ptr->exception() : std::exception_ptr{};
 
     gentest::runner::detail::request_active_test_context_stop(ctx);
     wait_for_adopted_contexts(ctx);
+    {
+        gentest::runner::detail::CurrentTestContextScope current_scope(ctx);
+        task_ptr.reset();
+    }
     close_context_to_late_operations(*ctx);
     flush_current_buffer_for(ctx.get());
 
@@ -238,9 +248,9 @@ auto run_async_task_blocking(gentest::awaitable<void> operation, std::string_vie
         return false;
     }
 
-    if (auto ex = task_ptr->exception()) {
+    if (exception) {
         try {
-            std::rethrow_exception(ex);
+            std::rethrow_exception(exception);
         } catch (const blocked_exception &e) { error_out = e.reason(); } catch (const skip_exception &) {
             error_out = runtime_skip_reason_or_default(ctx);
         } catch (const gentest::assertion &e) {

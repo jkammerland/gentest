@@ -77,19 +77,27 @@ inline constexpr std::string_view wrapper_support_common = R"CPP(
 namespace {
 template <typename T>
 inline void gentest_maybe_setup(T& t) {
-    if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) t.setUp();
+    if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::setup, true);
+        t.setUp();
+    }
 }
 
 template <typename T>
 inline void gentest_maybe_teardown(T& t) {
-    if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) t.tearDown();
+    if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::teardown, true);
+        t.tearDown();
+    }
 }
 
 template <typename T>
 inline ::gentest::awaitable<void> gentest_maybe_async_setup(T& t) {
     if constexpr (std::is_base_of_v<gentest::AsyncFixtureSetup, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::setup, true);
         co_await t.setUp();
     } else if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::setup, true);
         t.setUp();
     }
     co_return;
@@ -98,8 +106,10 @@ inline ::gentest::awaitable<void> gentest_maybe_async_setup(T& t) {
 template <typename T>
 inline ::gentest::awaitable<void> gentest_maybe_async_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::AsyncFixtureTearDown, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::teardown, true);
         co_await t.tearDown();
     } else if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::teardown, true);
         t.tearDown();
     }
     co_return;

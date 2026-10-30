@@ -425,6 +425,7 @@ template <typename T> class future {
             if (!scheduler) {
                 std::abort();
             }
+            scheduler->suspension_point(handle, SuspensionKind::future, loc_);
             scheduler->begin_wait(handle);
             auto token = scheduler->make_waiter(handle);
             switch (state_->wait_or_post(handle, *scheduler, wait_state_, reason_, loc_, token)) {
@@ -621,6 +622,7 @@ template <> class future<void> {
             if (!scheduler) {
                 std::abort();
             }
+            scheduler->suspension_point(handle, SuspensionKind::future, loc_);
             scheduler->begin_wait(handle);
             auto token = scheduler->make_waiter(handle);
             switch (state_->wait_or_post(handle, *scheduler, wait_state_, reason_, loc_, token)) {

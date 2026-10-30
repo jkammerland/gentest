@@ -4,6 +4,11 @@ target_compile_features(gentest_notification_core_tests PRIVATE cxx_std_20)
 add_test(NAME notification_core_contract COMMAND gentest_notification_core_tests)
 set_tests_properties(notification_core_contract PROPERTIES LABELS "notifications;public-api")
 
+add_executable(gentest_notification_framework_tests framework.cpp)
+target_link_libraries(gentest_notification_framework_tests PRIVATE gentest::gentest_runtime gentest::gentest)
+add_test(NAME notification_framework_contract COMMAND gentest_notification_framework_tests)
+set_tests_properties(notification_framework_contract PROPERTIES TIMEOUT 30 LABELS "notifications;public-api")
+
 if(TARGET gentest_notifications_linux)
     add_executable(gentest_notification_linux_tests linux.cpp)
     target_link_libraries(gentest_notification_linux_tests PRIVATE gentest::notifications_linux)

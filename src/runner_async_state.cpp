@@ -85,6 +85,15 @@ void classify_async_exception(AsyncCaseRun &run) {
 
 auto finish_async_run(AsyncCaseRun &run) -> InvokeResult {
     classify_async_exception(run);
+
+    // Coroutine parameters and canceled local fixtures can survive final_suspend.
+    // Retire the frame under its owner before closing the notification subject.
+    gentest::runner::detail::request_active_test_context_stop(run.ctxinfo);
+    gentest::detail::wait_for_adopted_contexts(run.ctxinfo);
+    {
+        gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);
+        run.task.reset();
+    }
     gentest::runner::detail::finish_active_test_context(run.ctxinfo);
     gentest::detail::flush_current_buffer_for(run.ctxinfo.get());
     run.end = std::chrono::steady_clock::now();
@@ -98,9 +107,10 @@ auto finish_async_run(AsyncCaseRun &run) -> InvokeResult {
 
 void schedule_async_case(std::vector<AsyncCaseRun> &runs, const gentest::Case &test, std::size_t case_index, void *fixture_ctx) {
     AsyncCaseRun run;
-    run.case_index         = case_index;
-    run.fixture_ctx        = fixture_ctx;
-    run.ctxinfo            = gentest::runner::detail::make_active_test_context(test.name);
+    run.case_index  = case_index;
+    run.fixture_ctx = fixture_ctx;
+    run.ctxinfo     = gentest::runner::detail::make_active_test_context(test.name);
+    gentest::detail::start_framework_case(*run.ctxinfo, test.name);
     run.ctxinfo->recording = gentest::detail::make_case_recording(test);
     run.start              = std::chrono::steady_clock::now();
 

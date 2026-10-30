@@ -47,8 +47,12 @@ auto snapshot_cases() -> std::vector<gentest::Case> {
     return reg.cases;
 }
 
-auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runner::CliOptions &options) -> int {
-    return gentest::runner::run_from_options(cases, options);
+auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runner::CliOptions &options,
+                      const gentest::RunConfiguration &configuration) -> int {
+    gentest::detail::FrameworkRunScope events(configuration);
+    const int                          result = gentest::runner::run_from_options(cases, options);
+    events.finish();
+    return events.failed() ? 1 : result;
 }
 } // namespace
 
@@ -66,30 +70,36 @@ auto snapshot_registered_cases() -> std::vector<Case> { return snapshot_cases();
 namespace gentest {
 auto registered_cases() -> std::vector<Case> { return snapshot_cases(); }
 
-auto run_cases(std::span<const Case> cases, std::span<const char *> args) -> int {
+auto run_cases(std::span<const Case> cases, std::span<const char *> args) -> int { return run_cases(cases, args, {}); }
+
+auto run_cases(std::span<const Case> cases, std::span<const char *> args, const RunConfiguration &configuration) -> int {
     gentest::runner::CliOptions opt{};
     if (!gentest::runner::parse_cli(args, opt))
         return 1;
 
     const auto sorted_cases = sorted_case_copy(cases);
-    return run_sorted_cases(sorted_cases, opt);
+    return run_sorted_cases(sorted_cases, opt, configuration);
 }
 
-auto run_all_tests(std::span<const char *> args) -> int {
+auto run_all_tests(std::span<const char *> args) -> int { return run_all_tests(args, {}); }
+
+auto run_all_tests(std::span<const char *> args, const RunConfiguration &configuration) -> int {
     gentest::runner::CliOptions opt{};
     if (!gentest::runner::parse_cli(args, opt))
         return 1;
 
     const auto cases = gentest::detail::snapshot_registered_cases();
-    return run_sorted_cases(cases, opt);
+    return run_sorted_cases(cases, opt, configuration);
 }
 
-auto run_all_tests(int argc, char **argv) -> int {
+auto run_all_tests(int argc, char **argv) -> int { return run_all_tests(argc, argv, {}); }
+
+auto run_all_tests(int argc, char **argv, const RunConfiguration &configuration) -> int {
     std::vector<const char *> a;
     a.reserve(static_cast<std::size_t>(argc));
     for (int i = 0; i < argc; ++i)
         a.push_back(argv[i]);
-    return run_all_tests(std::span<const char *>{a.data(), a.size()});
+    return run_all_tests(std::span<const char *>{a.data(), a.size()}, configuration);
 }
 
 } // namespace gentest
