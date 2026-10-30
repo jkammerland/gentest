@@ -73,3 +73,17 @@ add_test(NAME harness_session COMMAND gentest_harness_tests --filter=harness_tes
 add_test(NAME harness_network COMMAND gentest_harness_tests --filter=harness_tests/harness/network/* --fail-on-empty)
 set_tests_properties(harness_ipc harness_session harness_network PROPERTIES TIMEOUT 90 LABELS harness)
 set_tests_properties(harness_network PROPERTIES LABELS "harness;harness_network")
+
+# Descriptor ownership and exec-boundary checks run in an isolated test process.
+add_executable(gentest_harness_descriptor_peer descriptor_peer.cpp)
+target_link_libraries(gentest_harness_descriptor_peer PRIVATE gentest::harness_client)
+add_executable(gentest_harness_descriptor_tests descriptors.cpp)
+target_link_libraries(gentest_harness_descriptor_tests PRIVATE gentest::harness)
+target_compile_definitions(gentest_harness_descriptor_tests PRIVATE
+    HARNESS_SUPERVISOR="$<TARGET_FILE:gentest_harness_supervisor>"
+    HARNESS_DESCRIPTOR_PEER="$<TARGET_FILE:gentest_harness_descriptor_peer>")
+add_dependencies(gentest_harness_descriptor_tests gentest_harness_descriptor_peer)
+foreach(mode IN ITEMS preflight ownership output limits cleanup boundary)
+    add_test(NAME harness_descriptors_${mode} COMMAND gentest_harness_descriptor_tests ${mode})
+    set_tests_properties(harness_descriptors_${mode} PROPERTIES TIMEOUT 40 LABELS harness)
+endforeach()

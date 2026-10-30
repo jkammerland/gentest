@@ -127,9 +127,15 @@ void collect(Child &child) {
     }
 }
 
-auto spawn(int net, const std::vector<std::string> &arguments, std::string input,
+struct ProgramOptions {
+    std::vector<std::pair<int, int>> mappings;
+    std::optional<int>               output, error;
+    Limits                           limits{};
+};
+
+auto spawn(const OwnerWatch &owner, int net, const std::vector<std::string> &arguments, std::string input,
            const std::vector<std::pair<std::string, std::string>> &environment = {}, const std::string &cwd = {},
-           std::optional<Channel::Descriptors> channel = {}) -> Child {
+           std::optional<Channel::Descriptors> channel = {}, const ProgramOptions &options = {}) -> Child {
     if (arguments.empty() || arguments[0].empty()) {
         throw std::runtime_error("empty executable");
     }
@@ -147,30 +153,75 @@ auto spawn(int net, const std::vector<std::string> &arguments, std::string input
             throw std::invalid_argument("invalid child environment");
         }
     }
-    auto out = pipePair();
-    auto err = pipePair();
-    Fd   data(::memfd_create("gentest-command-input", MFD_CLOEXEC));
+    std::array<Fd, 2> out, err;
+    if (!options.output) {
+        out = pipePair();
+    }
+    if (!options.error) {
+        err = pipePair();
+    }
+    Fd data(::memfd_create("gentest-command-input", MFD_CLOEXEC));
     systemCheck(data.value >= 0, "command input");
     systemCheck(::write(data.value, input.data(), input.size()) == static_cast<ssize_t>(input.size()), "write command input");
     systemCheck(::lseek(data.value, 0, SEEK_SET) == 0, "rewind command input");
+    // Relocate every source, including stdio and channel identity mappings,
+    // before any dup2. Targets may overlap the supervisor's descriptor table.
+    auto mappings = options.mappings;
+    mappings.emplace_back(data.value, STDIN_FILENO);
+    mappings.emplace_back(options.output.value_or(out[1].value), STDOUT_FILENO);
+    mappings.emplace_back(options.error.value_or(err[1].value), STDERR_FILENO);
+    if (channel) {
+        for (int fd : *channel) {
+            mappings.emplace_back(fd, fd);
+        }
+    }
+    int highest = STDERR_FILENO;
+    for (const auto &[source, target] : mappings) {
+        highest = std::max(highest, target);
+    }
+    validateLimits(options.limits, highest);
+    std::vector<Fd> relocated;
+    for (auto &[source, target] : mappings) {
+        Fd fd(::fcntl(source, F_DUPFD_CLOEXEC, highest + 1));
+        systemCheck(fd.value >= 0, "relocate child descriptor");
+        source = fd.value;
+        relocated.push_back(std::move(fd));
+    }
+
+    // A private exec-status pipe reports setup errors even when stderr is a file.
+    // The parent watches owner exit and a deadline while waiting for exec.
+    int statusPipe[2];
+    systemCheck(::pipe2(statusPipe, O_CLOEXEC) == 0, "child setup status pipe");
+    Fd setupRead(statusPipe[0]), setupWrite(statusPipe[1]);
+    Fd setupCopy(::fcntl(setupWrite.value, F_DUPFD_CLOEXEC, highest + 1));
+    systemCheck(setupCopy.value >= 0, "relocate child setup status");
+    setupWrite         = std::move(setupCopy);
     const pid_t parent = ::getpid();
     const pid_t pid    = ::fork();
     systemCheck(pid >= 0, "fork helper child");
     if (pid == 0) {
         parentDeath(parent);
+        setupRead.reset();
+        bool attemptedExec = false;
         try {
             systemCheck(::signal(SIGTERM, SIG_DFL) != SIG_ERR && ::signal(SIGINT, SIG_DFL) != SIG_ERR, "reset child signals");
             systemCheck(::setpgid(0, 0) == 0, "child process group");
             if (net >= 0) {
                 systemCheck(::setns(net, CLONE_NEWNET) == 0, "enter node namespace");
             }
-            systemCheck(::dup2(data.value, STDIN_FILENO) >= 0 && ::dup2(out[1].value, STDOUT_FILENO) >= 0 &&
-                            ::dup2(err[1].value, STDERR_FILENO) >= 0,
-                        "redirect child output");
-            systemCheck(::fcntl(STDOUT_FILENO, F_SETFL, 0) == 0 && ::fcntl(STDERR_FILENO, F_SETFL, 0) == 0, "blocking child output");
-            // The supervisor is single-threaded. All inherited infrastructure
-            // closes at exec except the program's explicitly selected channel.
+            // The supervisor remains single-threaded. Infrastructure and
+            // scratch descriptors close at exec; only selected mappings survive.
             systemCheck(::syscall(SYS_close_range, 3U, ~0U, CLOSE_RANGE_CLOEXEC) == 0, "close-on-exec child descriptors");
+            for (const auto &[source, target] : mappings) {
+                systemCheck(::dup2(source, target) >= 0, "map child descriptor");
+            }
+            relocated.clear();
+            if (!options.output) {
+                systemCheck(::fcntl(STDOUT_FILENO, F_SETFL, 0) == 0, "blocking child stdout");
+            }
+            if (!options.error) {
+                systemCheck(::fcntl(STDERR_FILENO, F_SETFL, 0) == 0, "blocking child stderr");
+            }
             if (!cwd.empty()) {
                 systemCheck(::chdir(cwd.c_str()) == 0, "child working directory");
             }
@@ -192,12 +243,57 @@ auto spawn(int net, const std::vector<std::string> &arguments, std::string input
                 argv.push_back(const_cast<char *>(argument.c_str()));
             }
             argv.push_back(nullptr);
+            // Apply only requested limits, after mapping descriptors and closing
+            // scratch copies. Missing limits keep the inherited soft/hard pair.
+            for (std::size_t i = 0; i != options.limits.size(); ++i) {
+                if (options.limits[i]) {
+                    const auto   value = static_cast<rlim_t>(*options.limits[i]);
+                    const rlimit limit{value, value};
+                    systemCheck(::setrlimit(limitResources[i], &limit) == 0, "set child resource limit");
+                }
+            }
+            attemptedExec = true;
             ::execvp(argv[0], argv.data());
             throw std::system_error(errno, std::generic_category(), "exec " + arguments[0]);
         } catch (const std::exception &failure) {
             ::dprintf(STDERR_FILENO, "%s\n", failure.what());
+            if (!attemptedExec) {
+                ::dprintf(setupWrite.value, "%s", failure.what());
+            }
             ::_exit(127);
         }
+    }
+    setupWrite.reset();
+    try {
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        for (;;) {
+            owner.check();
+            const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+            if (remaining <= 0 || interrupted) {
+                throw std::runtime_error("child setup timed out/cancelled");
+            }
+            std::array<pollfd, 3> pending{{{.fd = setupRead.value, .events = POLLIN, .revents = 0},
+                                           {.fd = STDIN_FILENO, .events = POLLHUP, .revents = 0},
+                                           {.fd = owner.process.value, .events = POLLIN, .revents = 0}}};
+            systemCheck(::poll(pending.data(), pending.size(), static_cast<int>(remaining)) >= 0 || errno == EINTR, "poll child setup");
+            owner.check();
+            if (pending[0].revents) {
+                break;
+            }
+        }
+        std::array<char, 1024> setupMessage{};
+        ssize_t                setupSize;
+        do {
+            setupSize = ::read(setupRead.value, setupMessage.data(), setupMessage.size());
+        } while (setupSize < 0 && errno == EINTR);
+        systemCheck(setupSize >= 0, "read child setup status");
+        if (setupSize != 0) {
+            throw std::runtime_error("child setup failed: " + std::string(setupMessage.data(), static_cast<std::size_t>(setupSize)));
+        }
+    } catch (...) {
+        ::kill(pid, SIGKILL);
+        while (::waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {}
+        throw;
     }
     Child child;
     child.pid = pid;
@@ -232,7 +328,7 @@ void stopChild(Child &child) {
 }
 auto run(const OwnerWatch &owner, int net, std::vector<std::string> arguments, std::string input = {}) -> std::string {
     owner.check();
-    auto       child    = spawn(net, arguments, std::move(input));
+    auto       child    = spawn(owner, net, arguments, std::move(input));
     const auto deadline = std::chrono::steady_clock::now() + 5s;
     try {
         while (!child.done) {
@@ -413,7 +509,7 @@ auto processResult(const Child &child) -> std::string {
     return result.bytes;
 }
 
-void supervise(unsigned count, std::string_view originalNamespace) {
+void supervise(unsigned count, std::string_view originalNamespace, unsigned descriptorCount) {
     struct stat current{};
     systemCheck(::stat("/proc/self/ns/net", &current) == 0, "inspect supervisor namespace");
     std::ifstream mapping("/proc/self/uid_map");
@@ -430,6 +526,12 @@ void supervise(unsigned count, std::string_view originalNamespace) {
     for (unsigned i = 0; i != count; ++i) {
         const int base = 6 + static_cast<int>(i) * 3;
         channels.push_back(Channel::attach({base, base + 1, base + 2}));
+    }
+    std::vector<Fd> inherited;
+    for (unsigned i = 0; i != descriptorCount; ++i) {
+        Fd fd(runnerDescriptor(count) + 1 + static_cast<int>(i));
+        systemCheck(::fcntl(fd.value, F_SETFD, FD_CLOEXEC) == 0, "protect program descriptor");
+        inherited.push_back(std::move(fd));
     }
     Network                                         network(owner);
     std::map<unsigned, Child>                       children;
@@ -493,9 +595,54 @@ void supervise(unsigned count, std::string_view originalNamespace) {
                             auto key = reader.text();
                             environment.emplace_back(std::move(key), reader.text());
                         }
-                        const auto cwd = reader.text();
+                        const auto     cwd = reader.text();
+                        ProgramOptions options;
+                        auto           source = [&] {
+                            const auto slot = reader.number();
+                            if (slot >= inherited.size()) {
+                                throw std::invalid_argument("invalid program descriptor table index");
+                            }
+                            return inherited[slot].value;
+                        };
+                        const auto mapCount = reader.number();
+                        if (mapCount > maxInheritedFds) {
+                            throw std::invalid_argument("too many inherited descriptors");
+                        }
+                        for (unsigned i = 0; i != mapCount; ++i) {
+                            const int  fd     = source();
+                            const auto target = reader.number();
+                            if (target > maxChildDescriptor) {
+                                throw std::invalid_argument("invalid child descriptor target");
+                            }
+                            validateTarget(static_cast<int>(target), count);
+                            if (std::any_of(options.mappings.begin(), options.mappings.end(),
+                                            [target](const auto &mapping) { return mapping.second == static_cast<int>(target); })) {
+                                throw std::invalid_argument("duplicate child descriptor target");
+                            }
+                            options.mappings.emplace_back(fd, static_cast<int>(target));
+                        }
+                        for (auto *fd : {&options.output, &options.error}) {
+                            const auto present = reader.number();
+                            if (present > 1) {
+                                throw std::invalid_argument("invalid descriptor presence flag");
+                            }
+                            if (present) {
+                                *fd = source();
+                            }
+                        }
+                        for (auto &limit : options.limits) {
+                            const auto present = reader.number();
+                            if (present > 1) {
+                                throw std::invalid_argument("invalid limit presence flag");
+                            }
+                            if (present) {
+                                limit = reader.wideNumber();
+                            }
+                        }
                         reader.end();
-                        children.emplace(index, spawn(network.fd(node), arguments, {}, environment, cwd, channels[index].descriptors()));
+                        const int                  channelBase = 6 + 3 * static_cast<int>(index);
+                        const Channel::Descriptors childChannel{channelBase, channelBase + 1, channelBase + 2};
+                        children.emplace(index, spawn(owner, network.fd(node), arguments, {}, environment, cwd, childChannel, options));
                     } else if (command == Command::signal) {
                         const auto index  = reader.number();
                         const auto signal = reader.number();
@@ -598,8 +745,8 @@ void supervise(unsigned count, std::string_view originalNamespace) {
 
 int main(int argc, char **argv) {
     try {
-        if (argc != 3) {
-            throw std::runtime_error("supervisor requires program count and original namespace identity");
+        if (argc != 4) {
+            throw std::runtime_error("supervisor requires program count, original namespace identity and descriptor count");
         }
         unsigned               count{};
         const std::string_view value(argv[1]);
@@ -607,7 +754,14 @@ int main(int argc, char **argv) {
         if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || count > 16) {
             throw std::runtime_error("invalid program count");
         }
-        supervise(count, argv[2]);
+        unsigned               descriptors{};
+        const std::string_view descriptorText(argv[3]);
+        const auto descriptorParsed = std::from_chars(descriptorText.data(), descriptorText.data() + descriptorText.size(), descriptors);
+        if (descriptorParsed.ec != std::errc{} || descriptorParsed.ptr != descriptorText.data() + descriptorText.size() ||
+            descriptors > count * (maxInheritedFds + 2)) {
+            throw std::runtime_error("invalid program descriptor count");
+        }
+        supervise(count, argv[2], descriptors);
         return 0;
     } catch (const std::exception &failure) {
         std::cerr << "gentest harness supervisor: " << failure.what() << '\n';
