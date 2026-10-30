@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gentest/detail/case_api.h"
+#include "gentest/framework_events.h"
 
 #include <span>
 #include <vector>
@@ -15,6 +16,10 @@ GENTEST_RUNTIME_API auto run_cases(std::span<const Case> cases, std::span<const 
 GENTEST_RUNTIME_API auto run_all_tests(int argc, char **argv) -> int;
 // Unified test entry (span version). Consumed by generated code.
 GENTEST_RUNTIME_API auto run_all_tests(std::span<const char *> args) -> int;
+
+GENTEST_RUNTIME_API auto run_cases(std::span<const Case> cases, std::span<const char *> args, const RunConfiguration &configuration) -> int;
+GENTEST_RUNTIME_API auto run_all_tests(int argc, char **argv, const RunConfiguration &configuration) -> int;
+GENTEST_RUNTIME_API auto run_all_tests(std::span<const char *> args, const RunConfiguration &configuration) -> int;
 
 // Returns an owned, sorted snapshot of the currently registered cases.
 GENTEST_RUNTIME_API auto registered_cases() -> std::vector<Case>;

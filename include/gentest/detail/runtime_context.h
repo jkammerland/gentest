@@ -2,6 +2,7 @@
 
 #include "gentest/detail/runtime_base.h"
 #include "gentest/detail/runtime_support.h"
+#include "gentest/framework_events.h"
 
 #include <atomic>
 #include <cassert>
@@ -31,9 +32,11 @@ enum class ContextState : unsigned char {
 struct RecordingTarget;
 
 struct TestContextInfo {
-    std::shared_ptr<RecordingTarget> recording;
-    std::string                      display_name;
-    std::vector<std::string>         failures;
+    std::shared_ptr<FrameworkSubject> framework_subject;
+    bool                              framework_subject_owner = false;
+    std::shared_ptr<RecordingTarget>  recording;
+    std::string                       display_name;
+    std::vector<std::string>          failures;
     struct FailureLoc {
         std::string file;
         unsigned    line = 0;

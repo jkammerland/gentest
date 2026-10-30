@@ -18,7 +18,7 @@ should_skip_lint_path() {
 }
 
 # Capture Git's status before filtering: process substitution hides failures.
-tracked_files="$(git -c safe.directory="${repo_root}" -C "${repo_root}" ls-files -- include src tests tools)"
+tracked_files="$(git -c safe.directory="${repo_root}" -C "${repo_root}" ls-files -- include src tests tools examples/async experimental/harness)"
 cpp_files=()
 while IFS= read -r tracked_file; do
     if should_skip_lint_path "${tracked_file}"; then

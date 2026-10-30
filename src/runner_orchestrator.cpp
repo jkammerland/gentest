@@ -24,7 +24,7 @@ namespace gentest::runner {
 namespace {
 
 using Outcome         = gentest::runner::Outcome;
-using RunResult       = gentest::runner::RunResult;
+using CaseResult      = gentest::runner::CaseResult;
 using SelectionStatus = gentest::runner::SelectionStatus;
 
 struct SharedFixtureRunGuard {
@@ -198,8 +198,8 @@ void record_runner_level_failure(OrchestratorState &state, std::string_view name
     gentest::runner::record_runner_level_failure(state.acc, name, std::move(message));
 }
 
-RunResult make_measured_failure_result(const MeasurementCaseFailure &failure, std::string_view failure_message) {
-    RunResult result;
+CaseResult make_measured_failure_result(const MeasurementCaseFailure &failure, std::string_view failure_message) {
+    CaseResult result;
     if (failure.skipped) {
         if (failure.infra_failure) {
             result.skipped          = true;
@@ -249,15 +249,15 @@ std::string measured_issue_message(const MeasurementCaseFailure &failure, std::s
     return "measured case failed";
 }
 
-RunResult make_measured_success_result(double wall_time_s, std::vector<ReportAttachment> attachments = {}) {
-    RunResult run_result;
-    run_result.time_s      = wall_time_s;
-    run_result.outcome     = Outcome::Pass;
-    run_result.attachments = std::move(attachments);
-    return run_result;
+CaseResult make_measured_success_result(double wall_time_s, std::vector<ReportAttachment> attachments = {}) {
+    CaseResult result;
+    result.time_s      = wall_time_s;
+    result.outcome     = Outcome::Pass;
+    result.attachments = std::move(attachments);
+    return result;
 }
 
-void record_measured_result(OrchestratorState &state, const gentest::Case &c, RunResult result) {
+void record_measured_result(OrchestratorState &state, const gentest::Case &c, CaseResult result) {
     if (!state.record_results && result.summary_issues.empty()) {
         return;
     }
@@ -548,7 +548,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --records=DIR         Export runtime records to a fresh run bundle\n");
         fmt::print("  --list-death          List death test names (one per line)\n");
         fmt::print("  --list-benches        List benchmark/jitter names (one per line)\n");
-        fmt::print("  --run=<name>          Run a single case by exact name\n");
+        fmt::print("  --run=<name>          Run one case by full name or unique suffix\n");
         fmt::print("  --filter=<pattern>    Run cases matching wildcard pattern (*, ?)\n");
         fmt::print("  --kind=<kind>         Restrict to kind: all|test|bench|jitter (default all)\n");
         fmt::print("  --include-death       Allow running tests tagged 'death'\n");
@@ -622,12 +622,12 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
 
     switch (selection.status) {
     case SelectionStatus::Ok: break;
-    case SelectionStatus::CaseNotFound: fmt::print(stderr, "Case not found: {}\n", opt.run_exact); return kExitCaseNotFound;
+    case SelectionStatus::CaseNotFound: fmt::print(stderr, "Case not found: {}\n", opt.run_name); return kExitCaseNotFound;
     case SelectionStatus::KindMismatch:
-        fmt::print(stderr, "Case '{}' does not match --kind={}\n", opt.run_exact, gentest::runner::kind_to_string(opt.kind));
+        fmt::print(stderr, "Case '{}' does not match --kind={}\n", opt.run_name, gentest::runner::kind_to_string(opt.kind));
         return 1;
     case SelectionStatus::Ambiguous:
-        fmt::print(stderr, "Case name is ambiguous: {}\n", opt.run_exact);
+        fmt::print(stderr, "Case name is ambiguous: {}\n", opt.run_name);
         fmt::print(stderr, "Matches:\n");
         for (auto idx : selection.ambiguous_matches)
             fmt::print(stderr, "  {}\n", kCases[idx].name);
@@ -658,8 +658,8 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         case KindFilter::All: fmt::print("Executed 0 case(s).\n"); break;
         }
         return 0;
-    case SelectionStatus::DeathExcludedExact:
-        fmt::print(stderr, "Case '{}' is tagged as a death test; rerun with --include-death\n", opt.run_exact);
+    case SelectionStatus::DeathExcludedRun:
+        fmt::print(stderr, "Case '{}' is tagged as a death test; rerun with --include-death\n", opt.run_name);
         return 1;
     case SelectionStatus::DeathExcludedAll:
         if (opt.mode == Mode::ListSelected)

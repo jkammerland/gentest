@@ -36,12 +36,21 @@ class AsyncSchedulerCore {
     using FramePtr       = gentest::detail::AsyncFramePtr;
     using WaiterTokenPtr = gentest::detail::AsyncScheduler::WaiterTokenPtr;
     using WakeCallback   = std::function<void()>;
+    using Clock          = gentest::detail::AsyncTimePoint (*)() noexcept;
+    using Completion     = gentest::detail::AsyncCompletion;
+    using ReadyEntry     = gentest::detail::AsyncReadyEntry;
 
     static constexpr std::size_t kInvalidOwner = std::numeric_limits<std::size_t>::max();
 
-    explicit AsyncSchedulerCore(WakeCallback wake = {}) : wake_(std::move(wake)) {}
+    explicit AsyncSchedulerCore(WakeCallback wake = {}, Clock now = &std::chrono::steady_clock::now) : wake_(std::move(wake)), now_(now) {}
 
     void set_wake_callback(WakeCallback wake) { wake_ = std::move(wake); }
+    void notify_completion() { notify_wake(true); }
+
+    [[nodiscard]] auto frame_for(std::coroutine_handle<> handle) const -> FramePtr {
+        std::lock_guard<std::mutex> lock(mtx_);
+        return frame_for_locked(handle.address());
+    }
 
     void register_frame(std::size_t owner, const FramePtr &frame) {
         if (!frame || !frame->handle) {
@@ -88,37 +97,50 @@ class AsyncSchedulerCore {
         return token;
     }
 
+    void begin_wait(std::coroutine_handle<> handle) noexcept {
+        FramePtr frame;
+        {
+            std::lock_guard<std::mutex> lock(mtx_);
+            frame = frame_for_locked(handle.address());
+            blocked_.erase(handle.address());
+        }
+        if (frame) {
+            frame->begin_wait();
+        }
+    }
+
     void post(std::coroutine_handle<> handle) {
         FramePtr frame;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             frame = frame_for_locked(handle.address());
         }
-        post(std::move(frame));
+        post(frame);
     }
 
-    void post(FramePtr frame) {
-        if (!frame) {
+    void post(const FramePtr &frame) {
+        if (!frame || frame->is_canceled() || frame->done()) {
             return;
         }
+        (void)post_completion(Completion{.frame = frame, .suspension = frame->suspension(), .address = frame->address()});
+    }
 
-        bool should_wake = false;
+    // The producer may only inspect admission metadata, never the coroutine.
+    [[nodiscard]] auto post_completion(Completion &&completion) -> bool {
         {
-            std::lock_guard<std::mutex> lk(mtx_);
-            const auto                  address = frame->address();
-            if (owner_for_locked(address) == kInvalidOwner) {
-                blocked_.erase(address);
-                return;
+            std::lock_guard<std::mutex> lock(mtx_);
+            // A queued value can still be withdrawn. Keep its timeout competitor
+            // eligible; FIFO delivery and the frame claim select one outcome.
+            if (!completion.active() || (completion.reason != gentest::detail::AsyncResumeReason::Timeout &&
+                                         completion.suspension->admitted.load(std::memory_order_acquire))) {
+                return false;
             }
-            if (frame->is_canceled() || frame->done()) {
-                blocked_.erase(address);
-                return;
-            }
-            blocked_.erase(address);
-            ready_.push_back(std::move(frame));
-            should_wake = true;
+            completion.admitted_at = now_();
+            ready_.push_back(std::move(completion));
+            ready_.back().suspension->admitted.store(true, std::memory_order_release);
         }
-        notify_wake(should_wake);
+        notify_wake(true);
+        return true;
     }
 
     void block(std::coroutine_handle<> handle, std::string reason, const std::source_location &loc = {}) {
@@ -161,7 +183,12 @@ class AsyncSchedulerCore {
                                                        .reason   = "yielded cooperatively",
                                                        .file = loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()),
                                                        .line = loc.line()};
-            ready_.push_back(std::move(frame));
+            auto registration          = frame->suspension();
+            if (registration->active.load(std::memory_order_acquire) && !registration->admitted.load(std::memory_order_acquire)) {
+                ready_.push_back(
+                    Completion{.frame = frame, .suspension = registration, .address = frame->address(), .admitted_at = now_()});
+                registration->admitted.store(true, std::memory_order_release);
+            }
             should_wake = true;
         }
         notify_wake(should_wake);
@@ -170,6 +197,10 @@ class AsyncSchedulerCore {
     void attach_child(const FramePtr &child, std::coroutine_handle<> parent) {
         if (!child || !child->handle || !parent) {
             return;
+        }
+        if (auto parent_frame = frame_for(parent)) {
+            child->inherit_stop_token(parent_frame->stop_token());
+            child->framework_context = parent_frame->framework_context;
         }
         std::lock_guard<std::mutex> lk(mtx_);
         const auto                  parent_owner = owner_for_locked(parent.address());
@@ -230,9 +261,22 @@ class AsyncSchedulerCore {
         return timers_.next_deadline();
     }
 
-    [[nodiscard]] auto has_pending_timers() -> bool {
-        std::lock_guard<std::mutex> lk(mtx_);
-        return timers_.has_pending();
+    // Admission moves work from an external capability into ready_. Observe
+    // both sides under the same lock before declaring a task unresumable.
+    [[nodiscard]] auto has_work() -> bool {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (!ready_.empty() || timers_.has_pending()) {
+            return true;
+        }
+        for (const auto &[address, tokens] : waiter_tokens_) {
+            (void)address;
+            for (const auto &weak : tokens) {
+                if (auto token = weak.lock(); token && token->external() && token->active()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     [[nodiscard]] auto ready_size() const -> std::size_t {
@@ -245,16 +289,23 @@ class AsyncSchedulerCore {
         return !ready_.empty();
     }
 
-    [[nodiscard]] auto pop_ready() -> FramePtr {
-        std::lock_guard<std::mutex> lk(mtx_);
-        while (!ready_.empty()) {
-            auto frame = std::move(ready_.front());
-            ready_.pop_front();
-            if (frame && !frame->is_canceled()) {
-                return frame;
+    [[nodiscard]] auto pop_ready() -> ReadyEntry {
+        while (true) {
+            Completion completion;
+            {
+                std::lock_guard<std::mutex> lock(mtx_);
+                if (ready_.empty()) {
+                    return {};
+                }
+                completion = std::move(ready_.front());
+                ready_.pop_front();
+            }
+            // Only the runner locks the weak frame and checks its generation.
+            auto frame = completion.frame.lock();
+            if (completion.active() && frame && frame->matches(completion.suspension)) {
+                return ReadyEntry{.frame = std::move(frame), .completion = std::move(completion)};
             }
         }
-        return {};
     }
 
     void clear_suspend_state(const FramePtr &frame) {
@@ -341,10 +392,25 @@ class AsyncSchedulerCore {
         return it->second;
     }
 
-    template <typename Pred> void cancel_matching(Pred pred) {
+    struct CanceledWork {
         std::vector<WaiterTokenPtr> tokens;
+        std::vector<FramePtr>       frames;
+        std::vector<Completion>     completions;
+
+        void finish() {
+            for (auto &token : tokens) {
+                token->cancel();
+            }
+            for (auto &frame : frames) {
+                frame->cancel();
+            }
+        }
+    };
+
+    template <typename Pred> void cancel_matching(Pred pred) {
+        CanceledWork work;
         {
-            std::lock_guard<std::mutex> lk(mtx_);
+            std::lock_guard<std::mutex> lock(mtx_);
             std::vector<void *>         addresses;
             for (const auto &[address, owner] : owners_) {
                 if (pred(owner)) {
@@ -352,31 +418,32 @@ class AsyncSchedulerCore {
                 }
             }
             for (auto *address : addresses) {
-                cancel_address_locked(address, tokens);
+                cancel_address_locked(address, work);
             }
         }
-        cancel_tokens(tokens);
+        work.finish();
     }
 
     void cancel_address(void *address) {
-        std::vector<WaiterTokenPtr> tokens;
+        CanceledWork work;
         {
-            std::lock_guard<std::mutex> lk(mtx_);
-            cancel_address_locked(address, tokens);
+            std::lock_guard<std::mutex> lock(mtx_);
+            cancel_address_locked(address, work);
         }
-        cancel_tokens(tokens);
+        work.finish();
     }
 
-    void cancel_address_locked(void *address, std::vector<WaiterTokenPtr> &tokens) {
+    void cancel_address_locked(void *address, CanceledWork &work) {
         if (auto frame = frame_for_locked(address)) {
-            frame->cancel();
+            frame->invalidate();
+            work.frames.push_back(std::move(frame));
         }
 
         if (const auto child_it = children_.find(address); child_it != children_.end()) {
             auto children = std::move(child_it->second);
             children_.erase(child_it);
             for (const auto &child : children) {
-                cancel_address_locked(child.child, tokens);
+                cancel_address_locked(child.child, work);
             }
         }
         remove_child_references_locked(address);
@@ -385,7 +452,7 @@ class AsyncSchedulerCore {
         if (waiter_it != waiter_tokens_.end()) {
             for (auto &weak_waiter : waiter_it->second) {
                 if (auto waiter = weak_waiter.lock()) {
-                    tokens.push_back(std::move(waiter));
+                    work.tokens.push_back(std::move(waiter));
                 }
             }
             waiter_tokens_.erase(waiter_it);
@@ -394,7 +461,13 @@ class AsyncSchedulerCore {
         blocked_.erase(address);
         owners_.erase(address);
         frames_.erase(address);
-        std::erase_if(ready_, [address](const FramePtr &frame) { return !frame || frame->address() == address; });
+        std::erase_if(ready_, [&](Completion &completion) {
+            if (completion.address != address) {
+                return false;
+            }
+            work.completions.push_back(std::move(completion));
+            return true;
+        });
     }
 
     void remove_child_references_locked(void *address) {
@@ -431,12 +504,6 @@ class AsyncSchedulerCore {
         }
     }
 
-    static void cancel_tokens(std::vector<WaiterTokenPtr> &tokens) {
-        for (auto &token : tokens) {
-            token->cancel();
-        }
-    }
-
     void notify_wake(bool should_wake) {
         if (should_wake && wake_) {
             wake_();
@@ -444,8 +511,9 @@ class AsyncSchedulerCore {
     }
 
     WakeCallback                                                                         wake_;
+    Clock                                                                                now_;
     mutable std::mutex                                                                   mtx_;
-    std::deque<FramePtr>                                                                 ready_;
+    std::deque<Completion>                                                               ready_;
     std::unordered_map<void *, FramePtr>                                                 frames_;
     std::unordered_map<void *, std::size_t>                                              owners_;
     std::unordered_map<void *, std::vector<ChildReference>>                              children_;

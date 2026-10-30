@@ -64,7 +64,9 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
             "gentest_record_json_tests", "gentest_record_cbor_tests", "gentest_record_json_noexceptions", "gentest_main")
         add("ctest", "--test-dir", build, "--output-on-failure", "--no-tests=error",
             "--output-junit", work / "recording.xml", "-R", "^runtime_record")
-        add("cmake", "--install", build)
+        # Installation exports libraries beyond the selected recording targets.
+        # Let the native install target build its complete dependency closure.
+        add("cmake", "--build", build, "--parallel", jobs, "--target", "install")
         add("cmake", "-S", source / "examples/recording", "-B", example, "-G", "Ninja",
             f"-DCMAKE_CXX_COMPILER={cxx}", f"-DCMAKE_PREFIX_PATH={install};{serializers}",
             "-DRECORDING_WITH_GLAZE=ON", "-DRECORDING_WITH_CBOR=ON")

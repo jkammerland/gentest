@@ -99,9 +99,9 @@ function(gentest_ensure_fmt)
                 GIT_TAG 12.1.0)
             FetchContent_MakeAvailable(fmt)
 
-            # A shared runtime also needs position-independent code in its
-            # fetched static dependency, including on AArch64 and RISC-V.
-            if(GENTEST_RUNTIME_SHARED AND TARGET fmt)
+            # Shared runtime and clang-tidy plugin binaries need position-independent
+            # code in their fetched static dependency on every supported architecture.
+            if((GENTEST_RUNTIME_SHARED OR GENTEST_BUILD_TIDY_PLUGIN) AND TARGET fmt)
                 set_property(TARGET fmt PROPERTY POSITION_INDEPENDENT_CODE ON)
             endif()
 

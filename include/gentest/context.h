@@ -2,6 +2,7 @@
 
 #include "gentest/detail/runtime_base.h"
 #include "gentest/log_sink.h"
+#include "gentest/notification.h"
 
 #include <memory>
 #include <source_location>
@@ -10,6 +11,9 @@
 #include <utility>
 
 namespace gentest {
+
+// The handle follows the adopted context and never falls back to another case.
+[[nodiscard]] GENTEST_RUNTIME_API auto currentNotifier() noexcept -> Notifier;
 
 class CurrentContext;
 
@@ -36,6 +40,7 @@ class CurrentContext {
     std::shared_ptr<detail::TestContextInfo> ctx_{};
 };
 
+// Legacy context spelling. Prefer CurrentContext; stop_token() separately exposes cooperative cancellation.
 using CurrentToken = CurrentContext;
 
 struct CurrentContextLease;

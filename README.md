@@ -133,7 +133,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Docs: [Async tests](docs/async.md), [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md), [Deprecations](DEPRECATIONS.md).
+Docs: [Async tests](docs/async.md), [Notifications and watchdogs](docs/notifications.md), [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md), [Deprecations](DEPRECATIONS.md).
 
 Non-CMake downstream consumers:
 - [Downstream consumers overview](docs/buildsystems/downstream_consumers.md)
@@ -147,7 +147,7 @@ Run:
 ./my_tests --list-tests
 ./my_tests --list
 ./my_tests --list-death
-./my_tests --run=<exact-name>
+./my_tests --run=<full-name-or-unique-suffix>
 ./my_tests --filter=unit/* --kind=test
 ./my_tests --include-death --run=death/fatal_path
 ./my_tests --fail-fast --repeat=2
@@ -158,6 +158,9 @@ Run:
 ```
 
 `--list-tests` prints only resolved test names (one per line).
+
+`--run` prefers a full case name. If no full name matches, it accepts a unique
+suffix among cases matching `--kind`; ambiguous suffixes are errors.
 
 Use `--list-selected --kind=test --filter="suite/*"` to preview the names that
 the same execution selector would run, without constructing fixtures or running

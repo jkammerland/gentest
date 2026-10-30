@@ -74,7 +74,7 @@ void remove_all_sinks_silences_default(void *) {
     gentest::log("removed sinks hidden on pass");
 }
 
-gentest::async_test<void> async_default_sink_visible_on_fail_impl() {
+gentest::awaitable<void> async_default_sink_visible_on_fail_impl() {
     gentest::log("default sink visible on async fail");
     co_await gentest::async::yield();
     EXPECT_TRUE(false, "async failure does not replay streamed logs");
@@ -84,7 +84,7 @@ auto async_default_sink_visible_on_fail(void *) -> gentest::detail::AsyncTaskPtr
     return gentest::detail::make_async_task(async_default_sink_visible_on_fail_impl());
 }
 
-gentest::async_test<void> async_default_sink_visible_on_pass_impl() {
+gentest::awaitable<void> async_default_sink_visible_on_pass_impl() {
     gentest::log("default sink visible on async pass");
     co_await gentest::async::yield();
 }

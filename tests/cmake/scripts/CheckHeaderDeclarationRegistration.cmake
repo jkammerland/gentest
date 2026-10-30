@@ -732,7 +732,7 @@ file(WRITE "${_conditional_header}" [=[
 namespace header_declaration_registration {
 #if HEADER_CONTEXT_A
 [[using gentest: test("header_declaration/context_conflict")]]
-gentest::async_test<void> conditional_context_case();
+gentest::awaitable<void> conditional_context_case();
 #else
 [[using gentest: test("header_declaration/context_conflict")]]
 void conditional_context_case();

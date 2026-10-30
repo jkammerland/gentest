@@ -315,6 +315,10 @@ gentest_add_suite(outcomes TARGET ${PROJECT_NAME}_outcomes_tests NO_CTEST)
 # Coroutine async target (no default add_test; contains deliberate BLOCKED cases)
 gentest_add_suite(async TARGET ${PROJECT_NAME}_async_tests NO_CTEST)
 
+# Compile the public walkthrough in the default build and lint compilation database.
+gentest_add_suite(async_examples TARGET ${PROJECT_NAME}_async_examples_tests
+    CASES "${PROJECT_SOURCE_DIR}/examples/async/cases.cpp")
+
 # Slow coroutine live-renderer demo target (no default suite add_test; intended for terminal inspection)
 gentest_add_suite(async_live_slow TARGET ${PROJECT_NAME}_async_live_slow_tests NO_CTEST)
 
@@ -674,12 +678,12 @@ gentest_add_check_counts(
     ARGS --filter=async/wait_for/future* --kind=test --no-color)
 
 gentest_add_check_counts(
-    NAME async_wait_for_async_test
+    NAME async_wait_for_awaitable
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     PASS 5
     FAIL 0
     SKIP 0
-    ARGS --filter=async/wait_for/async_test* --kind=test --no-color)
+    ARGS --filter=async/wait_for/awaitable* --kind=test --no-color)
 
 gentest_add_check_counts(
     NAME async_lvalue_concurrent_await
@@ -698,7 +702,7 @@ gentest_add_cmake_script_test(
     ARGS --filter=async/lvalue_await/* --kind=test --no-color
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRINGS=[ FAIL ] async/lvalue_await/01_concurrent_waiter|gentest::async_test already has an active waiter (concurrent co_await is not supported)")
+        "REQUIRED_SUBSTRINGS=[ FAIL ] async/lvalue_await/01_concurrent_waiter|gentest::awaitable already has an active waiter (concurrent co_await is not supported)")
 
 gentest_add_cmake_script_test(
     NAME async_wait_for_no_raw_this_token_callbacks

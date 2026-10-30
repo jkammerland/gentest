@@ -24,6 +24,7 @@ example requires a gentest install configured with `-DGENTEST_ENABLE_PUBLIC_MODU
 | [measured](measured/) | Benchmark/jitter runs and a type × direction template matrix | 12 |
 | [recording](recording/) | Runtime properties, raw payloads, and optional JSON/CBOR snapshots | 3 |
 | [metadata](metadata/) | Declared metadata, JSON inventory, and JUnit requirements | 3 |
+| [async](async/) | Awaitables, composition, cancellation, fixtures, events, and user-owned loops | 16 |
 
 Each directory is an independent CMake consumer with build commands and a
 checked case inventory. Start with the header-only hello, then pick a feature.
@@ -31,7 +32,7 @@ Install instructions: [Linux](../docs/install/linux.md),
 [macOS](../docs/install/macos.md), [Windows](../docs/install/windows.md).
 
 With `GENTEST_ENABLE_PACKAGE_TESTS=ON`, the
-`gentest_package_consumer_include_only` CTest check builds all six feature
+`gentest_package_consumer_include_only` CTest check builds all seven feature
 examples against the same installed package. It checks their exact case names,
 runs discovered cases individually, and runs each executable with repeat and
 shuffle enabled. For measured cases it uses short smoke settings and validates

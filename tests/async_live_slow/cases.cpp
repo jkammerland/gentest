@@ -2,7 +2,7 @@
 
 namespace async_live_slow {
 
-gentest::async_test<void> async_waits_for_sync() {
+gentest::awaitable<void> async_waits_for_sync() {
     mix_events.clear();
     long_driver_done.reset_all();
     sync_releases_async.reset_all();
@@ -30,7 +30,7 @@ void sync_releases_async_case() {
 
 namespace async_live_slow {
 
-gentest::async_test<void> short_pass() {
+gentest::awaitable<void> short_pass() {
     gentest::log("short async case started");
     std::this_thread::sleep_for(kVisiblePause);
     co_await gentest::async::yield();
@@ -42,7 +42,7 @@ gentest::async_test<void> short_pass() {
 
 namespace async_live_slow {
 
-gentest::async_test<void> medium_pass() {
+gentest::awaitable<void> medium_pass() {
     for (int i = 0; i < 4; ++i) {
         gentest::log("medium async tick " + std::to_string(i));
         std::this_thread::sleep_for(kVisiblePause);
@@ -55,7 +55,7 @@ gentest::async_test<void> medium_pass() {
 
 namespace async_live_slow {
 
-gentest::async_test<void> long_driver() {
+gentest::awaitable<void> long_driver() {
     for (int i = 0; i < 14; ++i) {
         gentest::log("long async driver tick " + std::to_string(i));
         std::this_thread::sleep_for(kVisiblePause);
@@ -69,7 +69,7 @@ gentest::async_test<void> long_driver() {
 
 namespace async_live_slow {
 
-gentest::async_test<void> waiting_on_driver() {
+gentest::awaitable<void> waiting_on_driver() {
     co_await long_driver_done.wait("long driver completed");
     EXPECT_TRUE(true);
 }
@@ -78,7 +78,7 @@ gentest::async_test<void> waiting_on_driver() {
 
 namespace async_live_slow {
 
-gentest::async_test<void> ping_counter() {
+gentest::awaitable<void> ping_counter() {
     ping_turn.reset_all();
     pong_turn.reset_all();
     ping_turn.set("pingpong.turn");
@@ -97,7 +97,7 @@ gentest::async_test<void> ping_counter() {
 
 namespace async_live_slow {
 
-gentest::async_test<void> pong_counter() {
+gentest::awaitable<void> pong_counter() {
     for (int i = 0; i < kPingPongRounds; ++i) {
         co_await pong_turn.wait("pingpong.turn");
         pong_turn.reset("pingpong.turn");

@@ -77,29 +77,39 @@ inline constexpr std::string_view wrapper_support_common = R"CPP(
 namespace {
 template <typename T>
 inline void gentest_maybe_setup(T& t) {
-    if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) t.setUp();
+    if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::setup, true);
+        t.setUp();
+    }
 }
 
 template <typename T>
 inline void gentest_maybe_teardown(T& t) {
-    if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) t.tearDown();
+    if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::teardown, true);
+        t.tearDown();
+    }
 }
 
 template <typename T>
-inline ::gentest::async_test<void> gentest_maybe_async_setup(T& t) {
+inline ::gentest::awaitable<void> gentest_maybe_async_setup(T& t) {
     if constexpr (std::is_base_of_v<gentest::AsyncFixtureSetup, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::setup, true);
         co_await t.setUp();
     } else if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::setup, true);
         t.setUp();
     }
     co_return;
 }
 
 template <typename T>
-inline ::gentest::async_test<void> gentest_maybe_async_teardown(T& t) {
+inline ::gentest::awaitable<void> gentest_maybe_async_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::AsyncFixtureTearDown, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::teardown, true);
         co_await t.tearDown();
     } else if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) {
+        ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::teardown, true);
         t.tearDown();
     }
     co_return;
@@ -176,7 +186,7 @@ struct gentest_async_local_teardown_guard {
         state->run_blocking();
     }
 
-    ::gentest::async_test<void> run_now() {
+    ::gentest::awaitable<void> run_now() {
         if (!ran && teardown) {
             ran = true;
             co_await (*teardown)();
@@ -200,7 +210,7 @@ struct gentest_async_local_teardown_guard {
 };
 
 template <typename BodyFn, typename TeardownFn>
-inline ::gentest::async_test<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+inline ::gentest::awaitable<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
     auto teardown_fn = std::forward<TeardownFn>(teardown);
     gentest_async_local_teardown_guard<decltype(teardown_fn)> teardown_state{&teardown_fn};
 #if GENTEST_EXCEPTIONS_ENABLED

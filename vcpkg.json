@@ -1,6 +1,6 @@
 {
   "name": "gentest",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "description": "Attribute-driven test discovery with clang tooling",
   "dependencies": [
     "fmt",
@@ -9,6 +9,12 @@
     "libxml2"
   ],
   "features": {
+    "harness-asio": {
+      "description": "Optional Boost.Asio headers for the Linux UDP ring example",
+      "dependencies": [
+        "boost-asio"
+      ]
+    },
     "allure-boost-json": {
       "description": "Optional Boost.JSON headers for the Allure writer",
       "dependencies": [

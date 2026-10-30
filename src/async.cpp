@@ -14,7 +14,9 @@
 namespace gentest::detail {
 namespace {
 
-thread_local AsyncScheduler *g_current_async_scheduler = nullptr;
+thread_local AsyncScheduler  *g_current_async_scheduler   = nullptr;
+thread_local AsyncFrame      *g_current_async_frame       = nullptr;
+thread_local AsyncFrameScope *g_current_async_frame_scope = nullptr;
 
 enum class BlockingAsyncStatus {
     Completed,
@@ -28,11 +30,29 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
         register_adopted_release_wake(ctx_, adopted_release_wake_);
         core_.set_wake_callback([this] { adopted_release_wake_->notify_one(); });
     }
-    ~BlockingAsyncScheduler() override { deactivate(); }
+    ~BlockingAsyncScheduler() override {
+        deactivate();
+        cancel_all_waiters();
+    }
+
+    void notify_completion() noexcept override { core_.notify_completion(); }
+
+    [[nodiscard]] auto frame_for(std::coroutine_handle<> handle) const -> AsyncFramePtr override { return core_.frame_for(handle); }
+
+    void prepare_transfer(const AsyncFramePtr &frame) override {
+        core_.clear_suspend_state(frame);
+        AsyncScheduler::prepare_transfer(frame);
+    }
+
+    void begin_wait(std::coroutine_handle<> handle) noexcept override { core_.begin_wait(handle); }
 
     void post(std::coroutine_handle<> handle) override { core_.post(handle); }
 
     void post_frame(const AsyncFramePtr &frame) override { core_.post(frame); }
+
+    [[nodiscard]] auto post_completion(AsyncCompletion &&completion) -> bool override {
+        return core_.post_completion(std::move(completion));
+    }
 
     [[nodiscard]] auto make_waiter(std::coroutine_handle<> handle) -> WaiterTokenPtr override {
         return core_.make_waiter(handle, control());
@@ -53,14 +73,16 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
     [[nodiscard]] auto run(AsyncTask &task, std::string &blocked_reason) -> BlockingAsyncStatus {
         AsyncSchedulerScope scheduler_scope(this);
         task.set_scheduler(this);
+        task.frame()->framework_context = ctx_;
         core_.register_frame(0, task.frame());
         core_.post(task.frame());
 
         while (true) {
             while (true) {
                 core_.post_due_timers();
-                auto frame = core_.pop_ready();
-                if (!frame || !frame->handle) {
+                auto ready = core_.pop_ready();
+                auto frame = ready.frame;
+                if (!ready || !frame->handle) {
                     break;
                 }
                 if (frame->is_canceled() || frame->done()) {
@@ -69,7 +91,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
                 try {
                     gentest::runner::detail::CurrentTestContextScope current_scope(ctx_);
                     core_.clear_suspend_state(frame);
-                    frame->handle.resume();
+                    (void)ready.resume();
                 } catch (const std::exception &e) {
                     blocked_reason = fmt::format("async coroutine resume threw std::exception: {}", e.what());
                     return BlockingAsyncStatus::Blocked;
@@ -89,7 +111,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
                 return BlockingAsyncStatus::Completed;
             }
 
-            if ((!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.has_pending_timers()) {
+            if ((!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.has_work()) {
                 break;
             }
 
@@ -117,7 +139,7 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
   private:
     void wait_for_ready_or_adopted_release() {
         const auto no_pending_wait_locked = [&] {
-            return (!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.next_timer_deadline();
+            return (!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.has_work();
         };
         const auto ready_or_done_waiting_locked = [&] { return core_.has_ready() || no_pending_wait_locked(); };
 
@@ -136,7 +158,10 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
         }
     }
 
-    void cancel_all_waiters() { core_.cancel_all(); }
+    void cancel_all_waiters() {
+        gentest::runner::detail::CurrentTestContextScope scope(ctx_);
+        core_.cancel_all();
+    }
 
     std::shared_ptr<TestContextInfo>                     ctx_;
     std::shared_ptr<TestContextInfo::AdoptedReleaseWake> adopted_release_wake_;
@@ -147,6 +172,7 @@ auto make_context(std::string_view label) -> std::shared_ptr<TestContextInfo> {
     auto ctx          = std::make_shared<TestContextInfo>();
     ctx->display_name = std::string(label);
     ctx->recording    = current_test() ? current_test()->recording : current_recording_target();
+    inherit_framework_context(*ctx);
     start_context(*ctx);
     return ctx;
 }
@@ -174,28 +200,46 @@ auto runtime_skip_reason_or_default(const std::shared_ptr<TestContextInfo> &ctx)
 
 auto current_async_scheduler() noexcept -> AsyncScheduler * { return g_current_async_scheduler; }
 
+auto current_async_frame() noexcept -> AsyncFrame * { return g_current_async_frame; }
+
+auto set_current_async_frame(AsyncFrame *frame) noexcept -> AsyncFrame * { return std::exchange(g_current_async_frame, frame); }
+
+auto current_async_frame_scope() noexcept -> AsyncFrameScope * { return g_current_async_frame_scope; }
+
+auto set_current_async_frame_scope(AsyncFrameScope *scope) noexcept -> AsyncFrameScope * {
+    return std::exchange(g_current_async_frame_scope, scope);
+}
+
 auto set_current_async_scheduler(AsyncScheduler *scheduler) noexcept -> AsyncScheduler * {
     auto *previous            = g_current_async_scheduler;
     g_current_async_scheduler = scheduler;
     return previous;
 }
 
-auto run_async_task_blocking(async_test<void> task, std::string_view label, std::string &error_out) -> bool {
+auto run_async_task_blocking(gentest::awaitable<void> operation, std::string_view label, std::string &error_out) -> bool {
     error_out.clear();
     auto ctx = make_context(label);
 
     AsyncTaskPtr task_ptr;
     {
         gentest::runner::detail::CurrentTestContextScope current_scope(ctx);
-        task_ptr = make_async_task(std::move(task));
+        task_ptr = make_async_task(std::move(operation));
     }
 
-    std::string            blocked_reason;
-    BlockingAsyncScheduler scheduler(ctx);
-    const auto             status = task_ptr ? scheduler.run(*task_ptr, blocked_reason) : BlockingAsyncStatus::Blocked;
+    std::string blocked_reason;
+    auto        status = BlockingAsyncStatus::Blocked;
+    {
+        BlockingAsyncScheduler scheduler(ctx);
+        status = task_ptr ? scheduler.run(*task_ptr, blocked_reason) : BlockingAsyncStatus::Blocked;
+    }
+    const auto exception = task_ptr ? task_ptr->exception() : std::exception_ptr{};
 
     gentest::runner::detail::request_active_test_context_stop(ctx);
     wait_for_adopted_contexts(ctx);
+    {
+        gentest::runner::detail::CurrentTestContextScope current_scope(ctx);
+        task_ptr.reset();
+    }
     close_context_to_late_operations(*ctx);
     flush_current_buffer_for(ctx.get());
 
@@ -204,9 +248,9 @@ auto run_async_task_blocking(async_test<void> task, std::string_view label, std:
         return false;
     }
 
-    if (auto ex = task_ptr->exception()) {
+    if (exception) {
         try {
-            std::rethrow_exception(ex);
+            std::rethrow_exception(exception);
         } catch (const blocked_exception &e) { error_out = e.reason(); } catch (const skip_exception &) {
             error_out = runtime_skip_reason_or_default(ctx);
         } catch (const gentest::assertion &e) {

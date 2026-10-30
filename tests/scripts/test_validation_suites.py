@@ -1,5 +1,6 @@
 """Contracts for the resolved commands shared by local validation and CI."""
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -75,6 +76,36 @@ class SuiteContracts(unittest.TestCase):
         self.assertEqual(commands[1].args[:2], ["meson", "compile"])
         self.assertEqual(commands[2].args[:2], ["meson", "test"])
         self.assertTrue(commands[3].args[-1].endswith("CheckMesonWrapConsumer.cmake"))
+
+    def test_recording_builds_install_dependencies_before_the_example(self):
+        source = self.work / "source"
+        source.mkdir()
+        (source / "transport.cpp").write_text("int transport() { return 42; }\n")
+        (source / "CMakeLists.txt").write_text(
+            "cmake_minimum_required(VERSION 3.25)\n"
+            "project(recording_install_contract LANGUAGES CXX)\n"
+            "add_library(transport STATIC transport.cpp)\n"
+            "install(TARGETS transport ARCHIVE DESTINATION lib)\n"
+        )
+
+        # A library outside the selected recording targets must still be built
+        # before installation. Exercise the actual acceptance command on a clean tree.
+        commands = suite_commands("recording", source, self.work, serializers=str(self.work))
+        installs = [index for index, command in enumerate(commands)
+                    if command.args[:2] == ["cmake", "--install"]
+                    or ("--target" in command.args and "install" in command.args)]
+        self.assertEqual(len(installs), 1)
+        example = next(index for index, command in enumerate(commands)
+                       if "-S" in command.args and str(source / "examples/recording") in command.args)
+        self.assertLess(installs[0], example)
+
+        configure = ["cmake", "-S", str(source), "-B", str(self.work / "build"), "-G", "Ninja",
+                     f"-DCMAKE_INSTALL_PREFIX={self.work / 'install'}"]
+        for args in (configure, commands[installs[0]].args):
+            result = subprocess.run(args, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        self.assertTrue(any(path.is_file() for path in (self.work / "install/lib").glob("*transport*")))
 
 
 if __name__ == "__main__":

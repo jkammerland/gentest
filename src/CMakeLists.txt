@@ -1,6 +1,26 @@
 add_library(${PROJECT_NAME} STATIC
     ${PROJECT_SOURCE_DIR}/src/gentest_anchor.cpp)
 
+# Notification producers and deterministic monitoring do not need the test runtime.
+add_library(gentest_notifications STATIC ${PROJECT_SOURCE_DIR}/src/notification.cpp)
+add_library(gentest::notifications ALIAS gentest_notifications)
+set_target_properties(gentest_notifications PROPERTIES EXPORT_NAME notifications POSITION_INDEPENDENT_CODE ON)
+target_compile_features(gentest_notifications PUBLIC cxx_std_20)
+target_include_directories(gentest_notifications PUBLIC
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
+target_sources(gentest_notifications PUBLIC FILE_SET public_headers TYPE HEADERS
+    BASE_DIRS ${PROJECT_SOURCE_DIR}/include FILES ${PROJECT_SOURCE_DIR}/include/gentest/notification.h)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(Threads REQUIRED)
+    add_library(gentest_notifications_linux STATIC ${PROJECT_SOURCE_DIR}/src/notification_linux.cpp)
+    add_library(gentest::notifications_linux ALIAS gentest_notifications_linux)
+    set_target_properties(gentest_notifications_linux PROPERTIES EXPORT_NAME notifications_linux POSITION_INDEPENDENT_CODE ON)
+    target_link_libraries(gentest_notifications_linux PUBLIC gentest::notifications Threads::Threads)
+    target_sources(gentest_notifications_linux PUBLIC FILE_SET public_headers TYPE HEADERS
+        BASE_DIRS ${PROJECT_SOURCE_DIR}/include FILES ${PROJECT_SOURCE_DIR}/include/gentest/notification_linux.h)
+endif()
+
 # Linkage selection: default STATIC, optional SHARED
 option(GENTEST_RUNTIME_SHARED "Build gentest_runtime as a shared library" OFF)
 set(_gentest_runtime_libtype STATIC)
@@ -14,6 +34,7 @@ add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/bench_util.cpp
     ${PROJECT_SOURCE_DIR}/src/benchmark.cpp
     ${PROJECT_SOURCE_DIR}/src/context_api.cpp
+    ${PROJECT_SOURCE_DIR}/src/framework_events.cpp
     ${PROJECT_SOURCE_DIR}/src/recording.cpp
     ${PROJECT_SOURCE_DIR}/src/recording_report.cpp
     ${PROJECT_SOURCE_DIR}/src/log_sink.cpp
@@ -69,6 +90,7 @@ endif()
 
 target_link_libraries(gentest_runtime
     PUBLIC
+        gentest::notifications
         ${GENTEST_FMT_LINK_TARGET})
 
 if(GENTEST_USE_BOOST_JSON)

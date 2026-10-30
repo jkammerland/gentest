@@ -104,6 +104,16 @@ libgentest_bench_escape = static_library(
   override_options: ['b_lto=false', 'unity=off'],
 )
 
+libgentest_notifications = static_library(
+  'gentest_notifications',
+  'src/notification.cpp',
+  include_directories: gentest_public_include,
+)
+gentest_notifications_dep = declare_dependency(
+  include_directories: gentest_public_include,
+  link_with: libgentest_notifications,
+)
+
 libgentest_runtime = static_library(
   'gentest_runtime',
   [
@@ -111,6 +121,7 @@ libgentest_runtime = static_library(
     'src/bench_stats.cpp',
     'src/benchmark.cpp',
     'src/context_api.cpp',
+    'src/framework_events.cpp',
     'src/recording.cpp',
     'src/recording_report.cpp',
     'src/log_sink.cpp',
@@ -135,6 +146,7 @@ libgentest_runtime = static_library(
     'src/runner_test_plan.cpp',
   ],
   objects: libgentest_bench_escape.extract_all_objects(recursive: false),
+  link_with: libgentest_notifications,
   include_directories: project_includes,
   cpp_args: runtime_cargs,
   dependencies: runtime_deps,

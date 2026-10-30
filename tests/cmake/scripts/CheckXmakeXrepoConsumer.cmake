@@ -219,6 +219,8 @@ _gentest_run_or_fail(
   COMMAND "${_xmake}" ${_xmake_config_args})
 
 foreach(_target IN ITEMS
+    gentest_xrepo_runtime
+    gentest_installed_header_only
     gentest_xrepo_textual_mocks
     gentest_xrepo_textual
     gentest_xrepo_header_only
@@ -358,6 +360,26 @@ _gentest_find_single_binary(_header_only_bin
   "${_out_dir}/**/gentest_xrepo_header_only"
   "${_out_dir}/**/gentest_xrepo_header_only.exe"
   "Xmake xrepo header-only consumer binary")
+
+# Exercise package-only and helper-only linkage independently; otherwise either
+# path could supply a dependency missing from the other.
+_gentest_find_single_binary(_runtime_bin
+  "${_out_dir}/**/gentest_xrepo_runtime"
+  "${_out_dir}/**/gentest_xrepo_runtime.exe"
+  "Xmake xrepo runtime consumer binary")
+_gentest_run_or_fail(
+  LABEL "Run Xmake xrepo runtime consumer"
+  WORKING_DIRECTORY "${_workspace_dir}"
+  COMMAND "${_runtime_bin}")
+
+_gentest_find_single_binary(_installed_header_only_bin
+  "${_out_dir}/**/gentest_installed_header_only"
+  "${_out_dir}/**/gentest_installed_header_only.exe"
+  "Xmake installed helper consumer binary")
+_gentest_run_or_fail(
+  LABEL "Run Xmake installed helper case"
+  WORKING_DIRECTORY "${_workspace_dir}"
+  COMMAND "${_installed_header_only_bin}" "--run=downstream/xrepo/header_only" "--kind=test")
 
 foreach(_case IN ITEMS
     "downstream/xrepo/test"

@@ -225,7 +225,8 @@ local function detect_installed_library_name(debug_name, release_name)
     end
     for _, linkdir in ipairs(gentest_public_linkdirs()) do
         for _, candidate in ipairs(candidates) do
-            local matches = os.files(path.join(linkdir, "*" .. candidate .. "*"))
+            -- Match the extension boundary, not a debug or companion library's prefix.
+            local matches = os.files(path.join(linkdir, "*" .. candidate .. ".*"))
             if matches and #matches > 0 then
                 return candidate
             end
@@ -236,6 +237,10 @@ end
 
 local function gentest_runtime_link_name()
     return detect_installed_library_name("gentest_runtimed", "gentest_runtime")
+end
+
+local function gentest_notifications_link_name()
+    return detect_installed_library_name("gentest_notificationsd", "gentest_notifications")
 end
 
 local function gentest_module_link_name()
@@ -1178,7 +1183,7 @@ end
 
 local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     if config.kind == "modules" and (not scan_deps or scan_deps == "") then
-        fail("gentest_add_suite(kind='modules') requires clang-scan-deps in the configured host LLVM toolchain")
+        fail('gentest_attach_codegen({ kind = "modules", ... }) requires clang-scan-deps in the configured host LLVM toolchain')
     end
     local args = {
         "--source-root", project_root(),
@@ -1361,6 +1366,13 @@ function gentest_add_mocks(opts)
     if runtime_link then
         add_links(runtime_link)
     end
+
+    -- Static runtime consumers also need its portable notifications dependency.
+    local notifications_link = gentest_notifications_link_name()
+    if notifications_link then
+        add_links(notifications_link)
+    end
+
     if fmt_link then
         add_links(fmt_link)
     end
@@ -1589,6 +1601,13 @@ function gentest_attach_codegen(opts)
     if runtime_link then
         add_links(runtime_link)
     end
+
+    -- Static runtime consumers also need its portable notifications dependency.
+    local notifications_link = gentest_notifications_link_name()
+    if notifications_link then
+        add_links(notifications_link)
+    end
+
     if fmt_link then
         add_links(fmt_link)
     end

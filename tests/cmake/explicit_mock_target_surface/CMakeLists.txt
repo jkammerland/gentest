@@ -51,6 +51,11 @@ gentest_attach_codegen(explicit_late_link_consumer
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/late_link")
 gentest_link_mocks(explicit_late_link_consumer PRIVATE explicit_header_mocks)
 
+# Only the compile command changes when this probe is enabled; the sources stay put.
+if(GENTEST_EXPLICIT_MOCK_COMMAND_PROBE)
+    target_compile_definitions(explicit_late_link_consumer PRIVATE GENTEST_EXPLICIT_MOCK_COMMAND_PROBE=73)
+endif()
+
 add_executable(explicit_late_link_module_consumer
     late_link_module_main.cpp)
 target_sources(explicit_late_link_module_consumer

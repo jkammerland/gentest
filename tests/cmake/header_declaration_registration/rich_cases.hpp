@@ -22,7 +22,7 @@ inline void rich_template() {
 }
 
 [[using gentest: test("header_declaration/rich/async"), req("REQ-107"), owner("codegen")]]
-gentest::async_test<void> rich_async();
+gentest::awaitable<void> rich_async();
 
 [[using gentest: bench("header_declaration/rich/bench"), items_per_call(2)]]
 void rich_bench();

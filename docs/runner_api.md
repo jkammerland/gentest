@@ -41,7 +41,8 @@ string views and spans alive until `run_cases` returns.
 
 Return codes match `run_all_tests` for the same cases and arguments: `0` means the requested operation completed successfully
 (including an ordinary filter that selects no cases), `1` reports invalid CLI input or a test/runtime failure, and `3` means an
-exact `--run` case was not found. Benchmark- or jitter-only filters that match nothing retain their existing failure semantics.
+`--run` case was not found. `--run` prefers a full name, then accepts a unique suffix among cases matching `--kind`;
+ambiguous suffixes are errors. Benchmark- or jitter-only filters that match nothing retain their existing failure semantics.
 
 Manual benchmarks may set source-level execution policy with the final
 `Case::benchmark` field:
@@ -57,3 +58,14 @@ Manual benchmarks may set source-level execution policy with the final
 Omit the field for ordinary calibrated runner timing. Invalid combinations are
 rejected before fixture setup. See [benchmark measurements](benchmark_measurements.md)
 for publication, count normalization and snapshot contracts.
+
+## Notifications and source events
+
+Pass a `RunConfiguration` as the final argument to `run_cases` or either
+`run_all_tests` overload to install a notifier and an optional shared
+`FrameworkEventVisitor`. Existing overloads remain available. The configuration
+covers shared fixtures, case occurrences, adopted work, and final cleanup;
+notification infrastructure failures make the run fail even for an expected
+test failure. See [notifications and progress watchdogs](notifications.md) for
+complete setup, source-hook semantics, explicit quiet periods, and Linux process
+supervision.

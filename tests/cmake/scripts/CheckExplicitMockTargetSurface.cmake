@@ -219,6 +219,24 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+# Reconfiguring an unchanged project must not regenerate the mocks. Run the
+# native build so restat can discard unchanged compilation-database copies.
+message(STATUS "Reconfigure explicit mock targets without changing inputs...")
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" -S "${_src_dir}" -B "${_build_dir}"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE
+  OUTPUT_VARIABLE _unchanged_reconfigure_output)
+if(_unchanged_reconfigure_output MATCHES "Running gentest_codegen|Inspecting gentest mocks|Building CXX object")
+  message(FATAL_ERROR
+    "Reconfiguring unchanged explicit mock targets caused unnecessary regeneration or compilation.\n"
+    "Build output:\n${_unchanged_reconfigure_output}")
+endif()
+
 message(STATUS "Mutate local support header and rebuild explicit header consumer...")
 file(READ "${_src_dir}/service.hpp" _service_header_content)
 string(REPLACE "kServiceSentinel = 9" "kServiceSentinel = 11" _service_header_content "${_service_header_content}")
@@ -311,5 +329,21 @@ gentest_check_run_or_fail(
   COMMAND
     "${_build_dir}/explicit_late_link_module_consumer${CMAKE_EXECUTABLE_SUFFIX}"
     "--run=explicit_mock_target/late_link_module_consumer"
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+# A content change in the compilation database must still invalidate discovery.
+message(STATUS "Change a compile definition and discover the newly enabled case...")
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" -S "${_src_dir}" -B "${_build_dir}" -DGENTEST_EXPLICIT_MOCK_COMMAND_PROBE=ON
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target explicit_late_link_consumer
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+gentest_check_run_or_fail(
+  COMMAND "${_build_dir}/explicit_late_link_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+    "--run=explicit_mock_target/compile_command_change"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)

@@ -121,6 +121,13 @@ nullopt until a primary result is available, otherwise an independent owning
 published so far. It is provisional: later teardown can still fail. It contains
 neither final case outcome nor teardown-inclusive case wall time.
 
+Primary snapshot duration statistics are in nanoseconds per call, including
+epoch or batch averages where applicable. Supplied once timing describes the
+entire supplied interval. Summary reports divide primary timing by the effective
+items-per-call count; named timing series retain their independent observation
+units. For example, `setBenchmarkDuration(2s, 1000)` produces a snapshot median
+of `2e9` nanoseconds and a report median of `2e6` nanoseconds per item.
+
 Workers collect observations into application-owned storage. Only the owner publishes
 them after joining/draining; adopted-worker or absent-context misuse retains the
 runner's existing fail-fast contract. These APIs do not introduce cross-thread
@@ -138,6 +145,12 @@ with an input error if no numeric comparisons remain. Malformed reports also rem
 errors. In-report baseline deltas likewise require compatible execution, timing and
 sampling policies; an incompatible baseline is unavailable, not a zero delta.
 Named timing tables preserve their own series identity and raw nanosecond units.
+
+Allure metric attachments provide explicit `*_ns_per_call` and `*_ns_per_item`
+fields. Their older `*_ns_per_op` fields retain the per-call values for
+compatibility, even though the `ops_per_call` attribute counts logical items.
+New consumers should use the explicit fields: a 10 ns call processing two items
+has `median_ns_per_call=10`, `median_ns_per_item=5`, and `median_ns_per_op=10`.
 
 For raw samples, correlations, device metadata or a timeline, use existing
 [`record_json`, `record_cbor` or `record_data`](recording.md) explicitly in teardown.
