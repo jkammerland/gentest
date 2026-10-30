@@ -12,7 +12,7 @@ function(_gentest_write_multi_config_compdb_filter_script target_id out_script)
     set(_gentest_script_dir "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/gentest/${target_id}")
     set(_gentest_script "${_gentest_script_dir}/FilterCompileCommands.cmake")
     file(MAKE_DIRECTORY "${_gentest_script_dir}")
-    file(WRITE "${_gentest_script}" [=[
+    file(GENERATE OUTPUT "${_gentest_script}" CONTENT [=[
 if(NOT DEFINED INPUT OR NOT EXISTS "${INPUT}")
     message(FATAL_ERROR "gentest: compilation database does not exist: '${INPUT}'")
 endif()
@@ -58,6 +58,13 @@ if(_gentest_filtered_count EQUAL 0)
 endif()
 get_filename_component(_gentest_output_dir "${OUTPUT}" DIRECTORY)
 file(MAKE_DIRECTORY "${_gentest_output_dir}")
+# CMake can refresh the input timestamp without changing any commands.
+if(EXISTS "${OUTPUT}")
+    file(READ "${OUTPUT}" _gentest_existing_json)
+    if(_gentest_existing_json STREQUAL _gentest_filtered_json)
+        return()
+    endif()
+endif()
 file(WRITE "${OUTPUT}" "${_gentest_filtered_json}")
 ]=])
     set(${out_script} "${_gentest_script}" PARENT_SCOPE)
@@ -1420,7 +1427,18 @@ function(gentest_attach_codegen target)
             VERBATIM)
         get_filename_component(_gentest_codegen_compdb_dir "${_gentest_config_compdb}" DIRECTORY)
     elseif(CMAKE_GENERATOR MATCHES "Ninja|Makefiles" OR EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
-        set(_gentest_codegen_compdb_dir "${CMAKE_BINARY_DIR}")
+        # Depend on command contents, not CMake's configure-time timestamp.
+        # Native restat handling suppresses downstream codegen when the copy is unchanged.
+        set(_gentest_config_compdb "${_gentest_output_dir}/compdb/compile_commands.json")
+        add_custom_command(
+            OUTPUT "${_gentest_config_compdb}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_gentest_output_dir}/compdb"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${CMAKE_BINARY_DIR}/compile_commands.json" "${_gentest_config_compdb}"
+            DEPENDS "${CMAKE_BINARY_DIR}/compile_commands.json"
+            COMMENT "Updating compile commands for gentest target ${target}"
+            VERBATIM)
+        get_filename_component(_gentest_codegen_compdb_dir "${_gentest_config_compdb}" DIRECTORY)
     else()
         _gentest_append_synthetic_compile_context_args(_gentest_source_inspection_clang_args ${target})
     endif()
@@ -1470,9 +1488,6 @@ function(gentest_attach_codegen target)
     _gentest_collect_external_module_source_mappings(_gentest_external_module_source_mappings ${_gentest_linked_codegen_dep_targets})
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS "")
     _gentest_append_external_module_source_args_property(${target} ${_gentest_external_module_source_mappings})
-    if(EXISTS "${CMAKE_BINARY_DIR}/compile_commands.json")
-        list(APPEND _gentest_codegen_deps "${CMAKE_BINARY_DIR}/compile_commands.json")
-    endif()
     if(_gentest_config_compdb)
         list(APPEND _gentest_codegen_deps "${_gentest_config_compdb}")
     endif()

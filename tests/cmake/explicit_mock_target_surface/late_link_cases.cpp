@@ -12,3 +12,7 @@ void late_link_consumer() {
     fixture::Service *service = &mock_service;
     EXPECT_EQ(service->compute(5), 13);
 }
+
+#if defined(GENTEST_EXPLICIT_MOCK_COMMAND_PROBE)
+void compile_command_change() { EXPECT_EQ(GENTEST_EXPLICIT_MOCK_COMMAND_PROBE, 73); }
+#endif

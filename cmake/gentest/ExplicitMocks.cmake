@@ -1,5 +1,17 @@
 include_guard(GLOBAL)
 
+# Staged inputs participate in native compiler and codegen dependency graphs.
+# Preserve their timestamps when an unrelated configure step leaves them unchanged.
+function(_gentest_write_explicit_mock_file_if_different path content)
+    if(EXISTS "${path}")
+        file(READ "${path}" _gentest_existing_content)
+        if("${_gentest_existing_content}" STREQUAL "${content}")
+            return()
+        endif()
+    endif()
+    file(WRITE "${path}" "${content}")
+endfunction()
+
 function(_gentest_reserve_unique_owner property_prefix path_key owner out_prev_owner)
     string(MD5 _gentest_path_md5 "${path_key}")
     set(_gentest_owner_property "${property_prefix}_${_gentest_path_md5}")
@@ -117,7 +129,7 @@ function(_gentest_stage_explicit_mock_file stage_dir source_file staged_rel out_
     endforeach()
     get_filename_component(_gentest_staged_abs_dir "${stage_dir}/${staged_rel}" DIRECTORY)
     file(MAKE_DIRECTORY "${_gentest_staged_abs_dir}")
-    file(WRITE "${stage_dir}/${staged_rel}" "${_gentest_rewritten_content}\n")
+    _gentest_write_explicit_mock_file_if_different("${stage_dir}/${staged_rel}" "${_gentest_rewritten_content}\n")
     list(APPEND _gentest_staged_files "${stage_dir}/${staged_rel}")
     list(REMOVE_DUPLICATES _gentest_staged_files)
     set(${out_staged_files} "${_gentest_staged_files}" PARENT_SCOPE)
@@ -559,7 +571,7 @@ function(gentest_add_mocks target)
             file(GENERATE OUTPUT "${_gentest_public_header}" CONTENT "${_gentest_public_header_content}")
         else()
             file(MAKE_DIRECTORY "${_gentest_public_header_dir}")
-            file(WRITE "${_gentest_public_header}" "${_gentest_public_header_content}")
+            _gentest_write_explicit_mock_file_if_different("${_gentest_public_header}" "${_gentest_public_header_content}")
         endif()
     endif()
 
@@ -585,7 +597,7 @@ function(gentest_add_mocks target)
             string(APPEND _gentest_textual_wrapper_content "#undef GENTEST_NO_EXPECT_CALL_MACROS\n")
             string(APPEND _gentest_textual_wrapper_content "#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n")
         endif()
-        file(WRITE "${_gentest_textual_wrapper}" "${_gentest_textual_wrapper_content}")
+        _gentest_write_explicit_mock_file_if_different("${_gentest_textual_wrapper}" "${_gentest_textual_wrapper_content}")
         list(APPEND _gentest_codegen_sources "${_gentest_textual_wrapper}")
     endif()
 
@@ -611,7 +623,7 @@ namespace {\n\
         file(GENERATE OUTPUT "${_gentest_anchor_cpp}" CONTENT "${_gentest_anchor_content}")
         set_source_files_properties("${_gentest_anchor_cpp}" PROPERTIES GENERATED TRUE)
     else()
-        file(WRITE "${_gentest_anchor_cpp}" "${_gentest_anchor_content}")
+        _gentest_write_explicit_mock_file_if_different("${_gentest_anchor_cpp}" "${_gentest_anchor_content}")
     endif()
 
     add_library(${target} STATIC)
