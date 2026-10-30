@@ -144,7 +144,11 @@ if(GENTEST_BUILD_CODEGEN)
     add_subdirectory(tools)
 endif()
 include(GentestCodegen)
+find_package(Threads REQUIRED)
 add_subdirectory(src)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND gentest_BUILD_TESTING)
+    add_subdirectory(examples/notifications)
+endif()
 
 option(GENTEST_BUILD_HARNESS "Build the experimental rootless Linux network harness" OFF)
 option(GENTEST_BUILD_RING_EXAMPLE "Build the experimental Boost.Asio UDP ring example" OFF)
@@ -199,6 +203,17 @@ if(${PROJECT_NAME}_INSTALL)
             SBOM_LICENSE "${gentest_SPDX_LICENSE}"
             SBOM_DESCRIPTION "${PROJECT_DESCRIPTION}"
             SBOM_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
+    endif()
+
+    # Export standalone notifications alongside the runtime without imposing a runtime dependency.
+    target_install_package(gentest_notifications
+        EXPORT_NAME ${PROJECT_NAME}
+        ${_gentest_package_metadata_args})
+    if(TARGET gentest_notifications_linux)
+        target_install_package(gentest_notifications_linux
+            EXPORT_NAME ${PROJECT_NAME}
+            PUBLIC_DEPENDENCIES "Threads"
+            ${_gentest_package_metadata_args})
     endif()
 
     # Export a single 'gentest' package that contains both the interface target and the runtime library.
@@ -339,6 +354,7 @@ if(${PROJECT_NAME}_BUILD_TESTING)
 
     add_custom_target(gentest_codegen_all)
     add_subdirectory(tests)
+    add_subdirectory(tests/notifications)
 
     # Compile time benchmark targets
     add_custom_target(bench-compile

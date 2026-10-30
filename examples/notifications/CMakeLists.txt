@@ -1,0 +1,2 @@
+add_executable(gentest_notifications_example service.cpp)
+target_link_libraries(gentest_notifications_example PRIVATE gentest::notifications_linux)
