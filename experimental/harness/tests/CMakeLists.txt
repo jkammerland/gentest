@@ -87,3 +87,29 @@ foreach(mode IN ITEMS preflight ownership output limits cleanup boundary)
     add_test(NAME harness_descriptors_${mode} COMMAND gentest_harness_descriptor_tests ${mode})
     set_tests_properties(harness_descriptors_${mode} PROPERTIES TIMEOUT 40 LABELS harness)
 endforeach()
+
+# Session runner failures and process collection are checked outside codegen.
+add_executable(gentest_harness_session_run_supervisor session_run_supervisor.cpp)
+target_link_libraries(gentest_harness_session_run_supervisor PRIVATE gentest::harness_client)
+add_executable(gentest_harness_session_run_tests session_run.cpp)
+target_link_libraries(gentest_harness_session_run_tests PRIVATE gentest::harness)
+target_link_options(gentest_harness_session_run_tests PRIVATE "LINKER:--wrap=posix_spawnp" "LINKER:--wrap=syscall")
+target_compile_definitions(gentest_harness_session_run_tests PRIVATE
+    HARNESS_SUPERVISOR="$<TARGET_FILE:gentest_harness_supervisor>"
+    HARNESS_PEER="$<TARGET_FILE:gentest_harness_peer>"
+    HARNESS_SESSION_RUN_SUPERVISOR="$<TARGET_FILE:gentest_harness_session_run_supervisor>")
+add_dependencies(gentest_harness_session_run_tests gentest_harness_peer gentest_harness_session_run_supervisor)
+foreach(mode IN ITEMS success body_failure partial_startup startup_dual cancellation pre_cancelled timeout late_failure startup_timeout
+                      timeout_cleanup_failure dual_failure cleanup_failure lifetime expired invalid_options native_expired_cleanup
+                      nested_failure namespace_pidfd_failure deadline_ceiling)
+    add_test(NAME harness_session_run_${mode} COMMAND gentest_harness_session_run_tests ${mode})
+    set_tests_properties(harness_session_run_${mode} PROPERTIES TIMEOUT 30 LABELS harness)
+endforeach()
+
+# Observe the actual cleanup engine with real pidfds and deterministic barriers.
+add_executable(gentest_harness_group_cleanup_tests group_cleanup.cpp)
+target_link_libraries(gentest_harness_group_cleanup_tests PRIVATE gentest::harness_client)
+foreach(mode IN ITEMS group eintr expired short)
+    add_test(NAME harness_group_cleanup_${mode} COMMAND gentest_harness_group_cleanup_tests ${mode})
+    set_tests_properties(harness_group_cleanup_${mode} PROPERTIES TIMEOUT 20 LABELS harness)
+endforeach()

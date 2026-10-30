@@ -37,6 +37,7 @@ int main() {
         if (request.number() != static_cast<unsigned>(Command::shutdown)) {
             throw std::runtime_error("expected shutdown request");
         }
+        (void)request.wideNumber();
         request.end();
 
         // Hold the final reply until the parent's exit probe releases us.

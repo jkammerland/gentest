@@ -1,9 +1,12 @@
 #include "common.h"
 #include "gentest/harness.h"
+#include "gentest/harness_run.h"
 #include "process_signal.h"
 
 #include <algorithm>
+#include <charconv>
 #include <csignal>
+#include <cstdio>
 #include <fcntl.h>
 #include <map>
 #include <mutex>
@@ -20,6 +23,25 @@ extern char **environ;
 namespace gentest::harness {
 namespace {
 using namespace detail;
+using Clock = std::chrono::steady_clock;
+
+auto remainingMilliseconds(Clock::time_point deadline) -> int {
+    const auto now = Clock::now();
+    if (deadline <= now) {
+        return 0;
+    }
+    const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(deadline - now).count();
+    return static_cast<int>(std::min(remaining, static_cast<decltype(remaining)>(std::numeric_limits<int>::max())));
+}
+
+auto exceptionMessage(const std::exception_ptr &error) -> std::string {
+    try {
+        std::rethrow_exception(error);
+    } catch (const std::exception &failure) { return failure.what(); } catch (...) {
+        return "unknown exception";
+    }
+}
+
 void wake(int fd) noexcept {
     const std::uint64_t one = 1;
     while (::write(fd, &one, sizeof(one)) < 0 && errno == EINTR) {}
@@ -170,6 +192,7 @@ struct Session::Impl {
         std::optional<std::size_t>                       programIndex;
         std::uint32_t                                    request{};
         std::stop_token                                  stop;
+        std::optional<Clock::time_point>                 deadline;
         std::function<void(Message, std::exception_ptr)> complete;
     };
     SessionSpec                                     spec;
@@ -177,7 +200,7 @@ struct Session::Impl {
     std::vector<Fd>                                 retained;
     std::vector<std::string>                        launchCommands;
     std::vector<Channel>                            channels;
-    Fd                                              notification, liveness, process;
+    Fd                                              notification, liveness, process, namespaceProcess, emergency;
     pid_t                                           pid{-1};
     std::mutex                                      mutex;
     std::vector<std::shared_ptr<Operation>>         operations;
@@ -186,8 +209,13 @@ struct Session::Impl {
     std::exception_ptr                              failure;
     bool                                            closing{};
     std::thread                                     monitor;
+    std::optional<Clock::time_point>                cleanupDeadline;
+    std::exception_ptr                              cleanupFailure;
 
-    explicit Impl(SessionSpec value) : spec(std::move(value)) {
+    explicit Impl(SessionSpec value, std::optional<Clock::time_point> deadline = {}) : spec(std::move(value)), cleanupDeadline(deadline) {
+        if (deadline && *deadline <= Clock::now()) {
+            throw std::runtime_error("session cleanup deadline exceeded before startup");
+        }
         if (spec.programs.size() > 16 || spec.supervisor.empty()) {
             throw std::invalid_argument("session requires supervisor path and at most 16 programs");
         }
@@ -259,13 +287,21 @@ struct Session::Impl {
                                            std::to_string(channels.size()),
                                            std::to_string(original.st_ino),
                                            std::to_string(retained.size())};
-        std::vector<char *>      argv;
+        if (deadline) {
+            arguments.push_back(std::to_string(std::chrono::duration_cast<std::chrono::nanoseconds>(deadline->time_since_epoch()).count()));
+        }
+        std::vector<char *> argv;
         argv.reserve(arguments.size() + 1);
         argv.reserve(arguments.size());
         for (auto &argument : arguments) {
             argv.push_back(argument.data());
         }
         argv.push_back(nullptr);
+
+        // Leave one descriptor available for namespace discovery if later
+        // startup or cleanup reaches the process's descriptor limit.
+        emergency.reset(::fcntl(notification.value, F_DUPFD_CLOEXEC, 3));
+        systemCheck(emergency.value >= 0, "reserve cleanup descriptor");
 
         posix_spawn_file_actions_t actions;
         int                        error = ::posix_spawn_file_actions_init(&actions);
@@ -299,7 +335,11 @@ struct Session::Impl {
                     error = ::posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSIGMASK);
                 }
                 if (!error) {
-                    error = ::posix_spawnp(&pid, argv[0], &actions, &attributes, argv.data(), environ);
+                    // Validation and descriptor retention also consume the same
+                    // budget; never spawn after its cleanup boundary has passed.
+                    error = deadline && *deadline <= Clock::now()
+                                ? ETIMEDOUT
+                                : ::posix_spawnp(&pid, argv[0], &actions, &attributes, argv.data(), environ);
                 }
                 ::posix_spawnattr_destroy(&attributes);
             }
@@ -313,28 +353,243 @@ struct Session::Impl {
             systemCheck(process.value >= 0, "supervisor pidfd_open");
             monitor = std::thread([this] { run(); });
         } catch (...) {
-            ::kill(pid, SIGKILL);
-            ::waitpid(pid, nullptr, 0);
-            throw;
+            const auto workFailure = std::current_exception();
+            try {
+                close_until(cleanupDeadline.value_or(Clock::now() + std::chrono::seconds(5)));
+            } catch (...) { throw SessionRunError(false, workFailure, std::current_exception()); }
+            std::rethrow_exception(workFailure);
         }
     }
 
     ~Impl() { close(); }
-    void close() noexcept {
-        // Closing liveness requests cleanup without an explicit async stop.
-        // The bounded fallback also handles writers retained by forked children.
-        liveness.reset();
-        if (pid > 0) {
-            pollfd pending{.fd = process.value, .events = POLLIN, .revents = 0};
-            int    result;
-            do {
-                result = ::poll(&pending, 1, 5000);
-            } while (result < 0 && errno == EINTR);
-            if (result <= 0) {
-                ::syscall(SYS_pidfd_send_signal, process.value, SIGKILL, nullptr, 0);
-            }
-            while (::waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {}
+
+    auto signalWrapper(int signal) const noexcept -> int {
+        long result;
+        do {
+            result = process.value >= 0 ? ::syscall(SYS_pidfd_send_signal, process.value, signal, nullptr, 0) : ::kill(pid, signal);
+        } while (result < 0 && errno == EINTR);
+        return result < 0 && errno != ESRCH ? errno : 0;
+    }
+
+    auto captureStoppedNamespace(pid_t &anchoredChild) noexcept -> int {
+        anchoredChild = -1;
+        if (namespaceProcess.value >= 0) {
+            return 0;
+        }
+
+        // The stopped, unreaped wrapper cannot fork or reap this sole child,
+        // so its pid remains anchored until pidfd_open obtains stable identity.
+        // Discovery and pidfd_open share the emergency slot sequentially.
+        emergency.reset();
+        std::array<char, 96> path{};
+        const auto           length =
+            std::snprintf(path.data(), path.size(), "/proc/%ld/task/%ld/children", static_cast<long>(pid), static_cast<long>(pid));
+        if (length < 0 || static_cast<std::size_t>(length) >= path.size()) {
+            return EOVERFLOW;
+        }
+        int descriptor;
+        do {
+            descriptor = ::open(path.data(), O_RDONLY | O_CLOEXEC);
+        } while (descriptor < 0 && errno == EINTR);
+        Fd children(descriptor);
+        if (children.value < 0) {
+            return errno;
+        }
+        std::array<char, 64> bytes{};
+        ssize_t              size;
+        do {
+            size = ::read(children.value, bytes.data(), bytes.size());
+        } while (size < 0 && errno == EINTR);
+        if (size < 0) {
+            return errno;
+        }
+        if (size == 0) {
+            // Partial startup may be stopped before unshare forks PID 1.
+            return 0;
+        }
+
+        pid_t      child{};
+        const auto end     = bytes.data() + size;
+        auto [next, error] = std::from_chars(bytes.data(), end, child);
+        while (next != end && *next == ' ') {
+            ++next;
+        }
+        if (error != std::errc{} || child <= 0 || next != end) {
+            return EPROTO;
+        }
+        anchoredChild = child;
+        children.reset();
+        do {
+            descriptor = static_cast<int>(::syscall(SYS_pidfd_open, child, 0));
+        } while (descriptor < 0 && errno == EINTR);
+        namespaceProcess.reset(descriptor);
+        return namespaceProcess.value < 0 ? errno : 0;
+    }
+
+    void retainNamespaceProcess() {
+        const auto stopError = signalWrapper(SIGSTOP);
+        if (stopError) {
+            throw std::system_error(stopError, std::generic_category(), "stop supervisor wrapper for collection");
+        }
+
+        int   status{};
+        pid_t waited;
+        do {
+            waited = ::waitpid(pid, &status, WUNTRACED);
+        } while (waited < 0 && errno == EINTR);
+        if (waited == pid && !WIFSTOPPED(status)) {
             pid = -1;
+            throw std::runtime_error("rootless supervisor exited during startup");
+        }
+        if (waited != pid) {
+            const auto error = errno;
+            (void)signalWrapper(SIGCONT);
+            throw std::system_error(error, std::generic_category(), "stop supervisor wrapper for collection");
+        }
+        pid_t      anchoredChild;
+        const auto captureError = captureStoppedNamespace(anchoredChild);
+        const auto resumeError  = signalWrapper(SIGCONT);
+        if (captureError || resumeError) {
+            throw std::system_error(captureError ? captureError : resumeError, std::generic_category(), "retain namespace supervisor");
+        }
+    }
+
+    void close() noexcept {
+        try {
+            close_until(cleanupDeadline.value_or(Clock::now() + std::chrono::seconds(5)));
+        } catch (...) {
+            // Destruction cannot report failure. Keep it available to an
+            // explicit stop after another operation initiated cleanup.
+            cleanupFailure = std::current_exception();
+        }
+    }
+
+    void close_until(Clock::time_point deadline) {
+        {
+            std::lock_guard lock(mutex);
+            if (closing) {
+                if (cleanupFailure) {
+                    std::rethrow_exception(cleanupFailure);
+                }
+                return;
+            }
+
+            // Closing liveness requests supervisor cleanup even when its
+            // control channel has failed or a startup request was cancelled.
+            // The initial cleanup deadline remains a ceiling for every path.
+            if (cleanupDeadline) {
+                deadline = std::min(deadline, *cleanupDeadline);
+            }
+            cleanupDeadline = deadline;
+            liveness.reset();
+        }
+
+        bool deadlineExceeded = deadline <= Clock::now();
+        int  pollError{}, signalError{}, reapError{}, namespaceError{};
+        if (pid > 0) {
+            bool   namespaceCollected{};
+            pid_t  anchoredChild{-1};
+            pollfd pending{.fd = process.value, .events = POLLIN, .revents = 0};
+            int    result = 0;
+            if (process.value >= 0) {
+                // Recompute from the absolute deadline after every interrupt.
+                while (!deadlineExceeded) {
+                    result = ::poll(&pending, 1, remainingMilliseconds(deadline));
+                    if (result > 0 || (result < 0 && errno != EINTR)) {
+                        break;
+                    }
+                    deadlineExceeded = deadline <= Clock::now();
+                }
+                if (result < 0 && errno != EINTR) {
+                    pollError = errno;
+                } else if (static_cast<unsigned>(pending.revents) & (POLLERR | POLLNVAL)) {
+                    pollError = EIO;
+                }
+            }
+            deadlineExceeded = deadlineExceeded || deadline <= Clock::now();
+            if (result <= 0 || pollError) {
+                // Freeze the owned wrapper before discovering a partial-start
+                // namespace. It must not fork or reap between discovery and
+                // pidfd_open, nor exit before PID 1 collects its descendants.
+                signalError = signalWrapper(SIGSTOP);
+                if (!signalError) {
+                    int   status{};
+                    pid_t stopped;
+                    do {
+                        stopped = ::waitpid(pid, &status, WUNTRACED);
+                    } while (stopped < 0 && errno == EINTR);
+                    if (stopped == pid && WIFSTOPPED(status)) {
+                        namespaceError     = captureStoppedNamespace(anchoredChild);
+                        namespaceCollected = !namespaceError && namespaceProcess.value < 0;
+                    } else if (stopped == pid) {
+                        pid = -1;
+                    } else {
+                        reapError = errno;
+                    }
+                }
+            }
+
+            if (namespaceProcess.value >= 0) {
+                // PID 1 exit is the kernel's descendant collection boundary.
+                // Killing only its unshare parent would release buffers early.
+                pollfd init{.fd = namespaceProcess.value, .events = POLLIN, .revents = 0};
+                int    state;
+                do {
+                    state = ::poll(&init, 1, 0);
+                } while (state < 0 && errno == EINTR);
+                if (state <= 0) {
+                    long signalled;
+                    do {
+                        signalled = ::syscall(SYS_pidfd_send_signal, namespaceProcess.value, SIGKILL, nullptr, 0);
+                    } while (signalled < 0 && errno == EINTR);
+                    if (signalled < 0 && errno != ESRCH) {
+                        namespaceError = errno;
+                    }
+                    do {
+                        state = ::poll(&init, 1, -1);
+                    } while (state < 0 && errno == EINTR);
+                }
+                if (state < 0 || !(static_cast<unsigned>(init.revents) & POLLIN)) {
+                    namespaceError = state < 0 ? errno : EIO;
+                } else {
+                    namespaceCollected = true;
+                }
+            } else if (anchoredChild > 0) {
+                // Descriptor exhaustion must not turn into wrapper-only KILL.
+                // This PID is safe only while the unreaped wrapper is stopped;
+                // let that wrapper reap PID 1 before collecting the wrapper.
+                int signalled;
+                do {
+                    signalled = ::kill(anchoredChild, SIGKILL);
+                } while (signalled < 0 && errno == EINTR);
+                if (signalled < 0 && errno != ESRCH) {
+                    namespaceError = errno;
+                }
+            }
+
+            if (pid > 0 && (result <= 0 || pollError)) {
+                // If discovery or observation failed, resume the owner and
+                // block on its collection. Liveness is already closed. The
+                // external watchdog handles a supervisor that cannot finish.
+                const auto error = signalWrapper(namespaceCollected ? SIGKILL : SIGCONT);
+                if (error) {
+                    signalError = error;
+                }
+            }
+
+            // A deadline bounds cooperative cleanup, not kernel reaping. Keep
+            // ownership until the child is collected; callers need a watchdog
+            // for a kernel wait that cannot make progress even after KILL.
+            if (pid > 0) {
+                pid_t reaped;
+                do {
+                    reaped = ::waitpid(pid, nullptr, 0);
+                } while (reaped < 0 && errno == EINTR);
+                if (reaped != pid) {
+                    reapError = errno;
+                }
+                pid = -1;
+            }
         }
         {
             std::lock_guard lock(mutex);
@@ -343,6 +598,31 @@ struct Session::Impl {
         wake(notification.value);
         if (monitor.joinable()) {
             monitor.join();
+        }
+        deadlineExceeded = deadlineExceeded || deadline <= Clock::now();
+
+        // Report failures only after all monitor access and physical child
+        // ownership have ended, so callers may safely release shared buffers.
+        std::string errors;
+        const auto  append = [&](const std::string &message) {
+            if (!errors.empty()) {
+                errors += "; ";
+            }
+            errors += message;
+        };
+        if (deadlineExceeded) {
+            append("session cleanup deadline exceeded");
+        }
+        for (const auto &[error, operation] :
+             {std::pair{pollError, "poll supervisor cleanup"}, std::pair{signalError, "signal supervisor wrapper"},
+              std::pair{reapError, "reap supervisor"}, std::pair{namespaceError, "collect namespace supervisor"}}) {
+            if (error) {
+                append(std::system_error(error, std::generic_category(), operation).what());
+            }
+        }
+        if (!errors.empty()) {
+            cleanupFailure = std::make_exception_ptr(std::runtime_error(errors));
+            std::rethrow_exception(cleanupFailure);
         }
     }
 
@@ -374,6 +654,7 @@ struct Session::Impl {
             std::vector<pollfd>                descriptors{{.fd = notification.value, .events = POLLIN, .revents = 0}};
             std::vector<std::function<void()>> completions;
             bool                               stop = false;
+            std::optional<Clock::time_point>   deadline;
             {
                 std::lock_guard lock(mutex);
                 stop = closing;
@@ -401,6 +682,9 @@ struct Session::Impl {
                     std::optional<Message> result;
                     std::exception_ptr     error;
                     try {
+                        if (operation->deadline && *operation->deadline <= Clock::now()) {
+                            throw std::runtime_error("session cleanup deadline exceeded");
+                        }
                         if (operation->stop.stop_requested()) {
                             throw async::operation_cancelled{};
                         }
@@ -422,6 +706,9 @@ struct Session::Impl {
                         });
                         it = operations.erase(it);
                     } else {
+                        if (operation->deadline && (!deadline || *operation->deadline < *deadline)) {
+                            deadline = operation->deadline;
+                        }
                         if (operation->programIndex) {
                             descriptors.push_back(
                                 {.fd = channels[*operation->programIndex].notificationFd(), .events = POLLIN, .revents = 0});
@@ -440,7 +727,7 @@ struct Session::Impl {
             if (stop) {
                 return;
             }
-            const auto result = ::poll(descriptors.data(), descriptors.size(), -1);
+            const auto result = ::poll(descriptors.data(), descriptors.size(), deadline ? remainingMilliseconds(*deadline) : -1);
             if (result < 0 && errno != EINTR) {
                 std::lock_guard lock(mutex);
                 failure = std::make_exception_ptr(std::system_error(errno, std::generic_category(), "session poll"));
@@ -460,11 +747,14 @@ struct Session::Read {
     async::continuation_handle                                 continuation;
     Message                                                    message;
     std::exception_ptr                                         error;
+    std::optional<std::stop_token>                             stop;
 
-    Read(std::shared_ptr<Impl> owner, std::optional<std::size_t> programIndex, std::uint32_t request = 0)
-        : session(std::move(owner)), operation(std::make_shared<Impl::Operation>()) {
+    Read(std::shared_ptr<Impl> owner, std::optional<std::size_t> programIndex, std::uint32_t request = 0,
+         std::optional<std::stop_token> overrideStop = {}, std::optional<Clock::time_point> deadline = {})
+        : session(std::move(owner)), operation(std::make_shared<Impl::Operation>()), stop(overrideStop) {
         operation->programIndex = programIndex;
         operation->request      = request;
+        operation->deadline     = deadline;
     }
     Read(const Read &)                     = delete;
     auto operator=(const Read &) -> Read & = delete;
@@ -476,7 +766,7 @@ struct Session::Read {
     auto                          await_ready() const noexcept -> bool { return false; }
     template <class Promise> void await_suspend(std::coroutine_handle<Promise> handle) {
         continuation    = handle.promise().make_continuation();
-        operation->stop = continuation.stop_token();
+        operation->stop = stop.value_or(continuation.stop_token());
         operation->complete =
             async::bind_continuation<Message, std::exception_ptr>(continuation, [this](Message value, std::exception_ptr failure) noexcept {
                 message = std::move(value);
@@ -523,7 +813,8 @@ void Session::checkActive() const {
     }
 }
 
-auto Session::request(std::string command) -> awaitable<Message> {
+auto Session::request(std::string command, std::optional<std::stop_token> stop, std::optional<Clock::time_point> deadline)
+    -> awaitable<Message> {
     checkActive();
     std::uint32_t tag;
     {
@@ -534,7 +825,7 @@ auto Session::request(std::string command) -> awaitable<Message> {
         tag = ++impl_->sequence;
         impl_->replies.emplace(tag, std::nullopt);
     }
-    Read pending{impl_, std::nullopt, tag};
+    Read pending{impl_, std::nullopt, tag, stop, deadline};
     impl_->control.send({.tag = tag, .payload = std::move(command)});
     co_return response(co_await pending);
 }
@@ -543,6 +834,28 @@ auto Session::start(SessionSpec spec) -> awaitable<Session> {
     Session session;
     session.impl_ = std::make_shared<Impl>(std::move(spec));
     (void)co_await session.request(std::move(topology));
+    session.impl_->retainNamespaceProcess();
+    co_return std::move(session);
+}
+auto Session::start(SessionSpec spec, Clock::time_point cleanup_deadline) -> awaitable<Session> {
+    if (cleanup_deadline <= Clock::now()) {
+        throw std::runtime_error("session cleanup deadline exceeded before startup");
+    }
+    auto    topology = encode(spec.topology);
+    Session session;
+    session.impl_ = std::make_shared<Impl>(std::move(spec), cleanup_deadline);
+
+    std::exception_ptr workFailure;
+    try {
+        (void)co_await session.request(std::move(topology));
+        session.impl_->retainNamespaceProcess();
+    } catch (...) { workFailure = std::current_exception(); }
+    if (workFailure) {
+        try {
+            co_await session.stop_until(cleanup_deadline);
+        } catch (...) { throw SessionRunError(false, workFailure, std::current_exception()); }
+        std::rethrow_exception(workFailure);
+    }
     co_return std::move(session);
 }
 auto Session::launch(std::size_t program) -> awaitable<> {
@@ -617,23 +930,48 @@ auto Session::execute(std::string node, std::vector<std::string> arguments, std:
     writer.text(input);
     co_return (co_await request(std::move(writer.bytes))).payload;
 }
-auto Session::stop() -> awaitable<> {
+auto Session::stop() -> awaitable<> { co_await stop_until(Clock::now() + std::chrono::seconds(5)); }
+auto Session::stop_until(Clock::time_point cleanup_deadline) -> awaitable<> {
     if (!impl_) {
         co_return;
     }
     {
         std::lock_guard lock(impl_->mutex);
         if (impl_->closing) {
+            if (impl_->cleanupFailure) {
+                std::rethrow_exception(impl_->cleanupFailure);
+            }
             co_return;
         }
+        if (impl_->cleanupDeadline) {
+            cleanup_deadline = std::min(cleanup_deadline, *impl_->cleanupDeadline);
+        }
     }
-    Writer writer;
-    writer.number(static_cast<unsigned>(Command::shutdown));
+
     std::exception_ptr failure;
     try {
-        (void)co_await request(std::move(writer.bytes));
+        if (cleanup_deadline <= Clock::now()) {
+            throw std::runtime_error("session cleanup deadline exceeded");
+        }
+        Writer writer;
+        writer.number(static_cast<unsigned>(Command::shutdown));
+        writer.wideNumber(
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(cleanup_deadline.time_since_epoch()).count()));
+
+        // Read uses an explicit token, so inherited cancellation cannot skip
+        // cleanup. The monitor enforces this independent absolute deadline.
+        (void)co_await request(std::move(writer.bytes), std::stop_token{}, cleanup_deadline);
     } catch (...) { failure = std::current_exception(); }
-    impl_->close();
+    try {
+        impl_->close_until(cleanup_deadline);
+    } catch (...) {
+        if (failure) {
+            failure =
+                std::make_exception_ptr(std::runtime_error(exceptionMessage(failure) + "; " + exceptionMessage(std::current_exception())));
+        } else {
+            failure = std::current_exception();
+        }
+    }
     if (failure) {
         std::rethrow_exception(failure);
     }

@@ -67,7 +67,7 @@ extern "C" int __wrap_poll(pollfd *fds, nfds_t count, int timeout) {
         }
     }
 
-    if (readyFd >= 0 && !reached && count > 1 && timeout == -1) {
+    if (readyFd >= 0 && !reached && count > 1 && timeout != 0) {
         // Readiness can arrive between the probe and reply draining. Wake the
         // monitor in that case too, without consuming the handshake byte.
         std::vector<pollfd> pending(fds, fds + count);

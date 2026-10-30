@@ -105,6 +105,7 @@ void supervise() {
             result.number(0);
             reply(message.tag, std::move(result.bytes));
         } else if (command == Command::shutdown) {
+            (void)reader.wideNumber();
             reader.end();
             reply(message.tag);
             return;
