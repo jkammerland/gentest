@@ -213,9 +213,9 @@ function(_gentest_shorten_generated_stem input_stem out_stem)
     set(${out_stem} "${_gentest_short_stem}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_copy_source_properties_to_wrappers)
+function(_gentest_copy_source_properties_to_generated_sources)
     set(options NO_IMPLICIT_SOURCE_DIR)
-    set(multi_value_args TU_SOURCE_ENTRIES TUS WRAPPER_CPP EXTRA_CPP)
+    set(multi_value_args TU_SOURCE_ENTRIES TUS GENERATED_SOURCES EXTRA_CPP)
     cmake_parse_arguments(GENTEST "${options}" "" "${multi_value_args}" ${ARGN})
 
     set(_gentest_source_props COMPILE_DEFINITIONS COMPILE_OPTIONS INCLUDE_DIRECTORIES COMPILE_FLAGS CXX_SCAN_FOR_MODULES)
@@ -233,12 +233,12 @@ function(_gentest_copy_source_properties_to_wrappers)
     endforeach()
     list(REMOVE_DUPLICATES _gentest_source_props)
 
-    list(LENGTH GENTEST_WRAPPER_CPP _gentest_wrapper_count)
-    math(EXPR _gentest_last "${_gentest_wrapper_count} - 1")
+    list(LENGTH GENTEST_GENERATED_SOURCES _gentest_generated_count)
+    math(EXPR _gentest_last "${_gentest_generated_count} - 1")
     foreach(_idx RANGE 0 ${_gentest_last})
         list(GET GENTEST_TU_SOURCE_ENTRIES ${_idx} _orig_entry)
         list(GET GENTEST_TUS ${_idx} _orig_abs)
-        list(GET GENTEST_WRAPPER_CPP ${_idx} _wrap_cpp)
+        list(GET GENTEST_GENERATED_SOURCES ${_idx} _generated_cpp)
 
         foreach(_prop IN LISTS _gentest_source_props)
             get_source_file_property(_val "${_orig_entry}" ${_prop})
@@ -246,20 +246,20 @@ function(_gentest_copy_source_properties_to_wrappers)
                 get_source_file_property(_val "${_orig_abs}" ${_prop})
             endif()
             if(NOT _val STREQUAL "NOTFOUND")
-                set_source_files_properties("${_wrap_cpp}" PROPERTIES ${_prop} "${_val}")
+                set_source_files_properties("${_generated_cpp}" PROPERTIES ${_prop} "${_val}")
             endif()
         endforeach()
 
         get_filename_component(_orig_dir "${_orig_abs}" DIRECTORY)
         if(NOT GENTEST_NO_IMPLICIT_SOURCE_DIR AND NOT _orig_dir STREQUAL "")
-            get_source_file_property(_wrap_include_dirs "${_wrap_cpp}" INCLUDE_DIRECTORIES)
-            if(_wrap_include_dirs STREQUAL "NOTFOUND" OR _wrap_include_dirs STREQUAL "")
-                set(_wrap_include_dirs "${_orig_dir}")
+            get_source_file_property(_generated_include_dirs "${_generated_cpp}" INCLUDE_DIRECTORIES)
+            if(_generated_include_dirs STREQUAL "NOTFOUND" OR _generated_include_dirs STREQUAL "")
+                set(_generated_include_dirs "${_orig_dir}")
             else()
-                list(APPEND _wrap_include_dirs "${_orig_dir}")
-                list(REMOVE_DUPLICATES _wrap_include_dirs)
+                list(APPEND _generated_include_dirs "${_orig_dir}")
+                list(REMOVE_DUPLICATES _generated_include_dirs)
             endif()
-            set_source_files_properties("${_wrap_cpp}" PROPERTIES INCLUDE_DIRECTORIES "${_wrap_include_dirs}")
+            set_source_files_properties("${_generated_cpp}" PROPERTIES INCLUDE_DIRECTORIES "${_generated_include_dirs}")
         endif()
 
         if(GENTEST_EXTRA_CPP)
@@ -448,10 +448,10 @@ ${_gentest_registration_guard_end}\
     endif()
     # Apply original source properties after wrapper defaults so explicit
     # per-source scan overrides are preserved for generated wrappers.
-    _gentest_copy_source_properties_to_wrappers(
+    _gentest_copy_source_properties_to_generated_sources(
         TU_SOURCE_ENTRIES ${GENTEST_TU_SOURCE_ENTRIES}
         TUS ${GENTEST_TUS}
-        WRAPPER_CPP ${_gentest_wrapper_cpp}
+        GENERATED_SOURCES ${_gentest_wrapper_cpp}
         EXTRA_CPP ${_gentest_registration_cpp})
 
     set(${GENTEST_OUT_OUTPUT_ROOT} "${_gentest_output_root}" PARENT_SCOPE)
@@ -523,11 +523,11 @@ function(_gentest_prepare_header_declaration_mode)
         SKIP_LINTING ON
         SKIP_UNITY_BUILD_INCLUSION ON
         CXX_SCAN_FOR_MODULES OFF)
-    _gentest_copy_source_properties_to_wrappers(
+    _gentest_copy_source_properties_to_generated_sources(
         NO_IMPLICIT_SOURCE_DIR
         TU_SOURCE_ENTRIES ${GENTEST_TU_SOURCE_ENTRIES}
         TUS ${GENTEST_TUS}
-        WRAPPER_CPP ${_gentest_registration_cpp})
+        GENERATED_SOURCES ${_gentest_registration_cpp})
     # Header-declaration registration is textual. Keep module scanning disabled
     # after copying the authored source properties.
     set_source_files_properties(${_gentest_registration_cpp} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
@@ -603,10 +603,10 @@ function(_gentest_prepare_module_registration_mode)
         SKIP_UNITY_BUILD_INCLUSION ON
         CXX_SCAN_FOR_MODULES ON)
     set_source_files_properties(${_gentest_wrapper_headers} PROPERTIES GENERATED TRUE)
-    _gentest_copy_source_properties_to_wrappers(
+    _gentest_copy_source_properties_to_generated_sources(
         TU_SOURCE_ENTRIES ${GENTEST_TU_SOURCE_ENTRIES}
         TUS ${GENTEST_TUS}
-        WRAPPER_CPP ${_gentest_registration_cpp})
+        GENERATED_SOURCES ${_gentest_registration_cpp})
     set_source_files_properties(${_gentest_registration_cpp} PROPERTIES CXX_SCAN_FOR_MODULES ON)
 
     set(${GENTEST_OUT_OUTPUT_ROOT} "${_gentest_output_root}" PARENT_SCOPE)
@@ -1272,7 +1272,7 @@ function(gentest_attach_codegen target)
         endforeach()
     endif()
 
-    set(_gentest_wrapper_cpp "")
+    set(_gentest_generated_sources "")
     set(_gentest_wrapper_headers "")
     set(_gentest_extra_cpp "")
     set(_gentest_artifact_manifest "")
@@ -1287,7 +1287,7 @@ function(gentest_attach_codegen target)
             NEEDS_MODULE_SCAN ${_gentest_needs_module_scan}
             OUT_OUTPUT_ROOT _gentest_output_root
             OUT_OUTPUT_DIR _gentest_output_dir
-            OUT_REGISTRATION_CPP _gentest_wrapper_cpp
+            OUT_REGISTRATION_CPP _gentest_generated_sources
             OUT_WRAPPER_HEADERS _gentest_wrapper_headers
             OUT_MANIFEST _gentest_artifact_manifest
             OUT_COMPILE_CONTEXT_IDS _gentest_compile_context_ids)
@@ -1300,7 +1300,7 @@ function(gentest_attach_codegen target)
             TU_SOURCE_ENTRIES ${_gentest_textual_scan_source_entries}
             OUT_OUTPUT_ROOT _gentest_output_root
             OUT_OUTPUT_DIR _gentest_output_dir
-            OUT_REGISTRATION_CPP _gentest_wrapper_cpp
+            OUT_REGISTRATION_CPP _gentest_generated_sources
             OUT_MANIFEST _gentest_artifact_manifest
             OUT_COMPILE_CONTEXT_IDS _gentest_compile_context_ids)
     else()
@@ -1314,7 +1314,7 @@ function(gentest_attach_codegen target)
             NEEDS_MODULE_SCAN ${_gentest_needs_module_scan}
             OUT_OUTPUT_ROOT _gentest_output_root
             OUT_OUTPUT_DIR _gentest_output_dir
-            OUT_WRAPPER_CPP _gentest_wrapper_cpp
+            OUT_WRAPPER_CPP _gentest_generated_sources
             OUT_WRAPPER_HEADERS _gentest_wrapper_headers
             OUT_EXTRA_CPP _gentest_extra_cpp
             OUT_ARTIFACT_MANIFEST _gentest_artifact_manifest
@@ -1342,13 +1342,13 @@ function(gentest_attach_codegen target)
 
     set(_gentest_module_wrapper_outputs "")
     if(_gentest_mode STREQUAL "module_mock_provider")
-        list(LENGTH _gentest_wrapper_cpp _gentest_wrapper_count)
+        list(LENGTH _gentest_generated_sources _gentest_wrapper_count)
         if(_gentest_wrapper_count GREATER 0)
             math(EXPR _gentest_last_wrapper "${_gentest_wrapper_count} - 1")
             foreach(_idx RANGE 0 ${_gentest_last_wrapper})
                 list(GET _gentest_module_names ${_idx} _gentest_module_name)
                 if(NOT _gentest_module_name STREQUAL "__gentest_no_module__")
-                    list(GET _gentest_wrapper_cpp ${_idx} _gentest_module_wrapper_output)
+                    list(GET _gentest_generated_sources ${_idx} _gentest_module_wrapper_output)
                     list(APPEND _gentest_module_wrapper_outputs "${_gentest_module_wrapper_output}")
                 endif()
             endforeach()
@@ -1361,8 +1361,7 @@ function(gentest_attach_codegen target)
     set(_gentest_mock_impl_domain_outputs "")
     if(NOT _gentest_mode STREQUAL "module_registration")
         set(_gentest_mock_registry "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
-        # Generate inline mock implementations as a header; it will be included by
-        # the generated wrapper translation units after including sources.
+        # Generated mock provider sources include this implementation header.
         set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
         _gentest_make_mock_domain_output_path("${_gentest_mock_registry}" 0 "header" _gentest_mock_registry_header_domain)
         _gentest_make_mock_domain_output_path("${_gentest_mock_impl}" 0 "header" _gentest_mock_impl_header_domain)
@@ -1442,7 +1441,7 @@ function(gentest_attach_codegen target)
             list(GET _gentest_tu_source_entries ${_gentest_idx} _gentest_src_entry)
             list(GET _gentest_module_names ${_gentest_idx} _gentest_module_name)
             if(_gentest_mode STREQUAL "module_mock_provider")
-                list(GET _gentest_wrapper_cpp ${_gentest_idx} _gentest_wrap_cpp)
+                list(GET _gentest_generated_sources ${_gentest_idx} _gentest_wrap_cpp)
             endif()
 
             if(_gentest_module_name STREQUAL "__gentest_no_module__")
@@ -1507,7 +1506,7 @@ function(gentest_attach_codegen target)
         foreach(_gentest_wrap_header IN LISTS _gentest_wrapper_headers)
             list(APPEND _command --tu-header-output ${_gentest_wrap_header})
         endforeach()
-        foreach(_gentest_reg_cpp IN LISTS _gentest_wrapper_cpp)
+        foreach(_gentest_reg_cpp IN LISTS _gentest_generated_sources)
             list(APPEND _command --module-registration-output ${_gentest_reg_cpp})
         endforeach()
         foreach(_gentest_context_id IN LISTS _gentest_compile_context_ids)
@@ -1516,7 +1515,7 @@ function(gentest_attach_codegen target)
     elseif(_gentest_mode STREQUAL "header_declaration")
         list(APPEND _command --tu-out-dir ${_gentest_output_dir})
         list(APPEND _command --artifact-manifest ${_gentest_artifact_manifest})
-        foreach(_gentest_registration_cpp IN LISTS _gentest_wrapper_cpp)
+        foreach(_gentest_registration_cpp IN LISTS _gentest_generated_sources)
             list(APPEND _command --textual-registration-output ${_gentest_registration_cpp})
         endforeach()
         foreach(_gentest_context_id IN LISTS _gentest_compile_context_ids)
@@ -1530,7 +1529,7 @@ function(gentest_attach_codegen target)
         foreach(_gentest_wrap_header IN LISTS _gentest_wrapper_headers)
             list(APPEND _command --tu-header-output ${_gentest_wrap_header})
         endforeach()
-        foreach(_gentest_wrap_cpp IN LISTS _gentest_wrapper_cpp)
+        foreach(_gentest_wrap_cpp IN LISTS _gentest_generated_sources)
             list(APPEND _command --module-wrapper-output ${_gentest_wrap_cpp})
         endforeach()
     endif()
@@ -1633,11 +1632,11 @@ function(gentest_attach_codegen target)
     if(_gentest_mode STREQUAL "module_registration")
         set(_gentest_codegen_outputs
             ${_gentest_wrapper_headers}
-            ${_gentest_wrapper_cpp}
+            ${_gentest_generated_sources}
             ${_gentest_artifact_manifest})
     elseif(_gentest_mode STREQUAL "header_declaration")
         set(_gentest_codegen_outputs
-            ${_gentest_wrapper_cpp}
+            ${_gentest_generated_sources}
             ${_gentest_artifact_manifest}
             ${_gentest_mock_registry}
             ${_gentest_mock_impl}
@@ -1707,10 +1706,10 @@ function(gentest_attach_codegen target)
             COMPDB "${_gentest_codegen_compdb_dir}"
             SOURCES ${_gentest_tus}
             SOURCE_KINDS ${_gentest_manifest_source_kinds}
-            REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
+            REGISTRATION_OUTPUTS ${_gentest_generated_sources}
             HEADERS ${_gentest_wrapper_headers}
             COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
-            SOURCE_REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
+            SOURCE_REGISTRATION_OUTPUTS ${_gentest_generated_sources}
             OUT_ARGS _gentest_manifest_validation_args)
         _gentest_add_artifact_manifest_validation_command(
             STAMP "${_gentest_manifest_validation_stamp}"
@@ -1740,10 +1739,10 @@ function(gentest_attach_codegen target)
             REPLACES_AUTHORED_SOURCE "OFF"
             SOURCES ${_gentest_textual_scan_sources}
             SOURCE_KINDS ${_gentest_manifest_source_kinds}
-            REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
+            REGISTRATION_OUTPUTS ${_gentest_generated_sources}
             COMPILE_CONTEXT_IDS ${_gentest_compile_context_ids}
             SCAN_SLOT_KINDS ${_gentest_textual_scan_slot_kinds}
-            SOURCE_REGISTRATION_OUTPUTS ${_gentest_wrapper_cpp}
+            SOURCE_REGISTRATION_OUTPUTS ${_gentest_generated_sources}
             OUT_ARGS _gentest_manifest_validation_args)
         _gentest_add_artifact_manifest_validation_command(
             STAMP "${_gentest_manifest_validation_stamp}"
@@ -1762,13 +1761,13 @@ function(gentest_attach_codegen target)
         _gentest_attach_module_registration_sources(
             TARGET ${target}
             TARGET_ID ${_gentest_target_id}
-            REGISTRATION_CPP ${_gentest_wrapper_cpp}
+            REGISTRATION_CPP ${_gentest_generated_sources}
             CODEGEN_OUTPUTS ${_gentest_codegen_target_depends})
     elseif(_gentest_mode STREQUAL "header_declaration")
         _gentest_attach_header_declaration_registration_sources(
             TARGET ${target}
             TARGET_ID ${_gentest_target_id}
-            REGISTRATION_CPP ${_gentest_wrapper_cpp}
+            REGISTRATION_CPP ${_gentest_generated_sources}
             CODEGEN_OUTPUTS ${_gentest_codegen_target_depends})
     else()
         _gentest_attach_tu_wrapper_sources(
@@ -1776,7 +1775,7 @@ function(gentest_attach_codegen target)
             TARGET_ID ${_gentest_target_id}
             REPLACED_TUS ${_gentest_tus}
             REPLACED_SOURCE_ENTRIES ${_gentest_tu_source_entries}
-            WRAPPER_CPP ${_gentest_wrapper_cpp}
+            WRAPPER_CPP ${_gentest_generated_sources}
             MODULE_NAMES ${_gentest_module_names}
             EXTRA_CPP ${_gentest_extra_cpp}
             CODEGEN_OUTPUTS ${_gentest_codegen_target_depends})
@@ -1787,14 +1786,14 @@ function(gentest_attach_codegen target)
     if(_gentest_mode STREQUAL "module_mock_provider" AND _gentest_attach_discovers_mocks AND _gentest_module_wrapper_outputs)
         set(_gentest_explicit_mock_module_build_sources "")
         set(_gentest_explicit_mock_module_rel_sources "")
-        list(LENGTH _gentest_wrapper_cpp _gentest_wrapper_count)
+        list(LENGTH _gentest_generated_sources _gentest_wrapper_count)
         math(EXPR _gentest_last_wrapper_idx "${_gentest_wrapper_count} - 1")
         foreach(_gentest_idx RANGE 0 ${_gentest_last_wrapper_idx})
             list(GET _gentest_module_names ${_gentest_idx} _gentest_module_name)
             if(_gentest_module_name STREQUAL "__gentest_no_module__")
                 continue()
             endif()
-            list(GET _gentest_wrapper_cpp ${_gentest_idx} _gentest_module_wrapper)
+            list(GET _gentest_generated_sources ${_gentest_idx} _gentest_module_wrapper)
             list(APPEND _gentest_explicit_mock_module_build_sources "${_gentest_module_name}=${_gentest_module_wrapper}")
             file(RELATIVE_PATH _gentest_module_wrapper_rel "${_gentest_output_dir}" "${_gentest_module_wrapper}")
             list(APPEND _gentest_explicit_mock_module_rel_sources "${_gentest_module_name}=${_gentest_module_wrapper_rel}")

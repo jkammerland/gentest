@@ -51,7 +51,7 @@ struct OwnerExited : std::runtime_error {
 
 struct OwnerWatch {
     Fd process;
-    explicit OwnerWatch(unsigned participants) : process(runnerDescriptor(participants)) {
+    explicit OwnerWatch(unsigned programCount) : process(runnerDescriptor(programCount)) {
         systemCheck(::fcntl(process.value, F_SETFD, FD_CLOEXEC) == 0, "protect runner pidfd");
     }
 
@@ -168,7 +168,7 @@ auto spawn(int net, const std::vector<std::string> &arguments, std::string input
                         "redirect child output");
             systemCheck(::fcntl(STDOUT_FILENO, F_SETFL, 0) == 0 && ::fcntl(STDERR_FILENO, F_SETFL, 0) == 0, "blocking child output");
             // The supervisor is single-threaded. All inherited infrastructure
-            // closes at exec except the participant's explicitly selected channel.
+            // closes at exec except the program's explicitly selected channel.
             systemCheck(::syscall(SYS_close_range, 3U, ~0U, CLOSE_RANGE_CLOEXEC) == 0, "close-on-exec child descriptors");
             if (!cwd.empty()) {
                 systemCheck(::chdir(cwd.c_str()) == 0, "child working directory");
@@ -577,13 +577,13 @@ void supervise(unsigned count, std::string_view originalNamespace) {
 int main(int argc, char **argv) {
     try {
         if (argc != 3) {
-            throw std::runtime_error("supervisor requires participant count and original namespace identity");
+            throw std::runtime_error("supervisor requires program count and original namespace identity");
         }
         unsigned               count{};
         const std::string_view value(argv[1]);
         const auto             parsed = std::from_chars(value.data(), value.data() + value.size(), count);
         if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || count > 16) {
-            throw std::runtime_error("invalid participant count");
+            throw std::runtime_error("invalid program count");
         }
         supervise(count, argv[2]);
         return 0;

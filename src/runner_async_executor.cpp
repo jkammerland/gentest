@@ -35,7 +35,7 @@ auto outcome_color_code(Outcome outcome) -> std::string_view {
     return "37";
 }
 
-auto async_live_status_for(const RunResult &result) -> AsyncLiveStatus {
+auto async_live_status_for(const CaseResult &result) -> AsyncLiveStatus {
     switch (result.outcome) {
     case Outcome::Pass: return AsyncLiveStatus::Pass;
     case Outcome::Fail: return AsyncLiveStatus::Fail;
@@ -47,7 +47,7 @@ auto async_live_status_for(const RunResult &result) -> AsyncLiveStatus {
     return AsyncLiveStatus::Fail;
 }
 
-auto async_live_detail_for(const RunResult &result) -> std::string {
+auto async_live_detail_for(const CaseResult &result) -> std::string {
     switch (result.outcome) {
     case Outcome::Fail:
         if (!result.failures.empty()) {
@@ -66,7 +66,7 @@ auto async_live_detail_for(const RunResult &result) -> std::string {
     return {};
 }
 
-auto deferred_status_prefix(const RunResult &result, bool color_output) -> std::string {
+auto deferred_status_prefix(const CaseResult &result, bool color_output) -> std::string {
     const auto status = async_live_status_text(async_live_status_for(result));
     if (color_output) {
         return fmt::format("\033[{}m[ {:^9} ]\033[0m", outcome_color_code(result.outcome), status);
@@ -74,7 +74,7 @@ auto deferred_status_prefix(const RunResult &result, bool color_output) -> std::
     return fmt::format("[ {:^9} ]", status);
 }
 
-auto deferred_case_line(std::string_view name, const RunResult &result, bool color_output) -> std::string {
+auto deferred_case_line(std::string_view name, const CaseResult &result, bool color_output) -> std::string {
     auto       line   = fmt::format("{} {}", deferred_status_prefix(result, color_output), name);
     const auto detail = async_live_detail_for(result);
     if (!detail.empty()) {
@@ -84,7 +84,7 @@ auto deferred_case_line(std::string_view name, const RunResult &result, bool col
     return line;
 }
 
-void log_async_details(AsyncStatusRenderer &renderer, const RunResult &result) {
+void log_async_details(AsyncStatusRenderer &renderer, const CaseResult &result) {
     if (result.outcome == Outcome::Fail) {
         if (!result.timeline.empty()) {
             for (const auto &line : result.timeline) {
@@ -169,8 +169,8 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
     final_state.suppress_case_output                         = renderer.enabled();
 
     const auto record_invoke_result = [&](std::size_t run_index, const InvokeResult &inv) {
-        auto     &run = async_runs[run_index];
-        RunResult rr  = finish_invoke_result(final_state, cases[run.case_index], inv, counters);
+        auto      &run = async_runs[run_index];
+        CaseResult rr  = finish_invoke_result(final_state, cases[run.case_index], inv, counters);
         if (renderer.enabled()) {
             auto line = renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
             if (line.empty()) {
@@ -302,7 +302,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         inv.message   = std::move(run.message);
         inv.elapsed_s = std::chrono::duration<double>(run.end - run.start).count();
 
-        RunResult rr = finish_invoke_result(final_state, cases[run.case_index], inv, counters);
+        CaseResult rr = finish_invoke_result(final_state, cases[run.case_index], inv, counters);
         if (renderer.enabled()) {
             auto line = renderer.mark_final(run_index, async_live_status_for(rr), async_live_detail_for(rr), duration_ms(rr.time_s));
             if (line.empty()) {
@@ -454,7 +454,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
         }
         const auto &test = cases[i];
         if (test.should_skip) {
-            RunResult rr = make_static_skip_result(renderer.enabled() ? final_state : state, test, counters);
+            CaseResult rr = make_static_skip_result(renderer.enabled() ? final_state : state, test, counters);
             if (renderer.enabled()) {
                 renderer.result_line(deferred_case_line(test.name, rr, final_state.color_output));
                 log_async_details(renderer, rr);
@@ -485,7 +485,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             return pump_async();
         }
         if (renderer.enabled()) {
-            RunResult rr = execute_one(final_state, test, ctx, counters);
+            CaseResult rr = execute_one(final_state, test, ctx, counters);
             renderer.result_line(deferred_case_line(test.name, rr, final_state.color_output));
             log_async_details(renderer, rr);
             if (state.acc) {
@@ -522,7 +522,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                     for (auto i : group.idxs) {
                         record_synthetic_skip(renderer.enabled() ? final_state : state, cases[i], msg, counters, true);
                         if (renderer.enabled()) {
-                            RunResult rr;
+                            CaseResult rr;
                             rr.skipped     = true;
                             rr.outcome     = Outcome::Blocked;
                             rr.skip_reason = msg;

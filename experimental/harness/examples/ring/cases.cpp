@@ -110,7 +110,7 @@ auto exercise(std::size_t nodes, std::size_t tokens, bool blockLink = false) -> 
 
         std::vector<Statistics> statistics(nodes);
         if (blockLink) {
-            (void)co_await receivePhase(session, 0, forwarded);
+            (void)co_await receivePhase(session, 0, firstSent);
             // Linux reports an OUTPUT drop as EPERM to sendto; the peer must surface that error.
             auto failed = co_await wait_for(session.wait(1), 10s);
             assert_true(failed.ready(), "blocked sender did not report failure");
@@ -142,7 +142,7 @@ auto exercise(std::size_t nodes, std::size_t tokens, bool blockLink = false) -> 
             }
         } else {
             for (std::size_t i = 0; i < nodes; ++i) {
-                (void)co_await receivePhase(session, i, forwarded);
+                (void)co_await receivePhase(session, i, firstSent);
             }
             (void)co_await receivePhase(session, 0, progress);
             session.send(0, {.tag = drain, .payload = {}});

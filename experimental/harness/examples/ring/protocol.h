@@ -6,7 +6,7 @@
 #include <stdexcept>
 
 namespace ring_example {
-enum Phase : std::uint32_t { ready = 1, start, forwarded, progress, drain, stop, finished };
+enum Phase : std::uint32_t { ready = 1, start, firstSent, progress, drain, stop, finished };
 inline constexpr unsigned short port = 5000;
 using Packet                         = std::array<unsigned char, 256>;
 struct Token {

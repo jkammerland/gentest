@@ -1707,8 +1707,8 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         if (rendered.outputs.has_value()) {
             outputs = *rendered.outputs;
         } else {
-            outputs.registry_header     = "#pragma once\n\n// gentest_codegen: no mocks discovered.\n";
-            outputs.implementation_unit = "// gentest_codegen: no mocks discovered.\n";
+            outputs.registry_header       = "#pragma once\n\n// gentest_codegen: no mocks discovered.\n";
+            outputs.implementation_header = "// gentest_codegen: no mocks discovered.\n";
         }
 
         if (!ensure_parent_dir(opts.mock_registry_path) || !ensure_parent_dir(opts.mock_impl_path)) {
@@ -1718,7 +1718,7 @@ int emit(const CollectorOptions &opts, const std::vector<TestCaseInfo> &cases, c
         if (!write_file_atomic_if_changed(opts.mock_registry_path, outputs.registry_header)) {
             return 1;
         }
-        if (!write_file_atomic_if_changed(opts.mock_impl_path, outputs.implementation_unit)) {
+        if (!write_file_atomic_if_changed(opts.mock_impl_path, outputs.implementation_header)) {
             return 1;
         }
         if (!opts.mock_public_header_path.empty()) {

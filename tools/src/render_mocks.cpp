@@ -1554,9 +1554,9 @@ MockRenderResult render_third_party_mocks(const CollectorOptions &options, const
             .content = generate_third_party_implementation_header(backend->name),
         });
     }
-    out.registry_header     = generate_dispatcher_header(header_domain->registry_path);
-    out.implementation_unit = generate_dispatcher_header(header_domain->impl_path);
-    result.outputs          = std::move(out);
+    out.registry_header       = generate_dispatcher_header(header_domain->registry_path);
+    out.implementation_header = generate_dispatcher_header(header_domain->impl_path);
+    result.outputs            = std::move(out);
     return result;
 }
 
@@ -1653,9 +1653,9 @@ MockRenderResult render_gentest_mocks(const CollectorOptions &options, const std
         return result;
     }
 
-    out.registry_header     = generate_dispatcher_header(header_domain->registry_path);
-    out.implementation_unit = generate_dispatcher_header(header_domain->impl_path);
-    result.outputs          = std::move(out);
+    out.registry_header       = generate_dispatcher_header(header_domain->registry_path);
+    out.implementation_header = generate_dispatcher_header(header_domain->impl_path);
+    result.outputs            = std::move(out);
     return result;
 }
 

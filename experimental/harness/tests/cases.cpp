@@ -243,7 +243,7 @@ auto startup() -> awaitable<> {
 }
 
 auto descriptorLimits() -> awaitable<> {
-    // The runner pidfd follows all participant triples. Exercise both ends of
+    // The runner pidfd follows all program channel triples. Exercise both ends of
     // that layout and exchange distinct payloads through every populated slot.
     for (const std::size_t count : {0U, 16U}) {
         auto session = co_await Session::start(local(std::vector<std::string>(count, "echo")));
