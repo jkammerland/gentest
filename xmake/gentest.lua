@@ -1178,7 +1178,7 @@ end
 
 local function run_suite_codegen(batchcmds, codegen, compdb_dir, host_clang, scan_deps, config)
     if config.kind == "modules" and (not scan_deps or scan_deps == "") then
-        fail("gentest_add_suite(kind='modules') requires clang-scan-deps in the configured host LLVM toolchain")
+        fail('gentest_attach_codegen({ kind = "modules", ... }) requires clang-scan-deps in the configured host LLVM toolchain')
     end
     local args = {
         "--source-root", project_root(),

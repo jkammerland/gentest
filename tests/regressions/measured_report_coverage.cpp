@@ -151,6 +151,12 @@ void check_bench_attachments() {
            "bench metrics should include item throughput");
     expect(contains(*find_attachment(baseline_attachments, "metrics").contents, "median_ns_per_item\t5"),
            "bench metrics should normalize item timing");
+
+    // Existing per_op keys retain invocation timing even when one call handles multiple items.
+    const auto &metrics = *find_attachment(baseline_attachments, "metrics").contents;
+    expect(line_containing(metrics, "median_ns_per_op\t") == "median_ns_per_op\t10", "bench per_op should retain per-call timing");
+    expect(line_containing(metrics, "median_ns_per_call\t") == "median_ns_per_call\t10", "bench per_call should report invocation timing");
+
     expect(contains(*find_attachment(baseline_attachments, "metrics").contents, "is_baseline\ttrue"),
            "bench metrics should record baseline status");
     expect(contains(*find_attachment(baseline_attachments, "summary-plot").contents, "<svg"), "bench summary plot should be SVG");
@@ -180,6 +186,9 @@ void check_jitter_histogram_recompute_and_truncation() {
     expect(attachments.size() == 4, "expected four jitter attachments");
     expect(contains(metrics, "items_per_call\t4"), "jitter metrics should include item count");
     expect(contains(metrics, "median_ns_per_item\t256.125"), "jitter metrics should normalize item timing");
+    expect(line_containing(metrics, "median_ns_per_op\t") == "median_ns_per_op\t1024.5", "jitter per_op should retain per-call timing");
+    expect(line_containing(metrics, "median_ns_per_call\t") == "median_ns_per_call\t1024.5",
+           "jitter per_call should report invocation timing");
     expect(std::count(histogram.begin(), histogram.end(), '\n') == 8, "histogram TSV should contain seven recomputed bins plus header");
     expect(contains(histogramSvg, "bins 7  peak count"), "histogram SVG should reflect recomputed bin count");
     expect(contains(samplesJson, "\"sample_count\":2050"), "samples JSON should report original sample count");

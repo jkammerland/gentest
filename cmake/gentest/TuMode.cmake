@@ -528,9 +528,8 @@ function(_gentest_prepare_header_declaration_mode)
         TU_SOURCE_ENTRIES ${GENTEST_TU_SOURCE_ENTRIES}
         TUS ${GENTEST_TUS}
         WRAPPER_CPP ${_gentest_registration_cpp})
-    # Header-declaration registration is intentionally textual. Imported
-    # classic TUs retain the compatibility wrapper path until their pre-import
-    # registration support protocol is redesigned.
+    # Header-declaration registration is textual. Keep module scanning disabled
+    # after copying the authored source properties.
     set_source_files_properties(${_gentest_registration_cpp} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 
     set(${GENTEST_OUT_OUTPUT_ROOT} "${_gentest_output_root}" PARENT_SCOPE)

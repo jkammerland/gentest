@@ -38,6 +38,9 @@ class Channel {
 
     // Full queues and oversized messages are errors; successful sends own a copy.
     void send(const Message &message);
+
+    // Does not wait for message arrival. Queue access can wait up to the one-second mutex deadline;
+    // lock failure or closure of an empty queue throws instead of returning nullopt.
     auto tryReceive() -> std::optional<Message>;
     auto receive(Deadline deadline, const std::stop_token &stop = {}) -> Message;
     void close() noexcept;

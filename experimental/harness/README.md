@@ -160,13 +160,16 @@ datagram through netem delay.
 Each duplex channel has a size-sealed anonymous memfd, two eventfds, and two
 bounded queues protected by robust process-shared pthread mutexes. Each direction
 holds 16 messages of up to 4096 payload bytes. Messages copy their bytes and carry
-a 32-bit application tag. Full queues and oversized messages fail immediately;
+a 32-bit application tag. Oversized messages are rejected before locking. Full
+queues are rejected without waiting for capacity, after acquiring the queue lock;
 there is no silent loss or unbounded buffering. Topology/command descriptions must
 also fit a single control message, including framing.
 
 `Channel::receive(deadline, stop_token)` provides a blocking child API;
 `Session::receive()` provides the parent's async API. Already queued messages are
-read before closure is reported. A dead mutex owner invalidates that queue; a
+read before closure is reported. `Channel::tryReceive()` does not wait for message
+arrival, but still acquires the queue mutex and can throw on lock failure or
+closure of an empty queue. A dead mutex owner invalidates that queue; a
 live but stalled holder is bounded by a one-second lock deadline. Child exit is
 detected by the supervisor and wakes receivers. Standalone channels require
 explicit `close()` or a deadline to detect abandonment. This is a trusted,
@@ -175,7 +178,8 @@ same-build local ABI, not a persistent or network protocol.
 The old `coordd` POC at commit `b03123e2` supplied useful process-spec and readiness
 ideas. Its long-lived coordinator, socket transport, manifests and remote modes
 are not needed here; its `netd-helper` was an unimplemented stub. Session lifetime
-and typed shared-memory messages now stay with the test. No codegen attributes,
+and tagged shared-memory messages with application-defined payloads now stay with
+the test. No codegen attributes,
 runner scheduling rules or fixture lifetimes change.
 
 ## Boost.Asio UDP ring

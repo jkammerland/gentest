@@ -33,3 +33,7 @@ reporting `sample_kind: per-call`.
 `null` when samples do not average multiple calls; Allure metrics omit the warning
 in that case. Warnings stay inside the structured JSON/CSV output.
 Existing timing field names and values remain compatible.
+
+Allure's `*_ns_per_op` fields are compatibility names for per-call values.
+Use `*_ns_per_call` for invocation timing or `*_ns_per_item` for logical-item
+timing; see [measurement exports](benchmark_measurements.md#reports-and-optional-records).

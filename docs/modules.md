@@ -44,6 +44,11 @@ examples, see [buildsystems/host_toolchain_sysroots.md](buildsystems/host_toolch
 include(CTest)
 enable_testing()
 
+# Keep authored modules, generated mocks, and the provider in the same dialect.
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Public modules are opt-in on the gentest provider/package build.
 # If you build gentest from source in this project, configure it with:
 #   -DGENTEST_ENABLE_PUBLIC_MODULES=ON
@@ -213,7 +218,7 @@ void module_bench(SuiteFixture& suite_fx) {
 } // namespace demo
 ```
 
-Add the mock target in CMake:
+Add the mock target in CMake using the quick-start settings above:
 
 ```cmake
 gentest_add_mocks(my_service_mocks
@@ -223,21 +228,26 @@ gentest_add_mocks(my_service_mocks
   OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
   MODULE_NAME my.service_mocks)
 
-add_executable(my_tests
-  main.cpp
-  cases.cppm)
+add_executable(my_tests main.cpp)
+target_sources(my_tests PRIVATE
+  FILE_SET module_cases TYPE CXX_MODULES FILES cases.cppm)
 
 target_link_libraries(my_tests PRIVATE
   gentest::gentest
   gentest::gentest_runtime
   my_service_mocks)
 
-gentest_attach_codegen(my_tests)
+gentest_attach_codegen(my_tests
+  MODULE_REGISTRATION
+  FILE_SET module_cases)
 gentest_discover_tests(my_tests)
 ```
 
 Link explicit mock targets before `gentest_attach_codegen()`, so codegen sees
 the generated mock surface during its first parse.
+
+The mock target publishes the importable mock module. Test registration is
+selected separately with `MODULE_REGISTRATION FILE_SET module_cases`.
 
 The important rule is simple:
 
@@ -277,7 +287,7 @@ void module_functions() {
 
 For richer checks, use normal C++ plus `gentest::fail(...)`, `gentest::expect_true(...)`, or `gentest::expect(...)`.
 
-## Module-local mocks
+## Using mocks from named modules
 
 Use an explicit mock target and import its generated module surface:
 

@@ -243,8 +243,8 @@
     {
       "name": "release-package",
       "inherits": "release",
-      "displayName": "Release (package)",
-      "description": "Release build with install/export rules enabled for packaging workflows",
+      "displayName": "Local Host Package (Release)",
+      "description": "Release build with install/export rules for local host developer kit validation",
       "cacheVariables": {
         "CMAKE_EXPERIMENTAL_EXPORT_PACKAGE_DEPENDENCIES": "1942b4fa-b2c5-4546-9385-83f254070067",
         "CMAKE_EXPERIMENTAL_GENERATE_SBOM": "ca494ed3-b261-4205-a01f-603c95e4cae0",
@@ -693,8 +693,8 @@
       "name": "release-package",
       "inherits": "build-base",
       "configurePreset": "release-package",
-      "displayName": "Release Package Build",
-      "description": "Build the install-enabled release configuration used by packaging workflows",
+      "displayName": "Local Host Package Build",
+      "description": "Build the install-enabled configuration for local host developer kit validation",
       "jobs": 0
     },
     {
@@ -1027,15 +1027,15 @@
       "name": "release-package",
       "inherits": "test-local-parallel-base",
       "configurePreset": "release-package",
-      "displayName": "Release Package Tests",
-      "description": "Run tests in the install-enabled release configuration used by packaging workflows"
+      "displayName": "Local Host Package Tests",
+      "description": "Run local host developer kit install/export tests"
     },
     {
       "name": "release-package-pr",
       "inherits": "test-local-parallel-base",
       "configurePreset": "release-package",
-      "displayName": "Release Package PR Tests",
-      "description": "Run package and installed-consumer tests for pull-request packaging validation",
+      "displayName": "Local Host Package PR Tests",
+      "description": "Run host package and installed-consumer tests for pull-request validation",
       "filter": {
         "include": {
           "label": "^package$"
@@ -1225,8 +1225,8 @@
   "packagePresets": [
     {
       "name": "release",
-      "displayName": "Release Package",
-      "description": "Create release artifacts with CPack",
+      "displayName": "Local Host Developer Kit",
+      "description": "Create local host developer kit archives with CPack",
       "configurePreset": "release-package"
     }
   ],
@@ -1505,8 +1505,8 @@
     },
     {
       "name": "package",
-      "displayName": "Package Workflow",
-      "description": "Complete release workflow: configure → build → test → package with CPack",
+      "displayName": "Local Host Package Workflow",
+      "description": "Local host-package validation: configure → build → test → package with CPack",
       "steps": [
         {
           "type": "configure",

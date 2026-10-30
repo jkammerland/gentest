@@ -1,9 +1,9 @@
 # Fixture Allocation Hooks
 
-Gentest supports allocating fixtures via an optional static hook so you can
-return heap-owned fixtures (unique/shared) instead of relying on stack
-construction. This is useful for fixtures that require virtual inheritance,
-custom allocation, or shared ownership across tests.
+Gentest allocates fixtures on the heap with unique ownership by default. An
+optional static allocation hook customizes construction, allocation, deleters,
+or shared ownership. Fixture lifetime is selected separately by the local,
+suite, or global lifetime policy.
 
 This document describes the allocation hook, supported return types, and how
 fixture arguments are wired for free-function fixtures (recommended) and legacy
@@ -148,9 +148,10 @@ inline void free_pointer(RawFx* fx) {
 
 ## Notes and constraints
 
-- `gentest_allocate()` must be `static` and callable without arguments.
+- Allocation hooks must be `static` and accept either no arguments or one
+  `std::string_view` suite argument.
 - If both overloads exist, suite fixtures use the suite-aware hook while global
-  and ephemeral fixtures use the no-arg hook. If only the suite-aware overload
+  and local fixtures use the no-arg hook. If only the suite-aware overload
   exists, other lifetimes call it with an empty string.
 - If you return `Fixture*`, it must be heap allocated. Gentest adopts it and
   deletes it via `std::unique_ptr` (same ownership/lifetime semantics as
@@ -160,9 +161,10 @@ inline void free_pointer(RawFx* fx) {
 - Fixture type aliases (e.g. `using Fx = RealFixture`, alias pointer/reference
   forms, and `using FxPtr = std::shared_ptr<RealFixture>`) resolve to the
   underlying fixture type.
-- Suite/global fixtures are constructed once (per suite or per process) and
-  reused across tests. Their `setUp`/`tearDown` hooks run once at the start/end
-  of the test run, not per test.
+- Suite fixtures are constructed once per suite within a run; global fixtures
+  are constructed once per run. Both are reused across tests, with
+  `setUp`/`tearDown` once at the start/end of the run. A later run in the same
+  process creates fresh fixtures.
 - Shared fixture lookup is intentionally non-reentrant during setup:
   `get_shared_fixture(...)` returns `nullptr` and sets `error` to
   `"fixture initialization in progress"` until setup completes.
