@@ -37,6 +37,9 @@
 
 ### Fixed
 
+- Codegen depfiles escape literal dollar signs correctly in targets and
+  dependencies, with regression coverage for header edits and unchanged builds
+  under Ninja and Ninja Multi-Config.
 - Async completion generations reject stale and competing callbacks before they
   can publish into a later suspension. Deadline decisions retain queue-admission
   time even when runner delivery is delayed.
