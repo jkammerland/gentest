@@ -725,7 +725,13 @@ ModuleSourceShape inspect_module_source_shape(const std::filesystem::path       
 
 void append_depfile_escaped(std::string &out, std::string_view path) {
     for (const char ch : path) {
-        if (ch == ' ' || ch == '\t' || ch == '#' || ch == '$' || ch == ':' || ch == '\\') {
+        // Make-style depfile parsers decode a doubled dollar sign, not a backslash.
+        if (ch == '$') {
+            out += "$$";
+            continue;
+        }
+
+        if (ch == ' ' || ch == '\t' || ch == '#' || ch == ':' || ch == '\\') {
             out.push_back('\\');
         }
         out.push_back(ch);

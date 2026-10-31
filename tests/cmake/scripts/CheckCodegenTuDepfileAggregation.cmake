@@ -187,13 +187,14 @@ elseif(_mode STREQUAL "escaped_paths")
   set(_special_a_cpp "${_special_dir}/a.cpp")
   set(_special_b_cpp "${_special_dir}/b.cpp")
   # Keep the integration fixture portable by avoiding ':' on Windows while
-  # still exercising Make-style colon escaping on POSIX hosts.
+  # still exercising Make-style colon escaping on POSIX hosts. Literal dollar
+  # signs use '$$'; backslash-dollar would change the paths seen by consumers.
   if(WIN32)
     set(_special_stem "dep tu#special$")
-    set(_special_escaped_stem "dep\\ tu\\#special\\$")
+    set(_special_escaped_stem "dep\\ tu\\#special$$")
   else()
     set(_special_stem "dep tu:special#$")
-    set(_special_escaped_stem "dep\\ tu\\:special\\#\\$")
+    set(_special_escaped_stem "dep\\ tu\\:special\\#$$")
   endif()
   set(_special_depfile "${_special_generated_dir}/${_special_stem}.d")
   set(_special_output_a "${_special_generated_dir}/${_special_stem}_a.gentest.h")
