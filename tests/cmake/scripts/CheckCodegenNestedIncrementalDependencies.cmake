@@ -88,8 +88,8 @@ foreach(_generator IN ITEMS "Ninja" "Ninja Multi-Config")
   _gentest_expect_registration("nested/header/before" "nested/header/after")
   _gentest_expect_noop()
 
-  # Only the discovered header changes; its literal '$' must survive depfile parsing.
-  gentest_fixture_write_file("${_src_dir}/nested/cases$detail.hpp" [=[
+  # Only the discovered header changes; nested DEPFILE paths must resolve correctly.
+  gentest_fixture_write_file("${_src_dir}/nested/cases_detail.hpp" [=[
 #pragma once
 
 [[using gentest: test("nested/header/after")]]
@@ -108,6 +108,16 @@ endforeach()
 set(_compdb_dir "${_build_dir}")
 set(_build_dir "${_work_dir}/native")
 file(MAKE_DIRECTORY "${_build_dir}")
+
+# CMake 4.1.1 and 4.3.4 split '$$' prerequisites during depfile transformation.
+# Exercise dollar-sign escaping directly in Ninja, preserving the CMake no-op checks.
+file(RENAME "${_src_dir}/nested/cases_detail.hpp" "${_src_dir}/nested/cases$detail.hpp")
+gentest_fixture_write_file("${_src_dir}/nested/cases.cpp" [=[
+#include "cases$detail.hpp"
+
+void nested_case() {}
+]=])
+
 set(_driver [=[
 execute_process(
   COMMAND "@PROG@"

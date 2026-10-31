@@ -1,3 +1,3 @@
-#include "cases$detail.hpp"
+#include "cases_detail.hpp"
 
 void nested_case() {}
