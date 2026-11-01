@@ -85,9 +85,11 @@ void perform_body(Retirement &retirement, Exit exit) {
     switch (exit) {
     case Exit::Return: return;
     case Exit::Skip: gentest::skip("proof skip");
+    // NOLINTNEXTLINE(bugprone-std-exception-baseclass) - Exercise Gentest's dedicated assertion catch path.
     case Exit::Assertion: throw gentest::assertion("proof assertion");
     case Exit::Failure: throw gentest::failure("proof failure");
     case Exit::StdException: throw std::runtime_error("proof std exception");
+    // NOLINTNEXTLINE(bugprone-std-exception-baseclass) - Exercise the catch-all path with a nonstandard exception.
     case Exit::UnknownException: throw 7;
     }
 }
