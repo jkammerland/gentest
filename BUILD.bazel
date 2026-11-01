@@ -208,6 +208,7 @@ cc_library(
         'src/runner_fixture_runtime.cpp',
         'src/runner_fixture_runtime.h',
         'src/runner_json.h',
+        'src/runner_measured_call.h',
         'src/runner_measured_executor.cpp',
         'src/runner_measured_executor.h',
         'src/runner_measured_format.cpp',
