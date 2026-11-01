@@ -3752,6 +3752,13 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_codegen_incremental_dependencies APPEND PROPERTY LABELS "codegen")
 
+_gentest_add_cmake_helper_test(
+    gentest_codegen_nested_incremental_dependencies
+    ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_nested_incremental_deps
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenNestedIncrementalDependencies.cmake
+    cmake)
+set_property(TEST gentest_codegen_nested_incremental_dependencies APPEND PROPERTY LABELS "codegen")
+
 set(_gentest_fixture_build_config "")
 if(CMAKE_CONFIGURATION_TYPES)
     set(_gentest_fixture_build_config "Debug")

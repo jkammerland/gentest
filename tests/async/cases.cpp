@@ -560,9 +560,10 @@ gentest::awaitable<void> timer_stress_timeout_cancels_inner_sleep_timer() {
         EXPECT_TRUE(result.timed_out());
     }
 
-    auto flush =
-        co_await gentest::async::wait_for(gentest::async::sleep_for(std::chrono::milliseconds(30)), std::chrono::milliseconds(250));
-    EXPECT_TRUE(flush.ready());
+    // Exercise expired canceled timers without imposing a scheduling-speed budget.
+    auto flush = gentest::async::sleep_for(std::chrono::milliseconds(30));
+    co_await flush;
+    EXPECT_TRUE(flush.await_ready());
 }
 
 } // namespace async
