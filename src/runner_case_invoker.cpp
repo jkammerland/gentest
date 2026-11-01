@@ -16,13 +16,12 @@ InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail
     const auto start_tp = std::chrono::steady_clock::now();
     {
         gentest::runner::detail::CurrentTestScope test_scope(out.ctxinfo);
-        auto                                      run_call = [&] { c.fn(ctx); };
         try {
             if (phase == gentest::detail::BenchPhase::None) {
-                run_call();
+                c.fn(ctx);
             } else {
                 gentest::detail::BenchPhaseScope scope(phase);
-                run_call();
+                c.fn(ctx);
             }
         } catch (const gentest::detail::skip_exception &) { out.exception = InvokeException::Skip; } catch (const gentest::assertion &e) {
             out.exception = InvokeException::Assertion;
