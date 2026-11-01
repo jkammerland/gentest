@@ -5,6 +5,7 @@
 #include "runner_case_invoker.h"
 #include "runner_context_scope.h"
 #include "runner_fixture_runtime.h"
+#include "runner_measured_call.h"
 #include "runner_measured_format.h"
 #include "runner_measured_report.h"
 
@@ -41,129 +42,11 @@ struct CalibratedEpoch {
     double      total_elapsed_s = 0;
 };
 
-void record_runtime_skip_or_default(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string_view default_reason) {
-    std::string runtime_skip_reason;
-    {
-        std::scoped_lock lk(ctxinfo->mtx);
-        if (ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed)) {
-            runtime_skip_reason = ctxinfo->runtime_skip_reason;
-        }
-    }
-    if (!runtime_skip_reason.empty()) {
-        gentest::detail::record_bench_error(std::move(runtime_skip_reason));
-    } else {
-        gentest::detail::record_bench_error(std::string(default_reason));
-    }
-}
-
-void capture_first_failure_location(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, MeasurementCaseFailure &failure) {
-    if (!failure.source_file.empty() && failure.source_line != 0) {
-        return;
-    }
-
-    std::scoped_lock lk(ctxinfo->mtx);
-    const auto       location = std::ranges::find_if(ctxinfo->failure_locations,
-                                                     [](const auto &candidate) { return !candidate.file.empty() && candidate.line != 0; });
-    if (location != ctxinfo->failure_locations.end()) {
-        failure.source_file = location->file;
-        failure.source_line = location->line;
-    }
-}
-
-void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, std::string_view default_skip_reason,
-                                 const std::string &assertion_fallback, bool &had_assert_fail, MeasurementCaseFailure &failure) {
-    capture_first_failure_location(ctxinfo, failure);
-    bool        runtime_skip_requested = false;
-    std::string runtime_skip_reason;
-    {
-        std::scoped_lock lk(ctxinfo->mtx);
-        runtime_skip_requested = ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
-        if (runtime_skip_requested) {
-            runtime_skip_reason = ctxinfo->runtime_skip_reason;
-        }
-    }
-    if (runtime_skip_requested) {
-        if (!runtime_skip_reason.empty()) {
-            gentest::detail::record_bench_error(std::move(runtime_skip_reason));
-        } else {
-            gentest::detail::record_bench_error(std::string(default_skip_reason));
-        }
-        had_assert_fail = true;
-        return;
-    }
-    std::string first_failure = gentest::detail::first_recorded_failure(ctxinfo);
-    if (!first_failure.empty()) {
-        gentest::detail::record_bench_error(std::move(first_failure));
-        had_assert_fail = true;
-        return;
-    }
-    if (!assertion_fallback.empty()) {
-        gentest::detail::record_bench_error(std::string(assertion_fallback));
-        had_assert_fail = true;
-    }
-}
-
-template <typename BodyFn, typename InterruptedFn>
-double run_call_phase_with_context(const gentest::Case &c, std::string_view default_skip_reason, BodyFn &&body,
-                                   InterruptedFn &&on_interrupted, bool &had_assert_fail, MeasurementCaseFailure &failure) {
-    using clock     = std::chrono::steady_clock;
-    auto ctxinfo    = gentest::runner::detail::make_active_test_context(c.name);
-    had_assert_fail = false;
-    std::string assertion_fallback;
-    auto        start      = clock::time_point{};
-    auto        end        = clock::time_point{};
-    bool        stopped    = false;
-    const auto  stop_timer = [&] {
-        if (stopped) {
-            return;
-        }
-        end     = clock::now();
-        stopped = true;
-    };
-    {
-        gentest::runner::detail::CurrentTestScope test_scope(ctxinfo);
-        gentest::detail::BenchPhaseScope          bench_scope(gentest::detail::BenchPhase::Call);
-        try {
-            // Bench/jitter per-call timing should measure only the user call body.
-            start = clock::now();
-            body();
-            stop_timer();
-        } catch (const gentest::detail::skip_exception &) {
-            stop_timer();
-            on_interrupted();
-            record_runtime_skip_or_default(ctxinfo, default_skip_reason);
-            had_assert_fail = true;
-        } catch (const gentest::assertion &e) {
-            stop_timer();
-            on_interrupted();
-            assertion_fallback = e.message();
-            had_assert_fail    = true;
-        } catch (const gentest::failure &e) {
-            stop_timer();
-            on_interrupted();
-            gentest::detail::record_bench_error(e.what());
-            had_assert_fail = true;
-        } catch (const std::exception &e) {
-            stop_timer();
-            on_interrupted();
-            gentest::detail::record_bench_error(fmt::format("std::exception: {}", e.what()));
-            had_assert_fail = true;
-        } catch (...) {
-            stop_timer();
-            on_interrupted();
-            gentest::detail::record_bench_error("unknown exception");
-            had_assert_fail = true;
-        }
-    }
-    finalize_call_phase_failure(ctxinfo, default_skip_reason, assertion_fallback, had_assert_fail, failure);
-    return std::chrono::duration<double>(end - start).count();
-}
-
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double run_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail,
                        MeasurementCaseFailure &failure) {
     iterations_done = 0;
-    return run_call_phase_with_context(
+    return detail::run_call_phase_with_context(
         c, "skip requested during benchmark call phase",
         [&] {
             for (std::size_t i = 0; i < iters; ++i) {
@@ -211,7 +94,7 @@ double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t ite
                               std::vector<double> &samples_ns, MeasurementCaseFailure &failure) {
     using clock     = std::chrono::steady_clock;
     iterations_done = 0;
-    return run_call_phase_with_context(
+    return detail::run_call_phase_with_context(
         c, "skip requested during jitter call phase",
         [&] {
             for (std::size_t i = 0; i < iters; ++i) {
@@ -234,7 +117,7 @@ double run_jitter_batch_epoch_calls(const gentest::Case &c, void *ctx, std::size
     std::size_t local_done  = 0;
     auto        batch_start = clock::now();
     bool        in_batch    = false;
-    return run_call_phase_with_context(
+    return detail::run_call_phase_with_context(
         c, "skip requested during jitter call phase",
         [&] {
             for (std::size_t sample = 0; sample < batch_samples; ++sample) {
@@ -331,7 +214,7 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
     gentest::detail::clear_bench_error();
     auto  inv     = gentest::runner::invoke_case_once(c, ctx, phase, gentest::runner::UnhandledExceptionPolicy::CaptureOnly);
     auto &ctxinfo = inv.ctxinfo;
-    capture_first_failure_location(ctxinfo, failure);
+    detail::capture_first_failure_location(ctxinfo, failure);
     switch (inv.exception) {
     case gentest::runner::InvokeException::None: break;
     case gentest::runner::InvokeException::Skip: runtime_skipped = true; break;

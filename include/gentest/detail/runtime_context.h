@@ -250,14 +250,28 @@ inline void close_context_to_late_operations(TestContextInfo &ctx) noexcept {
     ctx.state.store(ContextState::Closed, std::memory_order_release);
 }
 
-inline void wait_for_adopted_contexts(const std::shared_ptr<TestContextInfo> &ctx) {
+struct IgnoreAdoptedContextWait {
+    void operator()() const noexcept {}
+};
+
+template <typename OnWaiting = IgnoreAdoptedContextWait>
+inline void wait_for_adopted_contexts(const std::shared_ptr<TestContextInfo> &ctx, OnWaiting on_waiting = {}) {
     if (!ctx)
         return;
     // Intentional barrier: test/phase completion waits for all adopted contexts
     // to be released. If adopted work is leaked (for example detached/stuck),
     // completion blocks by design to preserve one-shot outcome accounting.
     std::unique_lock<std::mutex> lk(ctx->adopted_mtx);
-    ctx->adopted_cv.wait(lk, [&] { return ctx->adopted_contexts.load(std::memory_order_acquire) == 0; });
+    ctx->adopted_cv.wait(lk, [&] {
+        if (ctx->adopted_contexts.load(std::memory_order_acquire) == 0) {
+            return true;
+        }
+
+        // Observation runs under adopted_mtx, before the wait unlocks it. The
+        // observer must not acquire or release a lease on this context.
+        on_waiting();
+        return false;
+    });
 }
 
 inline void clear_context_noexceptions_fatal_hook(const std::shared_ptr<TestContextInfo> &ctx) {

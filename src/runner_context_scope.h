@@ -43,12 +43,13 @@ inline void request_active_test_context_stop(const std::shared_ptr<gentest::deta
     gentest::detail::request_context_stop(*ctx);
 }
 
-inline void finish_active_test_context(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
+template <typename OnWaiting = gentest::detail::IgnoreAdoptedContextWait>
+inline void finish_active_test_context(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx, OnWaiting on_waiting = {}) {
     if (!ctx) {
         return;
     }
     request_active_test_context_stop(ctx);
-    gentest::detail::wait_for_adopted_contexts(ctx);
+    gentest::detail::wait_for_adopted_contexts(ctx, std::move(on_waiting));
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
     gentest::detail::close_context_to_late_operations(*ctx);
     gentest::detail::finish_framework_case(*ctx);
@@ -76,21 +77,22 @@ inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentes
     gentest::detail::close_context_if_released(*ctx);
 }
 
-class CurrentTestScope {
+template <typename OnWaiting = gentest::detail::IgnoreAdoptedContextWait> class BasicCurrentTestScope {
   public:
-    explicit CurrentTestScope(std::shared_ptr<gentest::detail::TestContextInfo> ctx)
-        : ctx_(std::move(ctx)), previous_(gentest::detail::current_test()), previous_role_(gentest::detail::current_context_role()) {
+    explicit BasicCurrentTestScope(std::shared_ptr<gentest::detail::TestContextInfo> ctx, OnWaiting on_waiting = {})
+        : ctx_(std::move(ctx)), previous_(gentest::detail::current_test()), previous_role_(gentest::detail::current_context_role()),
+          on_waiting_(std::move(on_waiting)) {
         gentest::detail::set_current_test(ctx_, gentest::detail::CurrentContextRole::Owner);
     }
 
-    CurrentTestScope(const CurrentTestScope &)            = delete;
-    CurrentTestScope &operator=(const CurrentTestScope &) = delete;
+    BasicCurrentTestScope(const BasicCurrentTestScope &)            = delete;
+    BasicCurrentTestScope &operator=(const BasicCurrentTestScope &) = delete;
 
-    ~CurrentTestScope() {
+    ~BasicCurrentTestScope() {
         if (!ctx_) {
             return;
         }
-        finish_active_test_context(ctx_);
+        finish_active_test_context(ctx_, std::move(on_waiting_));
         gentest::detail::set_current_test(std::move(previous_), previous_role_);
     }
 
@@ -98,6 +100,9 @@ class CurrentTestScope {
     std::shared_ptr<gentest::detail::TestContextInfo> ctx_;
     std::shared_ptr<gentest::detail::TestContextInfo> previous_;
     gentest::detail::CurrentContextRole               previous_role_;
+    [[no_unique_address]] OnWaiting                   on_waiting_;
 };
+
+using CurrentTestScope = BasicCurrentTestScope<>;
 
 } // namespace gentest::runner::detail
