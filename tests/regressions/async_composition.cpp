@@ -57,6 +57,15 @@ class Scheduler final : public gentest::detail::AsyncScheduler {
     void schedule_timer(TimePoint deadline, const Token &token) override { timers_.emplace_back(deadline, token); }
     void cancel_waiters(std::coroutine_handle<> handle) noexcept override { core_.cancel_waiters(handle); }
 
+    auto timer_at(TimePoint deadline) const -> Token {
+        for (const auto &[scheduled, token] : timers_) {
+            if (scheduled == deadline) {
+                return token;
+            }
+        }
+        return {};
+    }
+
     void start(gentest::detail::AsyncTask &task) {
         task.set_scheduler(this);
         core_.register_frame(0, task.frame());
@@ -574,6 +583,40 @@ void timeoutCancelsAndJoins() {
     require(child.cleaned && status == gentest::async::wait_status::timeout, "late child result replaced timeout");
 }
 
+void timeoutCancelsSleepTimer() {
+    std::optional<gentest::async::wait_status> status;
+    unsigned                                   completions = 0;
+    auto                                       operation   = [](auto &outcome, unsigned &completed) -> gentest::awaitable<> {
+        // The sleep stays pending independently of host load; the outer clock is manual.
+        auto result = co_await gentest::async::timeout_detail::timeout_awaitable<gentest::async::sleep_awaitable, ManualClock>{
+            gentest::async::sleep_until(TimePoint::max()), TimePoint{100ms}, std::source_location::current()};
+        outcome = result.status();
+        ++completed;
+    };
+    auto      task = operation(status, completions);
+    Scheduler scheduler;
+    scheduler.start(task);
+    scheduler.pump();
+
+    auto inner = scheduler.timer_at(TimePoint::max());
+    require(inner && inner->active() && !task.handle().done() && !status, "inner sleep timer did not register before timeout");
+
+    scheduler.advance(100ms);
+    scheduler.pump();
+    requireDone(task);
+    require(status == gentest::async::wait_status::timeout && completions == 1, "sleep timeout did not join exactly once");
+    require(!inner->active(), "timeout left its inner sleep timer active");
+
+    // A canceled timer must neither admit publication nor resume a finished frame.
+    unsigned publications = 0;
+    require(!inner->try_invoke([&publications]() noexcept { ++publications; }), "canceled sleep timer accepted a late completion");
+    inner->post();
+    scheduler.pump();
+    requireDone(task);
+    require(publications == 0 && completions == 1 && status == gentest::async::wait_status::timeout,
+            "late sleep timer changed the joined timeout");
+}
+
 void directFutureAndExpiredDeadline() {
     auto operation = []() -> gentest::awaitable<> {
         gentest::async::promise<std::unique_ptr<int>> ready;
@@ -742,6 +785,7 @@ int main() {
         {.name = "when_any cancels, joins, and preserves winner", .run = &anyCancelsAndJoinsWithoutChangingWinner},
         {.name = "when_any preserves first exception through cleanup", .run = &anyKeepsFirstExceptionThroughCleanup},
         {.name = "timeout cancels and joins", .run = &timeoutCancelsAndJoins},
+        {.name = "timeout cancels inner sleep timer", .run = &timeoutCancelsSleepTimer},
         {.name = "direct future and expired deadline", .run = &directFutureAndExpiredDeadline},
         {.name = "ordinary completion deadline receipt", .run = &ordinaryCompletionDeadlineReceipt},
         {.name = "future timeout preserves later value", .run = &pendingFutureTimeoutPreservesValue},
