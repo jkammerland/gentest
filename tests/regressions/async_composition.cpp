@@ -37,6 +37,7 @@ class Scheduler final : public gentest::detail::AsyncScheduler {
     }
 
     void post(std::coroutine_handle<> handle) override { core_.post(handle); }
+    void yield_at(std::coroutine_handle<> handle, const std::source_location &loc) override { core_.yield(handle, loc); }
     auto frame_for(std::coroutine_handle<> handle) const -> gentest::detail::AsyncFramePtr override { return core_.frame_for(handle); }
     void prepare_transfer(const gentest::detail::AsyncFramePtr &frame) override {
         core_.clear_suspend_state(frame);
@@ -71,11 +72,16 @@ class Scheduler final : public gentest::detail::AsyncScheduler {
         core_.register_frame(0, task.frame());
         core_.post(task.frame());
     }
-    void pump() {
+    auto step() -> bool {
         gentest::detail::AsyncSchedulerScope scope(this);
-        while (auto ready = core_.pop_ready()) {
+        if (auto ready = core_.pop_ready()) {
             (void)ready.resume();
+            return true;
         }
+        return false;
+    }
+    void pump() {
+        while (step()) {}
     }
     void cancel_all() { core_.cancel_all(); }
     void advance(std::chrono::milliseconds milliseconds) {
@@ -103,6 +109,46 @@ template <typename T> void requireDone(gentest::awaitable<T> &task) {
     if (task.exception()) {
         std::rethrow_exception(task.exception());
     }
+}
+
+void pendingTimerDoesNotBlockYieldingSibling() {
+    require(gentest::async::sleep_until(TimePoint::min()).await_ready(), "expired timer should not suspend");
+
+    std::vector<std::string> order;
+    auto                     sleeper = [&]() -> gentest::awaitable<> {
+        // Expiry is controlled by the test scheduler, without a wall-clock race.
+        co_await gentest::async::sleep_until(TimePoint::max());
+        order.emplace_back("timer");
+    };
+    auto yielder = [&]() -> gentest::awaitable<> {
+        co_await gentest::async::yield();
+        order.emplace_back("yield");
+    };
+    auto      timer_task = sleeper();
+    auto      yield_task = yielder();
+    Scheduler scheduler;
+    scheduler.start(timer_task);
+    scheduler.start(yield_task);
+
+    require(scheduler.step(), "timer coroutine was not initially ready");
+    require(!timer_task.handle().done() && order.empty(), "pending timer did not suspend");
+    require(scheduler.step(), "pending timer prevented a sibling from starting");
+    require(!yield_task.handle().done() && order.empty(), "yield did not suspend the sibling");
+    require(scheduler.step(), "yielded sibling was not ready to resume");
+
+    requireDone(yield_task);
+    require(!timer_task.handle().done(), "pending timer resumed before expiry");
+    require(order == std::vector<std::string>{"yield"}, "pending timer prevented a sibling yield from resuming");
+    require(!scheduler.step(), "pending timer was queued before expiry");
+
+    // Deliver only the registered timer, after the sibling has completed.
+    auto timer = scheduler.timer_at(TimePoint::max());
+    require(timer && timer->active(), "sleep did not register an active timer");
+    timer->post();
+    scheduler.pump();
+
+    requireDone(timer_task);
+    require(order == std::vector<std::string>{"yield", "timer"}, "timer did not resume after the yielding sibling");
 }
 
 struct ImmovableReady {
@@ -775,6 +821,7 @@ int main() {
         void (*run)();
     };
     const Test tests[] = {
+        {.name = "pending timer allows sibling yield", .run = &pendingTimerDoesNotBlockYieldingSibling},
         {.name = "empty composition is immediately ready", .run = &emptyCompositionIsImmediatelyReady},
         {.name = "ready forms and owning results", .run = &readyFormsAndOwningResults},
         {.name = "named composition releases inputs", .run = &namedCompositionReleasesInputs},

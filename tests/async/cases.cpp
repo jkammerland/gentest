@@ -486,29 +486,28 @@ gentest::awaitable<void> fail_fast_final_drain_async_should_not_run_after_failur
 namespace async {
 
 gentest::awaitable<void> timer_sleep_for_waits() {
-    timer_fairness_order.clear();
-    co_await gentest::async::sleep_for(std::chrono::milliseconds(10));
-    ASSERT_EQ(timer_fairness_order.size(), std::size_t{1});
-    EXPECT_EQ(timer_fairness_order[0], "yield");
-    timer_fairness_order.emplace_back("timer");
+    constexpr auto delay   = std::chrono::milliseconds(10);
+    const auto     started = std::chrono::steady_clock::now();
+    co_await gentest::async::sleep_for(delay);
+
+    // A deadline may expire before suspension on a slow host or emulator.
+    EXPECT_GE(std::chrono::steady_clock::now() - started, delay);
 }
 
 } // namespace async
 
 namespace async {
 
-gentest::awaitable<void> timer_yield_runs_while_sleep_pending() {
-    co_await gentest::async::yield();
-    timer_fairness_order.emplace_back("yield");
-}
+gentest::awaitable<void> timer_yield_resumes() { co_await gentest::async::yield(); }
 
 } // namespace async
 
 namespace async {
 
 gentest::awaitable<void> timer_sleep_until_waits() {
-    co_await gentest::async::sleep_until(std::chrono::steady_clock::now() + std::chrono::milliseconds(1));
-    EXPECT_TRUE(true);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1);
+    co_await gentest::async::sleep_until(deadline);
+    EXPECT_GE(std::chrono::steady_clock::now(), deadline);
 }
 
 } // namespace async
