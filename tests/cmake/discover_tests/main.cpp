@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <string_view>
 
@@ -39,7 +40,7 @@ static int run_one(std::string_view name) {
     }
     if (name == "demo/skip") {
         std::cout << "[ SKIP ] demo/skip :: needs [linux]\n";
-        return 0;
+        return 77;
     }
     if (name == "demo/has [bracket]" || name == "demo/a;b" || name == "demo/lone[" || name == "demo/lone]" || name == "demo/quote]==]" ||
         name == "demo/back\\slash$\"" || name == "demo/suffix]=" || name == "demo/nested]=]tail]==") {
@@ -53,13 +54,20 @@ static int run_one(std::string_view name) {
     }
     if (name == "demo/death_skip") {
         std::cout << "[ SKIP ] demo/death_skip :: disabled [debug]\n";
-        return 0;
+        return 77;
     }
     std::cerr << "Test not found: " << name << "\n";
     return 1;
 }
 
 int main(int argc, char **argv) {
+    std::string_view marker;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        if (arg.starts_with("--gentest-death-marker="))
+            marker = arg.substr(std::string_view("--gentest-death-marker=").size());
+    }
+
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if ((arg == "--verify-quoting" && (i + 1 >= argc || std::string_view(argv[i + 1]) != "--value=]=")) ||
@@ -80,6 +88,10 @@ int main(int argc, char **argv) {
         }
         constexpr std::string_view kRun = "--run=";
         if (arg.rfind(kRun, 0) == 0) {
+            if (!marker.empty()) {
+                std::ofstream file{std::string(marker)};
+                file << arg.substr(kRun.size());
+            }
             return run_one(arg.substr(kRun.size()));
         }
     }

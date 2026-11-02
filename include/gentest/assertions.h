@@ -2,6 +2,7 @@
 
 #include "gentest/detail/runtime_support.h"
 
+#include <cmath>
 #include <source_location>
 #include <string>
 #include <string_view>
@@ -32,16 +33,24 @@ struct Approx {
     }
 
     template <typename T> bool matches(const T &value) const {
-        const auto        a    = static_cast<long double>(value);
-        const long double diff = a > target ? (a - target) : (target - a);
+        const auto a = static_cast<long double>(value);
+
+        // Equality covers zero tolerances, signed zero and same-sign infinities.
+        if (a == target)
+            return true;
+        if (!std::isfinite(a) || !std::isfinite(target))
+            return false;
+
+        const long double diff = std::abs(a - target);
         if (abs_epsilon > 0 && diff <= abs_epsilon)
             return true;
         if (rel_percent > 0) {
-            const long double abs_a = a < 0 ? -a : a;
-            const long double abs_t = target < 0 ? -target : target;
+            const long double abs_a = std::abs(a);
+            const long double abs_t = std::abs(target);
             const long double scale = abs_a > abs_t ? abs_a : abs_t;
-            const long double tol   = scale * (rel_percent / 100.0L);
-            if (diff <= tol)
+            // Normalize first so finite extreme operands cannot produce inf <= inf.
+            const long double relative_diff = std::abs(a / scale - target / scale);
+            if (relative_diff <= rel_percent / 100.0L)
                 return true;
         }
         return false;

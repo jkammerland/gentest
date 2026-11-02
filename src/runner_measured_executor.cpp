@@ -2,6 +2,7 @@
 
 #include "benchmark_internal.h"
 #include "gentest/detail/bench_stats.h"
+#include "gentest/detail/registration_runtime.h"
 #include "runner_case_invoker.h"
 #include "runner_context_scope.h"
 #include "runner_fixture_runtime.h"
@@ -592,6 +593,7 @@ bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn
     {
         // Notify only around the entire measurement operation, outside timed loops.
         gentest::detail::FrameworkPhaseScope events(FrameworkPhase::call);
+        gentest::detail::CaseBodyScope       body_scope(!c.reports_body_start);
         out_result = run_call(c, ctx, out_failure);
     }
     out_failure.time_s = out_result.wall_time_s;

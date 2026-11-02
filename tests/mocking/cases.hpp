@@ -135,8 +135,8 @@ void matchers_ge_anyof();
 [[using gentest: test("mocking/concurrency/adopted_ordered_dispatch")]]
 void concurrency_adopted_ordered_dispatch();
 
-[[using gentest: test("mocking/concurrency/late_mutation_ignored_after_runtime_start")]]
-void concurrency_late_mutation_ignored_after_runtime_start();
+[[using gentest: test("mocking/concurrency/late_mutation_rejected_after_runtime_start")]]
+void concurrency_late_mutation_rejected_after_runtime_start();
 
 [[using gentest: test("mocking/nice/unexpected_ok")]]
 void nice_unexpected_ok();

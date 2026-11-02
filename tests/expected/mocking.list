@@ -9,7 +9,7 @@
 [PASS] mocking/mocking/concrete/direct_expect_signature_collision
 [PASS] mocking/mocking/concrete/direct_constant_expect_signature_collision
 [PASS] mocking/mocking/concurrency/adopted_ordered_dispatch
-[PASS] mocking/mocking/concurrency/late_mutation_ignored_after_runtime_start
+[PASS] mocking/mocking/concurrency/late_mutation_rejected_after_runtime_start
 [PASS] mocking/mocking/crtp/bridge
 [PASS] mocking/mocking/crtp/bridge_matches
 [PASS] mocking/mocking/interface/non_default_ctor

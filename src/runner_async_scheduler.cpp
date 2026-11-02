@@ -1,5 +1,6 @@
 #include "runner_async_scheduler.h"
 
+#include "gentest/detail/registration_runtime.h"
 #include "gentest/detail/runtime_context.h"
 #include "runner_context_scope.h"
 
@@ -236,6 +237,10 @@ auto BatchAsyncScheduler::resume_one_ready() -> bool {
             }
             core_.clear_suspend_state(frame);
             try {
+                if (run.manual_body_pending) {
+                    gentest::detail::notify_case_body_start();
+                    run.manual_body_pending = false;
+                }
                 (void)ready.resume();
             } catch (const std::exception &e) {
                 run.exception = InvokeException::StdException;

@@ -143,6 +143,10 @@ Use `find_dependency(trompeloeil CONFIG REQUIRED)` for Trompeloeil packages.
 
 ## Limitations
 
+Configure native mock expectations and nice/strict mode before the first invocation or verification. Configuration is frozen
+thereafter; adding an expectation or changing a saved expectation handle records a test failure and leaves the configured
+behavior intact. Configure before starting worker threads, then dispatch concurrently as needed.
+
 Third-party backends currently support CMake textual/header mock definitions only. `gentest_add_mocks()` supports single-config and multi-config generators; multi-config artifacts are emitted under a configuration subdirectory of `OUTPUT_DIR`.
 
 The Trompeloeil backend emits explicit-arity `MAKE_MOCKn` / `MAKE_CONST_MOCKn` macros for compatibility with older Trompeloeil packages.

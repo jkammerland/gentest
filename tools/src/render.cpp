@@ -3,6 +3,7 @@
 #include "render.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <fmt/format.h>
 #include <map>
 #include <set>
@@ -131,6 +132,7 @@ struct WrapperSpec {
     bool                        returns_value      = false; // whether to capture result
     bool                        returns_async      = false;
     bool                        is_measured        = false;
+    bool                        is_death           = false;
 };
 
 std::string build_fixture_decls(const std::vector<FreeFixtureUse> &types) {
@@ -479,10 +481,11 @@ std::string build_helper_definition(const WrapperSpec &spec, std::string_view he
 }
 
 static std::string make_invoke_for_free(const WrapperSpec &spec, const std::string &fn, const std::string &args) {
+    const std::string body_start = spec.is_death ? "::gentest::detail::CaseBodyScope gentest_body_scope; " : "";
     if (spec.returns_value) {
-        return fmt::format("[[maybe_unused]] const auto _ = {}{};", fn, args);
+        return body_start + fmt::format("[[maybe_unused]] const auto _ = {}{};", fn, args);
     }
-    return fmt::format("static_cast<void>({}{});", fn, args);
+    return body_start + fmt::format("static_cast<void>({}{});", fn, args);
 }
 
 static void append_wrapper(std::string &out, const WrapperSpec &spec, const WrapperTemplates &templates) {
@@ -704,7 +707,9 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
     }
 }
 
-std::string make_async_await_expr(const std::string &fn, const std::string &args) { return fmt::format("co_await {}{};", fn, args); }
+std::string make_async_await_expr(const WrapperSpec &spec, const std::string &fn, const std::string &args) {
+    return fmt::format("{}co_await {}{};", spec.is_death ? "::gentest::detail::CaseBodyScope gentest_body_scope; " : "", fn, args);
+}
 
 void append_async_local_teardown_call(std::string &body, const std::string &body_code, const std::string &teardown_code) {
     body += "    co_await gentest_run_async_with_local_teardown(\n";
@@ -744,7 +749,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
     switch (spec.kind) {
     case WrapperKind::Free: {
         body += "    (void)ctx_;\n";
-        body += "    " + make_async_await_expr(qualified_helper, "()") + "\n";
+        body += "    " + make_async_await_expr(spec, qualified_helper, "()") + "\n";
         append_async_entrypoint(out, spec, body);
         return;
     }
@@ -754,7 +759,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_async_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_async_teardown_guarded(spec.fixtures);
-        const auto        invoke = make_async_await_expr(qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures)));
+        const auto invoke = make_async_await_expr(spec, qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures)));
         body += "    (void)ctx_;\n";
         body += decls;
         body += inits;
@@ -771,7 +776,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         return;
     }
     case WrapperKind::MemberEphemeral: {
-        const auto        invoke           = make_async_await_expr(qualified_helper, "(fx_.ref())");
+        const auto        invoke           = make_async_await_expr(spec, qualified_helper, "(fx_.ref())");
         const std::string teardown_guarded = "        if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
         body += "    (void)ctx_;\n";
         body += "    auto fx_ = ::gentest::detail::FixtureHandle<" + spec.callee + ">::empty();\n";
@@ -786,7 +791,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         return;
     }
     case WrapperKind::MemberShared: {
-        const auto invoke = make_async_await_expr(qualified_helper, "(*fx_)");
+        const auto invoke = make_async_await_expr(spec, qualified_helper, "(*fx_)");
         body += "    auto* fx_ = static_cast<" + spec.callee + "*>(ctx_);\n";
         body += "    if (!fx_) {\n";
         body += "        gentest_record_fixture_failure(\"" + escape_string(spec.callee) + "\", \"instance missing\");\n";
@@ -803,7 +808,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         const std::string setup_tracked    = build_fixture_async_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_async_teardown_guarded(spec.fixtures);
         const auto        invoke           = make_async_await_expr(
-            qualified_helper, format_call_args(prepend_call_arg("fx_.ref()", build_helper_fixture_call_list(spec.fixtures))));
+            spec, qualified_helper, format_call_args(prepend_call_arg("fx_.ref()", build_helper_fixture_call_list(spec.fixtures))));
         body += "    (void)ctx_;\n";
         body += "    auto fx_ = ::gentest::detail::FixtureHandle<" + spec.callee + ">::empty();\n";
         body += "    if (!gentest_init_fixture(fx_, \"" + escape_string(spec.callee) + "\")) co_return;\n";
@@ -829,7 +834,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         const std::string setup_tracked    = build_fixture_async_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_async_teardown_guarded(spec.fixtures);
         const auto        invoke           = make_async_await_expr(
-            qualified_helper, format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
+            spec, qualified_helper, format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
         body += "    auto* fx_ = static_cast<" + spec.callee + "*>(ctx_);\n";
         body += "    if (!fx_) {\n";
         body += "        gentest_record_fixture_failure(\"" + escape_string(spec.callee) + "\", \"instance missing\");\n";
@@ -887,6 +892,10 @@ WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
     }
     spec.returns_value = test.returns_value;
     spec.returns_async = test.returns_async;
+    spec.is_death      = std::ranges::any_of(test.tags, [](std::string tag) {
+        std::ranges::transform(tag, tag.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        return tag == "death";
+    });
     return spec;
 }
 } // namespace

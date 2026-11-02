@@ -1,15 +1,28 @@
 #include "gentest/detail/registration_runtime.h"
 #include "gentest/detail/registry_runtime.h"
+#include "gentest/detail/runtime_context.h"
 #include "gentest/runner.h"
 #include "runner_cli.h"
 #include "runner_orchestrator.h"
 
 #include <algorithm>
+#include <fstream>
 #include <mutex>
 #include <span>
 #include <vector>
 
 namespace {
+thread_local const char *death_test_marker = nullptr;
+
+struct DeathTestProtocolScope {
+    const char *previous = death_test_marker;
+    explicit DeathTestProtocolScope(const char *path) { death_test_marker = path; }
+    ~DeathTestProtocolScope() {
+        gentest::detail::notify_case_body_finish();
+        death_test_marker = previous;
+    }
+};
+
 struct CaseRegistry {
     std::vector<gentest::Case> cases;
     bool                       sorted = false;
@@ -50,6 +63,7 @@ auto snapshot_cases() -> std::vector<gentest::Case> {
 auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runner::CliOptions &options,
                       const gentest::RunConfiguration &configuration) -> int {
     gentest::detail::FrameworkRunScope events(configuration);
+    DeathTestProtocolScope             protocol(options.death_test_marker);
     const int                          result = gentest::runner::run_from_options(cases, options);
     events.finish();
     return events.failed() ? 1 : result;
@@ -57,6 +71,26 @@ auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runne
 } // namespace
 
 namespace gentest::detail {
+void notify_case_body_start() {
+    if (!death_test_marker)
+        return;
+
+    const auto    context = current_test();
+    std::ofstream marker(death_test_marker, std::ios::binary | std::ios::trunc);
+    if (context)
+        marker << context->display_name;
+    marker.close();
+    if (!context || !marker)
+        throw gentest::failure("cannot write death-test body-entry marker");
+}
+
+void notify_case_body_finish() noexcept {
+    if (!death_test_marker)
+        return;
+    std::ofstream marker(death_test_marker, std::ios::binary | std::ios::app);
+    marker << "\ncompleted";
+}
+
 void register_cases(std::span<const Case> cases) {
     auto                       &reg = case_registry();
     std::lock_guard<std::mutex> lk(reg.mtx);

@@ -198,7 +198,7 @@ Tags/metadata:
 - Requirement IDs are shown in `--list` output as `requires=...` and exported in JUnit as
   `<property name="requirement" value="...">`, so you can build a trace matrix from CI artifacts (example flow: [docs/traceability_standards.md](docs/traceability_standards.md)).
 - `death`-tagged tests are excluded from the default run; pass `--include-death` to execute them.
-- The death-test harness treats non-zero exit as success (and fails on normal test failures); set `DEATH_EXPECT_SUBSTRING` to assert output.
+- The death-test harness requires entry into the test body followed by non-zero termination; set `DEATH_EXPECT_SUBSTRING` to assert output.
 - Full death-test docs: [docs/death_tests.md](docs/death_tests.md).
 
 ## Feature examples

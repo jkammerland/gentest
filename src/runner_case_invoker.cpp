@@ -1,5 +1,6 @@
 #include "runner_case_invoker.h"
 
+#include "gentest/detail/registration_runtime.h"
 #include "runner_context_scope.h"
 
 #include <chrono>
@@ -17,6 +18,8 @@ InvokeResult invoke_case_once(const gentest::Case &c, void *ctx, gentest::detail
     {
         gentest::runner::detail::CurrentTestScope test_scope(out.ctxinfo);
         try {
+            gentest::detail::CaseBodyScope body_scope(
+                !c.reports_body_start && (phase == gentest::detail::BenchPhase::None || phase == gentest::detail::BenchPhase::Call));
             if (phase == gentest::detail::BenchPhase::None) {
                 c.fn(ctx);
             } else {

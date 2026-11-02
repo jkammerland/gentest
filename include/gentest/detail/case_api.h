@@ -11,7 +11,7 @@
 // These stay as macros because generated registration code checks them with
 // preprocessor conditionals before using newer Case fields.
 // NOLINTBEGIN(modernize-macro-to-enum)
-#define GENTEST_CASE_API_VERSION            4
+#define GENTEST_CASE_API_VERSION            5
 #define GENTEST_CASE_API_HAS_ITEMS_PER_CALL 1
 #define GENTEST_CASE_API_HAS_OWNER          1
 // NOLINTEND(modernize-macro-to-enum)
@@ -51,6 +51,8 @@ struct Case {
     std::uint64_t                     items_per_call{1};
     std::string_view                  owner{};
     BenchmarkOptions                  benchmark{};
+    // Generated adapters signal body entry after their local fixture setup.
+    bool reports_body_start{false};
 };
 
 } // namespace gentest
