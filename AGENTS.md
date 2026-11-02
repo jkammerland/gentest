@@ -20,7 +20,7 @@
 
 ## Fixture Model (Style + Semantics)
 - Fixture lifetimes: local (per test/bench/jitter), suite (per namespace group), global (per run).
-- Suite/global fixtures are registered at startup and set up once at the start of the run; teardown happens once at the end.
+- Suite/global fixtures are registered at startup and activate on first acquisition by a selected runnable case. Dependencies activate first; teardown visits activated fixtures once in reverse activation order at the end of the run. Static skips acquire no fixtures.
 - Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace for all tests that use them.
 - Prefer free-function tests/benches/jitters with fixture parameters inferred from function signatures. The legacy `fixtures(...)` attribute is removed. Member tests are deprecated; they are treated as suite-level fixtures and should be avoided in new code.
 - Allocation hook: optional `static gentest_allocate()` or `static gentest_allocate(std::string_view suite)`. Supported returns: `unique_ptr` (custom deleter), `shared_ptr`, or raw pointer (adopted).

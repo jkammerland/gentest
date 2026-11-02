@@ -29,62 +29,62 @@ struct Sample : gentest::FixtureSetup, gentest::FixtureTearDown {
 };
 
 [[using gentest: bench("primary/call"), bench_once, bench_time("supplied"), items_per_call(16)]]
-void supplied_call(Sample &sample);
+void supplied_call(Sample &sample, SharedProbe &);
 [[using gentest: bench("primary/teardown"), bench_once, bench_time("supplied")]]
-void supplied_teardown(Sample &sample);
+void supplied_teardown(Sample &sample, SharedProbe &);
 [[using gentest: bench("primary/static_items"), bench_once, bench_time("supplied"), items_per_call(16)]]
-void static_items(Sample &sample);
+void static_items(Sample &sample, SharedProbe &);
 [[using gentest: bench("primary/runner"), bench_once]]
-void runner_once(Sample &sample);
+void runner_once(Sample &sample, SharedProbe &);
 [[using gentest: bench("primary/no_warmup"), bench_warmup(0)]]
-void no_warmup(Sample &sample);
+void no_warmup(Sample &sample, SharedProbe &);
 [[using gentest: jitter("primary/jitter")]]
-void jitter(Sample &sample);
+void jitter(Sample &sample, SharedProbe &);
 
 [[using gentest: bench("series/valid"), bench_once, bench_time("supplied")]]
-void valid_series(Sample &sample);
+void valid_series(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/missing"), bench_once, bench_time("supplied")]]
-void missing(Sample &sample);
+void missing(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/duplicate"), bench_once, bench_time("supplied")]]
-void duplicate(Sample &sample);
+void duplicate(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/zero_duration"), bench_once, bench_time("supplied")]]
-void zero_duration(Sample &sample);
+void zero_duration(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/zero_items"), bench_once, bench_time("supplied")]]
-void zero_items(Sample &sample);
+void zero_items(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/nan"), bench_once, bench_time("supplied")]]
-void nan(Sample &sample);
+void nan(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_negative"), bench_once]]
-void series_negative(Sample &sample);
+void series_negative(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_duplicate"), bench_once]]
-void series_duplicate(Sample &sample);
+void series_duplicate(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_throw"), bench_once]]
-void series_throw(Sample &sample);
+void series_throw(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_phase"), bench_once]]
-void series_phase(Sample &sample);
+void series_phase(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_overflow"), bench_once]]
-void series_overflow(Sample &sample);
+void series_overflow(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_unit"), bench_once]]
-void series_unit(Sample &sample);
+void series_unit(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/teardown_failure"), bench_once, bench_time("supplied")]]
-void teardown_failure(Sample &sample);
+void teardown_failure(Sample &sample, SharedProbe &);
 
 [[using gentest: bench("invalid/negative_duration"), bench_once, bench_time("supplied")]]
-void negative_duration(Sample &sample);
+void negative_duration(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/infinite_duration"), bench_once, bench_time("supplied")]]
-void infinite_duration(Sample &sample);
+void infinite_duration(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/overflow_duration"), bench_once, bench_time("supplied")]]
-void overflow_duration(Sample &sample);
+void overflow_duration(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/runner_supplied"), bench_once]]
-void runner_supplied(Sample &sample);
+void runner_supplied(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_nonfinite"), bench_once]]
-void series_nonfinite(Sample &sample);
+void series_nonfinite(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_name"), bench_once]]
-void series_name(Sample &sample);
+void series_name(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_underflow"), bench_once]]
-void series_underflow(Sample &sample);
+void series_underflow(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_allocation"), bench_once]]
-void series_allocation(Sample &sample);
+void series_allocation(Sample &sample, SharedProbe &);
 [[using gentest: bench("invalid/series_summary_allocation"), bench_once]]
-void series_summary_allocation(Sample &sample);
+void series_summary_allocation(Sample &sample, SharedProbe &);
 
 } // namespace measurement_tests

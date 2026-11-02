@@ -104,6 +104,61 @@ foreach(_expected_index RANGE 0 ${_last})
   endif()
 endforeach()
 
+# Tags are labels in both discovery modes, merged after caller LABELS. Inspect
+# CTest's parsed properties, including a semicolon carried inside one tag.
+set(_label_expectations [====[
+  {"demo/a":["fast","owner=team-runtime","feature;parser","suffix]="],
+   "demo/has [bracket]":["fast","suffix]="],
+   "demo/b":["suffix]="],
+   "death/demo/death":["death","suffix]="],
+   "filtered/death/demo/death;[/suffix":["death","caller","shared"]}
+]====])
+string(JSON _label_cases LENGTH "${_label_expectations}")
+math(EXPR _label_last "${_label_cases} - 1")
+foreach(_label_index RANGE 0 ${_label_last})
+  string(JSON _name MEMBER "${_label_expectations}" ${_label_index})
+  foreach(_actual_index RANGE 0 ${_last})
+    string(JSON _actual GET "${_list_out}" tests ${_actual_index} name)
+    if(NOT _actual STREQUAL _name)
+      continue()
+    endif()
+    string(JSON _property_count LENGTH "${_list_out}" tests ${_actual_index} properties)
+    math(EXPR _property_last "${_property_count} - 1")
+    set(_labels_found FALSE)
+    foreach(_property RANGE 0 ${_property_last})
+      string(JSON _property_name GET "${_list_out}" tests ${_actual_index} properties ${_property} name)
+      if(_property_name STREQUAL "LABELS")
+        set(_labels_found TRUE)
+        string(JSON _actual_labels GET "${_list_out}" tests ${_actual_index} properties ${_property} value)
+        string(JSON _expected_labels GET "${_label_expectations}" "${_name}")
+        string(JSON _expected_label_count LENGTH "${_expected_labels}")
+        string(JSON _actual_label_count LENGTH "${_actual_labels}")
+        if(NOT _actual_label_count EQUAL _expected_label_count)
+          message(FATAL_ERROR "Unexpected labels for '${_name}': ${_actual_labels}")
+        endif()
+        math(EXPR _expected_label_last "${_expected_label_count} - 1")
+        math(EXPR _actual_label_last "${_actual_label_count} - 1")
+        foreach(_label RANGE 0 ${_expected_label_last})
+          string(JSON _expected_label GET "${_expected_labels}" ${_label})
+          set(_found FALSE)
+          foreach(_actual_label_index RANGE 0 ${_actual_label_last})
+            string(JSON _actual_label GET "${_actual_labels}" ${_actual_label_index})
+            if(_actual_label STREQUAL _expected_label)
+              set(_found TRUE)
+            endif()
+          endforeach()
+          if(NOT _found)
+            message(FATAL_ERROR "Missing label '${_expected_label}' for '${_name}': ${_actual_labels}")
+          endif()
+        endforeach()
+      endif()
+    endforeach()
+    if(NOT _labels_found)
+      message(FATAL_ERROR "Missing LABELS for '${_name}'")
+    endif()
+  endforeach()
+endforeach()
+
 message(STATUS "Run discovered tests...")
 gentest_check_run_or_fail(
   COMMAND "${_ctest_cmd}" ${_ctest_common_args} -R "^(demo/|filtered/)"

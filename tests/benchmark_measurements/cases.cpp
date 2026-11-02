@@ -249,87 +249,87 @@ void Sample::tearDown() {
     }
 }
 
-void supplied_call(Sample &sample) {
+void supplied_call(Sample &sample, SharedProbe &) {
     ++primary_once_calls[0];
     ++sample.calls;
     sample.mode = "call";
     gentest::setBenchmarkDuration(2s, 1000);
 }
-void supplied_teardown(Sample &sample) {
+void supplied_teardown(Sample &sample, SharedProbe &) {
     ++primary_once_calls[1];
     ++sample.calls;
     sample.mode = "teardown";
 }
-void static_items(Sample &sample) {
+void static_items(Sample &sample, SharedProbe &) {
     ++primary_once_calls[2];
     ++sample.calls;
     gentest::setBenchmarkDuration(2s);
 }
-void runner_once(Sample &sample) {
+void runner_once(Sample &sample, SharedProbe &) {
     ++primary_once_calls[3];
     ++sample.calls;
     sample.mode = "runner";
 }
-void no_warmup(Sample &sample) {
+void no_warmup(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "no_warmup";
 }
-void jitter(Sample &sample) {
+void jitter(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "jitter";
 }
-void valid_series(Sample &sample) {
+void valid_series(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "valid";
     gentest::setBenchmarkDuration(2s, 1000);
 }
-void missing(Sample &sample) {
+void missing(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "missing";
 }
-void duplicate(Sample &sample) {
+void duplicate(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "duplicate";
     gentest::setBenchmarkDuration(2s);
 }
-void zero_duration(Sample &sample) {
+void zero_duration(Sample &sample, SharedProbe &) {
     ++sample.calls;
     gentest::setBenchmarkDuration(0s);
 }
-void zero_items(Sample &sample) {
+void zero_items(Sample &sample, SharedProbe &) {
     ++sample.calls;
     gentest::setBenchmarkDuration(2s, 0);
 }
-void nan(Sample &sample) {
+void nan(Sample &sample, SharedProbe &) {
     ++sample.calls;
     gentest::setBenchmarkDuration(std::chrono::duration<double>{std::numeric_limits<double>::quiet_NaN()});
 }
-void series_negative(Sample &sample) {
+void series_negative(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "series_negative";
 }
-void series_duplicate(Sample &sample) {
+void series_duplicate(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "series_duplicate";
 }
-void series_throw(Sample &sample) {
+void series_throw(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "series_throw";
 }
-void series_overflow(Sample &sample) {
+void series_overflow(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "series_overflow";
 }
-void series_unit(Sample &sample) {
+void series_unit(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "series_unit";
 }
-void teardown_failure(Sample &sample) {
+void teardown_failure(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "teardown_failure";
     gentest::setBenchmarkDuration(2s);
 }
-void series_phase(Sample &sample) {
+void series_phase(Sample &sample, SharedProbe &) {
     ++sample.calls;
     auto lazy = std::views::iota(0, 2) | std::views::transform([&sample](int n) {
                     ++sample.lazy_evaluations;
@@ -338,41 +338,41 @@ void series_phase(Sample &sample) {
     gentest::recordTimingSamples("bad", lazy, 1ns);
 }
 
-void negative_duration(Sample &sample) {
+void negative_duration(Sample &sample, SharedProbe &) {
     ++sample.calls;
     gentest::setBenchmarkDuration(-1s);
 }
-void infinite_duration(Sample &sample) {
+void infinite_duration(Sample &sample, SharedProbe &) {
     ++sample.calls;
     gentest::setBenchmarkDuration(std::chrono::duration<double>{std::numeric_limits<double>::infinity()});
 }
-void overflow_duration(Sample &sample) {
+void overflow_duration(Sample &sample, SharedProbe &) {
     ++sample.calls;
     gentest::setBenchmarkDuration(std::chrono::duration<double>{std::numeric_limits<double>::max()});
 }
-void runner_supplied(Sample &sample) {
+void runner_supplied(Sample &sample, SharedProbe &) {
     ++sample.calls;
     gentest::setBenchmarkDuration(1s);
 }
-void series_nonfinite(Sample &sample) {
+void series_nonfinite(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "series_nonfinite";
 }
-void series_name(Sample &sample) {
+void series_name(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "series_name";
 }
 
-void series_underflow(Sample &sample) {
+void series_underflow(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "series_underflow";
 }
 
-void series_allocation(Sample &sample) {
+void series_allocation(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "series_allocation";
 }
-void series_summary_allocation(Sample &sample) {
+void series_summary_allocation(Sample &sample, SharedProbe &) {
     ++sample.calls;
     sample.mode = "series_summary_allocation";
 }

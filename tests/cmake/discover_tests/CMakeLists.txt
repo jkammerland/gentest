@@ -51,7 +51,7 @@ gentest_discover_tests(demo_tests
   TEST_SUFFIX "/suffix"
   TEST_FILTER "demo/*;*"
   EXTRA_ARGS --verify-quoting "--value=]="
-  PROPERTIES LABELS "suffix]="
+  PROPERTIES LABELS "caller;shared"
   DEATH_EXPECT_SUBSTRING "fatal path")
 gentest_discover_tests(demo_tests
   DISCOVERY_MODE POST_BUILD

@@ -11,9 +11,9 @@
 
 namespace gentest::detail {
 
-// Setup/teardown shared fixtures before/after the test run. setup returns false
-// when shared fixture infrastructure fails (for example conflicting
-// registrations, allocation failures, or setup failures).
+// Begin/end shared fixture state for the active runtime session. Setup checks
+// registrations; get_shared_fixture activates an instance and its dependencies
+// on first acquisition. Teardown visits only activated instances.
 GENTEST_RUNTIME_API bool setup_shared_fixtures();
 GENTEST_RUNTIME_API bool teardown_shared_fixtures(std::vector<std::string> *errors = nullptr);
 

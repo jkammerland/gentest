@@ -130,8 +130,9 @@ assert waiting["outcome"] == "canceled"
 assert waiting["data"]["properties"]["started"] is True
 assert waiting["data"]["properties"]["local_teardown"] is True
 
-# Repeated runner invocations produce fresh bundles and fresh scope state.
-run("--record-twice", "--run=rt_recording/ok/separate", f"--records={root / 'twice'}")
+# Select a case that acquires RunInfo so repeated runner invocations exercise
+# fresh shared-fixture scope state as well as fresh result bundles.
+run("--record-twice", "--run=rt_recording/ok/scalars", f"--records={root / 'twice'}")
 first, second = [index for _, index in bundles(root / "twice")]
 assert first["run"]["properties"]["run"] == 1
 assert second["run"]["properties"]["run"] == 2

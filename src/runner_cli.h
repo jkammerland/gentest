@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
+#include <vector>
 
 namespace gentest::runner {
 
@@ -15,6 +17,7 @@ enum class Mode {
     ListJson,
     ListDeath,
     ListBenches,
+    ListTags,
 };
 
 enum class KindFilter {
@@ -71,6 +74,11 @@ struct CliOptions {
     const char *allure_dir        = nullptr;
     const char *records_dir       = nullptr;
     const char *death_test_marker = nullptr;
+
+    // Include tags are alternatives; exclusions remove any matching case.
+    std::vector<std::string_view> include_tags;
+    std::vector<std::string_view> exclude_tags;
+    std::vector<std::string_view> exclude_patterns;
 
     bool        bench_table = false;
     BenchConfig bench_cfg{};

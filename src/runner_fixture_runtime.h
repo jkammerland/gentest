@@ -25,6 +25,7 @@ struct SharedFixtureRuntimeSession {
 };
 
 bool setup_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtureRuntimeSession &session, bool machine_report);
+void collect_shared_fixture_setup_errors(std::vector<std::string> &errors, bool include_registration_errors = false);
 bool teardown_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtureRuntimeSession &session);
 
 } // namespace gentest::runner::detail

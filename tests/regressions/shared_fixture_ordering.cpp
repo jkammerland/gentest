@@ -21,6 +21,12 @@ void setup_a(void *, std::string &error) {
 }
 
 void setup_b(void *, std::string &error) {
+    // Declare the dependency by acquiring it; alphabetical registry order does
+    // not imply that an unrelated fixture is needed by this selection.
+    auto dependency = gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, {}, kFixtureA, error);
+    if (!dependency)
+        return;
+
     if (g_stage != 1) {
         error = "B setup must run after A";
         return;
@@ -68,7 +74,7 @@ gentest::Case kCases[] = {
 } // namespace
 
 int main(int argc, char **argv) {
-    // Register in reverse dependency order; runtime must still establish a deterministic safe order.
+    // Register the dependent first; lazy acquisition must establish dependency order.
     gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureB, &create_fixture,
                                              &setup_b, &teardown_b);
     gentest::detail::register_shared_fixture(gentest::detail::SharedFixtureScope::Global, std::string_view{}, kFixtureA, &create_fixture,

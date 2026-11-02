@@ -9,6 +9,7 @@
 #include "runner_fixture_runtime.h"
 #include "runner_reporting.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <fmt/format.h>
@@ -533,9 +534,17 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             for (const auto &group : groups) {
                 void       *group_ctx = nullptr;
                 std::string group_reason;
-                if (!group.idxs.empty() && !gentest::runner::acquire_case_fixture(cases[group.idxs.front()], group_ctx, group_reason)) {
+                // Static skips do not acquire fixtures, even when they share a
+                // group with cases whose fixture cannot be initialized.
+                const auto runnable = std::ranges::find_if(group.idxs, [&](auto i) { return !cases[i].should_skip; });
+                if (runnable != group.idxs.end() && !gentest::runner::acquire_case_fixture(cases[*runnable], group_ctx, group_reason)) {
                     const std::string msg = shared_fixture_unavailable_message(group.fixture, std::move(group_reason));
                     for (auto i : group.idxs) {
+                        if (cases[i].should_skip) {
+                            if (handle_case(i, nullptr))
+                                return true;
+                            continue;
+                        }
                         record_synthetic_skip(renderer.enabled() ? final_state : state, cases[i], msg, counters, true);
                         if (renderer.enabled()) {
                             CaseResult rr;
