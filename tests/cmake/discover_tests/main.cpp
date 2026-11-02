@@ -92,7 +92,12 @@ int main(int argc, char **argv) {
                 std::ofstream file{std::string(marker)};
                 file << arg.substr(kRun.size());
             }
-            return run_one(arg.substr(kRun.size()));
+            const int result = run_one(arg.substr(kRun.size()));
+            if (result == 77 && !marker.empty()) {
+                std::ofstream file{std::string(marker), std::ios::app};
+                file << "\ncompleted";
+            }
+            return result;
         }
     }
     // Default: run all

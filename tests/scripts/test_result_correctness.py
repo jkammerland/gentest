@@ -1,5 +1,5 @@
 """Exercise runner results and the generated CTest protocol as a consumer."""
-import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -62,8 +62,8 @@ file(WRITE [==[{root / 'script.txt'}]==] "${{script}}")
         subprocess.run([cmake, "-P", str(config)], check=True, capture_output=True, text=True)
         discover = (root / "script.txt").read_text()
 
-        def discovery(filename, pattern, extra=""):
-            command = [cmake, "-DTEST_EXECUTABLE=" + binary, "-DTEST_WORKING_DIR=" + directory,
+        def discovery(filename, pattern, extra="", working_directory=None):
+            command = [cmake, "-DTEST_EXECUTABLE=" + binary, "-DTEST_WORKING_DIR=" + str(working_directory or directory),
                        "-DCTEST_FILE=" + str(root / filename), "-DTEST_FILTER=" + pattern,
                        "-DTEST_EXTRA_ARGS=" + extra, "-DTEST_LIST=cases", "-P", discover]
             subprocess.run(command, check=True, capture_output=True, text=True)
@@ -79,6 +79,8 @@ file(WRITE [==[{root / 'script.txt'}]==] "${{script}}")
 
         for name, extra, expected, message in (
             ("body_death", "", 0, "Death test passed"),
+            ("body_death_77", "", 0, "Death test passed"),
+            ("runtime_skip_death", "", 0, "Death test skipped by test binary"),
             ("async_death", "", 0, "Death test passed"),
             ("body_death", "--definitely-invalid", 8, "did not reach the selected test body"),
             ("setup_death", "", 8, "did not reach the selected test body"),
@@ -88,7 +90,16 @@ file(WRITE [==[{root / 'script.txt'}]==] "${{script}}")
             result = subprocess.run([ctest, "--test-dir", directory, "-V"], capture_output=True, text=True, timeout=30)
             assert result.returncode == expected, result
             assert message in result.stdout + result.stderr, result
-        assert not list(root.glob("gentest-death-*.started"))
+        readonly = root / "readonly-cwd"
+        readonly.mkdir()
+        os.chmod(readonly, 0o555)
+        try:
+            discovery("CTestTestfile.cmake", "result_correctness/body_death", working_directory=readonly)
+            result = subprocess.run([ctest, "--test-dir", directory, "-V"], capture_output=True, text=True, timeout=30)
+            assert result.returncode == 0 and "Death test passed" in result.stdout + result.stderr, result
+        finally:
+            os.chmod(readonly, 0o755)
+        assert not list(root.rglob("gentest-death-*.started"))
     print("result correctness contract passed")
 
 

@@ -21,6 +21,8 @@ void failure_then_skip() {
 void skip_with_teardown_failure(FailingTeardown &) { gentest::skip("skip before teardown failure"); }
 
 void body_death() { std::_Exit(23); }
+void body_death_77() { std::_Exit(77); }
+void runtime_skip_death() { gentest::skip("intentional death-case skip"); }
 void setup_death(AbortingSetup &) { std::_Exit(23); }
 void teardown_death(AbortingTeardown &) {}
 

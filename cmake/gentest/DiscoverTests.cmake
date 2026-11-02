@@ -130,7 +130,7 @@ endif()
 
 # Each invocation owns a fresh file. Only body entry may write the case name.
 string(RANDOM LENGTH 24 ALPHABET 0123456789abcdef _nonce)
-set(_marker "${CMAKE_CURRENT_BINARY_DIR}/gentest-death-${_nonce}.started")
+set(_marker "${CMAKE_CURRENT_LIST_DIR}/gentest-death-${_nonce}.started")
 set(_protocol_args "--gentest-death-marker=${_marker}" --skip-return-code=77)
 
 if(DEFINED CASE_ID)
@@ -193,12 +193,12 @@ if(NOT _missing_case STREQUAL "")
 endif()
 
 # Some older runners use a generic non-zero exit code for absent cases.
-if(_missing_case_line)
+if(_missing_case_line AND NOT _body_started AND NOT _body_completed)
   message(STATUS "[ SKIP ] Death test not present in this build configuration")
   return()
 endif()
 
-if(_rc EQUAL 77)
+if(_rc EQUAL 77 AND NOT _body_started)
   message(STATUS "[ SKIP ] Death test skipped by test binary")
   return()
 endif()

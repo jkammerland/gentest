@@ -5,6 +5,9 @@
 
 namespace result_correctness {
 
+[[using gentest: test, death]] void body_death_77();
+[[using gentest: test, death]] void runtime_skip_death();
+
 struct AbortingSetup : gentest::FixtureSetup {
     void setUp() override;
 };
