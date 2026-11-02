@@ -12,6 +12,9 @@ from target_command import target_command
 def main():
     binary, helper, cmake, ctest = sys.argv[1:5]
 
+    # Discovery and the CTest commands it emits must use the target's executor too.
+    executor = ";".join(argument.replace(";", r"\;") for argument in target_command(binary)[:-1])
+
     def run(*args, expected=0):
         result = subprocess.run(target_command(binary, *args, "--no-color"), capture_output=True, text=True, timeout=30)
         assert result.returncode == expected, result
@@ -64,6 +67,7 @@ file(WRITE [==[{root / 'script.txt'}]==] "${{script}}")
 
         def discovery(filename, pattern, extra="", working_directory=None):
             command = [cmake, "-DTEST_EXECUTABLE=" + binary, "-DTEST_WORKING_DIR=" + str(working_directory or directory),
+                       "-DTEST_EXECUTOR=" + executor,
                        "-DCTEST_FILE=" + str(root / filename), "-DTEST_FILTER=" + pattern,
                        "-DTEST_EXTRA_ARGS=" + extra, "-DTEST_LIST=cases", "-P", discover]
             subprocess.run(command, check=True, capture_output=True, text=True)
