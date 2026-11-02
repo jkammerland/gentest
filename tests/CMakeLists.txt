@@ -199,6 +199,11 @@ add_test(
 set_property(TEST codegen_tooling_scripts_contract APPEND PROPERTY LABELS "codegen;scripts")
 
 add_test(
+    NAME developer_cycle_benchmark_contract
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_bench_developer_cycle.py)
+set_property(TEST developer_cycle_benchmark_contract APPEND PROPERTY LABELS "scripts;benchmark")
+
+add_test(
     NAME package_metadata_validator_contract
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_validate_package_metadata.py)
 set_property(TEST package_metadata_validator_contract APPEND PROPERTY LABELS "package;scripts")

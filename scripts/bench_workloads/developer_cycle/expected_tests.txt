@@ -1,0 +1,9 @@
+cycle/addition
+cycle/fixture_add
+cycle/fixture_empty
+cycle/mock_charge
+cycle/rows(-1, 0)
+cycle/rows(0, 0)
+cycle/rows(101, 100)
+cycle/values<int>
+cycle/values<long>
