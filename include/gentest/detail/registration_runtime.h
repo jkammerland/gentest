@@ -13,4 +13,22 @@ namespace gentest::detail {
 // direct use in normal test code.
 GENTEST_RUNTIME_API void register_cases(std::span<const Case> cases);
 
+// Generated wrappers call this immediately before invoking the authored body.
+GENTEST_RUNTIME_API void notify_case_body_start();
+GENTEST_RUNTIME_API void notify_case_body_finish() noexcept;
+
+struct CaseBodyScope {
+    bool active;
+    explicit CaseBodyScope(bool enabled = true) : active(enabled) {
+        if (active)
+            notify_case_body_start();
+    }
+    ~CaseBodyScope() {
+        if (active)
+            notify_case_body_finish();
+    }
+    CaseBodyScope(const CaseBodyScope &)            = delete;
+    CaseBodyScope &operator=(const CaseBodyScope &) = delete;
+};
+
 } // namespace gentest::detail

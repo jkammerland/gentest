@@ -20,8 +20,9 @@ struct AsyncCaseRun {
     std::chrono::steady_clock::time_point             end;
     InvokeException                                   exception = InvokeException::None;
     std::string                                       message;
-    bool                                              ready_to_finalize = false;
-    bool                                              finalized         = false;
+    bool                                              ready_to_finalize   = false;
+    bool                                              finalized           = false;
+    bool                                              manual_body_pending = false;
 };
 
 [[nodiscard]] auto async_run_requests_xfail(const AsyncCaseRun &run) -> bool;

@@ -31,6 +31,7 @@ struct CaseLayoutMirror {
     std::uint64_t                     items_per_call{1};
     std::string_view                  owner{};
     gentest::BenchmarkOptions         benchmark{};
+    bool                              reports_body_start{false};
 };
 
 static_assert(!kCompleteType<gentest::detail::AsyncTask>, "gentest/test.h and Case must not parse the full async implementation");

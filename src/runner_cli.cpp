@@ -342,6 +342,33 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             continue;
         }
 
+        if (const auto result =
+                parse_value_option(i, s, "--skip-return-code",
+                                   [&](std::string_view value) {
+                                       std::uint64_t code = 0;
+                                       if (!parse_u64_option("--skip-return-code", value, code))
+                                           return false;
+                                       if (opt.skip_return_code != 0 || code < 4 || code > 255) {
+                                           fmt::print(stderr, "error: --skip-return-code requires one exit code between 4 and 255\n");
+                                           return false;
+                                       }
+                                       opt.skip_return_code = static_cast<int>(code);
+                                       return true;
+                                   });
+            result != OptionParseResult::NoMatch) {
+            if (result == OptionParseResult::Error)
+                return false;
+            continue;
+        }
+        if (const auto result = parse_value_option(
+                i, s, "--gentest-death-marker",
+                [&](std::string_view value) { return set_unique_string_option(opt.death_test_marker, "--gentest-death-marker", value); });
+            result != OptionParseResult::NoMatch) {
+            if (result == OptionParseResult::Error)
+                return false;
+            continue;
+        }
+
         if (const OptionParseResult seed_result = parse_value_option(i, s, "--seed",
                                                                      [&](std::string_view value) {
                                                                          std::uint64_t seed_value = 0;
@@ -685,6 +712,11 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
 
     if (opt.shuffle)
         opt.shuffle_seed = opt.seed_provided ? opt.seed_value : make_random_seed();
+
+    if (opt.death_test_marker && (opt.mode != Mode::Execute || !opt.run_name || !opt.include_death || opt.repeat_n != 1)) {
+        fmt::print(stderr, "error: death-test protocol requires one --run case with --include-death\n");
+        return false;
+    }
 
     out_opt = opt;
     return true;

@@ -297,6 +297,18 @@ gentest_add_mocks(gentest_textual_suite_mocks
 
 gentest_link_mocks(gentest_mocking_tests PRIVATE gentest_textual_suite_mocks)
 gentest_link_mocks(gentest_failing_tests PRIVATE gentest_textual_suite_mocks)
+
+# Deliberately failing probes are driven by a subprocess contract, not a suite run.
+add_executable(gentest_result_correctness_tests result_correctness/cases.cpp result_correctness/cases.hpp support/test_entry.cpp)
+target_link_libraries(gentest_result_correctness_tests PRIVATE gentest::gentest gentest_textual_suite_mocks)
+target_compile_features(gentest_result_correctness_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(gentest_result_correctness_tests)
+add_dependencies(gentest_test_suites gentest_result_correctness_tests)
+gentest_add_python_program_test(NAME result_correctness_contract
+    PROG gentest_result_correctness_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_result_correctness.py
+    ARGS ${PROJECT_SOURCE_DIR}/cmake/gentest/DiscoverTests.cmake ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND})
+set_tests_properties(result_correctness_contract PROPERTIES LABELS "public-api;runner;reporting;cmake")
 # Generated fixture support must also compile when a helper has no callers in
 # this registration unit; clang-cl /W4 /WX diagnoses such internal functions.
 target_compile_options(gentest_failing_tests PRIVATE
@@ -648,10 +660,13 @@ gentest_add_cmake_script_test(
 gentest_add_check_counts(
     NAME async_timer_sleep_fairness
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    PASS 3
+    PASS 4
     FAIL 0
     SKIP 0
     ARGS --filter=async/timer/* --kind=test --no-color)
+
+# A runner that waits for the pending maximum deadline must fail as a deadlock.
+set_tests_properties(async_timer_sleep_fairness PROPERTIES TIMEOUT 10)
 
 gentest_add_check_counts(
     NAME async_timer_stress_repeat
@@ -827,7 +842,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 101
+    CASES 102
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(

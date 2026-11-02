@@ -118,16 +118,46 @@ if(DEFINED ENV_VARS)
   endforeach()
 endif()
 
+set(_expected_case "${CASE_ID}")
+if(NOT DEFINED CASE_ID)
+  foreach(_arg IN LISTS _args)
+    if(_arg MATCHES "^--run=(.+)$")
+      set(_expected_case "${CMAKE_MATCH_1}")
+      break()
+    endif()
+  endforeach()
+endif()
+
+# Each invocation owns a fresh file. Only body entry may write the case name.
+string(RANDOM LENGTH 24 ALPHABET 0123456789abcdef _nonce)
+set(_marker "${CMAKE_CURRENT_LIST_DIR}/gentest-death-${_nonce}.started")
+set(_protocol_args "--gentest-death-marker=${_marker}" --skip-return-code=77)
+
 if(DEFINED CASE_ID)
   execute_process(
-    COMMAND ${_emu} "${PROG}" --include-death "--run=${CASE_ID}" ${_args}
+    COMMAND ${_emu} "${PROG}" --include-death "--run=${CASE_ID}" ${_args} ${_protocol_args}
     RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _err
     OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE)
 else()
   execute_process(
-    COMMAND ${_emu} "${PROG}" ${_args}
+    COMMAND ${_emu} "${PROG}" --include-death ${_args} ${_protocol_args}
     RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _err
     OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE)
+endif()
+
+set(_body_started FALSE)
+set(_body_completed FALSE)
+if(EXISTS "${_marker}")
+  file(READ "${_marker}" _entered_case)
+  file(REMOVE "${_marker}")
+  if(NOT _expected_case STREQUAL "" AND _entered_case STREQUAL _expected_case)
+    set(_body_started TRUE)
+  else()
+    string(FIND "${_entered_case}" "${_expected_case}\ncompleted" _completed_pos)
+    if(_completed_pos EQUAL 0)
+      set(_body_completed TRUE)
+    endif()
+  endif()
 endif()
 
 set(_all "${_out}\n${_err}")
@@ -163,12 +193,12 @@ if(NOT _missing_case STREQUAL "")
 endif()
 
 # Some older runners use a generic non-zero exit code for absent cases.
-if(_missing_case_line)
+if(_missing_case_line AND NOT _body_started AND NOT _body_completed)
   message(STATUS "[ SKIP ] Death test not present in this build configuration")
   return()
 endif()
 
-if(_all MATCHES "(^|\n)\\[ SKIP \\]")
+if(_rc EQUAL 77 AND NOT _body_started)
   message(STATUS "[ SKIP ] Death test skipped by test binary")
   return()
 endif()
@@ -183,6 +213,13 @@ endif()
 
 if(_all MATCHES "(^|\n)\\[ FAIL \\]")
   message(FATAL_ERROR "Death test exited non-zero but reported a normal test failure. Output:\n${_all}")
+endif()
+
+if(NOT _body_started)
+  if(_body_completed)
+    message(FATAL_ERROR "Death test body completed without the expected termination. Output:\n${_all}")
+  endif()
+  message(FATAL_ERROR "Death test did not reach the selected test body. Output:\n${_all}")
 endif()
 
 if(DEFINED DEATH_EXPECT_SUBSTRING)
@@ -324,7 +361,7 @@ function(gentest_discover_tests_impl)
       foreach(arg IN LISTS arg_TEST_EXECUTOR)
         _gentest_append_args("${arg}")
       endforeach()
-      _gentest_append_args("${arg_TEST_EXECUTABLE}" "--run=${case_id}")
+      _gentest_append_args("${arg_TEST_EXECUTABLE}" "--run=${case_id}" --skip-return-code=77)
       foreach(arg IN LISTS arg_TEST_EXTRA_ARGS)
         _gentest_append_args("${arg}")
       endforeach()
@@ -335,6 +372,8 @@ function(gentest_discover_tests_impl)
     _gentest_append_args("${testname}" PROPERTIES WORKING_DIRECTORY "${arg_TEST_WORKING_DIR}")
     if(is_death)
       _gentest_append_args(SKIP_REGULAR_EXPRESSION "\\[ SKIP \\]")
+    else()
+      _gentest_append_args(SKIP_RETURN_CODE 77)
     endif()
     foreach(arg IN LISTS arg_TEST_PROPERTIES)
       _gentest_append_args("${arg}")

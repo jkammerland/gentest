@@ -198,8 +198,10 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
     }
 
     bool allow_mutation(std::string_view method_name) const {
-        (void)method_name;
         if (runtime_started && runtime_started->load(std::memory_order_acquire)) {
+            ::gentest::detail::record_failure(fmt::format(
+                "Cannot configure mock {} after its first invocation or verification. Configure expectations before using the mock.",
+                method_name));
             return false;
         }
         return true;
@@ -295,8 +297,11 @@ class InstanceState {
 
     void set_nice(bool v) {
         std::lock_guard<std::mutex> lk(mtx_);
-        if (frozen_)
+        if (frozen_) {
+            ::gentest::detail::record_failure(
+                "Cannot configure mock mode after its first invocation or verification. Configure the mock before using it.");
             return;
+        }
         nice_mode_ = v;
     }
     bool nice() const {
@@ -320,8 +325,12 @@ class InstanceState {
     template <typename R, typename... Args>
     std::shared_ptr<Expectation<R(Args...)>> push_expectation(const MethodIdentity &id, std::string method_name) {
         std::lock_guard<std::mutex> lk(mtx_);
-        if (frozen_)
+        if (frozen_) {
+            ::gentest::detail::record_failure(fmt::format(
+                "Cannot configure mock {} after its first invocation or verification. Configure expectations before using the mock.",
+                method_name));
             return {};
+        }
         auto &entry = methods_[id];
         if (entry.method_name.empty())
             entry.method_name = std::move(method_name);

@@ -524,7 +524,27 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
 
     const bool ok = (counters.failures == 0) && (counters.blocked == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() &&
                     state.acc.infra_errors.empty();
-    return ok ? 0 : 1;
+    if (!ok)
+        return 1;
+
+    // Infrastructure and teardown failures take precedence over a skipped result.
+    const auto total   = counters.total + bench_status.total + jitter_status.total;
+    const auto skipped = counters.skipped + bench_status.skipped + jitter_status.skipped;
+    return total != 0 && skipped == total && counters.xfail == 0 ? opt.skip_return_code : 0;
+}
+
+int write_empty_execution_reports(const CliOptions &opt) {
+    const bool                         recording = opt.junit_path || opt.allure_dir || opt.records_dir;
+    gentest::detail::RecordingRunScope run(recording);
+    RunAccumulator                     acc;
+    prepare_record_reports(acc, *run.session, opt.records_dir, opt.junit_path, opt.allure_dir);
+    if (opt.junit_path || opt.allure_dir)
+        write_reports(acc, ReportConfig{.junit_path = opt.junit_path, .allure_dir = opt.allure_dir});
+    if (opt.github_annotations)
+        emit_github_annotations(acc, stderr);
+    for (const auto &error : acc.infra_errors)
+        fmt::print(stderr, "{}\n", error);
+    return acc.infra_errors.empty() ? 0 : 1;
 }
 
 } // namespace
@@ -552,6 +572,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --filter=<pattern>    Run cases matching wildcard pattern (*, ?)\n");
         fmt::print("  --kind=<kind>         Restrict to kind: all|test|bench|jitter (default all)\n");
         fmt::print("  --include-death       Allow running tests tagged 'death'\n");
+        fmt::print("  --skip-return-code=N  Exit N (4..255) when every selected case skips\n");
         fmt::print("  --no-color            Disable colorized output (also disabled for dumb/captured output)\n");
         fmt::print("  --github-annotations  Emit GitHub Actions annotations (::error ...) on failures\n");
         fmt::print("  --junit=<file>        Write JUnit XML report to file\n");
@@ -646,9 +667,9 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         if (machine_measured_report) {
             switch (opt.kind) {
             case KindFilter::Test: return reject_machine_measured_report_unmeasured_selection(opt);
-            case KindFilter::Bench: print_empty_machine_measured_report(opt, true, false); return 0;
-            case KindFilter::Jitter: print_empty_machine_measured_report(opt, false, true); return 0;
-            case KindFilter::All: print_empty_machine_measured_report(opt, true, true); return 0;
+            case KindFilter::Bench: print_empty_machine_measured_report(opt, true, false); return write_empty_execution_reports(opt);
+            case KindFilter::Jitter: print_empty_machine_measured_report(opt, false, true); return write_empty_execution_reports(opt);
+            case KindFilter::All: print_empty_machine_measured_report(opt, true, true); return write_empty_execution_reports(opt);
             }
         }
         switch (opt.kind) {
@@ -657,13 +678,13 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         case KindFilter::Jitter: fmt::print("Executed 0 jitter benchmark(s).\n"); break;
         case KindFilter::All: fmt::print("Executed 0 case(s).\n"); break;
         }
-        return 0;
+        return write_empty_execution_reports(opt);
     case SelectionStatus::DeathExcludedRun:
         fmt::print(stderr, "Case '{}' is tagged as a death test; rerun with --include-death\n", opt.run_name);
         return 1;
     case SelectionStatus::DeathExcludedAll:
         if (opt.mode == Mode::ListSelected)
-            return 0;
+            return write_empty_execution_reports(opt);
         if (machine_measured_report) {
             CliOptions death_included_opt       = opt;
             death_included_opt.include_death    = true;
@@ -680,7 +701,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
             return 0;
         }
         fmt::print("Executed 0 case(s). (death tests excluded; use --include-death)\n");
-        return 0;
+        return write_empty_execution_reports(opt);
     }
 
     // Use the execution selector, but stop before fixture construction, report
@@ -693,6 +714,11 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
 
     if (machine_measured_report && !selection.test_idxs.empty()) {
         return reject_machine_measured_report_unmeasured_selection(opt);
+    }
+
+    if (opt.death_test_marker && (selection.idxs.size() != 1 || !has_tag_ci(kCases[selection.idxs.front()], "death"))) {
+        fmt::print(stderr, "error: death-test protocol requires exactly one death-tagged case\n");
+        return 1;
     }
 
     if (selection.filtered_death > 0) {

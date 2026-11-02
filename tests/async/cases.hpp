@@ -14,6 +14,7 @@
 #include <future>
 #include <memory>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -75,7 +76,6 @@ inline std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_done{tr
 
 inline gentest::async::manual_event                          group_fence_release;
 inline std::vector<std::string>                              group_fence_order;
-inline std::vector<std::string>                              timer_fairness_order;
 inline gentest::async::manual_event                          timer_stress_start;
 inline gentest::async::manual_event                          timer_stress_all_started;
 inline gentest::async::manual_event                          timer_stress_all_done;
@@ -656,11 +656,14 @@ gentest::awaitable<void> fail_fast_final_drain_async_should_not_run_after_failur
 [[using gentest: test("timer/00_sleep_for_waits")]]
 gentest::awaitable<void> timer_sleep_for_waits();
 
-[[using gentest: test("timer/01_yield_runs_while_sleep_pending")]]
-gentest::awaitable<void> timer_yield_runs_while_sleep_pending();
+[[using gentest: test("timer/01_yield_resumes")]]
+gentest::awaitable<void> timer_yield_resumes();
 
 [[using gentest: test("timer/02_sleep_until_waits")]]
 gentest::awaitable<void> timer_sleep_until_waits();
+
+[[using gentest: test("timer/03_pending_sleep_allows_yielding_sibling")]]
+gentest::awaitable<void> timer_pending_sleep_allows_yielding_sibling();
 
 [[using gentest: test("timer_stress/00_ready_wins_expired_timeout")]]
 gentest::awaitable<void> timer_stress_ready_wins_expired_timeout();

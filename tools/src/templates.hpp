@@ -41,7 +41,7 @@ inline constexpr std::string_view registration_preamble_light = R"CPP(#include <
 
 #include "gentest/detail/registration_runtime.h"
 
-#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 3 || \
+#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 5 || \
     !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
 #error "gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime"
 #endif
@@ -63,7 +63,7 @@ inline constexpr std::string_view registration_preamble_full = R"CPP(#include <a
 #include "gentest/async.h"
 #include "gentest/detail/generated_runtime.h"
 
-#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 3 || \
+#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 5 || \
     !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
 #error "gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime"
 #endif
@@ -465,7 +465,8 @@ inline constexpr std::string_view case_entry = R"FMT(    gentest::Case{{
             .execution = {benchmark_execution},
             .time_source = {benchmark_time_source},
             .warmup_epochs = {benchmark_warmup}
-        }}
+        }},
+        .reports_body_start = true
     }},
 
 )FMT";

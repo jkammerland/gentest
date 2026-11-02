@@ -486,29 +486,70 @@ gentest::awaitable<void> fail_fast_final_drain_async_should_not_run_after_failur
 namespace async {
 
 gentest::awaitable<void> timer_sleep_for_waits() {
-    timer_fairness_order.clear();
-    co_await gentest::async::sleep_for(std::chrono::milliseconds(10));
-    ASSERT_EQ(timer_fairness_order.size(), std::size_t{1});
-    EXPECT_EQ(timer_fairness_order[0], "yield");
-    timer_fairness_order.emplace_back("timer");
+    constexpr auto delay   = std::chrono::milliseconds(10);
+    const auto     started = std::chrono::steady_clock::now();
+    co_await gentest::async::sleep_for(delay);
+
+    // A deadline may expire before suspension on a slow host or emulator.
+    EXPECT_GE(std::chrono::steady_clock::now() - started, delay);
 }
 
 } // namespace async
 
 namespace async {
 
-gentest::awaitable<void> timer_yield_runs_while_sleep_pending() {
-    co_await gentest::async::yield();
-    timer_fairness_order.emplace_back("yield");
-}
+gentest::awaitable<void> timer_yield_resumes() { co_await gentest::async::yield(); }
 
 } // namespace async
 
 namespace async {
 
 gentest::awaitable<void> timer_sleep_until_waits() {
-    co_await gentest::async::sleep_until(std::chrono::steady_clock::now() + std::chrono::milliseconds(1));
-    EXPECT_TRUE(true);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1);
+    co_await gentest::async::sleep_until(deadline);
+    EXPECT_GE(std::chrono::steady_clock::now(), deadline);
+}
+
+} // namespace async
+
+namespace async {
+
+gentest::awaitable<void> timer_pending_sleep_allows_yielding_sibling() {
+    std::stop_source             stop;
+    gentest::async::manual_event started;
+    std::vector<std::string>     order;
+    bool                         completed = false;
+    bool                         cancelled = false;
+
+    // The real runner must dispatch a ready sibling while this timer stays pending.
+    auto sleeper = [&]() -> gentest::awaitable<void> {
+        order.emplace_back("timer started");
+        started.set("timer started");
+        try {
+            co_await gentest::async::sleep_until(std::chrono::steady_clock::time_point::max(), stop.get_token());
+            order.emplace_back("timer elapsed");
+        } catch (const gentest::async::operation_cancelled &) {
+            cancelled = true;
+            order.emplace_back("timer cancelled");
+        }
+        completed = true;
+    };
+
+    auto yielder = [&]() -> gentest::awaitable<void> {
+        co_await started.wait("timer started");
+        EXPECT_FALSE(completed);
+        co_await gentest::async::yield();
+
+        EXPECT_FALSE(completed);
+        EXPECT_EQ(order, std::vector<std::string>{"timer started"});
+        order.emplace_back("yield");
+        EXPECT_TRUE(stop.request_stop());
+    };
+
+    co_await gentest::async::when_all(sleeper(), yielder());
+    EXPECT_TRUE(completed);
+    EXPECT_TRUE(cancelled);
+    EXPECT_EQ(order, (std::vector<std::string>{"timer started", "yield", "timer cancelled"}));
 }
 
 } // namespace async

@@ -1,5 +1,7 @@
 #include "cases.hpp"
 
+#include "gentest/detail/runtime_context.h"
+
 namespace mocking {
 
 void interface_returns() {
@@ -599,7 +601,7 @@ void concurrency_adopted_ordered_dispatch() {
 
 namespace mocking {
 
-void concurrency_late_mutation_ignored_after_runtime_start() {
+void concurrency_late_mutation_rejected_after_runtime_start() {
     gentest::mock<Calculator> mock_calc;
     std::mutex                gate_mtx;
     std::condition_variable   gate_cv;
@@ -634,7 +636,13 @@ void concurrency_late_mutation_ignored_after_runtime_start() {
         gate_cv.wait(lk, [&] { return first_entered; });
     }
 
+    // Rejected late configuration must report a failure without changing dispatch.
+    const auto owner      = gentest::detail::current_test();
+    const auto diagnostic = std::make_shared<gentest::detail::TestContextInfo>();
+    gentest::detail::start_context(*diagnostic);
+    gentest::detail::set_current_test(diagnostic, gentest::detail::CurrentContextRole::Owner);
     second.returns(99);
+    gentest::detail::set_current_test(owner, gentest::detail::CurrentContextRole::Owner);
 
     std::thread t2([&] {
         auto guard = gentest::set_current_context(context);
@@ -653,6 +661,8 @@ void concurrency_late_mutation_ignored_after_runtime_start() {
     EXPECT_EQ(results[0], 11);
     EXPECT_EQ(results[1], 22);
     EXPECT_TRUE(first_args_ok.load(std::memory_order_acquire));
+    ASSERT_EQ(diagnostic->failures.size(), std::size_t{1});
+    EXPECT_TRUE(diagnostic->failures.front().find("Cannot configure mock") != std::string::npos);
 }
 
 } // namespace mocking

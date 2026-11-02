@@ -37,10 +37,13 @@ void fatal_path();
 - Death tests are registered with the `death/` prefix by default. If your test names already include `death/`,
   you'll see entries like `death/death/fatal_path` in CTest.
 - Discovery uses `--list-json` and identifies death-tagged cases from each inventory entry's `tags` array.
-- The harness runs `--include-death --run=<case>` and expects a non-zero exit code.
+- The harness runs `--include-death --run=<case>` and requires a body-entry marker followed by a non-zero exit or fatal signal.
+  Generated cases write that marker after fixture setup, immediately before calling the authored test. CLI errors, launch errors,
+  and termination during fixture setup fail the death test.
 - If the test binary reports a normal test failure (`[ FAIL ]`), the harness marks it as a failure.
 - If the test binary reports "Case not found:" (or legacy "Test not found:"), the harness marks the CTest
   entry as skipped.
+- Runtime skips use a dedicated exit status. Test, teardown, and reporting failures take precedence over skips.
 - Full discovery options live in `docs/discover_tests.md`.
 
 ### Output expectations

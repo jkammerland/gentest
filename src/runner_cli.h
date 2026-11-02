@@ -53,22 +53,24 @@ struct CliOptions {
     bool color_output       = true;
     bool github_annotations = false;
 
-    bool        fail_fast      = false;
-    bool        fail_on_empty  = false;
-    bool        shuffle        = false;
-    std::size_t repeat_n       = 1;
-    std::size_t async_log_tail = 5;
-    bool        include_death  = false;
+    bool        fail_fast        = false;
+    bool        fail_on_empty    = false;
+    bool        shuffle          = false;
+    std::size_t repeat_n         = 1;
+    std::size_t async_log_tail   = 5;
+    bool        include_death    = false;
+    int         skip_return_code = 0;
 
     bool          seed_provided = false;
     std::uint64_t seed_value    = 0; // exact value from --seed
     std::uint64_t shuffle_seed  = 0; // actual seed used when shuffling
 
-    const char *run_name    = nullptr;
-    const char *filter_pat  = nullptr;
-    const char *junit_path  = nullptr;
-    const char *allure_dir  = nullptr;
-    const char *records_dir = nullptr;
+    const char *run_name          = nullptr;
+    const char *filter_pat        = nullptr;
+    const char *junit_path        = nullptr;
+    const char *allure_dir        = nullptr;
+    const char *records_dir       = nullptr;
+    const char *death_test_marker = nullptr;
 
     bool        bench_table = false;
     BenchConfig bench_cfg{};
