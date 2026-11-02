@@ -6,6 +6,7 @@
 ## Getting started
 
 - Quick start: [`README.md`](../README.md)
+- Linux first-use walkthrough: [`docs/install/linux.md`](install/linux.md)
 - Runnable examples: [`examples/README.md`](../examples/README.md)
 - Changelog: [`CHANGELOG.md`](../CHANGELOG.md)
 - Modules guide: [`docs/modules.md`](modules.md)
@@ -20,7 +21,7 @@
 - Deprecations: [`DEPRECATIONS.md`](../DEPRECATIONS.md)
 - Previous (full) README snapshot: [`docs/archive/README_2026-01-03.md`](archive/README_2026-01-03.md)
 
-## Install / build templates
+## Install / build
 
 - Linux: [`docs/install/linux.md`](install/linux.md)
 - macOS: [`docs/install/macos.md`](install/macos.md)

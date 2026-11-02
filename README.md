@@ -54,9 +54,13 @@ Features currently include:
 
 ## Requirements
 
-- CMake ≥ 3.31 (see below for non-cmake buildsystems)
-- C++20 compiler and standard library
-- LLVM/Clang (for `gentest_codegen`)
+- CMake ≥ 3.31 and Ninja or Ninja Multi-Config (see below for other build systems)
+- C++20 application compiler and standard library, including `std::stop_token`
+- Matching LLVM/Clang development packages ≥ 19 and a real host Clang executable
+  for `gentest_codegen`; the application compiler can be Clang or GCC
+
+Repository formatting and static analysis use LLVM 23. Named modules add their
+own [compiler and dependency-scanning requirements](docs/modules.md#requirements).
 
 On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
 
@@ -75,6 +79,9 @@ Contributor workflows, including lint, static analysis, coverage, and local CI-a
 
 ## Use in your project (CMake)
 
+For a complete source-build, user-prefix install, passing test, intentional
+failure, and exact-case rerun, follow the [Linux first-use walkthrough](docs/install/linux.md).
+
 Complete copy-paste projects live in [`examples/hello_header_only`](examples/hello_header_only),
 [`examples/hello`](examples/hello), and [`examples/hello_modules`](examples/hello_modules).
 Feature walkthroughs cover [parameter matrices](examples/parameterized/),
@@ -82,12 +89,21 @@ Feature walkthroughs cover [parameter matrices](examples/parameterized/),
 [benchmark/jitter matrices](examples/measured/), and [metadata exports](examples/metadata/).
 
 ```cmake
+cmake_minimum_required(VERSION 3.31)
+project(my_tests LANGUAGES CXX)
+
+include(CTest)
+enable_testing()
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 # Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
 find_package(gentest CONFIG REQUIRED)
 
 # The annotated header is the whole test target; codegen appends the generated
 # registration sources.
 add_executable(my_tests cases.hpp)
+target_compile_features(my_tests PRIVATE cxx_std_20)
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
 # Setup codegen dependency for your target
@@ -686,11 +702,17 @@ int main() {
 Keep the interface declaration in a separate header from the `gentest::mock<T>` marker alias; the generated third-party public header
 includes the interface header, not the marker header. If the target type is namespaced, the mock class follows that namespace:
 `myapp::Clock` becomes `myapp::mocks::ClockMock`. The generated name comes from the target type, not from the marker alias name.
-`BACKEND gmock` and `BACKEND trompeloeil` currently support textual/header mock targets only and require a single-config generator.
+`BACKEND gmock` and `BACKEND trompeloeil` support textual/header mock targets with Ninja and Ninja Multi-Config;
+multi-config artifacts live under a configuration subdirectory of `OUTPUT_DIR`.
 Use the default `BACKEND gentest` for named-module mocks. No backend supports conversion operators, C-style variadic methods,
 volatile-qualified methods, or pure virtual assignment operators. See [docs/mock_generation.md](docs/mock_generation.md) for mock-only
 consumer examples, install/export notes, naming, and limitations. The Trompeloeil backend emits explicit-arity
 `MAKE_MOCKn` / `MAKE_CONST_MOCKn` macros for compatibility with older Trompeloeil packages.
+
+GMock tests use GoogleTest's runner, CLI, and reports. Trompeloeil supplies mocking;
+its host test framework or standalone program controls execution and reports.
+These generated classes do not install an adapter into Gentest's runner. See
+[execution and reports](docs/mock_generation.md#execution-and-reports) when combining frameworks.
 
 Named-module mock usage is the same idea, but the public surface is a generated module:
 
