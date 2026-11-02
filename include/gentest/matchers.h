@@ -356,6 +356,7 @@ template <typename... Expected> struct ElementsAreFactory {
         using Element = std::remove_cvref_t<std::ranges::range_reference_t<const Range>>;
         using Value   = std::ranges::range_value_t<const Range>;
         ArgPredicate<Range> out;
+        // Keep diagnostics runtime-only when a module importer has different fmt consteval settings.
         out.evaluate = [values = expected](const Range &actual) -> detail::matching::MatchResult {
             auto                          current = std::ranges::begin(actual);
             const auto                    end     = std::ranges::end(actual);
@@ -365,7 +366,7 @@ template <typename... Expected> struct ElementsAreFactory {
                 if (!result.matched)
                     return;
                 if (current == end) {
-                    result = {false, fmt::format("missing element at index {}", index)};
+                    result = {.matched = false, .explanation = fmt::format(fmt::runtime("missing element at index {}"), index)};
                     return;
                 }
                 const auto &value = *current;
@@ -387,7 +388,7 @@ template <typename... Expected> struct ElementsAreFactory {
                     }
                 }();
                 if (!result.matched) {
-                    result.explanation = fmt::format("element[{}]: {}", index, result.explanation);
+                    result.explanation = fmt::format(fmt::runtime("element[{}]: {}"), index, result.explanation);
                     return;
                 }
                 ++current;
@@ -395,7 +396,9 @@ template <typename... Expected> struct ElementsAreFactory {
             };
             std::apply([&](const auto &...items) { (check(items), ...); }, values);
             if (result.matched && current != end)
-                result = {false, fmt::format("unexpected element at index {}: {}", index, gentest::format_value(*current))};
+                result = {.matched = false,
+                          .explanation =
+                              fmt::format(fmt::runtime("unexpected element at index {}: {}"), index, gentest::format_value(*current))};
             return result;
         };
         out.test     = [evaluate = out.evaluate](const Range &actual) { return evaluate(actual).matched; };

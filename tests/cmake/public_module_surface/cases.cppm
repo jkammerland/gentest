@@ -79,6 +79,25 @@ void format_value_case() {
     gentest::expect_eq(gentest::format_value(public_module_surface_support::StreamOnlyValue{7}), "module-stream-value(7)");
     gentest::expect_eq(gentest::format_value(std::array{1, 2, 3}), "[1, 2, 3]");
     gentest::expect_that(std::array{1, 2}, gentest::match::ElementsAre(1, 2));
+
+    // Evaluate failures directly: preserve diagnostics without reporting intentional assertion failures.
+    const auto check_elements = [](const auto &matcher, const auto &actual, bool matched, std::string_view explanation) {
+        const auto result = matcher.template make<std::remove_cvref_t<decltype(actual)>>().evaluate(actual);
+        gentest::expect_eq(result.matched, matched);
+        gentest::expect_eq(result.explanation, explanation);
+    };
+    using gentest::match::ElementsAre;
+    check_elements(ElementsAre(1, 2), std::array{1, 2}, true, "");
+    check_elements(ElementsAre(1, 2), std::array{1}, false, "missing element at index 1");
+    check_elements(ElementsAre(1, 2), std::array{1, 3}, false, "element[1]: expected == 2, got 3");
+    check_elements(ElementsAre(1), std::array{1, 2}, false, "unexpected element at index 1: 2");
+    check_elements(gentest::match::AllOf(ElementsAre(1, 2), ElementsAre(1, 3)), std::array{1, 2}, false,
+                   "matcher[1]: element[1]: expected == 3, got 2");
+    check_elements(gentest::match::AnyOf(ElementsAre(1, 3), ElementsAre(1, 2)), std::array{1, 2}, true, "");
+    check_elements(gentest::match::AnyOf(ElementsAre(1), ElementsAre(1, 3)), std::array{1, 2}, false,
+                   "alternative[0]: unexpected element at index 1: 2; alternative[1]: element[1]: expected == 3, got 2");
+    check_elements(gentest::match::Not(ElementsAre(1, 3)), std::array{1, 2}, true, "");
+    check_elements(ElementsAre(gentest::match::Eq(1), gentest::match::Eq(2)), std::array{1, 2}, true, "");
 }
 
 [[using gentest: test("async_yield")]]
