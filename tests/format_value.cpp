@@ -5,18 +5,47 @@
 using GlobalCallback = void (*)(long);
 std::ostream &operator<<(std::ostream &stream, GlobalCallback);
 
+#include "gentest/assertions.h"
 #include "gentest/format_value.h"
 #include "gentest/mock.h"
 
+#include <cmath>
 #include <fmt/format.h>
 #include <iostream>
+#include <map>
+#include <optional>
+#include <ranges>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <typeinfo>
+#include <variant>
+#include <vector>
 
 struct FmtOnlyValue {
     int value;
 };
+
+namespace tuple_protocol {
+struct Value {
+    int first;
+    int second;
+};
+template <std::size_t Index> const int &get(const Value &value) {
+    if constexpr (Index == 0)
+        return value.first;
+    else
+        return value.second;
+}
+} // namespace tuple_protocol
+
+namespace std {
+template <> struct tuple_size<tuple_protocol::Value> : integral_constant<size_t, 2> {};
+template <size_t Index> struct tuple_element<Index, tuple_protocol::Value> {
+    using type = int;
+};
+} // namespace std
 
 std::ostream &operator<<(std::ostream &stream, GlobalCallback) { return stream << "global-callback"; }
 
@@ -82,6 +111,47 @@ int expect_equal(std::string_view actual, std::string_view expected, std::string
 
 int main() {
     int failures = 0;
+
+    // Structural representations are independent of a failed assertion's values.
+    failures += expect_equal(gentest::format_value(std::vector{1, 2, 3}), "[1, 2, 3]", "range values");
+    const int raw_values[]{1, 2};
+    failures += expect_equal(gentest::format_value(raw_values), "[1, 2]", "raw array values");
+    failures += expect_equal(gentest::format_value(std::vector<unsigned char>{1, 255}), "[1, 255]", "byte values");
+    failures += expect_equal(gentest::format_value(std::byte{255}), "255", "standard byte");
+    const auto [first_field, second_field] = tuple_protocol::Value{1, 2};
+    if (first_field != 1 || second_field != 2 ||
+        gentest::format_value(tuple_protocol::Value{1, 2}).find("unprintable") == std::string::npos)
+        ++failures;
+    failures += expect_equal(gentest::format_value(std::tuple{1, std::string("a\nb"), std::optional<int>{}}), "(1, \"a\\nb\", nullopt)",
+                             "nested tuple");
+    failures += expect_equal(gentest::format_value(std::vector<std::optional<int>>{1, std::nullopt}), "[optional(1), nullopt]",
+                             "nested optional range");
+    failures += expect_equal(gentest::format_value(std::map<std::string, int>{{"key", 9}}), "[(\"key\", 9)]", "map pairs");
+    failures += expect_equal(gentest::format_value(std::variant<int, std::string>{std::string("value")}), "variant[1](\"value\")",
+                             "variant alternative");
+    failures += expect_equal(gentest::format_value(std::string_view("\n\t\0\\\"", 5)), "\"\\n\\t\\0\\\\\\\"\"", "escaped bytes");
+    failures += expect_equal(gentest::format_value('\n'), "'\\n'", "quoted character");
+    failures += expect_equal(gentest::format_value(static_cast<const char *>(nullptr)), "nullptr", "null string pointer");
+    failures += expect_equal(gentest::format_value(nullptr), "nullptr", "null pointer literal");
+    failures += expect_equal(gentest::format_value(gentest::approx::Approx(1).abs(0.25).rel(2)), "Approx(target=1, abs=0.25, rel=2%)",
+                             "Approx configuration");
+
+    // Distinct adjacent floating values must remain distinguishable and round trip.
+    const auto adjacent = std::nextafter(1.0, 2.0);
+    if (gentest::format_value(1.0) == gentest::format_value(adjacent) || std::stod(gentest::format_value(adjacent)) != adjacent)
+        ++failures;
+    if (gentest::format_value(std::vector<int>(10000, 1)).size() > 150 || gentest::format_value(std::string(10000, 'x')).size() > 550)
+        ++failures;
+    if (gentest::format_value(std::string(511, 'x') + "\xc3\xa9").find('\xc3') != std::string::npos)
+        ++failures;
+    std::istringstream source("1 2 3");
+    auto               single_pass = std::ranges::istream_view<int>(source);
+    (void)gentest::format_value(single_pass);
+    int first = 0;
+    source >> first;
+    if (first != 1)
+        ++failures;
+
     failures += expect_equal(gentest::format_value(FmtOnlyValue{42}), "fmt-value(42)", "fmt formatter");
     failures += expect_equal(gentest::format_value(StreamOnlyValue{7}), "stream-value(7)", "stream fallback");
     failures += expect_equal(gentest::format_value(UnprintableValue{}), expected_unprintable_value(), "unprintable fallback");

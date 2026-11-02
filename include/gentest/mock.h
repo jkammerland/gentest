@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gentest/format_value.h"
+#include "gentest/matchers.h"
 #include "gentest/mock_fwd.h"
 #include "gentest/runner.h"
 
@@ -76,42 +77,31 @@ struct MethodIdentityHash {
 
 template <typename Lhs, typename Rhs> inline constexpr bool same_v = std::is_same_v<Lhs, Rhs>;
 
+inline void record_mock_failure(std::string message, const std::source_location &location = {}) {
+    if (location.line() != 0)
+        message += fmt::format(" (expectation at {})", ::gentest::detail::loc_to_string(location));
+    ::gentest::detail::record_failure(std::move(message), location);
+}
+
 struct ExpectationBase {
-    virtual ~ExpectationBase()                        = default;
-    virtual void verify(std::string_view method_name) = 0;
-    bool         already_verified                     = false;
+    virtual ~ExpectationBase()                                = default;
+    virtual void         verify(std::string_view method_name) = 0;
+    bool                 already_verified                     = false;
+    std::source_location location{};
 };
 
 template <typename Signature> struct Expectation;
 
 template <typename T> inline std::string to_string_fallback(const T &v) {
-    if constexpr (::gentest::detail::ValueFormattable<T>) {
+    if constexpr (std::is_function_v<std::remove_pointer_t<T>> && ::gentest::detail::ValueFormattable<T>) {
         return ::gentest::detail::format_printable_value(v, false);
     } else {
-        return std::string(typeid(T).name());
+        return ::gentest::format_value(v);
     }
 }
 
-template <typename T> struct ArgPredicate {
-    std::function<bool(const T &)>        test;
-    std::function<std::string(const T &)> describe; // optional; may be empty
-};
-
-template <typename T, typename P>
-concept HasMakeFor = requires(const P &p) {
-    { p.template make<T>() } -> std::same_as<ArgPredicate<T>>;
-};
-
-template <typename T, typename P> ArgPredicate<T> to_arg_predicate(P &&p) {
-    if constexpr (HasMakeFor<T, P>) {
-        return p.template make<T>();
-    } else {
-        ArgPredicate<T> out;
-        out.test     = std::function<bool(const T &)>{std::forward<P>(p)};
-        out.describe = [](const T &) { return std::string("predicate mismatch"); };
-        return out;
-    }
-}
+using ::gentest::detail::matching::ArgPredicate;
+using ::gentest::detail::matching::to_arg_predicate;
 
 template <std::size_t I = 0, typename ExpectedTuple, typename ActualTuple>
 bool tuple_args_match(const ExpectedTuple &expected, const ActualTuple &actual) {
@@ -123,60 +113,65 @@ bool tuple_args_match(const ExpectedTuple &expected, const ActualTuple &actual) 
 }
 
 template <std::size_t I = 0, typename ExpectedTuple, typename ActualTuple>
-void report_first_tuple_arg_mismatch(const ExpectedTuple &expected, std::string_view method_name, const ActualTuple &actual) {
+void report_first_tuple_arg_mismatch(const ExpectedTuple &expected, std::string_view method_name, const ActualTuple &actual,
+                                     const std::source_location &location) {
     if constexpr (I < std::tuple_size_v<std::remove_reference_t<ExpectedTuple>>) {
         if (!(std::get<I>(expected) == std::get<I>(actual))) {
-            ::gentest::detail::record_failure(fmt::format("argument[{}] mismatch for {}: expected {}, got {}", I, method_name,
-                                                          to_string_fallback(std::get<I>(expected)),
-                                                          to_string_fallback(std::get<I>(actual))));
+            record_mock_failure(fmt::format("argument[{}] mismatch for {}: expected {}, got {}", I, method_name,
+                                            to_string_fallback(std::get<I>(expected)), to_string_fallback(std::get<I>(actual))),
+                                location);
             return;
         }
-        report_first_tuple_arg_mismatch<I + 1>(expected, method_name, actual);
+        report_first_tuple_arg_mismatch<I + 1>(expected, method_name, actual, location);
     }
 }
 
 template <std::size_t I = 0, typename PredicateTuple, typename ActualTuple>
-bool tuple_args_match_predicates(const PredicateTuple &preds, std::string_view method_name, const ActualTuple &actual) {
+bool tuple_args_match_predicates(const PredicateTuple &preds, std::string_view method_name, const ActualTuple &actual,
+                                 const std::source_location &location) {
     if constexpr (I == std::tuple_size_v<std::remove_reference_t<PredicateTuple>>) {
         return true;
     } else {
         const auto &ap = std::get<I>(preds);
         const auto &a  = std::get<I>(actual);
-        if (!ap.test(a)) {
-            const std::string msg = ap.describe ? ap.describe(a) : std::string("predicate mismatch");
-            ::gentest::detail::record_failure(fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg));
+        if (const auto result = ::gentest::detail::matching::evaluate_predicate(ap, a); !result.matched) {
+            const auto &msg = result.explanation;
+            record_mock_failure(fmt::format("argument[{}] mismatch for {}: {}", I, method_name, msg), location);
             return false;
         }
-        return tuple_args_match_predicates<I + 1>(preds, method_name, actual);
+        return tuple_args_match_predicates<I + 1>(preds, method_name, actual, location);
     }
 }
 
 template <typename Tuple, typename... A>
-bool check_args_equal(const std::optional<Tuple> &expected, std::string_view method_name, const A &...actual) {
+bool check_args_equal(const std::optional<Tuple> &expected, std::string_view method_name, const std::source_location &location,
+                      const A &...actual) {
     if (!expected)
         return true;
     const auto actual_tuple = std::forward_as_tuple(actual...);
     const bool matched      = tuple_args_match(*expected, actual_tuple);
     if (!matched) {
-        report_first_tuple_arg_mismatch(*expected, method_name, actual_tuple);
+        report_first_tuple_arg_mismatch(*expected, method_name, actual_tuple, location);
     }
     return matched;
 }
 
 template <typename TuplePred, typename... A>
-bool check_args_by_predicates(const std::optional<TuplePred> &preds, std::string_view method_name, const A &...actual) {
+bool check_args_by_predicates(const std::optional<TuplePred> &preds, std::string_view method_name, const std::source_location &location,
+                              const A &...actual) {
     if (!preds)
         return true;
     const auto actual_tuple = std::forward_as_tuple(actual...);
-    return tuple_args_match_predicates(*preds, method_name, actual_tuple);
+    return tuple_args_match_predicates(*preds, method_name, actual_tuple, location);
 }
 
-inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std::string_view method_name, bool &already_verified) {
+inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std::string_view method_name, bool &already_verified,
+                                 const std::source_location &location) {
     if (already_verified)
         return;
     already_verified = true;
     if (observed < expected) {
-        ::gentest::detail::record_failure(fmt::format("expected {} call(s) to {} but observed {}", expected, method_name, observed));
+        record_mock_failure(fmt::format("expected {} call(s) to {} but observed {}", expected, method_name, observed), location);
     }
 }
 
@@ -194,14 +189,16 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
     mutable std::recursive_mutex state_mtx_;
 
     void verify(std::string_view method_name) override {
-        verify_calls_or_fail(expected_calls, observed_calls, method_name, this->already_verified);
+        verify_calls_or_fail(expected_calls, observed_calls, method_name, this->already_verified, this->location);
     }
 
     bool allow_mutation(std::string_view method_name) const {
         if (runtime_started && runtime_started->load(std::memory_order_acquire)) {
-            ::gentest::detail::record_failure(fmt::format(
-                "Cannot configure mock {} after its first invocation or verification. Configure expectations before using the mock.",
-                method_name));
+            record_mock_failure(
+                fmt::format(
+                    "Cannot configure mock {} after its first invocation or verification. Configure expectations before using the mock.",
+                    method_name),
+                this->location);
             return false;
         }
         return true;
@@ -246,14 +243,14 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
         if (call_predicate) {
             if (!call_predicate(actual...)) {
-                ::gentest::detail::record_failure(fmt::format("call predicate mismatch for {}", method_name));
+                record_mock_failure(fmt::format("call predicate mismatch for {}", method_name), this->location);
                 return false;
             }
             return true;
         }
         if (arg_predicates)
-            return check_args_by_predicates(arg_predicates, method_name, actual...);
-        return check_args_equal(expected_args, method_name, actual...);
+            return check_args_by_predicates(arg_predicates, method_name, this->location, actual...);
+        return check_args_equal(expected_args, method_name, this->location, actual...);
     }
 };
 
@@ -298,8 +295,9 @@ class InstanceState {
     void set_nice(bool v) {
         std::lock_guard<std::mutex> lk(mtx_);
         if (frozen_) {
-            ::gentest::detail::record_failure(
-                "Cannot configure mock mode after its first invocation or verification. Configure the mock before using it.");
+            record_mock_failure(
+                "Cannot configure mock mode after its first invocation or verification. Configure the mock before using it.",
+                ::gentest::detail::mock_configuration_location_storage());
             return;
         }
         nice_mode_ = v;
@@ -326,9 +324,11 @@ class InstanceState {
     std::shared_ptr<Expectation<R(Args...)>> push_expectation(const MethodIdentity &id, std::string method_name) {
         std::lock_guard<std::mutex> lk(mtx_);
         if (frozen_) {
-            ::gentest::detail::record_failure(fmt::format(
-                "Cannot configure mock {} after its first invocation or verification. Configure expectations before using the mock.",
-                method_name));
+            record_mock_failure(
+                fmt::format(
+                    "Cannot configure mock {} after its first invocation or verification. Configure expectations before using the mock.",
+                    method_name),
+                ::gentest::detail::mock_configuration_location_storage());
             return {};
         }
         auto &entry = methods_[id];
@@ -336,6 +336,7 @@ class InstanceState {
             entry.method_name = std::move(method_name);
         auto expectation             = std::make_shared<Expectation<R(Args...)>>();
         expectation->runtime_started = runtime_started_;
+        expectation->location        = ::gentest::detail::mock_configuration_location_storage();
         entry.expectations.push_back(expectation);
         return expectation;
     }
@@ -346,16 +347,19 @@ class InstanceState {
 
     template <typename R, typename... Args>
     R dispatch_with_fallback(const MethodIdentity &id, const MethodIdentity &fallback_id, std::string_view method_name, Args &&...args) {
-        using ExpectationT        = Expectation<R(Args...)>;
-        bool          nice_mode   = false;
-        bool          unexpected  = false;
-        ExpectationT *expectation = nullptr;
+        using ExpectationT               = Expectation<R(Args...)>;
+        bool                 nice_mode   = false;
+        bool                 unexpected  = false;
+        ExpectationT        *expectation = nullptr;
+        std::source_location last_expectation_location;
         {
             std::lock_guard<std::mutex> lk(mtx_);
             runtime_started_->store(true, std::memory_order_release);
             frozen_                         = true;
             const auto try_take_expectation = [&](const MethodIdentity &candidate) -> bool {
                 auto it = methods_.find(candidate);
+                if (it != methods_.end() && !it->second.expectations.empty())
+                    last_expectation_location = it->second.expectations.back()->location;
                 if (it == methods_.end() || it->second.next_expectation >= it->second.expectations.size()) {
                     return false;
                 }
@@ -380,7 +384,7 @@ class InstanceState {
 
         if (!expectation) {
             if (!nice_mode) {
-                ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
+                record_mock_failure(fmt::format("unexpected call to {}", method_name), last_expectation_location);
             }
             if constexpr (!std::is_void_v<R>) {
                 if constexpr (std::is_reference_v<R>) {
@@ -393,7 +397,7 @@ class InstanceState {
             }
         }
         if (unexpected) {
-            ::gentest::detail::record_failure(fmt::format("unexpected call to {}", method_name));
+            record_mock_failure(fmt::format("unexpected call to {}", method_name), expectation->location);
         }
         return expectation->invoke(method_name, std::forward<Args>(args)...);
     }
@@ -618,22 +622,29 @@ template <class Mock> struct MockAccess {
 
 } // namespace detail
 
-template <class Mock, class MethodPtr> auto expect(Mock &instance, MethodPtr method) {
+template <class Mock, class MethodPtr>
+auto expect(Mock &instance, MethodPtr method, const std::source_location &location = std::source_location::current()) {
     ::gentest::detail::require_not_adopted_context("mock expectation configured");
+    ::gentest::detail::MockConfigurationLocationScope source(location);
     return detail::MockAccess<std::remove_cvref_t<Mock>>::expect(instance, method);
 }
 
-template <auto Method, class Mock> auto expect(Mock &instance, std::string_view method_name) {
+template <auto Method, class Mock>
+auto expect(Mock &instance, std::string_view method_name, const std::source_location &location = std::source_location::current()) {
     ::gentest::detail::require_not_adopted_context("mock expectation configured");
+    ::gentest::detail::MockConfigurationLocationScope source(location);
     return detail::MockAccess<std::remove_cvref_t<Mock>>::template expect_constant<Method>(instance, method_name);
 }
 
-template <class Mock> void make_nice(Mock &instance, bool v = true) {
+template <class Mock>
+void make_nice(Mock &instance, bool v = true, const std::source_location &location = std::source_location::current()) {
     ::gentest::detail::require_not_adopted_context("mock mode configured");
+    ::gentest::detail::MockConfigurationLocationScope source(location);
     detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, v);
 }
-template <class Mock> void make_strict(Mock &instance) {
+template <class Mock> void make_strict(Mock &instance, const std::source_location &location = std::source_location::current()) {
     ::gentest::detail::require_not_adopted_context("mock mode configured");
+    ::gentest::detail::MockConfigurationLocationScope source(location);
     detail::MockAccess<std::remove_cvref_t<Mock>>::set_nice(instance, false);
 }
 
@@ -644,311 +655,6 @@ template <class Mock> void make_strict(Mock &instance) {
     (::gentest::expect<&std::remove_reference_t<decltype(instance)>::GentestTarget::method>((instance), #method))
 #define ASSERT_CALL(instance, method) EXPECT_CALL(instance, method)
 #endif
-
-// Lightweight matcher helpers for predicate-based argument matching.
-// Use with ExpectationHandle::where_args(...) or ::where(...), e.g.:
-//   expect(mock, &T::fn).where(Eq(42), Any());
-namespace match {
-using ::gentest::detail::mocking::ArgPredicate;
-
-struct AnyFactory {
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
-        ap.test = [](const T &) noexcept { return true; };
-        return ap;
-    }
-};
-inline auto Any() { return AnyFactory{}; }
-
-template <typename V> struct EqFactory {
-    using Value = std::decay_t<V>;
-    Value                                 expected;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
-        const Value     exp = expected;
-        ap.test             = [exp](const T &a) { return a == exp; };
-        ap.describe         = [exp](const T &a) {
-            return fmt::format("expected == {}, got {}", ::gentest::detail::mocking::to_string_fallback(exp),
-                               ::gentest::detail::mocking::to_string_fallback(a));
-        };
-        return ap;
-    }
-};
-template <typename V> inline auto Eq(V &&v) { return EqFactory<V>{std::forward<V>(v)}; }
-
-template <typename A, typename B> struct InRangeFactory {
-    using Lo = std::decay_t<A>;
-    using Hi = std::decay_t<B>;
-    Lo                                    l;
-    Hi                                    h;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
-        const Lo        lo = l;
-        const Hi        hi = h;
-        ap.test            = [lo, hi](const T &a) { return (a >= lo) && (a <= hi); };
-        ap.describe        = [lo, hi](const T &a) {
-            return fmt::format("expected in [{}, {}], got {}", ::gentest::detail::mocking::to_string_fallback(lo),
-                               ::gentest::detail::mocking::to_string_fallback(hi), ::gentest::detail::mocking::to_string_fallback(a));
-        };
-        return ap;
-    }
-};
-template <typename A, typename B> inline auto InRange(A &&lo, B &&hi) {
-    return InRangeFactory<A, B>{std::forward<A>(lo), std::forward<B>(hi)};
-}
-
-template <typename P> struct NotFactory {
-    P                                     inner;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ip = inner.template make<T>();
-        ArgPredicate<T> ap;
-        ap.test     = [ip](const T &a) { return !ip.test(a); };
-        ap.describe = [ip](const T &a) {
-            std::string inner_desc = ip.describe ? ip.describe(a) : std::string("predicate matched");
-            return std::string("not(") + inner_desc + ")";
-        };
-        return ap;
-    }
-};
-template <typename P> inline auto Not(P &&p) { return NotFactory<std::decay_t<P>>{std::forward<P>(p)}; }
-
-template <typename V> struct GeFactory {
-    using Value = std::decay_t<V>;
-    Value                                 bound;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
-        const Value     b = bound;
-        ap.test           = [b](const T &a) { return a >= b; };
-        ap.describe       = [b](const T &a) {
-            return fmt::format("expected >= {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                               ::gentest::detail::mocking::to_string_fallback(a));
-        };
-        return ap;
-    }
-};
-template <typename V> inline auto Ge(V &&v) { return GeFactory<V>{std::forward<V>(v)}; }
-
-template <typename V> struct LeFactory {
-    using Value = std::decay_t<V>;
-    Value                                 bound;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
-        const Value     b = bound;
-        ap.test           = [b](const T &a) { return a <= b; };
-        ap.describe       = [b](const T &a) {
-            return fmt::format("expected <= {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                               ::gentest::detail::mocking::to_string_fallback(a));
-        };
-        return ap;
-    }
-};
-template <typename V> inline auto Le(V &&v) { return LeFactory<V>{std::forward<V>(v)}; }
-
-template <typename V> struct GtFactory {
-    using Value = std::decay_t<V>;
-    Value                                 bound;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
-        const Value     b = bound;
-        ap.test           = [b](const T &a) { return a > b; };
-        ap.describe       = [b](const T &a) {
-            return fmt::format("expected > {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                               ::gentest::detail::mocking::to_string_fallback(a));
-        };
-        return ap;
-    }
-};
-template <typename V> inline auto Gt(V &&v) { return GtFactory<V>{std::forward<V>(v)}; }
-
-template <typename V> struct LtFactory {
-    using Value = std::decay_t<V>;
-    Value                                 bound;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
-        const Value     b = bound;
-        ap.test           = [b](const T &a) { return a < b; };
-        ap.describe       = [b](const T &a) {
-            return fmt::format("expected < {}, got {}", ::gentest::detail::mocking::to_string_fallback(b),
-                               ::gentest::detail::mocking::to_string_fallback(a));
-        };
-        return ap;
-    }
-};
-template <typename V> inline auto Lt(V &&v) { return LtFactory<V>{std::forward<V>(v)}; }
-
-template <typename V, typename E> struct NearFactory {
-    using Value = std::decay_t<V>;
-    using Eps   = std::decay_t<E>;
-    Value                                 expected;
-    Eps                                   eps;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
-        const Value     exp = expected;
-        const Eps       e   = eps;
-        ap.test             = [exp, e](const T &a) {
-            using std::abs;
-            return abs(static_cast<long double>(a) - static_cast<long double>(exp)) <= static_cast<long double>(e);
-        };
-        ap.describe = [exp, e](const T &a) {
-            return fmt::format("expected near {} ± {}, got {}", ::gentest::detail::mocking::to_string_fallback(exp),
-                               ::gentest::detail::mocking::to_string_fallback(e), ::gentest::detail::mocking::to_string_fallback(a));
-        };
-        return ap;
-    }
-};
-template <typename V, typename E> inline auto Near(V &&v, E &&eps) { return NearFactory<V, E>{std::forward<V>(v), std::forward<E>(eps)}; }
-
-template <typename T> inline std::optional<std::string_view> to_string_view_safe(const T &a) {
-    using D = std::decay_t<T>;
-    if constexpr (std::is_same_v<D, const char *> || std::is_same_v<D, char *>) {
-        if (a == nullptr)
-            return std::nullopt;
-        return std::string_view(a);
-    } else {
-        return std::string_view(a);
-    }
-}
-
-struct StrContainsFactory {
-    std::string                           needle;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T>   ap;
-        const std::string nd = needle;
-        ap.test              = [nd](const T &a) {
-            auto s = to_string_view_safe(a);
-            if (!s)
-                return false;
-            return s->find(nd) != std::string_view::npos;
-        };
-        ap.describe = [nd](const T &a) {
-            auto s = to_string_view_safe(a);
-            if (!s)
-                return fmt::format("expected substring '{}', got <null>", nd);
-            return fmt::format("expected substring '{}', got '{}'", nd, *s);
-        };
-        return ap;
-    }
-};
-inline auto StrContains(std::string needle) { return StrContainsFactory{std::move(needle)}; }
-
-struct StartsWithFactory {
-    std::string                           prefix;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T>   ap;
-        const std::string px = prefix;
-        ap.test              = [px](const T &a) {
-            auto s = to_string_view_safe(a);
-            if (!s)
-                return false;
-            return s->rfind(px, 0) == 0;
-        };
-        ap.describe = [px](const T &a) {
-            auto s = to_string_view_safe(a);
-            if (!s)
-                return fmt::format("expected prefix '{}', got <null>", px);
-            return fmt::format("expected prefix '{}', got '{}'", px, *s);
-        };
-        return ap;
-    }
-};
-inline auto StartsWith(std::string prefix) { return StartsWithFactory{std::move(prefix)}; }
-
-struct EndsWithFactory {
-    std::string                           suffix;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T>   ap;
-        const std::string sx = suffix;
-        ap.test              = [sx](const T &a) {
-            auto s = to_string_view_safe(a);
-            if (!s)
-                return false;
-            return s->size() >= sx.size() && s->substr(s->size() - sx.size()) == sx;
-        };
-        ap.describe = [sx](const T &a) {
-            auto s = to_string_view_safe(a);
-            if (!s)
-                return fmt::format("expected suffix '{}', got <null>", sx);
-            return fmt::format("expected suffix '{}', got '{}'", sx, *s);
-        };
-        return ap;
-    }
-};
-inline auto EndsWith(std::string suffix) { return EndsWithFactory{std::move(suffix)}; }
-
-template <typename... M> struct AnyOfFactory {
-    std::tuple<M...>                      subs;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
-        const auto      subs_local = subs;
-        ap.test                    = [subs_local](const T &a) {
-            bool ok = false;
-            std::apply([&](auto const &...m) { ((ok = ok || m.template make<T>().test(a)), ...); }, subs_local);
-            return ok;
-        };
-        ap.describe = [subs_local](const T &a) {
-            std::string msg   = "expected any of: ";
-            bool        first = true;
-            std::apply(
-                [&](auto const &...m) {
-                    (([&] {
-                         auto inner = m.template make<T>();
-                         if (!first)
-                             msg += "; ";
-                         first = false;
-                         if (inner.describe)
-                             msg += inner.describe(a);
-                         else
-                             msg += "predicate";
-                     }()),
-                     ...);
-                },
-                subs_local);
-            return msg;
-        };
-        return ap;
-    }
-};
-template <typename... M> inline auto AnyOf(M &&...m) {
-    return AnyOfFactory<std::decay_t<M>...>{std::tuple<std::decay_t<M>...>(std::forward<M>(m)...)};
-}
-
-template <typename... M> struct AllOfFactory {
-    std::tuple<M...>                      subs;
-    template <typename T> ArgPredicate<T> make() const {
-        ArgPredicate<T> ap;
-        const auto      subs_local = subs;
-        ap.test                    = [subs_local](const T &a) {
-            bool ok = true;
-            std::apply([&](auto const &...m) { ((ok = ok && m.template make<T>().test(a)), ...); }, subs_local);
-            return ok;
-        };
-        ap.describe = [subs_local](const T &a) {
-            std::string msg   = "expected all of: ";
-            bool        first = true;
-            std::apply(
-                [&](auto const &...m) {
-                    (([&] {
-                         auto inner = m.template make<T>();
-                         if (!first)
-                             msg += "; ";
-                         first = false;
-                         if (inner.describe)
-                             msg += inner.describe(a);
-                         else
-                             msg += "predicate";
-                     }()),
-                     ...);
-                },
-                subs_local);
-            return msg;
-        };
-        return ap;
-    }
-};
-template <typename... M> inline auto AllOf(M &&...m) {
-    return AllOfFactory<std::decay_t<M>...>{std::tuple<std::decay_t<M>...>(std::forward<M>(m)...)};
-}
-} // namespace match
 
 } // namespace gentest
 

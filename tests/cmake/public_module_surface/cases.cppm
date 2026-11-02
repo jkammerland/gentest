@@ -77,10 +77,13 @@ void expect_true_case() {
 void format_value_case() {
     gentest::expect_eq(gentest::format_value(public_module_surface_support::FmtOnlyValue{42}), "module-fmt-value(42)");
     gentest::expect_eq(gentest::format_value(public_module_surface_support::StreamOnlyValue{7}), "module-stream-value(7)");
+    gentest::expect_eq(gentest::format_value(std::array{1, 2, 3}), "[1, 2, 3]");
+    gentest::expect_that(std::array{1, 2}, gentest::match::ElementsAre(1, 2));
 }
 
 [[using gentest: test("async_yield")]]
 gentest::awaitable<> async_yield_case() {
+    auto context = gentest::diagnostic_context("module coroutine context");
     co_await gentest::async::yield();
     gentest::expect_true(true);
 }

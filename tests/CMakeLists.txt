@@ -309,6 +309,22 @@ gentest_add_python_program_test(NAME result_correctness_contract
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_result_correctness.py
     ARGS ${PROJECT_SOURCE_DIR}/cmake/gentest/DiscoverTests.cmake ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND})
 set_tests_properties(result_correctness_contract PROPERTIES LABELS "public-api;runner;reporting;cmake")
+
+add_executable(gentest_failure_diagnostics_tests diagnostics/cases.cpp diagnostics/cases.hpp support/test_entry.cpp)
+target_link_libraries(gentest_failure_diagnostics_tests PRIVATE gentest::gentest gentest_textual_suite_mocks)
+target_compile_features(gentest_failure_diagnostics_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(gentest_failure_diagnostics_tests)
+add_dependencies(gentest_test_suites gentest_failure_diagnostics_tests)
+gentest_add_python_program_test(NAME failure_diagnostics_contract
+    PROG gentest_failure_diagnostics_tests SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_failure_diagnostics.py)
+set_tests_properties(failure_diagnostics_contract PROPERTIES LABELS "public-api;runner;reporting")
+
+add_executable(gentest_matcher_proxy_tests matcher_proxy.cpp)
+target_link_libraries(gentest_matcher_proxy_tests PRIVATE gentest::gentest)
+target_compile_features(gentest_matcher_proxy_tests PRIVATE cxx_std_20)
+add_dependencies(gentest_test_suites gentest_matcher_proxy_tests)
+add_test(NAME matcher_proxy_contract COMMAND gentest_matcher_proxy_tests)
+set_tests_properties(matcher_proxy_contract PROPERTIES LABELS "public-api;runner")
 # Generated fixture support must also compile when a helper has no callers in
 # this registration unit; clang-cl /W4 /WX diagnoses such internal functions.
 target_compile_options(gentest_failing_tests PRIVATE

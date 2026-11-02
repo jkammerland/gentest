@@ -223,6 +223,9 @@ inline void add() {
 } // namespace math
 ```
 
+See [failure diagnostics](docs/failure_diagnostics.md) for container/string output, scoped context, shared matcher assertions, and
+the optional libassert expression adapter.
+
 Include-based tests that use flow-sensitive analysis can opt into caller-visible
 fatal assertion macros. Clang-tidy recognizes `ASSERT_TRUE` and `ASSERT_FALSE`
 as guards, which avoids false positives such as an optional access after a

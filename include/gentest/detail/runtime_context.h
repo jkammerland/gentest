@@ -30,13 +30,15 @@ enum class ContextState : unsigned char {
 };
 
 struct RecordingTarget;
+struct DiagnosticContextState;
 
 struct TestContextInfo {
-    std::shared_ptr<FrameworkSubject> framework_subject;
-    bool                              framework_subject_owner = false;
-    std::shared_ptr<RecordingTarget>  recording;
-    std::string                       display_name;
-    std::vector<std::string>          failures;
+    std::shared_ptr<FrameworkSubject>       framework_subject;
+    bool                                    framework_subject_owner = false;
+    std::shared_ptr<RecordingTarget>        recording;
+    std::shared_ptr<DiagnosticContextState> diagnostic_context;
+    std::string                             display_name;
+    std::vector<std::string>                failures;
     struct FailureLoc {
         std::string file;
         unsigned    line = 0;

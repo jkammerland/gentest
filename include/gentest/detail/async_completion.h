@@ -20,12 +20,26 @@
 namespace gentest::detail {
 
 struct TestContextInfo;
+struct DiagnosticContextState;
+GENTEST_RUNTIME_API auto clone_diagnostic_context(const std::shared_ptr<DiagnosticContextState> &source)
+    -> std::shared_ptr<DiagnosticContextState>;
 class AsyncFrame;
 class AsyncFrameScope;
 GENTEST_RUNTIME_API auto current_async_frame() noexcept -> AsyncFrame *;
 GENTEST_RUNTIME_API auto set_current_async_frame(AsyncFrame *frame) noexcept -> AsyncFrame *;
 GENTEST_RUNTIME_API auto current_async_frame_scope() noexcept -> AsyncFrameScope *;
 GENTEST_RUNTIME_API auto set_current_async_frame_scope(AsyncFrameScope *scope) noexcept -> AsyncFrameScope *;
+
+class AsyncFrameContextScope {
+  public:
+    explicit AsyncFrameContextScope(AsyncFrame *frame) noexcept : previous_(set_current_async_frame(frame)) {}
+    ~AsyncFrameContextScope() { (void)set_current_async_frame(previous_); }
+    AsyncFrameContextScope(const AsyncFrameContextScope &)            = delete;
+    AsyncFrameContextScope &operator=(const AsyncFrameContextScope &) = delete;
+
+  private:
+    AsyncFrame *previous_;
+};
 
 // Only the void callback signature needed by asynchronous operations is erased.
 template <typename... Arguments> class AsyncCallback {
@@ -92,6 +106,8 @@ class AsyncFrame {
     auto operator=(const AsyncFrame &) -> AsyncFrame & = delete;
 
     ~AsyncFrame() {
+        // Suspended locals and stop callbacks still belong to this frame.
+        AsyncFrameContextScope context(this);
         cancel();
         if (handle) {
             handle.destroy();
@@ -100,6 +116,8 @@ class AsyncFrame {
 
     // Bound by the scheduler, never borrowed from whichever producer thread resumes.
     std::weak_ptr<TestContextInfo> framework_context;
+    // Inherited snapshots isolate lexical scopes in concurrently running children.
+    std::shared_ptr<DiagnosticContextState> diagnostic_context;
 
     [[nodiscard]] auto address() const noexcept -> void * { return handle.address(); }
     [[nodiscard]] auto done() const noexcept -> bool { return !handle || completed_; }
@@ -177,6 +195,7 @@ class AsyncFrame {
     }
 
     void cancel() noexcept {
+        AsyncFrameContextScope context(this);
         invalidate();
         if (done()) {
             return;

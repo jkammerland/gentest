@@ -147,6 +147,10 @@ Configure native mock expectations and nice/strict mode before the first invocat
 thereafter; adding an expectation or changing a saved expectation handle records a test failure and leaves the configured
 behavior intact. Configure before starting worker threads, then dispatch concurrently as needed.
 
+Native expectations retain their declaration location through both `gentest::expect(...)` and `EXPECT_CALL`. Count, argument,
+excess-call, and rejected-configuration failures identify it. See [failure diagnostics](failure_diagnostics.md) for the shared
+assertion/mock matcher API and contextual failures.
+
 Third-party backends currently support CMake textual/header mock definitions only. `gentest_add_mocks()` supports single-config and multi-config generators; multi-config artifacts are emitted under a configuration subdirectory of `OUTPUT_DIR`.
 
 The Trompeloeil backend emits explicit-arity `MAKE_MOCKn` / `MAKE_CONST_MOCKn` macros for compatibility with older Trompeloeil packages.

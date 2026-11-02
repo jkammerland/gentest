@@ -201,6 +201,8 @@ class AsyncSchedulerCore {
         if (auto parent_frame = frame_for(parent)) {
             child->inherit_stop_token(parent_frame->stop_token());
             child->framework_context = parent_frame->framework_context;
+            if (!child->diagnostic_context)
+                child->diagnostic_context = gentest::detail::clone_diagnostic_context(parent_frame->diagnostic_context);
         }
         std::lock_guard<std::mutex> lk(mtx_);
         const auto                  parent_owner = owner_for_locked(parent.address());
