@@ -76,6 +76,7 @@ void late_mock(int operation) {
     case 6: expectation.invokes([](int, int) { return 8; }); break;
     case 7: expectation.allow_more(); break;
     case 8: gentest::make_nice(clock); break;
+    default: gentest::fail("unsupported late-mock probe operation");
     }
 }
 
