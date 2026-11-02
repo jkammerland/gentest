@@ -51,6 +51,16 @@ class DeveloperCycleBenchmarkTests(unittest.TestCase):
             "generated/mocks/cycle_mocks_mock_registry.hpp",
         ]), "mock_generation")
 
+    def test_cmake_regeneration_is_not_runtime_construction(self):
+        actions = benchmark.ninja_actions([
+            "1\t241\t0\tbuild.ninja\taaaa",
+            "1\t241\t0\t/build/gentest/src/cmake_install.cmake\taaaa",
+            "1\t241\t0\t/build/gentest/src/CTestTestfile.cmake\taaaa",
+        ])
+        self.assertEqual(benchmark.action_summary(actions), {
+            "cmake_regeneration": {"actions": 1, "action_seconds": 0.24},
+        })
+
     def test_compacted_log_does_not_recount_old_actions(self):
         old = "0\t200\t1\tcases.cpp.o\taaaa"
         retained = "0\t300\t2\tfixtures.cpp.o\tbbbb"

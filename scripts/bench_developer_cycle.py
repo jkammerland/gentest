@@ -83,6 +83,10 @@ def new_ninja_lines(before: list[str], after: list[str]) -> list[str]:
 
 def action_category(outputs: list[str]) -> str:
     names = " ".join(outputs).replace("\\", "/")
+
+    # CMake also emits files inside component source directories during regeneration.
+    if any(name.replace("\\", "/").rsplit("/", 1)[-1] == "build.ninja" for name in outputs):
+        return "cmake_regeneration"
     if "_deps/" in names:
         return "dependency_construction"
     if "gentest_codegen.dir/" in names or any(name.endswith("/gentest_codegen") for name in outputs):

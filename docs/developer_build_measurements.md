@@ -72,8 +72,9 @@ the independently specified case names, including new cases and rows. A failed
 command, missing/duplicate case, vacuous inventory, or edit that triggers no
 rebuild stops the run and leaves a nonzero status and partial results.
 
-Ninja action timings distinguish dependency construction, host-generator construction, runtime
-construction, mock generation, registration generation/compilation, other
+Ninja action timings distinguish CMake regeneration, dependency construction,
+host-generator construction, runtime construction, mock generation,
+registration generation/compilation, other
 authored/mock compilation, and consumer linking. Multi-output edges count once.
 These are sums of action elapsed times: parallel actions overlap, so they must
 not be added to wall time or interpreted as a critical path. The exact command
