@@ -842,7 +842,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 101
+    CASES 102
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
