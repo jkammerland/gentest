@@ -1,7 +1,6 @@
 #include "runner_test_plan.h"
 
 #include <algorithm>
-#include <functional>
 #include <random>
 #include <unordered_map>
 
@@ -13,7 +12,25 @@ void shuffle_with_seed(std::vector<std::size_t> &order, std::uint64_t seed) {
     if (order.size() <= 1)
         return;
     std::mt19937_64 rng(static_cast<std::mt19937_64::result_type>(seed));
-    std::shuffle(order.begin(), order.end(), rng);
+    // Rejection sampling avoids both modulo bias and library-specific distributions.
+    for (std::size_t remaining = order.size(); remaining > 1; --remaining) {
+        const auto bound     = static_cast<std::uint64_t>(remaining);
+        const auto threshold = (std::uint64_t{0} - bound) % bound;
+        auto       value     = rng();
+        while (value < threshold) {
+            value = rng();
+        }
+        std::swap(order[remaining - 1], order[static_cast<std::size_t>(value % bound)]);
+    }
+}
+
+std::uint64_t stable_name_hash(std::string_view name) {
+    // FNV-1a makes suite/fixture seeds independent of std::hash implementations.
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (const unsigned char ch : name) {
+        hash = (hash ^ ch) * 1099511628211ULL;
+    }
+    return hash;
 }
 
 using FixtureIndexMap = std::unordered_map<std::string_view, std::size_t>;
@@ -74,12 +91,12 @@ std::vector<SuiteExecutionPlan> build_suite_execution_plan(std::span<const gente
     for (auto &builder : builders) {
         auto &plan = builder.plan;
         if (shuffle) {
-            const std::uint64_t suite_seed = base_seed ^ (std::hash<std::string_view>{}(plan.suite) << 1U);
+            const std::uint64_t suite_seed = base_seed ^ (stable_name_hash(plan.suite) << 1U);
             shuffle_with_seed(plan.free_like, suite_seed);
 
             const auto shuffle_groups = [&](std::vector<FixtureGroupPlan> &groups) {
                 for (auto &group : groups) {
-                    const std::uint64_t group_seed = suite_seed + std::hash<std::string_view>{}(group.fixture);
+                    const std::uint64_t group_seed = suite_seed + stable_name_hash(group.fixture);
                     shuffle_with_seed(group.idxs, group_seed);
                 }
             };

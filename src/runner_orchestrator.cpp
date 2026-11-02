@@ -1,10 +1,13 @@
 #include "runner_orchestrator.h"
 
 #include "benchmark_internal.h"
+#include "runner_debug.h"
 #include "runner_fixture_runtime.h"
 #include "runner_json.h"
 #include "runner_measured_executor.h"
 #include "runner_measured_report.h"
+#include "runner_output.h"
+#include "runner_replay.h"
 #include "runner_reporting.h"
 #include "runner_selector.h"
 #include "runner_tag_utils.h"
@@ -380,7 +383,7 @@ std::string format_run_summary(const TestCounters &counters, const TimedRunStatu
     return fmt::to_string(summary);
 }
 
-int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, const SelectionResult &selection, bool has_selection) {
+int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, const SelectionResult &selection) {
     // Validate manual registrations as well as generated ones, before shared/local fixture setup.
     for (const auto index : selection.idxs) {
         if (const auto error = gentest::detail::validate_benchmark_options(kCases[index]); !error.empty()) {
@@ -396,7 +399,9 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
     OrchestratorState state{};
     state.color_output   = opt.color_output;
     state.record_results = (opt.junit_path != nullptr) || (opt.allure_dir != nullptr) || (opt.records_dir != nullptr);
-    gentest::detail::RecordingRunScope recording_run(state.record_results);
+    gentest::detail::RecordingRunScope   recording_run(state.record_results);
+    gentest::detail::AssertionBreakScope assertion_break(opt.break_on_failure);
+    FailureLogScope                      failure_logs(opt.failure_logs);
 
     SharedFixtureRunGuard fixture_guard(is_machine_measured_report(opt));
     TestCounters          counters;
@@ -413,17 +418,24 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         TestRunContext test_state{};
         test_state.color_output   = state.color_output;
         test_state.record_results = state.record_results;
+        test_state.output_mode    = opt.output_mode;
+        test_state.failure_logs   = opt.failure_logs;
         test_state.async_log_tail = opt.async_log_tail;
         test_state.acc            = &state.acc;
-        const auto test_plans     = gentest::runner::build_suite_execution_plan(
-            kCases, std::span<const std::size_t>{test_idxs.data(), test_idxs.size()}, opt.shuffle, opt.shuffle_seed);
-
-        if (opt.shuffle && !has_selection)
-            fmt::print("Shuffle seed: {}\n", opt.shuffle_seed);
         for (std::size_t iter = 0; iter < opt.repeat_n; ++iter) {
-            if (opt.shuffle && has_selection)
-                fmt::print("Shuffle seed: {}\n", opt.shuffle_seed);
+            const auto seed       = iteration_shuffle_seed(opt.shuffle_seed, iter);
+            const auto test_plans = gentest::runner::build_suite_execution_plan(
+                kCases, std::span<const std::size_t>{test_idxs.data(), test_idxs.size()}, opt.shuffle, seed);
+            if (opt.shuffle) {
+                fmt::print("Shuffle seed: {} (iteration {}/{}; base seed {})\n", seed, iter + 1, opt.repeat_n, opt.shuffle_seed);
+                if (const auto replay = iteration_replay_command(opt, seed); !replay.empty()) {
+                    fmt::print("Replay iteration: {}\n", replay);
+                }
+            }
             tests_stopped = gentest::runner::run_tests_once(test_state, kCases, test_plans, opt.fail_fast, counters);
+            if (opt.output_mode == OutputMode::Compact) {
+                fmt::print("\n");
+            }
             if (tests_stopped)
                 break;
         }
@@ -532,6 +544,22 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         }
     }
 
+    // Use unambiguous inventory names once, independent of wildcard/suffix/repeat.
+    std::vector<std::string_view> rerun_names;
+    for (const auto &failure : state.acc.failure_items) {
+        if (std::ranges::find(rerun_names, failure.name) != rerun_names.end() ||
+            std::ranges::count_if(kCases, [&](const auto &test) { return test.name == failure.name; }) != 1) {
+            continue;
+        }
+        const auto selected = std::ranges::find_if(selection.idxs, [&](std::size_t index) { return kCases[index].name == failure.name; });
+        if (selected != selection.idxs.end()) {
+            if (const auto rerun = failure_rerun_command(opt, kCases[*selected]); !rerun.empty()) {
+                fmt::print(stderr, "Rerun: {}\n", rerun);
+                rerun_names.push_back(kCases[*selected].name);
+            }
+        }
+    }
+
     const bool ok = (counters.failures == 0) && (counters.blocked == 0) && bench_status.ok && jitter_status.ok && fixture_guard.ok() &&
                     state.acc.infra_errors.empty();
     if (!ok)
@@ -594,11 +622,14 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --time-unit=<mode>    Time display unit: auto|ns (default auto)\n");
         fmt::print("  --report-format=<mode> Measured reports: table|markdown|csv|json (default table)\n");
         fmt::print("  --fail-fast           Stop after the first failing case\n");
+        fmt::print("  --break-on-failure    Trap at a failing assertion (requires a debugger to continue)\n");
+        fmt::print("  --output=<mode>       Test output: full|compact|failures-only (default full)\n");
+        fmt::print("  --log-output=<mode>   gentest logs: all|failures (default failures for compact/failures-only)\n");
         fmt::print("  --fail-on-empty       Fail when execution/preview selects no cases\n");
         fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
         fmt::print("  --async-log-tail=N    Live async log lines per case (default 5, 0 disables)\n");
         fmt::print("  --shuffle             Shuffle tests (respects fixture/grouping)\n");
-        fmt::print("  --seed N              RNG seed used with --shuffle\n");
+        fmt::print("  --seed N              Base shuffle seed; each repeat prints its own replay seed\n");
         fmt::print("\nBenchmark options:\n");
         fmt::print("  --bench-table         Print a summary table per suite (runs benches)\n");
         fmt::print("  --bench-min-epoch-time-s=<sec>  Minimum epoch time\n");
@@ -665,7 +696,6 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     }
 
     const auto selection               = gentest::runner::select_cases(kCases, opt);
-    const bool has_selection           = selection.has_selection;
     const bool machine_measured_report = is_machine_measured_report(opt);
 
     // Selection failures happen before fixture setup. Matched skipped cases
@@ -761,7 +791,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
                    selection.filtered_death);
     }
 
-    return run_execution(kCases, opt, selection, has_selection);
+    return run_execution(kCases, opt, selection);
 }
 
 } // namespace gentest::runner

@@ -2,6 +2,7 @@
 
 #include "gentest/detail/runtime_context.h"
 #include "recording_internal.h"
+#include "runner_output.h"
 
 #include <memory>
 #include <string>
@@ -15,6 +16,7 @@ inline auto make_active_test_context(std::string_view display_name) -> std::shar
     ctx->recording    = gentest::detail::current_recording_target();
     gentest::detail::inherit_framework_context(*ctx);
     gentest::detail::start_context(*ctx);
+    ctx->suppress_stdout_log.store(capture_failure_logs(), std::memory_order_release);
     return ctx;
 }
 

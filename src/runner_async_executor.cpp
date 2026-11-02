@@ -161,9 +161,11 @@ bool plans_include_async_cases(std::span<const gentest::Case> cases, std::span<c
 
 bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case> cases, std::span<const SuiteExecutionPlan> plans,
                            bool fail_fast, TestCounters &counters) {
-    std::vector<AsyncCaseRun> async_runs;
-    AsyncStatusRenderer       renderer(std::cout, AsyncStatusRenderer::terminal_mode(state.color_output), state.color_output, {},
-                                       state.async_log_tail);
+    std::vector<AsyncCaseRun>                    async_runs;
+    const auto                                   renderer_mode = state.output_mode == OutputMode::Full && !state.failure_logs
+                                                                     ? AsyncStatusRenderer::terminal_mode(state.color_output)
+                                                                     : AsyncStatusRenderer::Mode::Disabled;
+    AsyncStatusRenderer                          renderer(std::cout, renderer_mode, state.color_output, {}, state.async_log_tail);
     gentest::detail::DefaultStdoutLogWriterScope log_writer_scope(renderer.enabled() ? &renderer : nullptr,
                                                                   &write_async_log_through_renderer);
     TestRunContext                               final_state = state;

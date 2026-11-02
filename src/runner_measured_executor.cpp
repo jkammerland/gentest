@@ -216,6 +216,7 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
     auto  inv     = gentest::runner::invoke_case_once(c, ctx, phase, gentest::runner::UnhandledExceptionPolicy::CaptureOnly);
     auto &ctxinfo = inv.ctxinfo;
     detail::capture_first_failure_location(ctxinfo, failure);
+    detail::capture_measured_logs(ctxinfo, failure);
     switch (inv.exception) {
     case gentest::runner::InvokeException::None: break;
     case gentest::runner::InvokeException::Skip: runtime_skipped = true; break;
@@ -737,6 +738,7 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
         if (!run_measured_case(c, config, run_call, result, failure)) {
             if (failure.skipped) {
                 if (failure.infra_failure) {
+                    print_failure_logs(failure.logs);
                     report_measured_case_blocked(c, failure.reason, failure.time_s, machine_report);
                     on_failure(c, failure, {});
                     status.ok = false;
@@ -760,6 +762,7 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
             const std::string message =
                 format_measured_fixture_failure_message(kind_label, c, failure.reason, failure.allocation_failure, failure.phase);
             fmt::print(stderr, "{}\n", message);
+            print_failure_logs(failure.logs);
             on_failure(c, failure, message);
             status.ok = false;
             ++status.failed;

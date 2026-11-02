@@ -6,6 +6,8 @@ This doc explains the CMake helper that wires gentest binaries into CTest.
 
 `gentest_discover_tests(<target> ...)` runs the test executable to discover cases and creates one CTest entry per case.
 It also auto-registers death tests (tagged `death`) via a dedicated harness so they run in their own process.
+See [runner workflows](runner_workflows.md#ctest-workflows) for rerunning failed
+entries, parallel scheduling, and repetition with a fresh process.
 
 ## Required vs optional arguments
 

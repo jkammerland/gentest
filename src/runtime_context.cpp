@@ -2,6 +2,7 @@
 
 #include "gentest/detail/async_completion.h"
 #include "gentest/diagnostics.h"
+#include "runner_debug.h"
 
 #include <filesystem>
 #include <ranges>
@@ -65,6 +66,7 @@ thread_local std::source_location             g_mock_configuration_location{};
 
 auto prepare_current_failure_buffer(std::string_view operation) -> TestContextLocalBuffer & {
     require_owner_context(operation);
+    break_on_assertion_failure();
     auto  ctx    = current_test_storage();
     auto &buffer = current_buffer_storage();
     if (buffer.owner != ctx.get()) {

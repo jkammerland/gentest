@@ -218,6 +218,7 @@ bool run_fixture_phase(std::string_view label, const std::function<void(std::str
     }
     error_out = resolve_fixture_context_issue(ctx, std::move(error_out), caught_assertion, caught_runtime_skip);
     if (!error_out.empty()) {
+        gentest::runner::print_fixture_failure_logs(*ctx);
         return false;
     }
     return true;
@@ -293,6 +294,8 @@ void initialize_shared_fixture(std::size_t target_idx) {
             }
         }
         error = resolve_fixture_context_issue(ctx, std::move(error), caught_assertion, caught_runtime_skip);
+        if (!error.empty() || !instance)
+            gentest::runner::print_fixture_failure_logs(*ctx);
     }
 
     if (!error.empty()) {

@@ -46,11 +46,14 @@ add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/runner_async_status_renderer.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_case_result.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_cli.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_debug.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_fixture_runtime.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_measured_executor.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_measured_format.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_measured_report.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_orchestrator.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_output.cpp
+    ${PROJECT_SOURCE_DIR}/src/runner_replay.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_reporting.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_reporting_allure.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_selector.cpp
