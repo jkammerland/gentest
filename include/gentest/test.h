@@ -8,4 +8,5 @@
 #include "gentest/assertions.h"
 #include "gentest/attributes.h"
 #include "gentest/context.h"
+#include "gentest/diagnostics.h"
 #include "gentest/record.h"

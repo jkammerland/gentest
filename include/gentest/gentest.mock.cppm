@@ -36,6 +36,8 @@ namespace match {
 using ::gentest::match::AllOf;
 using ::gentest::match::Any;
 using ::gentest::match::AnyOf;
+using ::gentest::match::ArgPredicate;
+using ::gentest::match::ElementsAre;
 using ::gentest::match::EndsWith;
 using ::gentest::match::Eq;
 using ::gentest::match::Ge;
@@ -43,6 +45,7 @@ using ::gentest::match::Gt;
 using ::gentest::match::InRange;
 using ::gentest::match::Le;
 using ::gentest::match::Lt;
+using ::gentest::match::MatchResult;
 using ::gentest::match::Near;
 using ::gentest::match::Not;
 using ::gentest::match::StartsWith;

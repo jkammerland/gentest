@@ -96,6 +96,17 @@ GENTEST_RUNTIME_API void run_context_cancel_hooks(const std::shared_ptr<TestCont
 GENTEST_RUNTIME_API void require_owner_context(std::string_view operation);
 GENTEST_RUNTIME_API void require_not_adopted_context(std::string_view operation);
 
+GENTEST_RUNTIME_API auto mock_configuration_location_storage() -> std::source_location &;
+
+struct MockConfigurationLocationScope {
+    std::source_location previous;
+    explicit MockConfigurationLocationScope(const std::source_location &location)
+        : previous(std::exchange(mock_configuration_location_storage(), location)) {}
+    ~MockConfigurationLocationScope() { mock_configuration_location_storage() = previous; }
+    MockConfigurationLocationScope(const MockConfigurationLocationScope &)            = delete;
+    MockConfigurationLocationScope &operator=(const MockConfigurationLocationScope &) = delete;
+};
+
 struct NoExceptionsFatalHookScope {
     NoExceptionsFatalHookState        previous{};
     NoExceptionsFatalHookContextToken context_previous{};
@@ -189,6 +200,7 @@ inline std::string comparison_failure_text(std::string_view label, const std::so
     out.append(to_string_fallback(lhs));
     out.append(", rhs=");
     out.append(to_string_fallback(rhs));
+    out.append(comparison_mismatch(lhs, rhs));
     return out;
 }
 

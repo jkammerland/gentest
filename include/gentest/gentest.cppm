@@ -54,6 +54,8 @@ using ::gentest::CurrentContextLease;
 using ::gentest::currentNotifier;
 using ::gentest::CurrentToken;
 using ::gentest::decodeNotification;
+using ::gentest::diagnostic_context;
+using ::gentest::DiagnosticContext;
 using ::gentest::EncodedNotification;
 using ::gentest::encodeNotification;
 using ::gentest::expect;
@@ -64,6 +66,7 @@ using ::gentest::expect_gt;
 using ::gentest::expect_le;
 using ::gentest::expect_lt;
 using ::gentest::expect_ne;
+using ::gentest::expect_that;
 using ::gentest::expect_true;
 using ::gentest::fail;
 using ::gentest::failure;
@@ -106,6 +109,7 @@ using ::gentest::require_gt;
 using ::gentest::require_le;
 using ::gentest::require_lt;
 using ::gentest::require_ne;
+using ::gentest::require_that;
 using ::gentest::restore_default_log_sink;
 using ::gentest::run_all_tests;
 using ::gentest::run_cases;
@@ -128,6 +132,26 @@ using ::gentest::approx::Approx;
 using ::gentest::approx::operator==;
 using ::gentest::approx::operator!=;
 } // namespace approx
+
+namespace match {
+using ::gentest::match::AllOf;
+using ::gentest::match::Any;
+using ::gentest::match::AnyOf;
+using ::gentest::match::ArgPredicate;
+using ::gentest::match::ElementsAre;
+using ::gentest::match::EndsWith;
+using ::gentest::match::Eq;
+using ::gentest::match::Ge;
+using ::gentest::match::Gt;
+using ::gentest::match::InRange;
+using ::gentest::match::Le;
+using ::gentest::match::Lt;
+using ::gentest::match::MatchResult;
+using ::gentest::match::Near;
+using ::gentest::match::Not;
+using ::gentest::match::StartsWith;
+using ::gentest::match::StrContains;
+} // namespace match
 
 namespace async {
 using ::gentest::async::bind_continuation;
@@ -158,6 +182,7 @@ using ::gentest::asserts::ASSERT_LE;
 using ::gentest::asserts::ASSERT_LT;
 using ::gentest::asserts::ASSERT_NE;
 using ::gentest::asserts::ASSERT_NO_THROW;
+using ::gentest::asserts::ASSERT_THAT;
 using ::gentest::asserts::ASSERT_THROW;
 using ::gentest::asserts::ASSERT_TRUE;
 using ::gentest::asserts::EXPECT_EQ;
@@ -168,6 +193,7 @@ using ::gentest::asserts::EXPECT_LE;
 using ::gentest::asserts::EXPECT_LT;
 using ::gentest::asserts::EXPECT_NE;
 using ::gentest::asserts::EXPECT_NO_THROW;
+using ::gentest::asserts::EXPECT_THAT;
 using ::gentest::asserts::EXPECT_THROW;
 using ::gentest::asserts::EXPECT_TRUE;
 } // namespace asserts

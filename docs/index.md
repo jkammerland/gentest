@@ -11,6 +11,7 @@
 - Modules guide: [`docs/modules.md`](modules.md)
 - Embedding the runner: [`docs/runner_api.md`](runner_api.md)
 - Value formatting: [`docs/value_formatting.md`](value_formatting.md)
+- Failure diagnostics and matchers: [`docs/failure_diagnostics.md`](failure_diagnostics.md)
 - Test inventory: [`docs/test_inventory.md`](test_inventory.md)
 - Async tests: [`docs/async.md`](async.md)
 - Jitter sampling: [`docs/jitter_sampling.md`](jitter_sampling.md)

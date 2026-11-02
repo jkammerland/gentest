@@ -16,5 +16,6 @@
 #include "gentest/context.h"
 #include "gentest/detail/fixture_api.h"
 #include "gentest/detail/registry_api.h"
+#include "gentest/diagnostics.h"
 #include "gentest/format_value.h"
 #include "gentest/record.h"

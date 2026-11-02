@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gentest/detail/runtime_support.h"
+#include "gentest/matchers.h"
 
 #include <cmath>
 #include <source_location>
@@ -21,6 +22,11 @@ struct Approx {
     long double rel_percent{0.0L}; // unit percent; 1.0 means 1%
 
     explicit Approx(long double v) : target(v) {}
+
+    friend std::ostream &operator<<(std::ostream &out, const Approx &value) {
+        return out << "Approx(target=" << gentest::format_value(value.target) << ", abs=" << gentest::format_value(value.abs_epsilon)
+                   << ", rel=" << gentest::format_value(value.rel_percent) << "%)";
+    }
 
     Approx &abs(long double e) {
         abs_epsilon = e < 0 ? -e : e;
@@ -63,6 +69,29 @@ template <typename T> inline bool operator!=(const T &lhs, const Approx &rhs) { 
 template <typename T> inline bool operator!=(const Approx &lhs, const T &rhs) { return !(lhs == rhs); }
 
 } // namespace approx
+
+template <typename T, typename Matcher>
+inline void expect_that(const T &value, Matcher &&matcher, std::string_view message = {},
+                        const std::source_location &location = std::source_location::current()) {
+    detail::require_owner_context("assertion/expectation called");
+    const auto predicate = detail::matching::to_arg_predicate<T>(std::forward<Matcher>(matcher));
+    if (const auto result = detail::matching::evaluate_predicate(predicate, value); !result.matched)
+        detail::record_failure(detail::format_failure_text("EXPECT_THAT", location, "{}{}actual={}; {}", message,
+                                                           message.empty() ? "" : "; ", format_value(value), result.explanation),
+                               location);
+}
+
+template <typename T, typename Matcher>
+inline void require_that(const T &value, Matcher &&matcher, std::string_view message = {},
+                         const std::source_location &location = std::source_location::current()) {
+    detail::require_owner_context("assertion/expectation called");
+    const auto predicate = detail::matching::to_arg_predicate<T>(std::forward<Matcher>(matcher));
+    if (const auto result = detail::matching::evaluate_predicate(predicate, value); !result.matched)
+        detail::fatal_assertion("ASSERT_THAT",
+                                detail::format_failure_text("ASSERT_THAT", location, "{}{}actual={}; {}", message,
+                                                            message.empty() ? "" : "; ", format_value(value), result.explanation),
+                                location, "gentest::require_that");
+}
 
 // Record a non-fatal failure if `condition` is false; execution continues.
 inline void expect(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
@@ -253,6 +282,18 @@ inline void assert_eq(auto &&lhs, auto &&rhs, std::string_view message = {},
 // Uppercase assertion-style APIs (gtest-like) as inline functions (no macros).
 // These live under gentest::asserts; test files may `using namespace gentest::asserts;`.
 namespace asserts {
+
+template <typename T, typename Matcher>
+inline void EXPECT_THAT(const T &value, Matcher &&matcher, std::string_view message = {},
+                        const std::source_location &location = std::source_location::current()) {
+    ::gentest::expect_that(value, std::forward<Matcher>(matcher), message, location);
+}
+
+template <typename T, typename Matcher>
+inline void ASSERT_THAT(const T &value, Matcher &&matcher, std::string_view message = {},
+                        const std::source_location &location = std::source_location::current()) {
+    ::gentest::require_that(value, std::forward<Matcher>(matcher), message, location);
+}
 
 namespace detail_internal {
 

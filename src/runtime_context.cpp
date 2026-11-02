@@ -1,8 +1,57 @@
 #include "gentest/detail/runtime_context.h"
 
+#include "gentest/detail/async_completion.h"
+#include "gentest/diagnostics.h"
+
 #include <filesystem>
+#include <ranges>
 
 namespace gentest::detail {
+
+struct DiagnosticContextEntry {
+    std::string                                   message;
+    std::source_location                          location;
+    std::shared_ptr<const DiagnosticContextEntry> previous;
+};
+
+struct DiagnosticContextState {
+    std::shared_ptr<const DiagnosticContextEntry> current;
+};
+
+auto clone_diagnostic_context(const std::shared_ptr<DiagnosticContextState> &source) -> std::shared_ptr<DiagnosticContextState> {
+    const auto context   = current_test_storage();
+    const auto inherited = source ? source : (context ? context->diagnostic_context : nullptr);
+    return inherited && inherited->current ? std::make_shared<DiagnosticContextState>(*inherited) : nullptr;
+}
+
+auto current_diagnostic_context(bool create = false) -> std::shared_ptr<DiagnosticContextState> {
+    const auto context = current_test_storage();
+    if (!context)
+        return {};
+    if (auto *frame = current_async_frame(); frame && frame->framework_context.lock() == context) {
+        if (create && !frame->diagnostic_context) {
+            frame->diagnostic_context = clone_diagnostic_context(context->diagnostic_context);
+            if (!frame->diagnostic_context)
+                frame->diagnostic_context = std::make_shared<DiagnosticContextState>();
+        }
+        return frame->diagnostic_context;
+    }
+    if (create && !context->diagnostic_context)
+        context->diagnostic_context = std::make_shared<DiagnosticContextState>();
+    return context->diagnostic_context;
+}
+
+auto with_diagnostic_context(std::string message) -> std::string {
+    const auto state = current_diagnostic_context();
+    if (!state)
+        return message;
+    std::vector<const DiagnosticContextEntry *> entries;
+    for (auto entry = state->current; entry; entry = entry->previous)
+        entries.push_back(entry.get());
+    for (const auto *entry : std::ranges::reverse_view(entries))
+        message += fmt::format("\n  context: {} ({})", entry->message, loc_to_string(entry->location));
+    return message;
+}
 
 namespace {
 
@@ -12,6 +61,7 @@ thread_local CurrentContextRole               g_current_context_role = CurrentCo
 thread_local BenchPhase                       g_bench_phase          = BenchPhase::None;
 thread_local std::string                      g_bench_error{};
 thread_local NoExceptionsFatalHookState       g_noexceptions_fatal_hook{};
+thread_local std::source_location             g_mock_configuration_location{};
 
 auto prepare_current_failure_buffer(std::string_view operation) -> TestContextLocalBuffer & {
     require_owner_context(operation);
@@ -64,6 +114,8 @@ GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer & { 
 GENTEST_RUNTIME_API auto current_context_role_storage() -> CurrentContextRole & { return g_current_context_role; }
 
 GENTEST_RUNTIME_API auto bench_phase_storage() -> BenchPhase & { return g_bench_phase; }
+
+auto mock_configuration_location_storage() -> std::source_location & { return g_mock_configuration_location; }
 
 GENTEST_RUNTIME_API auto bench_error_storage() -> std::string & { return g_bench_error; }
 
@@ -192,7 +244,7 @@ GENTEST_RUNTIME_API void require_not_adopted_context(std::string_view operation)
 void record_failure(std::string msg) {
     auto  ctx    = current_test_storage();
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
-    buffer.failures.push_back(std::move(msg));
+    buffer.failures.push_back(with_diagnostic_context(std::move(msg)));
     mark_context_failed(*ctx);
     buffer.failure_locations.push_back({.file = std::string{}, .line = 0});
     buffer.event_lines.push_back(buffer.failures.back());
@@ -207,7 +259,7 @@ void record_failure(std::string msg, const std::source_location &loc) {
 void record_failure_at(std::string msg, std::string file, unsigned line) {
     auto  ctx    = current_test_storage();
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
-    buffer.failures.push_back(std::move(msg));
+    buffer.failures.push_back(with_diagnostic_context(std::move(msg)));
     mark_context_failed(*ctx);
     buffer.failure_locations.push_back({.file = normalize_failure_file(std::move(file)), .line = line});
     buffer.event_lines.push_back(buffer.failures.back());
@@ -227,3 +279,20 @@ void record_failure_at(std::string msg, std::string file, unsigned line) {
 }
 
 } // namespace gentest::detail
+
+namespace gentest {
+
+DiagnosticContext::DiagnosticContext(std::string message, const std::source_location &location) {
+    detail::require_owner_context("diagnostic context created");
+    state_ = detail::current_diagnostic_context(true);
+    entry_ = std::make_shared<detail::DiagnosticContextEntry>(
+        detail::DiagnosticContextEntry{.message = std::move(message), .location = location, .previous = state_->current});
+    state_->current = entry_;
+}
+
+DiagnosticContext::~DiagnosticContext() {
+    if (state_ && state_->current == entry_)
+        state_->current = entry_->previous;
+}
+
+} // namespace gentest
