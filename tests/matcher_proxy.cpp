@@ -70,7 +70,7 @@ static_assert(!std::is_copy_constructible_v<std::ranges::range_value_t<const Ran
 
 int main() {
     std::array<proxy_support::Value, 2> values{{{std::make_unique<int>(7)}, {std::make_unique<int>(9)}}};
-    const proxy_support::Range          range{values.data(), values.data() + values.size()};
+    const proxy_support::Range          range{.first = values.data(), .last = values.data() + values.size()};
     int                                 calls   = 0;
     const auto                          matcher = gentest::match::ElementsAre(
                                                       [&](const auto &item) {

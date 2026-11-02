@@ -10,6 +10,7 @@ std::ostream &operator<<(std::ostream &stream, GlobalCallback);
 #include "gentest/mock.h"
 
 #include <cmath>
+#include <exception>
 #include <fmt/format.h>
 #include <iostream>
 #include <map>
@@ -109,7 +110,7 @@ int expect_equal(std::string_view actual, std::string_view expected, std::string
 
 } // namespace
 
-int main() {
+int main() try {
     int failures = 0;
 
     // Structural representations are independent of a failed assertion's values.
@@ -118,18 +119,18 @@ int main() {
     failures += expect_equal(gentest::format_value(raw_values), "[1, 2]", "raw array values");
     failures += expect_equal(gentest::format_value(std::vector<unsigned char>{1, 255}), "[1, 255]", "byte values");
     failures += expect_equal(gentest::format_value(std::byte{255}), "255", "standard byte");
-    const auto [first_field, second_field] = tuple_protocol::Value{1, 2};
+    const auto [first_field, second_field] = tuple_protocol::Value{.first = 1, .second = 2};
     if (first_field != 1 || second_field != 2 ||
-        gentest::format_value(tuple_protocol::Value{1, 2}).find("unprintable") == std::string::npos)
+        gentest::format_value(tuple_protocol::Value{.first = 1, .second = 2}).find("unprintable") == std::string::npos)
         ++failures;
-    failures += expect_equal(gentest::format_value(std::tuple{1, std::string("a\nb"), std::optional<int>{}}), "(1, \"a\\nb\", nullopt)",
+    failures += expect_equal(gentest::format_value(std::tuple{1, std::string("a\nb"), std::optional<int>{}}), R"((1, "a\nb", nullopt))",
                              "nested tuple");
     failures += expect_equal(gentest::format_value(std::vector<std::optional<int>>{1, std::nullopt}), "[optional(1), nullopt]",
                              "nested optional range");
     failures += expect_equal(gentest::format_value(std::map<std::string, int>{{"key", 9}}), "[(\"key\", 9)]", "map pairs");
     failures += expect_equal(gentest::format_value(std::variant<int, std::string>{std::string("value")}), "variant[1](\"value\")",
                              "variant alternative");
-    failures += expect_equal(gentest::format_value(std::string_view("\n\t\0\\\"", 5)), "\"\\n\\t\\0\\\\\\\"\"", "escaped bytes");
+    failures += expect_equal(gentest::format_value(std::string_view("\n\t\0\\\"", 5)), R"("\n\t\0\\\"")", "escaped bytes");
     failures += expect_equal(gentest::format_value('\n'), "'\\n'", "quoted character");
     failures += expect_equal(gentest::format_value(static_cast<const char *>(nullptr)), "nullptr", "null string pointer");
     failures += expect_equal(gentest::format_value(nullptr), "nullptr", "null pointer literal");
@@ -179,4 +180,10 @@ int main() {
     failures += expect_equal(gentest::format_value(static_cast<decltype(&native_callback)>(nullptr)), "false", "null Windows pointer");
 #endif
     return failures == 0 ? 0 : 1;
+} catch (const std::exception &error) {
+    std::cerr << "unexpected formatting exception: " << error.what() << '\n';
+    return 1;
+} catch (...) {
+    std::cerr << "unexpected nonstandard formatting exception\n";
+    return 1;
 }

@@ -47,14 +47,14 @@ template <typename T> auto evaluate_predicate(const ArgPredicate<T> &predicate, 
     if (predicate.evaluate)
         return predicate.evaluate(actual);
     if (!predicate.test)
-        return {false, "matcher has no test callback"};
+        return {.matched = false, .explanation = "matcher has no test callback"};
     if (predicate.test(actual))
         return {};
-    return {false, predicate.describe ? predicate.describe(actual) : "predicate mismatch"};
+    return {.matched = false, .explanation = predicate.describe ? predicate.describe(actual) : "predicate mismatch"};
 }
 
 template <typename T, bool All, typename Tuple> auto evaluate_composition(const Tuple &matchers, const T &actual) -> MatchResult {
-    MatchResult result{All, {}};
+    MatchResult result{.matched = All, .explanation = {}};
     std::size_t index = 0;
     const auto  check = [&](const auto &matcher) {
         const auto current = index++;
@@ -63,7 +63,7 @@ template <typename T, bool All, typename Tuple> auto evaluate_composition(const 
         const auto next = evaluate_predicate(to_arg_predicate<T>(matcher), actual);
         if constexpr (All) {
             if (!next.matched)
-                result = {false, fmt::format("matcher[{}]: {}", current, next.explanation)};
+                result = {.matched = false, .explanation = fmt::format("matcher[{}]: {}", current, next.explanation)};
         } else {
             if (next.matched)
                 result = {};
@@ -86,8 +86,7 @@ template <typename T> auto format_match_value(const T &value) -> std::string {
 
 } // namespace gentest::detail::matching
 
-namespace gentest {
-namespace match {
+namespace gentest::match {
 using ::gentest::detail::matching::ArgPredicate;
 using ::gentest::detail::matching::MatchResult;
 
@@ -145,7 +144,7 @@ template <typename P> struct NotFactory {
         ap.evaluate = [ip](const T &a) -> detail::matching::MatchResult {
             if (!detail::matching::evaluate_predicate(ip, a).matched)
                 return {};
-            return {false, "negated matcher matched " + gentest::format_value(a)};
+            return {.matched = false, .explanation = "negated matcher matched " + gentest::format_value(a)};
         };
         ap.test     = [evaluate = ap.evaluate](const T &a) { return evaluate(a).matched; };
         ap.describe = [ip](const T &a) {
@@ -411,6 +410,4 @@ template <typename... Expected> auto ElementsAre(Expected &&...expected) {
     return ElementsAreFactory<std::decay_t<Expected>...>{std::tuple<std::decay_t<Expected>...>(std::forward<Expected>(expected)...)};
 }
 
-} // namespace match
-
-} // namespace gentest
+} // namespace gentest::match

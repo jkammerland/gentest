@@ -29,8 +29,9 @@ void scoped_failure() {
 void scope_unwinding() {
     try {
         auto retired = gentest::diagnostic_context("retired context");
+        (void)retired;
         throw std::runtime_error("unwind");
-    } catch (const std::runtime_error &) {}
+    } catch (const std::runtime_error &error) { gentest::expect_eq(std::string(error.what()), std::string("unwind")); }
     gentest::expect(false, "after unwinding");
 }
 
@@ -72,7 +73,7 @@ void matcher_single_evaluation() {
     gentest::match::ArgPredicate<int> predicate;
     predicate.evaluate = [&](const int &) -> gentest::match::MatchResult {
         ++calls;
-        return {false, "single evaluation mismatch"};
+        return {.matched = false, .explanation = "single evaluation mismatch"};
     };
     gentest::expect_that(9, predicate);
     gentest::expect_that(9, gentest::match::AllOf(gentest::match::Ge(0), predicate));

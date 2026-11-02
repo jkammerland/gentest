@@ -4,6 +4,7 @@
 #include "gentest/diagnostics.h"
 
 #include <filesystem>
+#include <ranges>
 
 namespace gentest::detail {
 
@@ -47,8 +48,8 @@ auto with_diagnostic_context(std::string message) -> std::string {
     std::vector<const DiagnosticContextEntry *> entries;
     for (auto entry = state->current; entry; entry = entry->previous)
         entries.push_back(entry.get());
-    for (auto it = entries.rbegin(); it != entries.rend(); ++it)
-        message += fmt::format("\n  context: {} ({})", (*it)->message, loc_to_string((*it)->location));
+    for (const auto *entry : std::ranges::reverse_view(entries))
+        message += fmt::format("\n  context: {} ({})", entry->message, loc_to_string(entry->location));
     return message;
 }
 
