@@ -25,8 +25,22 @@ Optional:
   - `PRE_TEST`: run discovery right before `ctest` executes (slower but always up-to-date).
 - `EXTRA_ARGS <arg...>`: extra arguments forwarded to each CTest test invocation.
 - `DISCOVERY_EXTRA_ARGS <arg...>`: extra arguments forwarded to discovery (`--list-json`).
-- `PROPERTIES <prop...>`: CTest properties applied to each discovered test.
+- `PROPERTIES <prop...>`: CTest properties applied to each discovered test. Case tags are added to `LABELS`, preserving caller-supplied labels.
 - `DEATH_EXPECT_SUBSTRING <text>`: required substring in combined stdout/stderr for **death tests** (optional).
+
+## Labels
+
+Each nonempty case tag becomes a CTest label, including `death` and metadata
+such as `owner=team-runtime`. Labels preserve the tag's spelling. Both
+`PRE_TEST` and `POST_BUILD` discovery retain labels supplied with `PROPERTIES`:
+
+```cmake
+gentest_discover_tests(my_tests PROPERTIES LABELS "project;unit")
+```
+
+A case tagged `fast` receives `project`, `unit`, and `fast` labels, so
+`ctest -L fast` selects it. Runtime tag matching is described in
+[test selection](test_selection.md).
 
 ## Death tests
 

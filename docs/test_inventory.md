@@ -9,3 +9,9 @@ Use `--list-json` when an IDE, dashboard, or CI tool needs a stable, machine-rea
 The command writes one JSON array to standard output. Each entry includes its name, source location, kind, tags, requirements, owner, skip state, fixture scope, suite, async/baseline flags, and `itemsPerCall`. Entries follow the normal deterministic registry order.
 
 `owner` is a dedicated string field. It is empty when no `owner("...")` attribute is present; the compatibility `owner=...` value remains in `tags` for existing tag consumers.
+
+Use `--list-tags` for a sorted, distinct list of the inventory's nonempty tags.
+It normalizes ASCII letters to lowercase to match the runner's tag-selection
+policy and includes tags on skipped and death cases. Inventory modes ignore
+selection flags; use [`--list-selected`](test_selection.md) to preview the
+execution selection.

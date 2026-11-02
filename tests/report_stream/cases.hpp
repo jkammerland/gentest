@@ -15,8 +15,8 @@ struct Local : gentest::FixtureSetup, gentest::FixtureTearDown {
     void tearDown() override;
 };
 
-[[using gentest: bench("success"), bench_once]] void success(Local &sample);
-[[using gentest: bench("failure"), bench_once]] void failure(Local &sample);
+[[using gentest: bench("success"), bench_once]] void success(Local &sample, Shared &shared);
+[[using gentest: bench("failure"), bench_once]] void failure(Local &sample, Shared &shared);
 [[using gentest: test("ordinary")]] void             ordinary();
 
 } // namespace report_stream

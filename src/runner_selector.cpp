@@ -74,7 +74,8 @@ std::string_view kind_to_string(KindFilter kind) {
 SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOptions &opt) {
     SelectionResult          result;
     std::vector<std::size_t> idxs;
-    result.has_selection = (opt.run_name != nullptr) || (opt.filter_pat != nullptr);
+    result.has_selection = (opt.run_name != nullptr) || (opt.filter_pat != nullptr) || !opt.include_tags.empty() ||
+                           !opt.exclude_tags.empty() || !opt.exclude_patterns.empty();
 
     if (opt.run_name) {
         const std::string_view requested_name = opt.run_name;
@@ -157,6 +158,21 @@ SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOpti
             result.status = SelectionStatus::FilterNoJitterMatch;
             return result;
         }
+        result.status = SelectionStatus::ZeroSelected;
+        return result;
+    }
+
+    // Intersect name/kind selection with the include-tag union, then apply all exclusions.
+    std::erase_if(idxs, [&](std::size_t idx) {
+        const auto &test = cases[idx];
+        const bool  included =
+            opt.include_tags.empty() || std::ranges::any_of(opt.include_tags, [&](auto tag) { return has_tag_ci(test, tag); });
+        const bool excluded_tag = std::ranges::any_of(opt.exclude_tags, [&](auto tag) { return has_tag_ci(test, tag); });
+        const bool excluded_name =
+            std::ranges::any_of(opt.exclude_patterns, [&](auto pattern) { return wildcard_match(test.name, pattern); });
+        return !included || excluded_tag || excluded_name;
+    });
+    if (idxs.empty()) {
         result.status = SelectionStatus::ZeroSelected;
         return result;
     }

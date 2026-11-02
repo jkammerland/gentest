@@ -147,8 +147,10 @@ Run:
 ./my_tests --list-tests
 ./my_tests --list
 ./my_tests --list-death
+./my_tests --list-tags
 ./my_tests --run=<full-name-or-unique-suffix>
 ./my_tests --filter=unit/* --kind=test
+./my_tests --tag=fast --exclude-tag=windows --exclude="*/database/*"
 ./my_tests --include-death --run=death/fatal_path
 ./my_tests --fail-fast --repeat=2
 ./my_tests --shuffle --seed 123
@@ -162,16 +164,18 @@ Run:
 `--run` prefers a full case name. If no full name matches, it accepts a unique
 suffix among cases matching `--kind`; ambiguous suffixes are errors.
 
-Use `--list-selected --kind=test --filter="suite/*"` to preview the names that
-the same execution selector would run, without constructing fixtures or running
-cases. It also honors `--run`, `--include-death` and `--fail-on-empty`. Matching
-skipped cases remain visible. Output is always names only, in inventory order
-(not shuffled); the existing `--list-tests`/`--list-json` modes still show the full
-inventory regardless of selection flags.
+Use `--tag` to include cases with any requested tag, `--exclude-tag` to exclude
+tagged cases, and `--exclude` to exclude name patterns. These options are
+repeatable. Tag matching ignores ASCII case; name matching is case-sensitive.
+The tag include union intersects with the name and kind selection, then all
+exclusions apply. `--list-tags` lists available tags from the full inventory.
 
-Use `--fail-on-empty` in CI to reject a filter/kind selection with no executable
-cases before fixture setup; intentionally skipped matching cases are still
-selected. CTest consumers can opt into the same guard with
+Use `--list-selected` with the same selectors to preview selected names without
+constructing fixtures or running cases. Output is names only, in inventory
+order. `--fail-on-empty` rejects an empty execution or preview selection;
+intentionally skipped matching cases still count as selected.
+See [test selection](docs/test_selection.md) for composition, death-test and
+empty-selection rules. CTest consumers can require nonempty discovery with
 `gentest_discover_tests(my_tests TEST_FILTER "unit/*" FAIL_ON_EMPTY)`.
 
 For measured JSON/CSV reports, stdout contains only the report. The default

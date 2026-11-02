@@ -161,11 +161,29 @@ inline void free_pointer(RawFx* fx) {
 - Fixture type aliases (e.g. `using Fx = RealFixture`, alias pointer/reference
   forms, and `using FxPtr = std::shared_ptr<RealFixture>`) resolve to the
   underlying fixture type.
-- Suite fixtures are constructed once per suite within a run; global fixtures
-  are constructed once per run. Both are reused across tests, with
-  `setUp`/`tearDown` once at the start/end of the run. A later run in the same
-  process creates fresh fixtures.
-- Shared fixture lookup is intentionally non-reentrant during setup:
-  `get_shared_fixture(...)` returns `nullptr` and sets `error` to
-  `"fixture initialization in progress"` until setup completes.
-  Do not depend on partially initialized shared fixtures from setup paths.
+- Shared fixtures activate on first acquisition by a selected runnable case.
+  Unused fixture registrations perform no allocation, setup, or teardown.
+  Suite fixtures are constructed once per suite within a run; global fixtures
+  are constructed once per run. Instances persist across repeats. A later run
+  in the same process creates fresh fixtures.
+- Setup finishes before the dependent case runs, outside benchmark and jitter
+  timing loops. Activated fixtures tear down once at the end of the run, in
+  reverse activation order. Dependencies remain alive through their dependent's
+  teardown and destruction. An instance whose setup fails still tears down;
+  a failed allocation has no instance to tear down.
+- Static skips do not acquire fixtures. A runtime skip after acquisition still
+  tears down the acquired fixtures. Fixtures inferred by generated wrappers or
+  acquired through a manual case's fixture metadata follow the same rules.
+- A shared factory or setup callback can acquire another shared fixture with
+  `get_shared_fixture(...)`; that dependency activates first. Looking up the
+  fixture currently being initialized returns `nullptr` with
+  `"fixture initialization in progress"`, which also prevents dependency cycles
+  from exposing partially initialized instances. No new fixture activates during
+  teardown. A first acquisition inside a measured call is rejected; acquire
+  fixtures in setup or provide the manual case's fixture metadata before timing.
+- A fixture setup failure blocks its dependent cases and fails the run. An
+  unrelated failed or expensive fixture does not affect a selection that never
+  acquires it. Registration conflicts remain errors for the run.
+- For application environment setup required on every invocation regardless of
+  selection, perform it explicitly in the application's `main()` before calling
+  `run_all_tests()` or `run_cases()`.

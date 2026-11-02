@@ -25,7 +25,8 @@ int main(int argc, char **argv) {
                 .file             = __FILE__,
                 .line             = __LINE__,
                 .is_benchmark     = true,
-                .fixture_lifetime = gentest::FixtureLifetime::None,
+                .fixture          = "measurement_tests::SharedProbe",
+                .fixture_lifetime = gentest::FixtureLifetime::MemberGlobal,
                 .suite            = "measurement_tests",
                 .benchmark        = policy,
             };

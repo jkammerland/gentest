@@ -9,6 +9,16 @@ gentest_add_python_program_test(NAME selected_cases_contract
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_selected_cases.py)
 set_tests_properties(selected_cases_contract PROPERTIES LABELS "public-api;runner")
 
+# Shared fixtures activate only when selected runnable cases acquire them.
+add_executable(gentest_fixture_selection_tests fixture_selection/main.cpp fixture_selection/cases.cpp fixture_selection/cases.hpp)
+target_link_libraries(gentest_fixture_selection_tests PRIVATE gentest::gentest)
+target_compile_features(gentest_fixture_selection_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(gentest_fixture_selection_tests)
+gentest_add_python_program_test(NAME fixture_selection_contract
+    PROG gentest_fixture_selection_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_fixture_selection.py)
+set_tests_properties(fixture_selection_contract PROPERTIES LABELS "public-api;runner;fixtures")
+
 # Exercise actual value preservation under optimization even in Debug builds.
 add_executable(gentest_bench_util_value_tests bench_util/values.cpp bench_util/values.hpp)
 target_link_libraries(gentest_bench_util_value_tests PRIVATE gentest::gentest_main)
@@ -103,6 +113,7 @@ add_dependencies(gentest_test_suites gentest_benchmark_measurement_tests)
 add_dependencies(gentest_test_suites gentest_bench_util_value_tests)
 add_dependencies(gentest_test_suites gentest_report_stream_tests)
 add_dependencies(gentest_test_suites gentest_selection_tests)
+add_dependencies(gentest_test_suites gentest_fixture_selection_tests)
 
 add_executable(gentest_recording_tests recording/main.cpp recording/cases.hpp)
 target_link_libraries(gentest_recording_tests PRIVATE gentest::gentest)

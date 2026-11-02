@@ -8,6 +8,7 @@
 #include <random>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #if defined(_WIN32)
 #include <io.h>
@@ -112,6 +113,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
     bool wants_list_json         = false;
     bool wants_list_death        = false;
     bool wants_list_benches      = false;
+    bool wants_list_tags         = false;
     bool no_color_flag           = false;
     bool github_annotations_flag = false;
 
@@ -309,6 +311,10 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             wants_list_death = true;
             continue;
         }
+        if (s == "--list-tags") {
+            wants_list_tags = true;
+            continue;
+        }
         if (s == "--list-benches") {
             wants_list_benches = true;
             continue;
@@ -444,6 +450,24 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
                 return false;
             continue;
         }
+        // Repeatable selectors accumulate across both --option=value and --option value.
+        bool selector_consumed = false;
+        for (const auto &[name, values] : {std::pair{"--tag", &opt.include_tags}, std::pair{"--exclude-tag", &opt.exclude_tags},
+                                           std::pair{"--exclude", &opt.exclude_patterns}}) {
+            const auto parsed = parse_value_option(i, s, name, [&](std::string_view value) {
+                values->push_back(value);
+                return true;
+            });
+            if (parsed == OptionParseResult::Error)
+                return false;
+            if (parsed == OptionParseResult::Consumed) {
+                selector_consumed = true;
+                break;
+            }
+        }
+        if (selector_consumed)
+            continue;
+
         if (const OptionParseResult kind_result =
                 parse_value_option(i, s, "--kind", [&](std::string_view value) { return parse_kind_option(value, opt.kind); });
             kind_result != OptionParseResult::NoMatch) {
@@ -688,8 +712,14 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         return false;
     }
 
-    if (wants_list_selected && (wants_list_tests || wants_list_meta || wants_list_json || wants_list_death || wants_list_benches)) {
+    if (wants_list_selected &&
+        (wants_list_tests || wants_list_meta || wants_list_json || wants_list_death || wants_list_benches || wants_list_tags)) {
         fmt::print(stderr, "error: --list-selected cannot be combined with another listing mode\n");
+        return false;
+    }
+
+    if (wants_list_tags && (wants_list_tests || wants_list_meta || wants_list_json || wants_list_death || wants_list_benches)) {
+        fmt::print(stderr, "error: --list-tags cannot be combined with another listing mode\n");
         return false;
     }
 
@@ -697,6 +727,8 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         opt.mode = Mode::Help;
     else if (wants_list_selected)
         opt.mode = Mode::ListSelected;
+    else if (wants_list_tags)
+        opt.mode = Mode::ListTags;
     else if (wants_list_tests)
         opt.mode = Mode::ListTests;
     else if (wants_list_meta)
@@ -718,7 +750,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         return false;
     }
 
-    out_opt = opt;
+    out_opt = std::move(opt);
     return true;
 }
 

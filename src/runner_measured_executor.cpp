@@ -482,6 +482,14 @@ bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn
                        MeasurementCaseFailure &out_failure) {
     using clock = std::chrono::steady_clock;
 
+    // A statically skipped measurement never reaches fixture allocation/setup.
+    if (c.should_skip) {
+        out_failure.skipped = true;
+        out_failure.reason  = c.skip_reason;
+        out_failure.phase   = "selection";
+        return false;
+    }
+
     if (const auto error = gentest::detail::validate_benchmark_options(c); !error.empty()) {
         out_failure.reason = error;
         out_failure.phase  = "metadata";

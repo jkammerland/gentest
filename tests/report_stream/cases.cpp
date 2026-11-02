@@ -13,7 +13,7 @@ void Local::tearDown() {
     gentest::asserts::EXPECT_FALSE(fail_teardown, "deliberate teardown failure");
 }
 
-void success(Local &) {
+void success(Local &, Shared &) {
     gentest::log("body marker");
 
     // Adopted workers must use the same diagnostic channel as their owner.
@@ -25,8 +25,8 @@ void success(Local &) {
     worker.join();
 }
 
-void failure(Local &sample) {
-    success(sample);
+void failure(Local &sample, Shared &shared) {
+    success(sample, shared);
     sample.fail_teardown = true;
 }
 

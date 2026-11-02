@@ -33,6 +33,7 @@ struct SharedFixtureEntry {
 
 struct SharedFixtureRegistry {
     std::vector<SharedFixtureEntry> entries;
+    std::vector<std::size_t>        activation_order;
     std::mutex                      mtx;
     bool                            teardown_in_progress = false;
     bool                            registration_error   = false;
@@ -126,6 +127,8 @@ bool shared_fixture_order_less(const SharedFixtureEntry &lhs, const SharedFixtur
 }
 
 void reset_shared_fixture_run_state(SharedFixtureRegistry &reg) {
+    reg.activation_order.clear();
+    reg.activation_order.reserve(reg.entries.size());
     for (auto &entry : reg.entries) {
         entry.instance.reset();
         entry.initialized  = false;
@@ -236,6 +239,118 @@ std::string format_fixture_error(std::string_view stage, std::string_view detail
     return fmt::format("fixture {} failed: {}", stage, detail);
 }
 
+struct FixtureBenchStateScope {
+    gentest::detail::BenchPhaseScope phase{gentest::detail::BenchPhase::None};
+    std::string                      previous_error = gentest::detail::take_bench_error();
+
+    ~FixtureBenchStateScope() { gentest::detail::bench_error_storage() = std::move(previous_error); }
+};
+
+// Factories and setup may acquire other fixtures. Never hold the registry lock
+// across callbacks; mark this entry first to reject cycles and self-reentry.
+void initialize_shared_fixture(std::size_t target_idx) {
+    // A nested activation owns its fixture diagnostics. Restore the caller's
+    // pending measurement/setup error when the dependency phase completes.
+    FixtureBenchStateScope bench_scope;
+
+    auto                                  &reg = shared_fixture_registry();
+    std::string                            fixture_name;
+    std::string                            suite_name;
+    bool                                   global_recording = false;
+    gentest::detail::SharedFixtureCreateFn create_fn        = nullptr;
+    gentest::detail::SharedFixturePhaseFn  setup_fn         = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(reg.mtx);
+        const auto                 &entry = reg.entries[target_idx];
+        fixture_name                      = entry.fixture_name;
+        suite_name                        = entry.suite;
+        global_recording                  = entry.scope == gentest::detail::SharedFixtureScope::Global;
+        create_fn                         = entry.create;
+        setup_fn                          = entry.setup;
+    }
+
+    gentest::detail::FrameworkSubjectScope subject(fixture_name, true);
+    gentest::detail::RecordingTargetScope  recording_scope(gentest::detail::make_fixture_recording(suite_name, global_recording));
+    std::string                            error;
+    std::shared_ptr<void>                  instance;
+    if (!create_fn) {
+        error = "missing factory";
+    } else {
+        gentest::detail::clear_bench_error();
+        auto ctx                 = gentest::runner::detail::make_active_test_context(fmt::format("{} create", fixture_name));
+        bool caught_assertion    = false;
+        bool caught_runtime_skip = false;
+        {
+            gentest::runner::detail::CurrentTestScope test_scope(ctx);
+            try {
+                instance = create_fn(suite_name, error);
+            } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
+                caught_assertion = true;
+                // Fallback only. resolve_fixture_context_issue() prefers the recorded source-backed failure text.
+                error = e.message();
+            } catch (const std::exception &e) { error = fmt::format("std::exception: {}", e.what()); } catch (...) {
+                error = "unknown exception";
+            }
+        }
+        error = resolve_fixture_context_issue(ctx, std::move(error), caught_assertion, caught_runtime_skip);
+    }
+
+    if (!error.empty()) {
+        instance.reset();
+    }
+
+    if (!instance) {
+        std::string fixture_error = create_fn ? format_fixture_error("allocation", error) : "fixture allocation failed: missing factory";
+        {
+            std::lock_guard<std::mutex> lk(reg.mtx);
+            auto                       &entry = reg.entries[target_idx];
+            entry.initializing                = false;
+            entry.initialized                 = false;
+            entry.failed                      = true;
+            entry.error                       = fixture_error;
+            entry.instance.reset();
+        }
+        fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(reg.mtx);
+        reg.entries[target_idx].instance = instance;
+    }
+
+    bool setup_ok = true;
+    if (setup_fn) {
+        const std::string label = fmt::format("fixture setup {}", fixture_name);
+        setup_ok                = run_fixture_phase(label, [&](std::string &err) { setup_fn(instance.get(), err); }, error);
+    }
+
+    if (!setup_ok) {
+        const std::string fixture_error = format_fixture_error("setup", error);
+        {
+            std::lock_guard<std::mutex> lk(reg.mtx);
+            auto                       &entry = reg.entries[target_idx];
+            entry.initializing                = false;
+            entry.initialized                 = false;
+            entry.failed                      = true;
+            entry.error                       = fixture_error;
+            reg.activation_order.push_back(target_idx);
+        }
+        fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(reg.mtx);
+        auto                       &entry = reg.entries[target_idx];
+        entry.initializing                = false;
+        entry.initialized                 = true;
+        entry.failed                      = false;
+        entry.error.clear();
+        reg.activation_order.push_back(target_idx);
+    }
+}
+
 } // namespace
 
 namespace gentest::detail {
@@ -292,135 +407,13 @@ bool setup_shared_fixtures() {
         }
     }
 
-    auto &reg = shared_fixture_registry();
-    bool  ok  = true;
-    {
-        std::lock_guard<std::mutex> lk(reg.mtx);
-        if (reg.registration_error) {
-            return false;
-        }
-        reset_shared_fixture_run_state(reg);
-    }
-    for (;;) {
-        std::size_t target_idx = std::numeric_limits<std::size_t>::max();
-        std::string fixture_name;
-        std::string suite_name;
-        bool        teardown_in_progress                                    = false;
-        bool        global_recording                                        = false;
-        std::shared_ptr<void> (*create_fn)(std::string_view, std::string &) = nullptr;
-        void (*setup_fn)(void *, std::string &)                             = nullptr;
-
-        {
-            std::lock_guard<std::mutex> lk(reg.mtx);
-            teardown_in_progress = reg.teardown_in_progress;
-            if (!teardown_in_progress) {
-                for (std::size_t i = 0; i < reg.entries.size(); ++i) {
-                    auto &entry = reg.entries[i];
-                    if (entry.initialized || entry.initializing || entry.failed) {
-                        continue;
-                    }
-                    entry.initializing = true;
-                    target_idx         = i;
-                    fixture_name       = entry.fixture_name;
-                    suite_name         = entry.suite;
-                    global_recording   = entry.scope == gentest::detail::SharedFixtureScope::Global;
-                    create_fn          = entry.create;
-                    setup_fn           = entry.setup;
-                    break;
-                }
-            }
-        }
-
-        if (teardown_in_progress) {
-            break;
-        }
-        if (target_idx == std::numeric_limits<std::size_t>::max()) {
-            break;
-        }
-
-        gentest::detail::FrameworkSubjectScope subject(fixture_name, true);
-        gentest::detail::RecordingTargetScope  recording_scope(gentest::detail::make_fixture_recording(suite_name, global_recording));
-        std::string                            error;
-        std::shared_ptr<void>                  instance;
-        if (!create_fn) {
-            error = "missing factory";
-        } else {
-            gentest::detail::clear_bench_error();
-            auto ctx                 = gentest::runner::detail::make_active_test_context(fmt::format("{} create", fixture_name));
-            bool caught_assertion    = false;
-            bool caught_runtime_skip = false;
-            {
-                gentest::runner::detail::CurrentTestScope test_scope(ctx);
-                try {
-                    instance = create_fn(suite_name, error);
-                } catch (const gentest::detail::skip_exception &) { caught_runtime_skip = true; } catch (const gentest::assertion &e) {
-                    caught_assertion = true;
-                    // Fallback only. resolve_fixture_context_issue() prefers the recorded source-backed failure text.
-                    error = e.message();
-                } catch (const std::exception &e) { error = fmt::format("std::exception: {}", e.what()); } catch (...) {
-                    error = "unknown exception";
-                }
-            }
-            error = resolve_fixture_context_issue(ctx, std::move(error), caught_assertion, caught_runtime_skip);
-        }
-
-        if (!error.empty()) {
-            instance.reset();
-        }
-
-        if (!instance) {
-            ok = false;
-            std::string fixture_error =
-                create_fn ? format_fixture_error("allocation", error) : "fixture allocation failed: missing factory";
-            {
-                std::lock_guard<std::mutex> lk(reg.mtx);
-                auto                       &entry = reg.entries[target_idx];
-                entry.initializing                = false;
-                entry.initialized                 = false;
-                entry.failed                      = true;
-                entry.error                       = fixture_error;
-                entry.instance.reset();
-            }
-            fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
-            continue;
-        }
-
-        {
-            std::lock_guard<std::mutex> lk(reg.mtx);
-            reg.entries[target_idx].instance = instance;
-        }
-
-        bool setup_ok = true;
-        if (setup_fn) {
-            const std::string label = fmt::format("fixture setup {}", fixture_name);
-            setup_ok                = run_fixture_phase(label, [&](std::string &err) { setup_fn(instance.get(), err); }, error);
-        }
-
-        if (!setup_ok) {
-            ok                              = false;
-            const std::string fixture_error = format_fixture_error("setup", error);
-            {
-                std::lock_guard<std::mutex> lk(reg.mtx);
-                auto                       &entry = reg.entries[target_idx];
-                entry.initializing                = false;
-                entry.initialized                 = false;
-                entry.failed                      = true;
-                entry.error                       = fixture_error;
-            }
-            fmt::print(stderr, "gentest: fixture '{}' {}\n", fixture_name, fixture_error);
-            continue;
-        }
-
-        {
-            std::lock_guard<std::mutex> lk(reg.mtx);
-            auto                       &entry = reg.entries[target_idx];
-            entry.initializing                = false;
-            entry.initialized                 = true;
-            entry.failed                      = false;
-            entry.error.clear();
-        }
-    }
-    return ok;
+    // Start a fresh run without constructing fixtures. Acquisitions activate
+    // only the selected runnable cases' actual dependency closure.
+    auto                       &reg = shared_fixture_registry();
+    std::lock_guard<std::mutex> lk(reg.mtx);
+    gentest::detail::clear_bench_error();
+    reset_shared_fixture_run_state(reg);
+    return !reg.registration_error;
 }
 
 bool teardown_shared_fixtures(std::vector<std::string> *errors) {
@@ -462,8 +455,9 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
     {
         std::lock_guard<std::mutex> lk(reg.mtx);
         work.reserve(reg.entries.size());
-        for (std::size_t i = reg.entries.size(); i-- > 0;) {
-            auto &entry = reg.entries[i];
+        for (auto it = reg.activation_order.rbegin(); it != reg.activation_order.rend(); ++it) {
+            const auto i     = *it;
+            auto      &entry = reg.entries[i];
             if (!entry.instance || (!entry.initialized && !entry.failed)) {
                 entry.instance.reset();
                 entry.initialized = false;
@@ -481,7 +475,7 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
     }
 
     bool teardown_ok = true;
-    for (const auto &item : work) {
+    for (auto &item : work) {
         gentest::detail::FrameworkSubjectScope subject(item.fixture_name, true);
         gentest::detail::RecordingTargetScope  recording_scope(gentest::detail::make_fixture_recording(item.suite, item.global_recording));
         if (item.teardown) {
@@ -496,13 +490,16 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
             }
         }
 
-        std::lock_guard<std::mutex> lk(reg.mtx);
-        if (item.index < reg.entries.size()) {
-            auto &entry = reg.entries[item.index];
+        {
+            std::lock_guard<std::mutex> lk(reg.mtx);
+            auto                       &entry = reg.entries[item.index];
             entry.instance.reset();
             entry.initialized  = false;
             entry.initializing = false;
         }
+        // Release the dependent before tearing down its dependencies. A custom
+        // deleter may itself query the registry, so run it outside the mutex.
+        item.instance.reset();
     }
     return teardown_ok;
 }
@@ -510,55 +507,69 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 std::shared_ptr<void> get_shared_fixture(SharedFixtureScope scope, std::string_view suite, std::string_view fixture_name,
                                          std::string &error) {
-    auto                       &reg = shared_fixture_registry();
-    std::lock_guard<std::mutex> lk(reg.mtx);
+    error.clear();
+    auto &gate         = shared_fixture_run_gate();
+    bool  owns_session = false;
+    {
+        std::lock_guard<std::mutex> lk(gate.mtx);
+        owns_session = gate.active && gate.owner == std::this_thread::get_id();
+    }
+
+    auto                        &reg = shared_fixture_registry();
+    std::unique_lock<std::mutex> lk(reg.mtx);
     if (reg.registration_error) {
-        if (!reg.registration_errors.empty()) {
-            error = reg.registration_errors.front();
-        } else {
-            error = "fixture registration failed";
-        }
-        return {};
-    }
-    SharedFixtureEntry *selected = nullptr;
-    for (auto &entry : reg.entries) {
-        if (entry.scope != scope)
-            continue;
-        if (entry.fixture_name != fixture_name)
-            continue;
-        if (!suite_scope_matches(entry.suite, suite)) {
-            continue;
-        }
-        if (!selected || entry.suite.size() > selected->suite.size()) {
-            selected = &entry;
-        }
-    }
-    if (!selected) {
-        if (reg.teardown_in_progress) {
-            error = "fixture teardown in progress";
-            return {};
-        }
-        error = "fixture not registered";
+        error = reg.registration_errors.empty() ? "fixture registration failed" : reg.registration_errors.front();
         return {};
     }
 
-    if (selected->failed) {
-        error = selected->error;
+    std::size_t selected = reg.entries.size();
+    for (std::size_t i = 0; i < reg.entries.size(); ++i) {
+        const auto &entry = reg.entries[i];
+        if (entry.scope != scope || entry.fixture_name != fixture_name || !suite_scope_matches(entry.suite, suite))
+            continue;
+        if (selected == reg.entries.size() || entry.suite.size() > reg.entries[selected].suite.size())
+            selected = i;
+    }
+    if (selected == reg.entries.size()) {
+        error = reg.teardown_in_progress ? "fixture teardown in progress" : "fixture not registered";
         return {};
     }
-    if (selected->initializing) {
+
+    // Active sessions reject registration, keeping this entry stable across
+    // unlocked recursive acquisitions by factories and setup callbacks.
+    auto &entry = reg.entries[selected];
+    if (!entry.initialized && !entry.initializing && !entry.failed && !reg.teardown_in_progress) {
+        if (!owns_session) {
+            error = "fixture initialization requires an active runtime session on its owner thread";
+            return {};
+        }
+        if (gentest::detail::bench_phase() == gentest::detail::BenchPhase::Call) {
+            error = "fixture initialization is not allowed during a measured call; acquire it during setup";
+            return {};
+        }
+        entry.initializing = true;
+        lk.unlock();
+        initialize_shared_fixture(selected);
+        lk.lock();
+    }
+
+    if (entry.failed) {
+        error = entry.error;
+        return {};
+    }
+    if (entry.initializing) {
         error = "fixture initialization in progress";
         return {};
     }
-    if (!selected->initialized) {
+    if (!entry.initialized) {
         error = reg.teardown_in_progress ? "fixture teardown in progress" : "fixture not initialized";
         return {};
     }
-    if (!selected->instance) {
+    if (!entry.instance) {
         error = "fixture allocation returned null";
         return {};
     }
-    return selected->instance;
+    return entry.instance;
 }
 
 } // namespace gentest::detail
@@ -626,13 +637,23 @@ bool setup_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtur
         return true;
     }
 
+    collect_shared_fixture_setup_errors(errors, true);
+    if (errors.empty())
+        errors.emplace_back("shared fixture setup failed");
+    return false;
+}
+
+void collect_shared_fixture_setup_errors(std::vector<std::string> &errors, bool include_registration_errors) {
     auto                       &reg = shared_fixture_registry();
     std::lock_guard<std::mutex> lk(reg.mtx);
     errors.reserve(reg.registration_errors.size() + reg.entries.size());
 
-    for (const auto &msg : reg.registration_errors) {
-        if (std::ranges::find(errors, msg) == errors.end()) {
-            errors.push_back(msg);
+    // Registration is checked at run entry. A rejected registration attempted
+    // during a case retains its existing immediate diagnostic/lookup behavior.
+    if (include_registration_errors) {
+        for (const auto &msg : reg.registration_errors) {
+            if (std::ranges::find(errors, msg) == errors.end())
+                errors.push_back(msg);
         }
     }
     for (const auto &entry : reg.entries) {
@@ -643,13 +664,9 @@ bool setup_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtur
             errors.push_back(msg);
         }
     }
-    if (errors.empty() && reg.registration_error) {
+    if (errors.empty() && include_registration_errors && reg.registration_error) {
         errors.emplace_back("shared fixture registration failed");
     }
-    if (errors.empty()) {
-        errors.emplace_back("shared fixture setup failed");
-    }
-    return false;
 }
 
 bool teardown_shared_fixture_runtime(std::vector<std::string> &errors, SharedFixtureRuntimeSession &session) {

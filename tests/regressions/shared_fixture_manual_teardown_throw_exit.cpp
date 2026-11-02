@@ -27,8 +27,8 @@ gentest::Case kCases[] = {
         .requirements     = {},
         .skip_reason      = {},
         .should_skip      = false,
-        .fixture          = {},
-        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .fixture          = kFixtureName,
+        .fixture_lifetime = gentest::FixtureLifetime::MemberGlobal,
         .suite            = "regressions",
     },
 };

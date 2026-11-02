@@ -464,6 +464,16 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
             &jitter_report_rows);
     }
 
+    // Lazy fixture setup can fail during acquisition after the run has begun.
+    // Keep those failures in the runner report as well as blocking dependents.
+    const auto reported_setup_errors = fixture_guard.setup_errors.size();
+    if (fixture_guard.session.owns_gate)
+        gentest::runner::detail::collect_shared_fixture_setup_errors(fixture_guard.setup_errors);
+    if (fixture_guard.setup_errors.size() != reported_setup_errors)
+        fixture_guard.setup_ok = false;
+    for (std::size_t i = reported_setup_errors; i < fixture_guard.setup_errors.size(); ++i)
+        record_runner_level_failure(state, "gentest/shared_fixture_setup", fixture_guard.setup_errors[i]);
+
     fixture_guard.finalize();
     if (!fixture_guard.teardown_ok) {
         if (fixture_guard.teardown_errors.empty()) {
@@ -564,12 +574,16 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --list-tests          List test names (one per line)\n");
         fmt::print("  --list-selected       Preview selected names without running fixtures/cases\n");
         fmt::print("  --list                List tests with metadata\n");
+        fmt::print("  --list-tags           List distinct available tags (ASCII lowercase)\n");
         fmt::print("  --list-json           List test inventory as JSON\n");
         fmt::print("  --records=DIR         Export runtime records to a fresh run bundle\n");
         fmt::print("  --list-death          List death test names (one per line)\n");
         fmt::print("  --list-benches        List benchmark/jitter names (one per line)\n");
         fmt::print("  --run=<name>          Run one case by full name or unique suffix\n");
         fmt::print("  --filter=<pattern>    Run cases matching wildcard pattern (*, ?)\n");
+        fmt::print("  --tag=<tag>           Include any matching tag (repeatable, ASCII case-insensitive)\n");
+        fmt::print("  --exclude-tag=<tag>   Exclude any matching tag (repeatable)\n");
+        fmt::print("  --exclude=<pattern>   Exclude matching names (*, ?, repeatable, case-sensitive)\n");
         fmt::print("  --kind=<kind>         Restrict to kind: all|test|bench|jitter (default all)\n");
         fmt::print("  --include-death       Allow running tests tagged 'death'\n");
         fmt::print("  --skip-return-code=N  Exit N (4..255) when every selected case skips\n");
@@ -595,6 +609,27 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("\nJitter options:\n");
         fmt::print("  --jitter-bins=<N>     Histogram bins (default 10)\n");
         return 0;
+    case Mode::ListTags: {
+        std::vector<std::string> tags;
+        for (const auto &test : kCases) {
+            for (auto tag : test.tags) {
+                if (tag.empty())
+                    continue;
+                std::string normalized(tag);
+                for (char &ch : normalized) {
+                    if (ch >= 'A' && ch <= 'Z')
+                        ch = static_cast<char>(ch - 'A' + 'a');
+                }
+                tags.push_back(std::move(normalized));
+            }
+        }
+        std::ranges::sort(tags);
+        const auto duplicates = std::ranges::unique(tags);
+        tags.erase(duplicates.begin(), duplicates.end());
+        for (const auto &tag : tags)
+            fmt::print("{}\n", tag);
+        return 0;
+    }
     case Mode::ListTests:
         for (const auto &t : kCases)
             fmt::print("{}\n", t.name);
@@ -684,7 +719,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         return 1;
     case SelectionStatus::DeathExcludedAll:
         if (opt.mode == Mode::ListSelected)
-            return write_empty_execution_reports(opt);
+            return 0;
         if (machine_measured_report) {
             CliOptions death_included_opt       = opt;
             death_included_opt.include_death    = true;

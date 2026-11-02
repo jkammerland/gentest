@@ -40,7 +40,10 @@ void teardown_primary_fixture(void *, std::string &error) {
     }
 }
 
-std::shared_ptr<void> create_secondary_fixture(std::string_view, std::string &) { return std::make_shared<int>(7); }
+std::shared_ptr<void> create_secondary_fixture(std::string_view, std::string &error) {
+    auto primary = gentest::detail::get_shared_fixture(gentest::detail::SharedFixtureScope::Global, {}, kPrimaryFixtureName, error);
+    return primary ? std::make_shared<int>(7) : std::shared_ptr<void>{};
+}
 
 void teardown_secondary_fixture(void *, std::string &error) {
     std::string inner_error;
@@ -66,8 +69,8 @@ gentest::Case kCases[] = {
         .requirements     = {},
         .skip_reason      = {},
         .should_skip      = false,
-        .fixture          = {},
-        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .fixture          = kSecondaryFixtureName,
+        .fixture_lifetime = gentest::FixtureLifetime::MemberGlobal,
         .suite            = "regressions",
     },
 };

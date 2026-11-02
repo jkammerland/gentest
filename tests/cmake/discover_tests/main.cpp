@@ -5,7 +5,7 @@
 
 static void list_json() {
     std::cout << R"json([
-        {"name":"demo/a","tags":["fast"],"skipped":false},
+        {"name":"demo/a","tags":["fast","owner=team-runtime","feature;parser"],"skipped":false},
         {"name":"demo/b","tags":[],"skipped":false},
         {"name":"demo/skip","tags":[],"skipped":true},
         {"name":"demo/has [bracket]","tags":["fast"],"skipped":false},

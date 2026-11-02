@@ -380,6 +380,19 @@ function(gentest_discover_tests_impl)
     endforeach()
     string(APPEND script ")\n")
 
+    # CTest accumulates LABELS across set_tests_properties calls. Emit each tag
+    # separately to preserve caller labels and literal semicolons/brackets.
+    set(tag_index 0)
+    while(tag_index LESS tag_count)
+      math(EXPR inventory_index "${case_index} - 1")
+      string(JSON tag GET "${output}" ${inventory_index} tags ${tag_index})
+      if(NOT "${tag}" STREQUAL "")
+        string(REPLACE [[;]] [[\;]] tag "${tag}")
+        _gentest_add_command(set_tests_properties "${testname}" PROPERTIES LABELS "${tag}")
+      endif()
+      math(EXPR tag_index "${tag_index} + 1")
+    endwhile()
+
     # CMake lists cannot represent unmatched brackets or trailing backslashes.
     # These cases are still registered and can be selected by CTest directly.
     string(FIND "${testname}" "[" open_bracket)
