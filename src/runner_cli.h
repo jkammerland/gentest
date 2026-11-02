@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -39,6 +40,12 @@ enum class MeasuredReportFormat {
     Json,
 };
 
+enum class OutputMode {
+    Full,
+    Compact,
+    FailuresOnly,
+};
+
 struct BenchConfig {
     double      min_epoch_time_s = 0.01; // 10 ms
     double      min_total_time_s = 0.0;  // per benchmark
@@ -52,11 +59,14 @@ struct CliOptions {
     KindFilter           kind                   = KindFilter::All;
     TimeUnitMode         time_unit_mode         = TimeUnitMode::Auto;
     MeasuredReportFormat measured_report_format = MeasuredReportFormat::Table;
+    OutputMode           output_mode            = OutputMode::Full;
 
     bool color_output       = true;
     bool github_annotations = false;
 
     bool        fail_fast        = false;
+    bool        break_on_failure = false;
+    bool        failure_logs     = false;
     bool        fail_on_empty    = false;
     bool        shuffle          = false;
     std::size_t repeat_n         = 1;
@@ -79,6 +89,10 @@ struct CliOptions {
     std::vector<std::string_view> include_tags;
     std::vector<std::string_view> exclude_tags;
     std::vector<std::string_view> exclude_patterns;
+
+    // argv[0] is optional for the programmatic runner API.
+    const char              *executable = nullptr;
+    std::vector<std::string> invocation_arguments;
 
     bool        bench_table = false;
     BenchConfig bench_cfg{};

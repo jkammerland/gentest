@@ -86,6 +86,7 @@ set(_gentest_manual_regressions
     "gentest_regression_shared_fixture_retry_after_failure|shared_fixture_retry_after_failure.cpp"
     "gentest_regression_runtime_case_snapshot_isolated|runtime_case_snapshot_isolated.cpp"
     "gentest_regression_logging_output|logging_output_regressions.cpp"
+    "gentest_regression_runner_workflow|runner_workflow.cpp"
     "gentest_regression_shared_fixture_runtime_reentry_rejected|shared_fixture_runtime_reentry_rejected.cpp"
     "gentest_regression_shared_fixture_suite_scope_descendant|shared_fixture_suite_scope_descendant.cpp"
     "gentest_regression_shared_fixture_suite_scope_most_specific|shared_fixture_suite_scope_most_specific.cpp"
@@ -132,6 +133,11 @@ unset(_gentest_manual_regression)
 unset(_gentest_manual_regression_fields)
 unset(_gentest_manual_target)
 unset(_gentest_manual_source)
+
+gentest_add_python_program_test(NAME runner_workflow_contract
+    PROG gentest_regression_runner_workflow
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_runner_workflow.py)
+set_tests_properties(runner_workflow_contract PROPERTIES LABELS "public-api;runner")
 
 gentest_add_suite(regression_local_fixture_teardown
     TARGET gentest_regression_local_fixture_teardown

@@ -84,14 +84,15 @@ struct TimedRunStatus {
 };
 
 struct MeasurementCaseFailure {
-    std::string      reason;
-    std::string      source_file;
-    unsigned         source_line        = 0;
-    bool             allocation_failure = false;
-    bool             skipped            = false;
-    bool             infra_failure      = false;
-    double           time_s             = 0.0;
-    std::string_view phase{};
+    std::string              reason;
+    std::string              source_file;
+    std::vector<std::string> logs;
+    unsigned                 source_line        = 0;
+    bool                     allocation_failure = false;
+    bool                     skipped            = false;
+    bool                     infra_failure      = false;
+    double                   time_s             = 0.0;
+    std::string_view         phase{};
 };
 
 using MeasurementFailureFn = std::function<void(const gentest::Case &, const MeasurementCaseFailure &, std::string_view)>;

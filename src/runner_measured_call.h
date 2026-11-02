@@ -45,10 +45,19 @@ inline void capture_first_failure_location(const std::shared_ptr<gentest::detail
     }
 }
 
+inline void capture_measured_logs(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo, MeasurementCaseFailure &failure) {
+    if (!capture_failure_logs()) {
+        return;
+    }
+    std::scoped_lock lk(ctxinfo->mtx);
+    failure.logs.insert(failure.logs.end(), ctxinfo->logs.begin(), ctxinfo->logs.end());
+}
+
 inline void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo,
                                         std::string_view default_skip_reason, const std::string &assertion_fallback, bool &had_assert_fail,
                                         MeasurementCaseFailure &failure) {
     capture_first_failure_location(ctxinfo, failure);
+    capture_measured_logs(ctxinfo, failure);
     bool        runtime_skip_requested = false;
     std::string runtime_skip_reason;
     {

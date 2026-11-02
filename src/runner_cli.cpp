@@ -1,5 +1,7 @@
 #include "runner_cli.h"
 
+#include "runner_debug.h"
+
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -104,7 +106,8 @@ static std::uint64_t make_random_seed() {
 } // namespace
 
 bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
-    CliOptions opt{};
+    CliOptions        opt{};
+    std::vector<bool> omit_replay_argument(args.size(), false);
 
     bool wants_help              = false;
     bool wants_list_tests        = false;
@@ -127,6 +130,8 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
     bool seen_jitter_bins          = false;
     bool seen_time_unit            = false;
     bool seen_report_format        = false;
+    bool seen_output               = false;
+    bool seen_log_output           = false;
 
     enum class ValueMatch { No, Yes, Error };
     auto match_value = [&](std::size_t &i, std::string_view s, std::string_view opt_name, std::string_view &value) -> ValueMatch {
@@ -155,12 +160,18 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
     };
     enum class OptionParseResult { NoMatch, Consumed, Error };
     auto parse_value_option = [&](std::size_t &i, std::string_view s, std::string_view opt_name, auto &&on_value) -> OptionParseResult {
+        const auto       option_index = i;
         std::string_view value;
         switch (match_value(i, s, opt_name, value)) {
         case ValueMatch::Error: return OptionParseResult::Error;
         case ValueMatch::Yes:
             if (!on_value(value))
                 return OptionParseResult::Error;
+            if (opt_name == "--seed" || opt_name == "--repeat") {
+                for (auto consumed = option_index; consumed <= i; ++consumed) {
+                    omit_replay_argument[consumed] = true;
+                }
+            }
             return OptionParseResult::Consumed;
         case ValueMatch::No: return OptionParseResult::NoMatch;
         }
@@ -279,7 +290,8 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
 
     std::size_t start = 0;
     if (!args.empty() && args[0] && args[0][0] != '-') {
-        start = 1; // Skip argv[0] (program name) when present.
+        start          = 1; // Skip argv[0] (program name) when present.
+        opt.executable = args[0];
     }
     for (std::size_t i = start; i < args.size(); ++i) {
         const char *arg = args[i];
@@ -331,6 +343,14 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             opt.fail_fast = true;
             continue;
         }
+        if (s == "--break-on-failure") {
+            if (!gentest::detail::assertion_break_supported()) {
+                fmt::print(stderr, "error: --break-on-failure is unsupported on this platform\n");
+                return false;
+            }
+            opt.break_on_failure = true;
+            continue;
+        }
         if (s == "--fail-on-empty") {
             opt.fail_on_empty = true;
             continue;
@@ -345,6 +365,52 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         }
         if (s == "--bench-table") {
             opt.bench_table = true;
+            continue;
+        }
+
+        if (const auto result = parse_value_option(
+                i, s, "--output",
+                [&](std::string_view value) {
+                    if (seen_output) {
+                        fmt::print(stderr, "error: duplicate --output\n");
+                        return false;
+                    }
+                    seen_output = true;
+                    if (value == "full") {
+                        opt.output_mode = OutputMode::Full;
+                    } else if (value == "compact") {
+                        opt.output_mode = OutputMode::Compact;
+                    } else if (value == "failures-only") {
+                        opt.output_mode = OutputMode::FailuresOnly;
+                    } else {
+                        fmt::print(stderr, "error: --output must be one of full,compact,failures-only; got: '{}'\n", value);
+                        return false;
+                    }
+                    return true;
+                });
+            result != OptionParseResult::NoMatch) {
+            if (result == OptionParseResult::Error)
+                return false;
+            continue;
+        }
+        if (const auto result =
+                parse_value_option(i, s, "--log-output",
+                                   [&](std::string_view value) {
+                                       if (seen_log_output) {
+                                           fmt::print(stderr, "error: duplicate --log-output\n");
+                                           return false;
+                                       }
+                                       seen_log_output = true;
+                                       if (value != "all" && value != "failures") {
+                                           fmt::print(stderr, "error: --log-output must be one of all,failures; got: '{}'\n", value);
+                                           return false;
+                                       }
+                                       opt.failure_logs = value == "failures";
+                                       return true;
+                                   });
+            result != OptionParseResult::NoMatch) {
+            if (result == OptionParseResult::Error)
+                return false;
             continue;
         }
 
@@ -698,6 +764,15 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
 
     opt.color_output       = !no_color_flag && !env_no_color() && !env_plain_output();
     opt.github_annotations = github_annotations_flag || env_github_actions();
+    if (!seen_log_output) {
+        opt.failure_logs = opt.output_mode != OutputMode::Full;
+    }
+
+    for (std::size_t i = start; i < args.size(); ++i) {
+        if (args[i] && !omit_replay_argument[i]) {
+            opt.invocation_arguments.emplace_back(args[i]);
+        }
+    }
 
     if (opt.bench_cfg.measure_epochs == 0)
         opt.bench_cfg.measure_epochs = 1;

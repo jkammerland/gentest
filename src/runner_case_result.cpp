@@ -1,6 +1,7 @@
 #include "runner_case_result.h"
 
 #include "gentest/detail/runtime_context.h"
+#include "runner_output.h"
 #include "runner_reporting.h"
 
 #include <cmath>
@@ -32,7 +33,50 @@ auto collect_pass_visible_timeline(const std::vector<std::string> &event_lines, 
 
 long long duration_ms(double seconds) { return std::llround(seconds * 1000.0); }
 
-CaseResult make_static_skip_result(TestRunContext &state, const gentest::Case &test, TestCounters &c) {
+namespace {
+
+void print_condensed_result(const TestRunContext &state, const gentest::Case &test, const CaseResult &result) {
+    if (state.suppress_case_output || state.output_mode == OutputMode::Full) {
+        return;
+    }
+
+    char progress = '.';
+    switch (result.outcome) {
+    case Outcome::Pass: break;
+    case Outcome::Skip: progress = 's'; break;
+    case Outcome::XFail: progress = 'x'; break;
+    case Outcome::Fail:
+    case Outcome::XPass:
+    case Outcome::Blocked: {
+        const auto status = result.outcome == Outcome::Fail ? "FAIL" : (result.outcome == Outcome::XPass ? "XPASS" : "BLOCKED");
+        if (state.output_mode == OutputMode::Compact) {
+            fmt::print("F");
+            (void)std::fflush(stdout);
+            fmt::print(stderr, "\n");
+        }
+        fmt::print(stderr, "[ {} ] {} ({} ms)\n", status, test.name, duration_ms(result.time_s));
+        if (!result.timeline.empty()) {
+            for (const auto &line : result.timeline) {
+                fmt::print(stderr, "{}\n", line);
+            }
+        } else {
+            for (const auto &line : result.summary_issues) {
+                fmt::print(stderr, "{}\n", line);
+            }
+            if (result.outcome == Outcome::Blocked && result.summary_issues.empty()) {
+                fmt::print(stderr, "{}\n", result.skip_reason);
+            }
+        }
+        return;
+    }
+    }
+    if (state.output_mode == OutputMode::Compact) {
+        fmt::print("{}", progress);
+        (void)std::fflush(stdout);
+    }
+}
+
+CaseResult make_static_skip_result_impl(TestRunContext &state, const gentest::Case &test, TestCounters &c) {
     CaseResult rr;
     ++c.total;
     ++c.skipped;
@@ -59,7 +103,7 @@ CaseResult make_static_skip_result(TestRunContext &state, const gentest::Case &t
     return rr;
 }
 
-CaseResult finish_invoke_result(TestRunContext &state, const gentest::Case &test, const InvokeResult &inv, TestCounters &c) {
+CaseResult finish_invoke_result_impl(TestRunContext &state, const gentest::Case &test, const InvokeResult &inv, TestCounters &c) {
     CaseResult rr;
     auto       ctxinfo = inv.ctxinfo;
     // Context cleanup is complete; only the result/exporter should retain captures.
@@ -316,6 +360,28 @@ CaseResult finish_invoke_result(TestRunContext &state, const gentest::Case &test
     return rr;
 }
 
+} // namespace
+
+CaseResult make_static_skip_result(TestRunContext &state, const gentest::Case &test, TestCounters &c) {
+    auto presentation                 = state;
+    presentation.suppress_case_output = state.suppress_case_output || state.output_mode != OutputMode::Full;
+    auto result                       = make_static_skip_result_impl(presentation, test, c);
+    print_condensed_result(state, test, result);
+    return result;
+}
+
+CaseResult finish_invoke_result(TestRunContext &state, const gentest::Case &test, const InvokeResult &inv, TestCounters &c) {
+    auto presentation                 = state;
+    presentation.suppress_case_output = state.suppress_case_output || state.output_mode != OutputMode::Full;
+    auto result                       = finish_invoke_result_impl(presentation, test, inv, c);
+    print_condensed_result(state, test, result);
+    if (state.failure_logs && !state.suppress_case_output &&
+        (result.outcome == Outcome::Fail || result.outcome == Outcome::XPass || result.outcome == Outcome::Blocked)) {
+        print_failure_logs(result.logs);
+    }
+    return result;
+}
+
 CaseResult execute_one(TestRunContext &state, const gentest::Case &test, void *ctx, TestCounters &c) {
     gentest::detail::FrameworkSubjectScope subject(test.name);
     if (test.should_skip) {
@@ -342,7 +408,7 @@ void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std
     const long long   dur_ms = 0LL;
     if (infra_failure) {
         ++c.blocked;
-        if (!state.suppress_case_output) {
+        if (!state.suppress_case_output && state.output_mode == OutputMode::Full) {
             if (state.color_output) {
                 fmt::print(fmt::fg(fmt::color::yellow), "[ BLOCKED ]");
                 fmt::print(" {} :: {} ({} ms)\n", test.name, issue, dur_ms);
@@ -352,7 +418,7 @@ void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std
         }
     } else {
         ++c.skipped;
-        if (!state.suppress_case_output) {
+        if (!state.suppress_case_output && state.output_mode == OutputMode::Full) {
             if (state.color_output) {
                 fmt::print(fmt::fg(fmt::color::yellow), "[ SKIP ]");
                 if (!reason.empty()) {
@@ -369,14 +435,14 @@ void record_synthetic_skip(TestRunContext &state, const gentest::Case &test, std
             }
         }
     }
-    if (!state.acc) {
-        return;
-    }
-
     CaseResult rr;
     rr.skipped     = true;
     rr.outcome     = infra_failure ? Outcome::Blocked : Outcome::Skip;
     rr.skip_reason = infra_failure ? fmt::format("blocked: {}", issue) : std::move(reason);
+    print_condensed_result(state, test, rr);
+    if (!state.acc) {
+        return;
+    }
     gentest::runner::record_case_result(*state.acc, test, std::move(rr), state.record_results);
 }
 

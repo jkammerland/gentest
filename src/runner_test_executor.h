@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gentest/runner.h"
+#include "runner_cli.h"
 #include "runner_reporting.h"
 #include "runner_test_plan.h"
 
@@ -24,6 +25,8 @@ struct TestRunContext {
     bool            color_output         = true;
     bool            record_results       = false;
     bool            suppress_case_output = false;
+    OutputMode      output_mode          = OutputMode::Full;
+    bool            failure_logs         = false;
     std::size_t     async_log_tail       = 5;
     RunAccumulator *acc                  = nullptr;
 };

@@ -154,6 +154,8 @@ Run:
 ./my_tests --include-death --run=death/fatal_path
 ./my_tests --fail-fast --repeat=2
 ./my_tests --shuffle --seed 123
+./my_tests --output=failures-only
+./my_tests --break-on-failure
 ./my_tests --no-color
 ./my_tests --github-annotations
 ./my_tests
@@ -163,6 +165,9 @@ Run:
 
 `--run` prefers a full case name. If no full name matches, it accepts a unique
 suffix among cases matching `--kind`; ambiguous suffixes are errors.
+See [runner workflows](docs/runner_workflows.md) for compact output, captured
+failure logs, debugger breaks, exact rerun commands, shuffle replay, and CTest
+parallel/repeat workflows.
 
 Use `--tag` to include cases with any requested tag, `--exclude-tag` to exclude
 tagged cases, and `--exclude` to exclude name patterns. These options are
@@ -179,8 +184,9 @@ empty-selection rules. CTest consumers can require nonempty discovery with
 `gentest_discover_tests(my_tests TEST_FILTER "unit/*" FAIL_ON_EMPTY)`.
 
 For measured JSON/CSV reports, stdout contains only the report. The default
-`gentest::log()` sink writes diagnostics to stderr throughout fixture setup,
-execution and teardown. Application-installed sinks are unchanged; applications
+`gentest::log()` sink routes diagnostics to stderr throughout fixture setup,
+execution and teardown; `--log-output=failures` prints only failed captures.
+Application-installed sinks are unchanged; applications
 must keep their own stdout writes out of machine reports.
 `--list` prints the richer listing format (name plus metadata such as tags/owner when present).
 `--kind` restricts execution/filtering to `all|test|bench|jitter` (default `all`).
@@ -371,7 +377,8 @@ captured on the active test and streamed to registered log sinks immediately. Th
 `gentest::add_log_sink(...)`, `gentest::remove_log_sink(...)`, `gentest::remove_all_log_sinks()`, and `gentest::restore_default_log_sink()`.
 Sink handles are explicit removal tokens, not RAII guards; do not change the sink registry concurrently with `gentest::log()`.
 During async live rendering, stdout logs from active async cases are shown in the live row tail and the completed row keeps only the log
-count; additional custom sinks still receive each log immediately. The live renderer and framework color are disabled for non-TTY output,
+count; additional custom sinks still receive each log immediately. Failure-focused capture and compact output are described in
+[runner workflows](docs/runner_workflows.md). The live renderer and framework color are disabled for non-TTY output,
 `TERM=dumb`, and capture-oriented environments such as `CI` or `CODEX_CI`; use `GENTEST_ASYNC_LIVE=1` to force live rendering in a
 capable terminal, or `GENTEST_ASYNC_LIVE=0` / `GENTEST_NO_ASYNC_LIVE=1` to force plain output.
 
