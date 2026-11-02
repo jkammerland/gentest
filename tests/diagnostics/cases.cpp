@@ -86,6 +86,7 @@ void matcher_failures(int mode) {
     case 0: gentest::expect_that(std::array{1}, ElementsAre()); break;
     case 1: gentest::expect_that(std::vector<int>{}, ElementsAre(1)); break;
     case 2: gentest::expect_that(std::vector<std::vector<int>>{{1, 2}}, ElementsAre(ElementsAre(1, 3))); break;
+    default: gentest::fail("unsupported matcher probe mode");
     }
 }
 
