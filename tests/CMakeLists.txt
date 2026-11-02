@@ -660,10 +660,13 @@ gentest_add_cmake_script_test(
 gentest_add_check_counts(
     NAME async_timer_sleep_fairness
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
-    PASS 3
+    PASS 4
     FAIL 0
     SKIP 0
     ARGS --filter=async/timer/* --kind=test --no-color)
+
+# A runner that waits for the pending maximum deadline must fail as a deadlock.
+set_tests_properties(async_timer_sleep_fairness PROPERTIES TIMEOUT 10)
 
 gentest_add_check_counts(
     NAME async_timer_stress_repeat

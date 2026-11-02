@@ -514,6 +514,48 @@ gentest::awaitable<void> timer_sleep_until_waits() {
 
 namespace async {
 
+gentest::awaitable<void> timer_pending_sleep_allows_yielding_sibling() {
+    std::stop_source             stop;
+    gentest::async::manual_event started;
+    std::vector<std::string>     order;
+    bool                         completed = false;
+    bool                         cancelled = false;
+
+    // The real runner must dispatch a ready sibling while this timer stays pending.
+    auto sleeper = [&]() -> gentest::awaitable<void> {
+        order.emplace_back("timer started");
+        started.set("timer started");
+        try {
+            co_await gentest::async::sleep_until(std::chrono::steady_clock::time_point::max(), stop.get_token());
+            order.emplace_back("timer elapsed");
+        } catch (const gentest::async::operation_cancelled &) {
+            cancelled = true;
+            order.emplace_back("timer cancelled");
+        }
+        completed = true;
+    };
+
+    auto yielder = [&]() -> gentest::awaitable<void> {
+        co_await started.wait("timer started");
+        EXPECT_FALSE(completed);
+        co_await gentest::async::yield();
+
+        EXPECT_FALSE(completed);
+        EXPECT_EQ(order, std::vector<std::string>{"timer started"});
+        order.emplace_back("yield");
+        EXPECT_TRUE(stop.request_stop());
+    };
+
+    co_await gentest::async::when_all(sleeper(), yielder());
+    EXPECT_TRUE(completed);
+    EXPECT_TRUE(cancelled);
+    EXPECT_EQ(order, (std::vector<std::string>{"timer started", "yield", "timer cancelled"}));
+}
+
+} // namespace async
+
+namespace async {
+
 gentest::awaitable<void> timer_stress_ready_wins_expired_timeout() {
     gentest::async::event<int> event;
 

@@ -14,6 +14,7 @@
 #include <future>
 #include <memory>
 #include <stdexcept>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -660,6 +661,9 @@ gentest::awaitable<void> timer_yield_resumes();
 
 [[using gentest: test("timer/02_sleep_until_waits")]]
 gentest::awaitable<void> timer_sleep_until_waits();
+
+[[using gentest: test("timer/03_pending_sleep_allows_yielding_sibling")]]
+gentest::awaitable<void> timer_pending_sleep_allows_yielding_sibling();
 
 [[using gentest: test("timer_stress/00_ready_wins_expired_timeout")]]
 gentest::awaitable<void> timer_stress_ready_wins_expired_timeout();
