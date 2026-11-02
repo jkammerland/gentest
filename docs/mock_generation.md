@@ -99,6 +99,43 @@ int main() {
 }
 ```
 
+## Execution and reports
+
+The backend selects the generated mock API. Test discovery, assertion failures,
+exit status, and reports belong to the framework that runs the consumer.
+
+The GMock example links `GTest::gtest_main`, uses `TEST`/`EXPECT_CALL`, and runs
+with GoogleTest's CLI. Register its individual cases with CTest using CMake's
+GoogleTest helper:
+
+```cmake
+include(CTest)
+enable_testing()
+include(GoogleTest)
+gtest_discover_tests(clock_tests)
+```
+
+```bash
+ctest --test-dir build --output-on-failure
+./build/clock_tests --gtest_filter=ClockTests.ReadsNow --gtest_output=xml:gtest.xml
+```
+
+Trompeloeil provides mocking and a reporter interface, rather than a test runner.
+The standalone `main()` above checks the returned value and uses Trompeloeil's
+default expectation reporting. Register that program as a single CTest test with
+`add_test(NAME clock_tests COMMAND clock_tests)`. For a host test framework, use
+that framework's Trompeloeil reporter integration and test registration/report
+commands.
+
+Generated third-party mocks do not forward failures into Gentest's case results
+or its JUnit/Allure exporters. Linking a generated mock target does not install a
+failure adapter. A custom runner must initialize the selected framework, retain
+its failure status, and return a nonzero process status when expectations fail;
+for example, the repository's [doctest/GMock consumer](../tests/cmake/third_party_mock_consumers/doctest_consumer.cpp)
+calls `InitGoogleMock` and checks `testing::Test::HasFailure()` after doctest runs.
+Use the default Gentest backend when you want expectations recorded directly by
+Gentest's runner and reports.
+
 ## Naming
 
 The generated third-party mock name comes from the mocked target type, not the marker alias:
