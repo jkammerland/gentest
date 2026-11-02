@@ -750,7 +750,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         return false;
     }
 
-    out_opt = opt;
+    out_opt = std::move(opt);
     return true;
 }
 
