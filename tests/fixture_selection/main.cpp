@@ -12,7 +12,7 @@ using fixture_selection::counts;
 
 bool check(bool condition, std::string_view message) {
     if (!condition)
-        std::fprintf(stderr, "fixture selection contract: %.*s\n", static_cast<int>(message.size()), message.data());
+        (void)std::fprintf(stderr, "fixture selection contract: %.*s\n", static_cast<int>(message.size()), message.data());
     return condition;
 }
 
