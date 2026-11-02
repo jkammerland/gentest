@@ -465,9 +465,19 @@ void fixturesAndInfrastructureFailure() {
         gentest::detail::SharedFixtureScope::Global, "", "notification fixture",
         +[](std::string_view, std::string &) -> std::shared_ptr<void> { return std::make_shared<int>(1); }, &fixtureSetup,
         &fixtureTeardown);
+
+    // Every lifecycle/failure subcase requests the fixture whose setup and
+    // teardown notifications its assertions verify.
+    const auto makeFixtureCase = [](std::string_view name, void (*body)(void *)) {
+        auto test             = makeCase(name, body);
+        test.fixture          = "notification fixture";
+        test.fixture_lifetime = gentest::FixtureLifetime::MemberGlobal;
+        return test;
+    };
+
     auto sink  = std::make_shared<CaptureSink>();
     auto hooks = std::make_shared<Visitor>();
-    auto test  = makeCase("notifications/fixture", +[](void *) {});
+    auto test  = makeFixtureCase("notifications/fixture", +[](void *) {});
     check(run({&test, 1}, sink, hooks) == 0, "fixture lifecycle failed");
     check(fixtureTeardowns == 1 && hooks->fixtureStarts == 2 && hooks->fixtureFinishes == 2, "shared fixture lifecycle incomplete");
     check(hooks->suspensions[static_cast<std::size_t>(SuspensionKind::yield)] == 1, "blocking scheduler source hook missing");
@@ -479,7 +489,7 @@ void fixturesAndInfrastructureFailure() {
     // test failure. All fixture teardown remains required.
     sink               = std::make_shared<CaptureSink>();
     sink->failProgress = true;
-    test               = makeCase(
+    test               = makeFixtureCase(
         "notifications/failure", +[](void *) {
             gentest::xfail("expected test failure");
             (void)gentest::currentNotifier().progress("ignored failure");
@@ -489,12 +499,12 @@ void fixturesAndInfrastructureFailure() {
     check(fixtureTeardowns == 2, "notification failure skipped teardown");
 
     sink = std::make_shared<CaptureSink>();
-    test = makeCase("notifications/invalid", +[](void *) { (void)gentest::currentNotifier().allowSilenceFor(0ns); });
+    test = makeFixtureCase("notifications/invalid", +[](void *) { (void)gentest::currentNotifier().allowSilenceFor(0ns); });
     check(run({&test, 1}, sink) != 0, "pre-admission notification failure was ignored");
     check(fixtureTeardowns == 3, "validation failure skipped teardown");
 
     sink = std::make_shared<CaptureSink>();
-    test = makeCase(
+    test = makeFixtureCase(
         "notifications/wrong_subject", +[](void *) {
             const auto notifier = gentest::currentNotifier();
             (void)notifier.forSubject(notifier.subject() + 1).progress("wrong case");
