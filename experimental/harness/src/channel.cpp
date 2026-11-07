@@ -168,6 +168,12 @@ auto Channel::fromEnvironment() -> Channel {
 }
 
 void Channel::send(const Message &message) {
+    if (!trySend(message)) {
+        throw std::runtime_error("shared-memory channel full");
+    }
+}
+
+auto Channel::trySend(const Message &message) -> bool {
     if (message.payload.size() > maxPayload) {
         throw std::length_error("shared-memory message exceeds 4096 bytes");
     }
@@ -178,7 +184,7 @@ void Channel::send(const Message &message) {
             throw std::runtime_error("shared-memory channel closed");
         }
         if (queue.count == capacity) {
-            throw std::runtime_error("shared-memory channel full");
+            return false;
         }
         auto &slot = queue.slots[(queue.head + queue.count) % capacity];
         slot.tag   = message.tag;
@@ -187,6 +193,7 @@ void Channel::send(const Message &message) {
         ++queue.count;
     }
     notify(impl_->events[impl_->side].value);
+    return true;
 }
 
 auto Channel::tryReceive() -> std::optional<Message> {
