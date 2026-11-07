@@ -407,6 +407,29 @@ auto failures() -> awaitable<> {
     expect_true(rejected);
 }
 
+auto orphans() -> awaitable<> {
+    // The inner shell backgrounds a short-lived process and exits, so that
+    // process is reparented to the supervisor (namespace PID 1). The program
+    // reports whether it was reaped or left behind as a zombie.
+    SessionSpec spec;
+    spec.supervisor = HARNESS_SUPERVISOR;
+    spec.topology.nodes.push_back({.name = "host", .ipv4Forwarding = false, .bridgeAddress = {}});
+    spec.programs.push_back({.node             = "host",
+                             .argv             = {"/bin/sh", "-c",
+                                                  "orphan=$(sh -c 'true & echo $!'); i=0;"
+                                                  "while [ -e /proc/$orphan ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done;"
+                                                  "if [ -e /proc/$orphan ]; then grep State /proc/$orphan/status; exit 1; fi;"
+                                                  "echo reaped"},
+                             .environment      = {},
+                             .workingDirectory = {}});
+    auto session = co_await Session::start(std::move(spec));
+    co_await session.launch(0);
+    const auto result = co_await session.wait(0);
+    expect_true(result.succeeded(), result.standardOutput);
+    expect_true(result.standardOutput.find("reaped") != std::string::npos, result.standardOutput);
+    co_await session.stop();
+}
+
 auto startup() -> awaitable<> {
     auto stalled       = local({});
     stalled.supervisor = HARNESS_STALLED;
