@@ -215,13 +215,13 @@ struct Session::Impl {
     std::map<std::uint32_t, std::optional<Message>> replies;
     // Commands wait here, in order, while the supervisor has not drained the
     // bounded control queue. Guarded by mutex; flushed by senders and the monitor.
-    std::deque<Message>                             outbox;
-    std::uint32_t                                   sequence{};
-    std::exception_ptr                              failure;
-    bool                                            closing{};
-    std::thread                                     monitor;
-    std::optional<Clock::time_point>                cleanupDeadline;
-    std::exception_ptr                              cleanupFailure;
+    std::deque<Message>              outbox;
+    std::uint32_t                    sequence{};
+    std::exception_ptr               failure;
+    bool                             closing{};
+    std::thread                      monitor;
+    std::optional<Clock::time_point> cleanupDeadline;
+    std::exception_ptr               cleanupFailure;
     // Collection has one owner even when a progress monitor initiates teardown
     // concurrently with an explicit stop or destruction.
     std::mutex                                           collectionMutex;
