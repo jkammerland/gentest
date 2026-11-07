@@ -345,6 +345,10 @@ later outbound mapping to change ports. There is no static inbound forwarding.
 This models one useful IPv4 NAT/firewall configuration, not every consumer router
 or symmetric NAT. `execute(node, argv, stdin)` supports `ip`, `nft` and `tc` for
 additional test policy, packet counters and netem. It always runs inside a node.
+It returns the command's stdout when the command exits 0; stdout larger than one
+control reply (4088 bytes) fails explicitly rather than returning a partial tail.
+A failing command reports its exit status or signal and the last 1500 bytes of
+stderr, noting when earlier stderr was discarded.
 
 [Network tests](tests/cases.cpp) bind port 5000 in multiple nodes, verify observed
 source translations and blocked unsolicited inbound traffic, deliberately order
