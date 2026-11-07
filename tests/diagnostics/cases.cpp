@@ -6,6 +6,7 @@
 #include <source_location>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -14,6 +15,23 @@ namespace diagnostics_tests {
 void container_failure() { gentest::expect_eq(std::vector{1, 2, 3}, std::vector{1, 9, 3}); }
 
 void string_failure() { gentest::expect_eq(std::string("a\nb\0", 4), std::string("a\nc\0", 4)); }
+
+void padded_array_failure() {
+    const char right[8] = "ac";
+    gentest::expect_eq(std::string_view{"ab"}, right);
+}
+
+void padded_array_matcher() {
+    const char buffer[8] = "ab";
+    gentest::expect_that(buffer, gentest::match::EndsWith("b"));
+}
+
+void distinct_pointer_failure() {
+    static const char first[] = "same";
+    const std::string second  = "same";
+    const char       *left    = first;
+    gentest::expect_eq(left, second.c_str());
+}
 
 void check_packet() { gentest::expect_that(std::vector{1, 9}, gentest::match::ElementsAre(1, 2)); }
 
