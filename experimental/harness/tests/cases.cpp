@@ -15,7 +15,9 @@
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <thread>
+#include <tuple>
 #include <unistd.h>
+#include <utility>
 
 namespace harness_tests {
 using namespace gentest;
@@ -34,7 +36,12 @@ void queue() {
         parent.send({.tag = 99, .payload = "overflow"});
     } catch (const std::runtime_error &) { full = true; }
     expect_true(full);
-    for (unsigned i = 0; i != Channel::capacity; ++i) {
+    // trySend reports a full queue without queueing, then succeeds once space frees.
+    expect_true(!parent.trySend({.tag = 98, .payload = "backpressure"}));
+    const auto first = child.tryReceive();
+    expect_true(first.has_value() && first->tag == 0U);
+    expect_true(parent.trySend({.tag = Channel::capacity, .payload = "payload-" + std::to_string(Channel::capacity)}));
+    for (unsigned i = 1; i != Channel::capacity + 1; ++i) {
         const auto received = child.tryReceive();
         if (!received) {
             throw std::runtime_error("queued message missing");
@@ -405,6 +412,34 @@ auto failures() -> awaitable<> {
         (void)co_await Session::start(std::move(invalid));
     } catch (const std::runtime_error &) { rejected = true; }
     expect_true(rejected);
+}
+
+template <std::size_t... Index> auto inspectConcurrently(Session &session, std::index_sequence<Index...>) -> awaitable<std::size_t> {
+    auto results = co_await when_all(((void)Index, session.inspect(0))...);
+    co_return std::apply([](const auto &...result) { return (std::size_t{result.running ? 1U : 0U} + ...); }, results);
+}
+
+auto controlBackpressure() -> awaitable<> {
+    auto session = co_await Session::start(local({"echo"}));
+    co_await session.launch(0);
+    expect_eq((co_await session.receive(0)).payload, std::string("ready"));
+
+    // The supervisor runs a command synchronously, so requests sent meanwhile
+    // queue up: far more than the 16-slot control queue holds. Once it is free,
+    // it answers each inspect immediately, so the replies arrive in a burst too.
+    std::string busy;
+    for (int line = 0; line != 180; ++line) {
+        busy += "link set dev lo up\n";
+    }
+    constexpr std::size_t requests = 40;
+    auto [output, running]         = co_await when_all(session.execute("host", {"ip", "-batch", "-"}, busy),
+                                                       inspectConcurrently(session, std::make_index_sequence<requests>{}));
+    expect_true(output.empty());
+    expect_eq(running, requests);
+
+    // A full queue is backpressure, not failure: the session remains usable.
+    expect_true((co_await session.inspect(0)).running);
+    co_await session.stop();
 }
 
 auto startup() -> awaitable<> {
