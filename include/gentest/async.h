@@ -478,8 +478,8 @@ using Clock = std::chrono::steady_clock;
 // durations such as hours::max() to mean "no timeout".
 template <typename Rep, typename Period>
 [[nodiscard]] constexpr auto saturating_clock_duration(std::chrono::duration<Rep, Period> duration) noexcept -> Clock::duration {
-    using Target = Clock::duration;
-    using TRep   = Target::rep;
+    using Target           = Clock::duration;
+    using TRep             = Target::rep;
     constexpr auto max_rep = std::numeric_limits<TRep>::max();
     constexpr auto min_rep = std::numeric_limits<TRep>::min();
     if constexpr (std::is_floating_point_v<Rep>) {
