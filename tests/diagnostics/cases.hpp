@@ -7,6 +7,9 @@ namespace diagnostics_tests {
 
 [[using gentest: test]] void container_failure();
 [[using gentest: test]] void string_failure();
+[[using gentest: test]] void padded_array_failure();
+[[using gentest: test]] void padded_array_matcher();
+[[using gentest: test]] void distinct_pointer_failure();
 [[using gentest: test]] void scoped_failure();
 [[using gentest: test]] void scope_unwinding();
 [[using gentest: test]] void fatal_matcher();
