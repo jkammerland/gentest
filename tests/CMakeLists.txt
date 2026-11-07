@@ -3414,6 +3414,14 @@ gentest_add_cmake_script_test(
         "REQUIRED_STDERR_SUBSTRING=death test"
         "FORBID_STDOUT_SUBSTRING=Executed 0")
 
+gentest_add_cmake_script_test(
+    NAME cli_report_format_death_excluded_bench_json_replaces_junit
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckEmptyRunReplacesJunit.cmake"
+    ARGS --filter=regressions/runtime_selection/death_bench --kind=bench --report-format=json
+    DEFINES
+        "REPORT_PATH=${CMAKE_CURRENT_BINARY_DIR}/death_excluded_bench_json/junit.xml")
+
 gentest_add_check_contains(
     NAME benches_filter_space
     PROG $<TARGET_FILE:gentest_benchmarks_tests>
