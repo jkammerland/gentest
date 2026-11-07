@@ -6,6 +6,7 @@
 #include <charconv>
 #include <csignal>
 #include <cstdlib>
+#include <deque>
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
@@ -657,11 +658,29 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
     Network                                         network(owner);
     std::map<unsigned, Child>                       children;
     std::vector<std::pair<std::uint32_t, unsigned>> waiters;
-    auto                                            reply = [&](std::uint32_t tag, bool ok, const std::string &value) {
+    // Replies wait here, in order, while the parent has not drained the bounded
+    // control queue; a full queue is backpressure, not a session failure.
+    std::deque<Message> outbox;
+    const auto          flushReplies = [&] {
+        while (!outbox.empty() && control.trySend(outbox.front())) {
+            outbox.pop_front();
+        }
+    };
+    auto reply = [&](std::uint32_t tag, bool ok, const std::string &value) {
         Writer body;
         body.number(ok);
         body.text(value);
-        control.send({.tag = tag, .payload = std::move(body.bytes)});
+        outbox.push_back({.tag = tag, .payload = std::move(body.bytes)});
+        flushReplies();
+    };
+    // Deliver replies still queued at exit, including the shutdown
+    // acknowledgement, within the cleanup deadline.
+    const auto drainReplies = [&](CleanupClock::time_point deadline) {
+        flushReplies();
+        while (!outbox.empty() && CleanupClock::now() < deadline) {
+            (void)::poll(nullptr, 0, 2);
+            flushReplies();
+        }
     };
     bool       cleanupHandled{};
     const auto fallbackDeadline = [&] { return std::min(CleanupClock::now() + 2s, initialDeadline); };
@@ -695,6 +714,7 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
     try {
         while (!stopping && !interrupted) {
             owner.check();
+            flushReplies();
             for (auto &[index, child] : children) {
                 collect(child);
                 if (child.done) {
@@ -871,7 +891,8 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
                     fds.push_back({.fd = child.error.value, .events = POLLIN, .revents = 0});
                 }
             }
-            systemCheck(::poll(fds.data(), fds.size(), -1) >= 0 || errno == EINTR, "poll supervisor");
+            // The parent does not signal freed queue space; retry pending replies shortly.
+            systemCheck(::poll(fds.data(), fds.size(), outbox.empty() ? -1 : 5) >= 0 || errno == EINTR, "poll supervisor");
             owner.check();
         }
     } catch (const OwnerExited &) {
@@ -884,6 +905,7 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
         throw;
     }
     cleanupChildren(fallbackDeadline());
+    drainReplies(fallbackDeadline());
     // Exiting namespace PID 1 also kills/reaps descendants that outlived their
     // immediate parent, including programs which double-forked.
 }
