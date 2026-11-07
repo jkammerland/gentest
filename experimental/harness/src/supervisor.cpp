@@ -438,6 +438,20 @@ void stopChildren(std::span<Child *> children, CleanupClock::time_point deadline
     }
 }
 
+// The supervisor is PID 1 of its namespace, so orphaned descendants are
+// reparented to it. Reap exited processes it does not own; owned programs and
+// namespace keepers keep their statuses for collect() and stopChildren().
+void reapOrphans(const std::vector<pid_t> &owned) {
+    std::ifstream list("/proc/self/task/" + std::to_string(::getpid()) + "/children");
+    pid_t         pid{};
+    while (list >> pid) {
+        if (std::find(owned.begin(), owned.end(), pid) != owned.end()) {
+            continue;
+        }
+        while (::waitpid(pid, nullptr, WNOHANG) < 0 && errno == EINTR) {}
+    }
+}
+
 void stopChild(Child &child) {
     std::array<Child *, 1> children{&child};
     stopChildren(children, CleanupClock::now() + 2s);
@@ -695,12 +709,21 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
     try {
         while (!stopping && !interrupted) {
             owner.check();
+            std::vector<pid_t> owned;
             for (auto &[index, child] : children) {
                 collect(child);
                 if (child.done) {
                     channels[index].close();
+                } else {
+                    owned.push_back(child.pid);
                 }
             }
+            for (const auto &keeper : network.keepers) {
+                if (!keeper.done) {
+                    owned.push_back(keeper.pid);
+                }
+            }
+            reapOrphans(owned);
             for (auto it = waiters.begin(); it != waiters.end();) {
                 if (children.at(it->second).done) {
                     reply(it->first, true, processResult(children.at(it->second)));
@@ -871,7 +894,8 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
                     fds.push_back({.fd = child.error.value, .events = POLLIN, .revents = 0});
                 }
             }
-            systemCheck(::poll(fds.data(), fds.size(), -1) >= 0 || errno == EINTR, "poll supervisor");
+            // Orphan exits do not wake the loop; a bounded wait reaps them promptly.
+            systemCheck(::poll(fds.data(), fds.size(), 250) >= 0 || errno == EINTR, "poll supervisor");
             owner.check();
         }
     } catch (const OwnerExited &) {

@@ -272,6 +272,9 @@ undo a command already accepted by the supervisor; commands have a five-second
 execution deadline. Use `stop()` to tear down the whole topology.
 
 The supervisor is PID 1 inside an `unshare` user/network/PID/mount namespace tree.
+As namespace init it also reaps orphaned descendants (for example a background
+process left by a program's shell) while the session runs, so they do not
+accumulate as zombies; exit results are reported only for launched programs.
 It checks that it has a single-ID rootless mapping and a different network
 namespace before configuring anything. Node namespaces are held by child
 processes and open descriptors. Commands receive argv directly; there is no
