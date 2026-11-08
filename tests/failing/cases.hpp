@@ -36,6 +36,15 @@ void predicate_mismatch();
 [[using gentest: test("mocking/ambiguous_template_member_pointer")]]
 void ambiguous_template_member_pointer();
 
+[[using gentest: test("mocking/nice_exhausted_excess_call")]]
+void nice_exhausted_excess_call();
+
+[[using gentest: test("mocking/nice_times_zero_call")]]
+void nice_times_zero_call();
+
+[[using gentest: test("mocking/nice_exhausted_fallback_identity")]]
+void nice_exhausted_fallback_identity();
+
 [[using gentest: test("logging/attachment")]]
 void logging_attachment();
 

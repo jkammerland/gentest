@@ -2309,7 +2309,7 @@ gentest_add_check_inventory(
     ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeBlockedInventoryProgram.cmake --
     EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_blocked_status.list)
 
-gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 12 SKIP 0 BLOCKED 2)
+gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 15 SKIP 0 BLOCKED 2)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
@@ -2470,6 +2470,37 @@ gentest_add_check_death(
         "failing/mocking/predicate_mismatch"
         "argument[0] mismatch for ::mocking::Ticker::tick: expected == 3, got 4"
     ARGS --run=failing/mocking/predicate_mismatch)
+
+# Nice mode must not hide calls beyond a method's expectations (#261).
+gentest_add_check_death(
+    NAME mocking_nice_exhausted_excess_call_message
+    PROG gentest_failing_tests
+    REQUIRED_SUBSTRINGS
+        "failing/mocking/nice_exhausted_excess_call"
+        "unexpected call to ::mocking::Ticker::tick"
+        "(expectation at tests/failing/cases.cpp:"
+    ARGS --run=failing/mocking/nice_exhausted_excess_call)
+
+gentest_add_check_death(
+    NAME mocking_nice_times_zero_call_message
+    PROG gentest_failing_tests
+    REQUIRED_SUBSTRINGS
+        "failing/mocking/nice_times_zero_call"
+        "unexpected call to ::mocking::Ticker::tick"
+        "(expectation at tests/failing/cases.cpp:"
+    ARGS --run=failing/mocking/nice_times_zero_call)
+
+# MSVC rejects the template member pointer as ambiguous, which fails the case before dispatch.
+if(NOT (WIN32 AND (MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")))
+    gentest_add_check_death(
+        NAME mocking_nice_exhausted_fallback_identity_message
+        PROG gentest_failing_tests
+        REQUIRED_SUBSTRINGS
+            "failing/mocking/nice_exhausted_fallback_identity"
+            "unexpected call to ::mocking::Ticker::tadd"
+            "(expectation at tests/failing/cases.cpp:"
+        ARGS --run=failing/mocking/nice_exhausted_fallback_identity)
+endif()
 
 if(WIN32 AND (MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"))
     gentest_add_check_death(

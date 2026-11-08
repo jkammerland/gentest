@@ -347,10 +347,11 @@ class InstanceState {
 
     template <typename R, typename... Args>
     R dispatch_with_fallback(const MethodIdentity &id, const MethodIdentity &fallback_id, std::string_view method_name, Args &&...args) {
-        using ExpectationT               = Expectation<R(Args...)>;
-        bool                 nice_mode   = false;
-        bool                 unexpected  = false;
-        ExpectationT        *expectation = nullptr;
+        using ExpectationT                    = Expectation<R(Args...)>;
+        bool                 nice_mode        = false;
+        bool                 unexpected       = false;
+        bool                 has_expectations = false;
+        ExpectationT        *expectation      = nullptr;
         std::source_location last_expectation_location;
         {
             std::lock_guard<std::mutex> lk(mtx_);
@@ -358,8 +359,10 @@ class InstanceState {
             frozen_                         = true;
             const auto try_take_expectation = [&](const MethodIdentity &candidate) -> bool {
                 auto it = methods_.find(candidate);
-                if (it != methods_.end() && !it->second.expectations.empty())
+                if (it != methods_.end() && !it->second.expectations.empty()) {
+                    has_expectations          = true;
                     last_expectation_location = it->second.expectations.back()->location;
+                }
                 if (it == methods_.end() || it->second.next_expectation >= it->second.expectations.size()) {
                     return false;
                 }
@@ -377,7 +380,9 @@ class InstanceState {
             };
 
             const bool matched = try_take_expectation(id) || (!(fallback_id == id) && try_take_expectation(fallback_id));
-            if (!matched) {
+            // Nice mode only relaxes methods without expectations. Calls beyond
+            // exhausted expectations fail as in strict mode.
+            if (!matched && !has_expectations) {
                 nice_mode = nice_mode_;
             }
         }

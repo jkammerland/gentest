@@ -141,4 +141,7 @@ void concurrency_late_mutation_rejected_after_runtime_start();
 [[using gentest: test("mocking/nice/unexpected_ok")]]
 void nice_unexpected_ok();
 
+[[using gentest: test("mocking/nice/expected_calls_ok")]]
+void nice_expected_calls_ok();
+
 } // namespace mocking
