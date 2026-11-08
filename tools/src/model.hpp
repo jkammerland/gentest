@@ -273,6 +273,10 @@ struct MockParamInfo {
     // namespace gentest; template parameter names stay unqualified.
     std::string type;
     std::string name; // argument name (auto-assigned when empty)
+    // Full parameter declaration without the default argument, with `name`
+    // placed inside the declarator (`void (*cb)(int)`, `int (&values)[2]`).
+    // Renderers fall back to `type name` when empty.
+    std::string declaration;
     std::string default_arg;
     enum class PassStyle {
         Value,
@@ -312,10 +316,15 @@ struct MockCtorInfo {
 };
 
 // Discovered member function suitable for mocking.
+//
+// `return_type` is globally qualified like MockParamInfo::type. Pointers and
+// references to functions or arrays (and member-function pointers) are spelled
+// as `::std::type_identity_t<...>`, so the type can precede a function name
+// and compose into `R(Args)` and `R (C::*)(Args)`.
 struct MockMethodInfo {
     std::string                    qualified_name; // e.g. Namespace::Type::method
     std::string                    method_name;    // unqualified method identifier
-    std::string                    return_type;    // globally qualified, like MockParamInfo::type
+    std::string                    return_type;    // see comment above
     std::vector<MockParamInfo>     parameters;
     std::string                    template_prefix; // e.g. "template <typename T, int N>"
     std::vector<TemplateParamInfo> template_params;

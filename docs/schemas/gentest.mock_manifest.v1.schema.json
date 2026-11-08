@@ -37,6 +37,7 @@
       "properties": {
         "type": { "type": "string" },
         "name": { "type": "string" },
+        "declaration": { "type": "string" },
         "default_arg": { "type": "string" },
         "pass_style": {
           "enum": ["value", "lvalue_ref", "rvalue_ref", "forwarding_ref"]

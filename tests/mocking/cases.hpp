@@ -54,6 +54,15 @@ void interface_colliding_namespaces();
 [[using gentest: test("mocking/interface/colliding_template_argument")]]
 void interface_colliding_template_argument();
 
+[[using gentest: test("mocking/interface/declarator_parameters")]]
+void interface_declarator_parameters();
+
+[[using gentest: test("mocking/interface/declarator_returns")]]
+void interface_declarator_returns();
+
+[[using gentest: test("mocking/interface/declarator_template_and_ctor")]]
+void interface_declarator_template_and_ctor();
+
 [[using gentest: test("mocking/concrete/invokes")]]
 void concrete_invokes();
 
