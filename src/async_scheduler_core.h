@@ -93,7 +93,9 @@ class AsyncSchedulerCore {
             token->cancel();
             return token;
         }
-        waiter_tokens_[frame->address()].push_back(token);
+        auto &tokens = waiter_tokens_[frame->address()];
+        prune_expired_waiter_tokens(tokens);
+        tokens.push_back(token);
         return token;
     }
 
@@ -281,6 +283,14 @@ class AsyncSchedulerCore {
         return false;
     }
 
+    // Waiter-token entries tracked for a frame, including expired entries
+    // that have not been pruned yet. Exposed for regression tests.
+    [[nodiscard]] auto tracked_waiter_tokens(std::coroutine_handle<> handle) const -> std::size_t {
+        std::lock_guard<std::mutex> lk(mtx_);
+        const auto                  it = waiter_tokens_.find(handle.address());
+        return it == waiter_tokens_.end() ? 0 : it->second.size();
+    }
+
     [[nodiscard]] auto ready_size() const -> std::size_t {
         std::lock_guard<std::mutex> lk(mtx_);
         return ready_.size();
@@ -359,6 +369,24 @@ class AsyncSchedulerCore {
     }
 
   private:
+    using WeakWaiterTokens = std::vector<std::weak_ptr<WaiterTokenPtr::element_type>>;
+
+    // Entries exist only so cancellation and has_work() can reach live
+    // waits. A completed wait expires its token but leaves the entry (and,
+    // with make_shared, the token's storage) behind until the frame ends.
+    // Prune only when the vector is full, and keep at least half of it free
+    // afterwards, so pruning costs amortised O(1) per wait.
+    static void prune_expired_waiter_tokens(WeakWaiterTokens &tokens) {
+        constexpr std::size_t kPruneThreshold = 16;
+        if (tokens.size() < kPruneThreshold || tokens.size() != tokens.capacity()) {
+            return;
+        }
+        std::erase_if(tokens, [](const auto &weak) { return weak.expired(); });
+        if (tokens.size() > tokens.capacity() / 2) {
+            tokens.reserve(tokens.capacity() * 2);
+        }
+    }
+
     struct ChildReference {
         void       *child             = nullptr;
         std::size_t parent_link_index = 0;

@@ -114,6 +114,7 @@ set(_gentest_manual_regressions
     "gentest_regression_runtime_selection|runtime_selection_regressions.cpp"
     "gentest_regression_async_blocking_timer_starvation|async_blocking_timer_starvation.cpp"
     "gentest_regression_async_stale_waiter|async_stale_waiter.cpp"
+    "gentest_regression_async_waiter_token_growth|async_waiter_token_growth.cpp"
     "gentest_regression_async_completion|async_completion.cpp"
     "gentest_regression_async_composition|async_composition.cpp"
     "gentest_regression_async_adopted_ready_queue|async_adopted_ready_queue.cpp"
@@ -1457,6 +1458,12 @@ gentest_add_cmake_script_test(
     PROG $<TARGET_FILE:gentest_regression_async_stale_waiter>
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
     DEFINES TIMEOUT_SEC=10 EXPECT_RC=0)
+
+gentest_add_cmake_script_test(
+    NAME regression_async_waiter_tokens_stay_bounded
+    PROG $<TARGET_FILE:gentest_regression_async_waiter_token_growth>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    DEFINES TIMEOUT_SEC=30 EXPECT_RC=0)
 
 gentest_add_cmake_script_test(
     NAME regression_async_blocking_timer_starvation_times_out_yielding_child
