@@ -141,4 +141,7 @@ void concurrency_late_mutation_rejected_after_runtime_start();
 [[using gentest: test("mocking/nice/unexpected_ok")]]
 void nice_unexpected_ok();
 
+[[using gentest: test("mocking/bench/measured_call_verification_does_not_throw")]]
+void bench_measured_call_verification_does_not_throw();
+
 } // namespace mocking

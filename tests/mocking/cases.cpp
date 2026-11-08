@@ -677,4 +677,44 @@ void nice_unexpected_ok() {
     EXPECT_TRUE(true);
 }
 
+void bench_measured_call_verification_does_not_throw() {
+    // Simulate measured call phases in diagnostic contexts so the owner test stays green.
+    const auto owner        = gentest::detail::current_test();
+    const auto every_call   = std::make_shared<gentest::detail::TestContextInfo>();
+    const auto unwinding    = std::make_shared<gentest::detail::TestContextInfo>();
+    bool       unwound      = false;
+    const auto unmet_verify = [] {
+        gentest::mock<Ticker> mock_tick;
+        EXPECT_CALL(mock_tick, tick).times(1);
+    };
+    gentest::detail::start_context(*every_call);
+    gentest::detail::start_context(*unwinding);
+    {
+        gentest::detail::BenchPhaseScope call_phase(gentest::detail::BenchPhase::Call);
+        gentest::detail::set_current_test(every_call, gentest::detail::CurrentContextRole::Owner);
+        // Destructor verification records instead of throwing, and a body that
+        // fails on every iteration keeps only a bounded prefix of failures.
+        for (int i = 0; i < 1000; ++i)
+            unmet_verify();
+#if GENTEST_EXCEPTIONS_ENABLED
+        gentest::detail::set_current_test(unwinding, gentest::detail::CurrentContextRole::Owner);
+        try {
+            gentest::mock<Ticker> mock_tick;
+            EXPECT_CALL(mock_tick, tick).times(1);
+            gentest::require(false, "fatal failure unwinds an unmet mock");
+        } catch (const gentest::assertion &) { unwound = true; }
+#endif
+        gentest::detail::set_current_test(owner, gentest::detail::CurrentContextRole::Owner);
+    }
+
+    ASSERT_EQ(every_call->failures.size(), std::size_t{8});
+    EXPECT_TRUE(every_call->failures.front().find("tick but observed 0") != std::string::npos, every_call->failures.front());
+    if constexpr (gentest::detail::exceptions_enabled) {
+        EXPECT_TRUE(unwound);
+        ASSERT_EQ(unwinding->failures.size(), std::size_t{2});
+        EXPECT_TRUE(unwinding->failures[0].find("fatal failure unwinds an unmet mock") != std::string::npos);
+        EXPECT_TRUE(unwinding->failures[1].find("but observed 0") != std::string::npos);
+    }
+}
+
 } // namespace mocking

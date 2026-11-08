@@ -4,6 +4,8 @@
 #include "gentest/diagnostics.h"
 #include "runner_debug.h"
 
+#include <cstddef>
+#include <exception>
 #include <filesystem>
 #include <ranges>
 
@@ -58,8 +60,9 @@ namespace {
 
 thread_local std::shared_ptr<TestContextInfo> g_current_test{};
 thread_local TestContextLocalBuffer           g_current_buffer{};
-thread_local CurrentContextRole               g_current_context_role = CurrentContextRole::None;
-thread_local BenchPhase                       g_bench_phase          = BenchPhase::None;
+thread_local CurrentContextRole               g_current_context_role   = CurrentContextRole::None;
+thread_local BenchPhase                       g_bench_phase            = BenchPhase::None;
+thread_local int                              g_deferred_failure_depth = 0;
 thread_local std::string                      g_bench_error{};
 thread_local NoExceptionsFatalHookState       g_noexceptions_fatal_hook{};
 thread_local std::source_location             g_mock_configuration_location{};
@@ -96,14 +99,33 @@ auto normalize_failure_file(std::string file) -> std::string {
     return s;
 }
 
-void throw_if_bench_call_failure(const std::string &msg) {
-#if GENTEST_EXCEPTIONS_ENABLED
-    if (bench_phase() == BenchPhase::Call) {
-        // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-        throw gentest::assertion(msg);
+// A measured call phase stops at its next boundary once a failure has been
+// recorded, so a body failing on every iteration keeps only a bounded prefix.
+constexpr std::size_t max_deferred_bench_call_failures = 8;
+
+// Failures recorded from a destructor (explicitly, or while an exception is
+// unwinding the body) must not throw; the measured executor reports them when
+// the call phase ends.
+auto defers_bench_call_failure() -> bool {
+    return bench_phase() == BenchPhase::Call && (deferred_failure_depth_storage() > 0 || std::uncaught_exceptions() > 0);
+}
+
+void append_failure(TestContextLocalBuffer &buffer, std::string msg, TestContextInfo::FailureLoc location) {
+    const bool deferred = defers_bench_call_failure();
+    if (deferred && buffer.failures.size() >= max_deferred_bench_call_failures) {
+        return;
     }
-#else
-    (void)msg;
+    auto ctx = current_test_storage();
+    buffer.failures.push_back(with_diagnostic_context(std::move(msg)));
+    mark_context_failed(*ctx);
+    buffer.failure_locations.push_back(std::move(location));
+    buffer.event_lines.push_back(buffer.failures.back());
+    buffer.event_kinds.push_back('F');
+#if GENTEST_EXCEPTIONS_ENABLED
+    if (!deferred && bench_phase() == BenchPhase::Call) {
+        // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
+        throw gentest::assertion(buffer.failures.back());
+    }
 #endif
 }
 
@@ -116,6 +138,8 @@ GENTEST_RUNTIME_API auto current_buffer_storage() -> TestContextLocalBuffer & { 
 GENTEST_RUNTIME_API auto current_context_role_storage() -> CurrentContextRole & { return g_current_context_role; }
 
 GENTEST_RUNTIME_API auto bench_phase_storage() -> BenchPhase & { return g_bench_phase; }
+
+GENTEST_RUNTIME_API auto deferred_failure_depth_storage() -> int & { return g_deferred_failure_depth; }
 
 auto mock_configuration_location_storage() -> std::source_location & { return g_mock_configuration_location; }
 
@@ -244,14 +268,8 @@ GENTEST_RUNTIME_API void require_not_adopted_context(std::string_view operation)
 }
 
 void record_failure(std::string msg) {
-    auto  ctx    = current_test_storage();
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
-    buffer.failures.push_back(with_diagnostic_context(std::move(msg)));
-    mark_context_failed(*ctx);
-    buffer.failure_locations.push_back({.file = std::string{}, .line = 0});
-    buffer.event_lines.push_back(buffer.failures.back());
-    buffer.event_kinds.push_back('F');
-    throw_if_bench_call_failure(buffer.failures.back());
+    append_failure(buffer, std::move(msg), {.file = std::string{}, .line = 0});
 }
 
 void record_failure(std::string msg, const std::source_location &loc) {
@@ -259,14 +277,8 @@ void record_failure(std::string msg, const std::source_location &loc) {
 }
 
 void record_failure_at(std::string msg, std::string file, unsigned line) {
-    auto  ctx    = current_test_storage();
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
-    buffer.failures.push_back(with_diagnostic_context(std::move(msg)));
-    mark_context_failed(*ctx);
-    buffer.failure_locations.push_back({.file = normalize_failure_file(std::move(file)), .line = line});
-    buffer.event_lines.push_back(buffer.failures.back());
-    buffer.event_kinds.push_back('F');
-    throw_if_bench_call_failure(buffer.failures.back());
+    append_failure(buffer, std::move(msg), {.file = normalize_failure_file(std::move(file)), .line = line});
 }
 
 [[noreturn]] void skip_shared_fixture_unavailable(std::string_view reason, const std::source_location &loc) {

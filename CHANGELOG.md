@@ -47,6 +47,12 @@
   callbacks, and resumption restores the owning test context.
 - Fetched static fmt is built with position-independent code for the clang-tidy
   plugin.
+- An unmet mock expectation in a bench or jitter body no longer terminates the
+  run. Mock destructor verification, and failures recorded while an assertion
+  unwinds the body, are reported when the measured call phase ends. The case
+  fails with the mock message, later cases run, and reports are written. A
+  body that fails on every iteration records at most eight failures per call
+  phase. The measured loops are unchanged (#262).
 
 ## 1.3.0 - 2026-10-18
 
