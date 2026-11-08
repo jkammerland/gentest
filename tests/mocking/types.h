@@ -91,6 +91,12 @@ struct TemplateTemplateFixed {
     template <template <class, std::size_t> class C> void take(C<int, 2> value) { (void)value; }
 };
 
+// The unnamed leading template parameter makes codegen synthesize a fallback
+// name for it in the generated mock template head.
+struct UnnamedTemplateParam {
+    template <typename, typename T> void tagged(T value) { (void)value; }
+};
+
 struct TemplateTemplateCtorTarget {
     template <template <class, std::size_t> class C>
     explicit TemplateTemplateCtorTarget(C<int, 2> value) noexcept : size(static_cast<int>(value.size())) {}

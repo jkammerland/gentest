@@ -530,7 +530,7 @@ struct CallableTemplateInfo {
 
     std::size_t template_index = 0;
     for (const auto *param : *templ->getTemplateParameters()) {
-        info.params.push_back(build_template_param_info(*param, fmt::format("__gentest_tparam_{}", template_index++)));
+        info.params.push_back(build_template_param_info(*param, fmt::format("gentest_tparam_{}_", template_index++)));
     }
     info.prefix = print_template_parameter_list(*templ->getTemplateParameters(), info.params, ctx);
     return info;

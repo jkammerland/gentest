@@ -34,3 +34,4 @@
 [PASS] mocking/mocking/template/template_template_ctor
 [PASS] mocking/mocking/template/template_template_member_expect
 [PASS] mocking/mocking/template/template_template_pack_direct_expect
+[PASS] mocking/mocking/template/unnamed_template_param

@@ -366,6 +366,19 @@ gentest_add_suite(async_examples TARGET ${PROJECT_NAME}_async_examples_tests
 # Slow coroutine live-renderer demo target (no default suite add_test; intended for terminal inspection)
 gentest_add_suite(async_live_slow TARGET ${PROJECT_NAME}_async_live_slow_tests NO_CTEST)
 
+# Generated registrations and mocks land in user translation units, so they must
+# never declare reserved identifiers ([lex.name]: names containing "__", or
+# starting with "_" plus an uppercase letter, or with "_" at global scope).
+# Compile the default codegen'd suites (including the generated textual mocks)
+# and the async suites (async lookup helpers) with Clang's reserved-identifier
+# diagnostic promoted to an error. The macro subgroup stays off: fetched fmt
+# headers are not system headers and deliberately define
+# _LIBCPP_REMOVE_TRANSITIVE_INCLUDES.
+foreach(suite IN LISTS _gentest_default_suites ITEMS async async_examples)
+    target_compile_options(${PROJECT_NAME}_${suite}_tests PRIVATE
+        $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Wreserved-identifier -Werror=reserved-identifier -Wno-reserved-macro-identifier>)
+endforeach()
+
 # Benchmark-only target: collect all suite translation units into one target so
 # gentest_codegen sees many authored slots in a single invocation (useful for
 # profiling/benchmarking internal codegen parallelism).

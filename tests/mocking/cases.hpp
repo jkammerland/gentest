@@ -87,6 +87,9 @@ void direct_unique_template_member_expect();
 [[using gentest: test("mocking/template/template_template_member_expect")]]
 void template_template_member_expect();
 
+[[using gentest: test("mocking/template/unnamed_template_param")]]
+void unnamed_template_param_member_expect();
+
 [[using gentest: test("mocking/template/template_template_ctor")]]
 void template_template_ctor();
 
