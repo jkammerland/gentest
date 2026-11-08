@@ -62,6 +62,7 @@ add_executable(gentest_codegen
     src/discovery.cpp
     src/mock_discovery.cpp
     src/mock_manifest.cpp
+    src/mock_type_printer.cpp
     src/validate.cpp
     src/emit.cpp
     src/render_mocks.cpp

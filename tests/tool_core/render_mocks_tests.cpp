@@ -53,13 +53,13 @@ MockMethodInfo compute_method() {
     MockMethodInfo method;
     method.qualified_name           = "fixture::Service::compute";
     method.method_name              = "compute";
-    method.return_type              = "std::pair<int, int>";
+    method.return_type              = "::std::pair<int, int>";
     method.is_virtual               = true;
     method.is_pure_virtual          = true;
     method.qualifiers.cv            = MockMethodCvQualifier::Const;
     method.qualifiers.ref           = MockMethodRefQualifier::LValue;
     method.qualifiers.is_noexcept   = true;
-    method.parameters               = {MockParamInfo{.type = "std::vector<int>", .name = "values"}};
+    method.parameters               = {MockParamInfo{.type = "::std::vector<int>", .name = "values"}};
     method.parameters[0].pass_style = MockParamInfo::PassStyle::LValueRef;
     return method;
 }
@@ -187,6 +187,50 @@ int main() {
         const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(MockBackend::Trompeloeil), {service_mock()});
         t.expect(!result.error.empty(), "trompeloeil backend rejects ref-qualified methods");
         t.contains(result.error, "does not support ref-qualified methods", "trompeloeil backend diagnoses ref-qualified methods");
+    }
+
+    {
+        // Discovery globally qualifies every nested name (#265); the renderer must
+        // emit model types verbatim, without re-qualifying template parameters.
+        MockClassInfo cls          = service_mock();
+        cls.methods[0].return_type = "::std::shared_ptr<::detail::Handle>";
+        cls.methods[0].parameters  = {
+            MockParamInfo{.type = "::std::function<void (const ::async::Job &, ::detail::Handle *)>", .name = "callback"}};
+        cls.methods[0].parameters[0].pass_style = MockParamInfo::PassStyle::Value;
+        MockMethodInfo templated;
+        templated.qualified_name  = "fixture::Service::collect";
+        templated.method_name     = "collect";
+        templated.return_type     = "::std::vector<::detail::Handle>";
+        templated.template_prefix = "template <typename T>";
+        templated.template_params.push_back({.name = "T", .usage_spelling = "T"});
+        templated.parameters = {MockParamInfo{.type = "T", .name = "value"},
+                                MockParamInfo{.type = "const ::std::vector<T> &", .name = "values"}};
+        cls.methods.push_back(templated);
+
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(), {cls});
+        t.expect(result.error.empty(), "gentest backend renders globally qualified model types");
+        const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
+        t.expect(registry != nullptr, "gentest backend emits a registry for globally qualified model types");
+        if (registry != nullptr) {
+            t.contains(
+                registry->content,
+                "::std::shared_ptr<::detail::Handle> compute(::std::function<void (const ::async::Job &, ::detail::Handle *)> callback)",
+                "nested names in return and parameter types stay globally qualified");
+            t.contains(registry->content, "::std::vector<::detail::Handle> collect(T value, const ::std::vector<T> & values)",
+                       "template parameter names stay unqualified");
+            t.excludes(registry->content, "::T", "template parameter names are never globally qualified");
+        }
+
+        cls.methods.pop_back();
+        const MockRenderResult gmock = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {cls});
+        t.expect(gmock.error.empty(), "gmock backend renders globally qualified model types");
+        const MockGeneratedFile *gmock_registry = find_file(gmock, "public_mocks_registry.hpp");
+        if (gmock_registry != nullptr) {
+            t.contains(gmock_registry->content, "using MockReturn0_ = ::std::shared_ptr<::detail::Handle>;",
+                       "gmock backend aliases globally qualified return types verbatim");
+            t.contains(gmock_registry->content, "using MockArg0_0_ = ::std::function<void (const ::async::Job &, ::detail::Handle *)>;",
+                       "gmock backend aliases globally qualified argument types verbatim");
+        }
     }
 
     {
