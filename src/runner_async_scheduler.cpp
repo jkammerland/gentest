@@ -108,15 +108,21 @@ auto BatchAsyncScheduler::run_one_ready() -> bool {
     return resume_one_ready();
 }
 
-void BatchAsyncScheduler::run_ready() {
+void BatchAsyncScheduler::run_ready() { (void)run_ready(ProgressCallback{}); }
+
+auto BatchAsyncScheduler::run_ready(const ProgressCallback &after_progress) -> bool {
     gentest::detail::AsyncSchedulerScope scheduler_scope(this);
     core_.post_due_timers();
     for (std::size_t remaining = core_.ready_size(); remaining != 0; --remaining) {
         core_.post_due_timers();
         if (!resume_one_ready()) {
-            return;
+            return false;
+        }
+        if (after_progress && after_progress()) {
+            return true;
         }
     }
+    return false;
 }
 
 auto BatchAsyncScheduler::has_ready() const noexcept -> bool { return core_.has_ready(); }

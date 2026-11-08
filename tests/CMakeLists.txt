@@ -689,6 +689,24 @@ gentest_add_cmake_script_test(
         "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_final_drain/00_async_fail_after_adopted_release"
         "FORBID_SUBSTRING=fail-fast final drain allowed a later ready async case to run")
 
+# #263: a yield()-polling case must let later cases in its group start under --fail-fast.
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_yield_poll_lets_later_case_start
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_yield_poll/* --kind=test --fail-fast --no-color
+    DEFINES
+        "TIMEOUT_SEC=10"
+        "EXPECT_RC=0")
+
+gentest_add_check_counts(
+    NAME async_yield_poll_lets_later_case_start
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/fail_fast_yield_poll/* --kind=test --no-color)
+
 gentest_add_check_counts(
     NAME async_timer_sleep_fairness
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
@@ -874,7 +892,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 102
+    CASES 104
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
