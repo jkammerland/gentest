@@ -48,6 +48,9 @@ void interface_reset();
 [[using gentest: test("mocking/interface/non_default_ctor")]]
 void interface_non_default_ctor();
 
+[[using gentest: test("mocking/interface/conditional_noexcept")]]
+void interface_conditional_noexcept();
+
 [[using gentest: test("mocking/concrete/invokes")]]
 void concrete_invokes();
 

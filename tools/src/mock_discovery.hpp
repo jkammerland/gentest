@@ -7,6 +7,10 @@
 #include <string_view>
 #include <vector>
 
+namespace clang {
+class Sema;
+} // namespace clang
+
 namespace gentest::codegen {
 
 class MockUsageCollector : public clang::ast_matchers::MatchFinder::MatchCallback {
@@ -17,6 +21,11 @@ class MockUsageCollector : public clang::ast_matchers::MatchFinder::MatchCallbac
     std::optional<clang::TraversalKind> getCheckTraversalKind() const override { return clang::TK_IgnoreUnlessSpelledInSource; }
 
     [[nodiscard]] bool has_errors() const;
+
+    // Sema of the translation unit being matched, or nullptr. When set, mock
+    // targets that are class template specializations are instantiated and
+    // deferred exception specifications are resolved before capture.
+    void set_sema(clang::Sema *sema) { sema_ = sema; }
 
   private:
     void report(const clang::SourceManager &sm, clang::SourceLocation loc, std::string_view message) const;
@@ -29,6 +38,7 @@ class MockUsageCollector : public clang::ast_matchers::MatchFinder::MatchCallbac
     std::vector<MockClassInfo>                               &out_;
     llvm::DenseMap<const clang::CXXRecordDecl *, std::size_t> seen_;
     mutable bool                                              had_error_ = false;
+    clang::Sema                                              *sema_      = nullptr;
 };
 
 void register_mock_matchers(clang::ast_matchers::MatchFinder &finder, MockUsageCollector &collector);

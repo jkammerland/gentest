@@ -2,6 +2,9 @@
 
 #include "gentest/detail/runtime_context.h"
 
+#include <type_traits>
+#include <utility>
+
 namespace mocking {
 
 void interface_returns() {
@@ -68,6 +71,59 @@ void interface_non_default_ctor() {
 
     NeedsInit *iface = &mock_clock;
     EXPECT_EQ(iface->now(), 123);
+}
+
+void interface_conditional_noexcept() {
+    // The generated overrides reproduce each resolved exception specification (#266).
+    // Checked at run time: the codegen scan of this file sees placeholder mocks.
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<CondSink<true>> &>().put()));
+    EXPECT_TRUE(noexcept(std::declval<const gentest::mock<CondSink<true>> &>().peek()));
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<CondSink<true>> &&>().drain()));
+    EXPECT_TRUE(noexcept(std::declval<const gentest::mock<CondSink<true>> &>().inspect()));
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<CondSink<true>> &>().plain()));
+    EXPECT_FALSE(noexcept(std::declval<gentest::mock<CondSink<true>> &>().throwing()));
+    EXPECT_FALSE(noexcept(std::declval<gentest::mock<CondSink<false>> &>().put()));
+    EXPECT_FALSE(noexcept(std::declval<const gentest::mock<CondSink<false>> &>().peek()));
+    EXPECT_FALSE(noexcept(std::declval<gentest::mock<CondSink<false>> &&>().drain()));
+    EXPECT_FALSE(noexcept(std::declval<const gentest::mock<CondSink<false>> &>().inspect()));
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<CondSink<false>> &>().plain()));
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<TraitSink<noexcept_policy::NoThrow>> &>().put(1)));
+    EXPECT_TRUE(noexcept(std::declval<const gentest::mock<TraitSink<noexcept_policy::NoThrow>> &>().get()));
+    EXPECT_FALSE(noexcept(std::declval<gentest::mock<TraitSink<noexcept_policy::Throw>> &>().put(1)));
+    EXPECT_FALSE(noexcept(std::declval<const gentest::mock<TraitSink<noexcept_policy::Throw>> &>().get()));
+    EXPECT_TRUE(noexcept(std::declval<const gentest::mock<ValueSource<int, true>> &>().get()));
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<ValueSource<int, true>> &>().set(1)));
+    EXPECT_FALSE(noexcept(std::declval<const gentest::mock<ValueSource<long, false>> &>().get()));
+    EXPECT_FALSE(noexcept(std::declval<gentest::mock<ValueSource<long, false>> &>().set(1L)));
+    EXPECT_TRUE(std::is_nothrow_constructible_v<gentest::mock<CondCtor<true>>, int>);
+    EXPECT_TRUE(std::is_constructible_v<gentest::mock<CondCtor<false>>, int>);
+    EXPECT_FALSE(std::is_nothrow_constructible_v<gentest::mock<CondCtor<false>>, int>);
+
+    gentest::mock<CondSink<true>> sink;
+    int                           puts = 0;
+    EXPECT_CALL(sink, put).times(1).invokes([&]() { ++puts; });
+    EXPECT_CALL(sink, peek).times(1).returns(3);
+    EXPECT_CALL(sink, drain).times(1).returns(4);
+    EXPECT_CALL(sink, inspect).times(1).returns(5);
+    CondSink<true> &iface = sink;
+    iface.put();
+    EXPECT_EQ(puts, 1);
+    EXPECT_EQ(iface.peek(), 3);
+    EXPECT_EQ(static_cast<CondSink<true> &&>(iface).drain(), 4);
+    EXPECT_EQ(iface.inspect(), 5);
+
+    gentest::mock<TraitSink<noexcept_policy::NoThrow>> traits;
+    EXPECT_CALL(traits, get).times(1).returns(6);
+    EXPECT_EQ(static_cast<const TraitSink<noexcept_policy::NoThrow> &>(traits).get(), 6);
+
+    gentest::mock<ValueSource<long, false>> source;
+    EXPECT_CALL(source, get).times(1).returns(7L);
+    EXPECT_EQ(static_cast<const ValueSource<long, false> &>(source).get(), 7L);
+
+    gentest::mock<CondCtor<true>> ctor_mock{8};
+    EXPECT_CALL(ctor_mock, ping).times(1).returns(9);
+    EXPECT_EQ(ctor_mock.seed, 8);
+    EXPECT_EQ(static_cast<CondCtor<true> &>(ctor_mock).ping(), 9);
 }
 
 } // namespace mocking

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "consumer/service.hpp"
+#include "mocking/conditional_noexcept.h"
 #include "mocking/types.h"
 
 namespace gentest::test_mocks {
@@ -20,5 +21,13 @@ using RefWrapConsumerMock            = gentest::mock<mocking::RefWrapConsumer>;
 using StringerMock                   = gentest::mock<mocking::Stringer>;
 using FloaterMock                    = gentest::mock<mocking::Floater>;
 using DerivedRunnerMock              = gentest::mock<mocking::DerivedRunner>;
+using CondSinkNoThrowMock            = gentest::mock<mocking::CondSink<true>>;
+using CondSinkThrowMock              = gentest::mock<mocking::CondSink<false>>;
+using TraitSinkNoThrowMock           = gentest::mock<mocking::TraitSink<noexcept_policy::NoThrow>>;
+using TraitSinkThrowMock             = gentest::mock<mocking::TraitSink<noexcept_policy::Throw>>;
+using ValueSourceNoThrowMock         = gentest::mock<mocking::ValueSource<int, true>>;
+using ValueSourceThrowMock           = gentest::mock<mocking::ValueSource<long, false>>;
+using CondCtorNoThrowMock            = gentest::mock<mocking::CondCtor<true>>;
+using CondCtorThrowMock              = gentest::mock<mocking::CondCtor<false>>;
 
 } // namespace gentest::test_mocks
