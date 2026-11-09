@@ -14,13 +14,14 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 add_executable(wrapped_main_tests
     main.cpp
     other.cpp)
 
-target_link_libraries(wrapped_main_tests PRIVATE gentest gentest_main)
+target_link_libraries(wrapped_main_tests PRIVATE gentest::gentest gentest::gentest_main)
 target_compile_features(wrapped_main_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(wrapped_main_tests

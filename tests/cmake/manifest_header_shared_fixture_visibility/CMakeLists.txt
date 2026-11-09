@@ -14,12 +14,13 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 add_executable(mhsf_tests
     cases.cpp)
 
-target_link_libraries(mhsf_tests PRIVATE gentest gentest_main)
+target_link_libraries(mhsf_tests PRIVATE gentest::gentest gentest::gentest_main)
 target_compile_features(mhsf_tests PRIVATE cxx_std_20)
 target_include_directories(mhsf_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 

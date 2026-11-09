@@ -14,7 +14,8 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 add_executable(module_registration_cross_primary_tests)
 target_sources(module_registration_cross_primary_tests
@@ -22,7 +23,7 @@ target_sources(module_registration_cross_primary_tests
         FILE_SET module_cases TYPE CXX_MODULES FILES
             provider.cppm
             consumer.cppm)
-target_link_libraries(module_registration_cross_primary_tests PRIVATE gentest gentest_main)
+target_link_libraries(module_registration_cross_primary_tests PRIVATE gentest::gentest gentest::gentest_main)
 target_compile_features(module_registration_cross_primary_tests PRIVATE cxx_std_20)
 if(STORY116_NON_REEXPORT)
     target_compile_definitions(module_registration_cross_primary_tests PRIVATE STORY116_NON_REEXPORT=1)

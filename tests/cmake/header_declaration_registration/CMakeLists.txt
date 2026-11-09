@@ -16,7 +16,8 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/header_a_symlink.hpp")
     file(CREATE_LINK
@@ -64,7 +65,7 @@ add_executable(header_declaration_registration_tests
     redeclaration_a.hpp
     redeclaration_b.hpp
     rich_cases.hpp)
-target_link_libraries(header_declaration_registration_tests PRIVATE gentest_main)
+target_link_libraries(header_declaration_registration_tests PRIVATE gentest::gentest_main)
 if(NOT HEADER_DECLARATION_WITHOUT_MOCKS)
     gentest_link_mocks(header_declaration_registration_tests PRIVATE header_registration_mocks)
 endif()
@@ -109,7 +110,7 @@ endif()
 add_executable(header_declaration_header_only_tests
     header_only_cases.hpp
     inline_cases.hpp)
-target_link_libraries(header_declaration_header_only_tests PRIVATE gentest_main)
+target_link_libraries(header_declaration_header_only_tests PRIVATE gentest::gentest_main)
 target_compile_features(header_declaration_header_only_tests PRIVATE cxx_std_20)
 gentest_attach_codegen(header_declaration_header_only_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_header_only")
@@ -121,7 +122,7 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/header_only_target_sources.txt" "${_head
 # The same header may back a second target; each registers it independently and
 # TEST_PREFIX keeps the two CTest registrations distinct.
 add_executable(header_declaration_header_only_alias_tests header_only_cases.hpp)
-target_link_libraries(header_declaration_header_only_alias_tests PRIVATE gentest_main)
+target_link_libraries(header_declaration_header_only_alias_tests PRIVATE gentest::gentest_main)
 target_compile_features(header_declaration_header_only_alias_tests PRIVATE cxx_std_20)
 gentest_attach_codegen(header_declaration_header_only_alias_tests
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_header_only_alias")
@@ -130,7 +131,7 @@ gentest_discover_tests(header_declaration_header_only_alias_tests TEST_PREFIX "h
 foreach(_dual_variant IN ITEMS 1 2)
     set(_dual_target "header_declaration_dual_${_dual_variant}")
     add_executable(${_dual_target} dual_target.cpp dual_target.hpp)
-    target_link_libraries(${_dual_target} PRIVATE gentest_main)
+    target_link_libraries(${_dual_target} PRIVATE gentest::gentest_main)
     target_compile_features(${_dual_target} PRIVATE cxx_std_20)
     target_compile_definitions(${_dual_target} PRIVATE "DUAL_TARGET_VARIANT=${_dual_variant}")
     gentest_attach_codegen(${_dual_target}

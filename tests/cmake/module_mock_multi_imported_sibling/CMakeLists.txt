@@ -14,7 +14,8 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 gentest_add_mocks(multi_imported_sibling_mocks
     DEFS
@@ -32,7 +33,7 @@ target_sources(multi_imported_sibling_tests
         FILE_SET multi_imported_sibling_cases TYPE CXX_MODULES FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/consumer.cppm)
 
-target_link_libraries(multi_imported_sibling_tests PRIVATE gentest gentest_runtime)
+target_link_libraries(multi_imported_sibling_tests PRIVATE gentest::gentest gentest::gentest_runtime)
 gentest_link_mocks(multi_imported_sibling_tests PRIVATE multi_imported_sibling_mocks)
 target_compile_features(multi_imported_sibling_tests PRIVATE cxx_std_20)
 

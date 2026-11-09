@@ -41,6 +41,9 @@ if(DEFINED Clang_DIR AND NOT "${Clang_DIR}" STREQUAL "")
   list(APPEND _cache_args "-DClang_DIR=${Clang_DIR}")
 endif()
 gentest_append_host_apple_sysroot(_cache_args)
+include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
+gentest_fixture_prefix_cache_args(_prefix_cache_args _cache_args CONFIG Debug)
+list(APPEND _cache_args ${_prefix_cache_args})
 
 gentest_check_run_or_fail(
   COMMAND

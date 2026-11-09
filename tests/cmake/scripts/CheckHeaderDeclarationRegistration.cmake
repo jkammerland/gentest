@@ -47,6 +47,12 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 
+# The clang builds consume the shared prebuilt gentest. Its arguments stay out of
+# _cache_args so the GCC and MSVC sub-builds, which copy _cache_args, keep
+# building gentest from source.
+include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
+gentest_fixture_prefix_cache_args(_prefix_cache_args _cache_args)
+
 function(_gentest_registration_digest build_dir out_var)
   file(GLOB _registration_files "${build_dir}/generated/*.header_registration.gentest.cpp")
   list(SORT _registration_files)
@@ -102,7 +108,7 @@ function(_gentest_expect_fixture_build_failure scenario build_mode expected_text
     set(_without_mocks OFF)
   endif()
   execute_process(
-    COMMAND "${CMAKE_COMMAND}" -G Ninja -S "${_scenario_src}" -B "${_scenario_build}" ${_cache_args}
+    COMMAND "${CMAKE_COMMAND}" -G Ninja -S "${_scenario_src}" -B "${_scenario_build}" ${_cache_args} ${_prefix_cache_args}
       "-DHEADER_DECLARATION_WITHOUT_MOCKS=${_without_mocks}"
     WORKING_DIRECTORY "${_scenario_dir}"
     RESULT_VARIABLE _configure_rc
@@ -148,7 +154,7 @@ function(_gentest_expect_fixture_build_failure scenario build_mode expected_text
 endfunction()
 
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" -G Ninja -S "${_src_dir}" -B "${_build_dir}" ${_cache_args}
+  COMMAND "${CMAKE_COMMAND}" -G Ninja -S "${_src_dir}" -B "${_build_dir}" ${_cache_args} ${_prefix_cache_args}
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 if(NOT CMAKE_HOST_WIN32 AND NOT IS_SYMLINK "${_src_dir}/header_a_symlink.hpp")
