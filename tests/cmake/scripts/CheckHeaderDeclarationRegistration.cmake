@@ -6,6 +6,7 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${GENTEST_SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
 
 if(NOT GENERATOR STREQUAL "Ninja")
   gentest_skip_test("header-declaration registration regression: fixture uses a single-config Ninja build")
@@ -66,7 +67,15 @@ function(_gentest_registration_digest build_dir out_var)
   set(${out_var} "${_digest}" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_expect_fixture_build_failure scenario expected_text)
+# Scenarios rejected by gentest_codegen build only the fixture's codegen step and
+# compile failures build only the test executable's objects. Both configure the
+# fixture without its explicit mock target (unrelated to these diagnostics),
+# because consumer codegen is ordered after the mock library and therefore after
+# the runtime. Link failures build the whole executable from the full fixture.
+_gentest_make_codegen_target_id("header_declaration_registration_tests" _registration_codegen_id)
+set(_registration_codegen_target "gentest_codegen_${_registration_codegen_id}")
+
+function(_gentest_expect_fixture_build_failure scenario build_mode expected_text)
   set(_scenario_dir "${_work_dir}/${scenario}")
   set(_scenario_src "${_scenario_dir}/src")
   set(_scenario_build "${_scenario_dir}/build")
@@ -88,8 +97,13 @@ function(_gentest_expect_fixture_build_failure scenario expected_text)
     file(WRITE "${_scenario_src}/cases_b.cpp" "${GENTEST_SCENARIO_CASES_B_PREFIX}\n${_cases_b}")
   endif()
 
+  set(_without_mocks ON)
+  if(build_mode STREQUAL "LINK")
+    set(_without_mocks OFF)
+  endif()
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -G Ninja -S "${_scenario_src}" -B "${_scenario_build}" ${_cache_args}
+      "-DHEADER_DECLARATION_WITHOUT_MOCKS=${_without_mocks}"
     WORKING_DIRECTORY "${_scenario_dir}"
     RESULT_VARIABLE _configure_rc
     OUTPUT_VARIABLE _configure_stdout
@@ -97,8 +111,29 @@ function(_gentest_expect_fixture_build_failure scenario expected_text)
   if(NOT _configure_rc EQUAL 0)
     message(FATAL_ERROR "Scenario '${scenario}' failed to configure.\n${_configure_stdout}\n${_configure_stderr}")
   endif()
+  if(build_mode STREQUAL "CODEGEN")
+    set(_build_targets "${_registration_codegen_target}")
+  elseif(build_mode STREQUAL "OBJECTS")
+    execute_process(
+      COMMAND "${_supported_ninja}" -C "${_scenario_build}" -t targets all
+      RESULT_VARIABLE _targets_rc
+      OUTPUT_VARIABLE _targets_out
+      ERROR_VARIABLE _targets_err)
+    if(NOT _targets_rc EQUAL 0)
+      message(FATAL_ERROR "Scenario '${scenario}' could not list build targets.\n${_targets_out}\n${_targets_err}")
+    endif()
+    string(REGEX MATCHALL "CMakeFiles(/|\\\\)header_declaration_registration_tests\\.dir(/|\\\\)[^\n:]*\\.o(bj)?:" _build_targets "${_targets_out}")
+    list(TRANSFORM _build_targets REPLACE ":$" "")
+    if(NOT _build_targets)
+      message(FATAL_ERROR "Scenario '${scenario}' found no header_declaration_registration_tests objects.\n${_targets_out}")
+    endif()
+  elseif(build_mode STREQUAL "LINK")
+    set(_build_targets header_declaration_registration_tests)
+  else()
+    message(FATAL_ERROR "Unknown scenario build mode '${build_mode}'")
+  endif()
   execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build "${_scenario_build}" --target header_declaration_registration_tests
+    COMMAND "${CMAKE_COMMAND}" --build "${_scenario_build}" --target ${_build_targets}
     WORKING_DIRECTORY "${_scenario_dir}"
     RESULT_VARIABLE _build_rc
     OUTPUT_VARIABLE _build_stdout
@@ -742,7 +777,8 @@ void conditional_context_case();
 set(GENTEST_SCENARIO_FILE "${_conditional_header}")
 set(GENTEST_SCENARIO_CASES_A_PREFIX "#include \"conditional_context.hpp\"")
 set(GENTEST_SCENARIO_CASES_B_PREFIX "#include \"conditional_context.hpp\"")
-_gentest_expect_fixture_build_failure("conditional_context" "header declaration differs between compile contexts")
+_gentest_expect_fixture_build_failure("conditional_context" CODEGEN
+  "header declaration differs between compile contexts")
 unset(GENTEST_SCENARIO_FILE)
 unset(GENTEST_SCENARIO_CASES_A_PREFIX)
 unset(GENTEST_SCENARIO_CASES_B_PREFIX)
@@ -765,7 +801,8 @@ struct [[using gentest: fixture(suite)]] ConditionalFixture {
 set(GENTEST_SCENARIO_FILE "${_fixture_conflict_header}")
 set(GENTEST_SCENARIO_CASES_A_PREFIX "#include \"fixture_context.hpp\"")
 set(GENTEST_SCENARIO_CASES_B_PREFIX "#include \"fixture_context.hpp\"")
-_gentest_expect_fixture_build_failure("fixture_context" "header fixture declaration differs between compile contexts")
+_gentest_expect_fixture_build_failure("fixture_context" CODEGEN
+  "header fixture declaration differs between compile contexts")
 unset(GENTEST_SCENARIO_FILE)
 unset(GENTEST_SCENARIO_CASES_A_PREFIX)
 unset(GENTEST_SCENARIO_CASES_B_PREFIX)
@@ -781,7 +818,7 @@ void missing_definition_case();
 ]=])
 set(GENTEST_SCENARIO_FILE "${_missing_definition_header}")
 set(GENTEST_SCENARIO_CASES_A_PREFIX "#include \"missing_definition.hpp\"")
-_gentest_expect_fixture_build_failure("missing_definition" "missing_definition_case")
+_gentest_expect_fixture_build_failure("missing_definition" LINK "missing_definition_case")
 unset(GENTEST_SCENARIO_FILE)
 unset(GENTEST_SCENARIO_CASES_A_PREFIX)
 
@@ -797,7 +834,7 @@ void non_self_contained_case(IncidentalType &);
 set(GENTEST_SCENARIO_FILE "${_non_self_contained_header}")
 set(GENTEST_SCENARIO_CASES_A_PREFIX
   "namespace header_declaration_registration { struct IncidentalType {}; }\n#include \"non_self_contained.hpp\"")
-_gentest_expect_fixture_build_failure("non_self_contained" "IncidentalType")
+_gentest_expect_fixture_build_failure("non_self_contained" OBJECTS "IncidentalType")
 unset(GENTEST_SCENARIO_FILE)
 unset(GENTEST_SCENARIO_CASES_A_PREFIX)
 
@@ -813,7 +850,8 @@ void active_import_case();
 ]=])
 set(GENTEST_SCENARIO_FILE "${_active_import_header}")
 set(GENTEST_SCENARIO_CASES_A_PREFIX "#include \"active_import.hpp\"")
-_gentest_expect_fixture_build_failure("active_import" "does not support textual sources with active named-module imports")
+_gentest_expect_fixture_build_failure("active_import" CODEGEN
+  "does not support textual sources with active named-module imports")
 unset(GENTEST_SCENARIO_FILE)
 unset(GENTEST_SCENARIO_CASES_A_PREFIX)
 

@@ -35,10 +35,19 @@ else()
     set(_header_alias_is_symlink 0)
 endif()
 
-gentest_add_mocks(header_registration_mocks
-    DEFS ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.hpp
-    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_mocks"
-    HEADER_NAME public/header_registration_mocks.hpp)
+# Expected-failure scenarios that stop in codegen or compilation configure with
+# HEADER_DECLARATION_WITHOUT_MOCKS=ON: consumer codegen is ordered after the
+# explicit mock library, which would otherwise compile the whole runtime first.
+option(HEADER_DECLARATION_WITHOUT_MOCKS "Omit the explicit mock target and its cases" OFF)
+set(_header_registration_mock_sources mock_cases.cpp mock_cases.hpp)
+if(HEADER_DECLARATION_WITHOUT_MOCKS)
+    set(_header_registration_mock_sources "")
+else()
+    gentest_add_mocks(header_registration_mocks
+        DEFS ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.hpp
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_mocks"
+        HEADER_NAME public/header_registration_mocks.hpp)
+endif()
 
 add_executable(header_declaration_registration_tests
     cases_a.cpp
@@ -51,13 +60,14 @@ add_executable(header_declaration_registration_tests
     header_b.hpp
     inline_cases.hpp
     macro_cases.hpp
-    mock_cases.cpp
-    mock_cases.hpp
+    ${_header_registration_mock_sources}
     redeclaration_a.hpp
     redeclaration_b.hpp
     rich_cases.hpp)
 target_link_libraries(header_declaration_registration_tests PRIVATE gentest_main)
-gentest_link_mocks(header_declaration_registration_tests PRIVATE header_registration_mocks)
+if(NOT HEADER_DECLARATION_WITHOUT_MOCKS)
+    gentest_link_mocks(header_declaration_registration_tests PRIVATE header_registration_mocks)
+endif()
 target_compile_features(header_declaration_registration_tests PRIVATE cxx_std_20)
 set_property(TARGET header_declaration_registration_tests PROPERTY UNITY_BUILD ON)
 if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")

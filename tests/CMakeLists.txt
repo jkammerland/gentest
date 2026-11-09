@@ -3683,6 +3683,7 @@ function(_gentest_add_python_configure_failure_test name source_dir required_sub
             --required-substring "${required_substring}")
 
     set_tests_properties(${name} PROPERTIES LABELS "${label}")
+    gentest_reuse_fetched_fmt_sources(${name})
     set_property(TEST ${name} APPEND PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
 endfunction()
 

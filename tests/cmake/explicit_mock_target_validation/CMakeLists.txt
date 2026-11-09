@@ -664,3 +664,12 @@ elseif(TEST_CASE STREQUAL "nested_module_class_scope")
 else()
     message(FATAL_ERROR "Unknown TEST_CASE='${TEST_CASE}'")
 endif()
+
+# Expected-failure cases assert gentest_codegen diagnostics. This aggregate lets
+# them run only the codegen steps instead of first compiling the gentest runtime.
+get_property(_explicit_validation_codegen_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+list(FILTER _explicit_validation_codegen_targets INCLUDE REGEX "^gentest_codegen_")
+add_custom_target(explicit_validation_codegen)
+if(_explicit_validation_codegen_targets)
+    add_dependencies(explicit_validation_codegen ${_explicit_validation_codegen_targets})
+endif()

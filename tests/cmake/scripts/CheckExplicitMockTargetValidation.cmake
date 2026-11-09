@@ -182,8 +182,10 @@ function(_gentest_expect_build_failure test_case expected_substring)
       "--- stdout ---\n${_configure_out}\n--- stderr ---\n${_configure_err}")
   endif()
 
+  # Every rejection below is a gentest_codegen diagnostic, so build only the
+  # fixture's codegen steps; the runtime and fmt are not needed to reach them.
   execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}"
+    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target explicit_validation_codegen
     RESULT_VARIABLE _build_rc
     OUTPUT_VARIABLE _build_out
     ERROR_VARIABLE _build_err

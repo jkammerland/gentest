@@ -3,6 +3,20 @@ include_guard(GLOBAL)
 get_filename_component(_gentest_tests_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 set(_gentest_test_script_dir "${_gentest_tests_root}/tests/cmake/scripts")
 
+# Nested fixture configures that fall back to fetching fmt reuse the sources this
+# build fetched (see gentest_ensure_fmt) instead of cloning fmt again. No-op when
+# this build found fmt as a package.
+function(gentest_reuse_fetched_fmt_sources test_name)
+    if(NOT COMMAND FetchContent_GetProperties)
+        return()
+    endif()
+    FetchContent_GetProperties(fmt)
+    if(NOT fmt_POPULATED OR NOT IS_DIRECTORY "${fmt_SOURCE_DIR}")
+        return()
+    endif()
+    set_property(TEST ${test_name} APPEND PROPERTY ENVIRONMENT "GENTEST_FMT_SOURCE_DIR=${fmt_SOURCE_DIR}")
+endfunction()
+
 function(gentest_resolve_test_std out_compile_feature out_codegen_std_arg)
     if(DEFINED GENTEST_TEST_CXX_STANDARD)
         set(_std "${GENTEST_TEST_CXX_STANDARD}")
@@ -304,6 +318,7 @@ function(gentest_add_cmake_script_test)
     endif()
 
     add_test(NAME ${GENTEST_NAME} COMMAND ${CMAKE_COMMAND} ${_cmd_args})
+    gentest_reuse_fetched_fmt_sources(${GENTEST_NAME})
     set_property(TEST ${GENTEST_NAME} APPEND PROPERTY LABELS "cmake")
     set_property(TEST ${GENTEST_NAME} APPEND PROPERTY SKIP_REGULAR_EXPRESSION "GENTEST_SKIP_TEST:")
 endfunction()
