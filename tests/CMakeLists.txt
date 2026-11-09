@@ -3815,23 +3815,53 @@ if(GENTEST_PUBLIC_MODULES_TOOLCHAIN_SUPPORTED)
     set(_gentest_expect_public_modules ON)
 endif()
 
-_gentest_add_cmake_helper_test(
-    gentest_codegen_template_template_scope_bindings_builds
-    ${PROJECT_SOURCE_DIR}/tests/cmake/template_template_scope_bindings
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-    -DTARGET_NAME=template_template_scope_bindings
-    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+# Codegen regression fixtures build in-tree against the main runtime and the
+# in-tree gentest_codegen. A construct that codegen mishandles fails the main
+# test build; each test below then runs the fixture binary and checks what it
+# registered.
+function(_gentest_add_codegen_regression target fixture)
+    set(options TESTS)
+    set(one_value_args MOCK_HEADER)
+    set(multi_value_args SOURCES)
+    cmake_parse_arguments(PARSE_ARGV 2 _gentest_cgr "${options}" "${one_value_args}" "${multi_value_args}")
+
+    set(_gentest_cgr_dir "${CMAKE_CURRENT_SOURCE_DIR}/codegen_regressions/${fixture}")
+    list(TRANSFORM _gentest_cgr_SOURCES PREPEND "${_gentest_cgr_dir}/")
+    add_executable(${target} ${_gentest_cgr_SOURCES})
+    target_compile_features(${target} PRIVATE cxx_std_20)
+    target_include_directories(${target} PRIVATE "${_gentest_cgr_dir}")
+    if(_gentest_cgr_MOCK_HEADER)
+        gentest_add_mocks(${target}_mocks
+            DEFS
+                "${_gentest_cgr_dir}/mock_defs.hpp"
+            OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/${target}_mocks"
+            HEADER_NAME "public/${_gentest_cgr_MOCK_HEADER}")
+        gentest_link_mocks(${target} PRIVATE ${target}_mocks)
+    endif()
+    if(_gentest_cgr_TESTS)
+        target_link_libraries(${target} PRIVATE gentest::gentest_main)
+        gentest_attach_codegen(${target})
+    endif()
+    add_dependencies(gentest_test_suites ${target})
+endfunction()
+
+_gentest_add_codegen_regression(gentest_cgr_template_template_scope_bindings template_template_scope_bindings
+    TESTS
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_inventory(
+    NAME gentest_codegen_template_template_scope_bindings_builds
+    PROG gentest_cgr_template_template_scope_bindings
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/codegen_template_template_scope_bindings.list)
 set_property(TEST gentest_codegen_template_template_scope_bindings_builds APPEND PROPERTY LABELS "codegen")
 
-_gentest_add_cmake_helper_test(
-    gentest_codegen_mock_defaulted_template_ctor_builds
-    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_defaulted_template_ctor
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake
-    cmake
-    -DTARGET_NAME=mock_defaulted_template_ctor
-    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+_gentest_add_codegen_regression(gentest_cgr_mock_defaulted_template_ctor mock_defaulted_template_ctor
+    TESTS
+    MOCK_HEADER defaulted_template_ctor_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_inventory(
+    NAME gentest_codegen_mock_defaulted_template_ctor_builds
+    PROG gentest_cgr_mock_defaulted_template_ctor
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/codegen_mock_defaulted_template_ctor.list)
 set_property(TEST gentest_codegen_mock_defaulted_template_ctor_builds APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -3845,75 +3875,64 @@ _gentest_add_cmake_helper_test(
     -DBUILD_CONFIG=${_gentest_fixture_build_config})
 set_property(TEST gentest_codegen_module_cpp_source_builds APPEND PROPERTY LABELS "codegen;modules")
 
-_gentest_add_cmake_helper_test(
-    gentest_codegen_mock_template_template_pack_direct_expect_runs
-    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_template_template_pack_direct_expect
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMockTemplateTemplatePackDirectExpect.cmake
-    cmake
-    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+_gentest_add_codegen_regression(gentest_cgr_mock_template_template_pack_direct_expect mock_template_template_pack_direct_expect
+    MOCK_HEADER template_template_pack_direct_expect_mocks.hpp
+    SOURCES main.cpp)
+gentest_add_check_exit_code(
+    NAME gentest_codegen_mock_template_template_pack_direct_expect_runs
+    PROG gentest_cgr_mock_template_template_pack_direct_expect
+    EXPECT_RC 0)
 set_property(TEST gentest_codegen_mock_template_template_pack_direct_expect_runs APPEND PROPERTY LABELS "codegen")
 
-_gentest_add_cmake_helper_test(
-    gentest_codegen_mock_unnamed_template_template_builds
-    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_unnamed_template_template
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-    -DTARGET_NAME=mock_unnamed_template_template
-    -DBUILD_CONFIG=${_gentest_fixture_build_config}
-    -DBUILD_TIMEOUT_SEC=600)
+_gentest_add_codegen_regression(gentest_cgr_mock_unnamed_template_template mock_unnamed_template_template
+    TESTS
+    MOCK_HEADER mock_unnamed_template_template_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+# The case calls the mock without an expectation; only its registration is checked.
+gentest_add_check_counts(
+    NAME gentest_codegen_mock_unnamed_template_template_builds
+    PROG gentest_cgr_mock_unnamed_template_template
+    LIST
+    CASES 1)
 set_property(TEST gentest_codegen_mock_unnamed_template_template_builds APPEND PROPERTY LABELS "codegen")
 
-_gentest_add_cmake_helper_test(
-    gentest_codegen_mock_defaulted_template_ctor_macro_builds
-    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_defaulted_template_ctor_macro
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-    -DTARGET_NAME=mock_defaulted_template_ctor_macro
-    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+_gentest_add_codegen_regression(gentest_cgr_mock_defaulted_template_ctor_macro mock_defaulted_template_ctor_macro
+    TESTS
+    MOCK_HEADER defaulted_template_ctor_macro_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_inventory(
+    NAME gentest_codegen_mock_defaulted_template_ctor_macro_builds
+    PROG gentest_cgr_mock_defaulted_template_ctor_macro
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/codegen_mock_defaulted_template_ctor_macro.list)
 set_property(TEST gentest_codegen_mock_defaulted_template_ctor_macro_builds APPEND PROPERTY LABELS "codegen")
 
-_gentest_add_cmake_helper_test(
-    gentest_codegen_mock_template_template_ctor_traits_builds
-    ${PROJECT_SOURCE_DIR}/tests/cmake/mock_template_template_ctor_traits
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-    -DTARGET_NAME=mock_template_template_ctor_traits
-    -DBUILD_CONFIG=${_gentest_fixture_build_config})
-set_property(TEST gentest_codegen_mock_template_template_ctor_traits_builds APPEND PROPERTY LABELS "codegen")
+# traits.cpp static_asserts the generated constructor's noexcept trait, so the
+# check is the build itself; its main() calls the mock outside a test context.
+_gentest_add_codegen_regression(gentest_cgr_mock_template_template_ctor_traits mock_template_template_ctor_traits
+    MOCK_HEADER template_template_ctor_traits_mocks.hpp
+    SOURCES traits.cpp)
+add_test(NAME gentest_codegen_mock_template_template_ctor_traits_builds
+    COMMAND ${CMAKE_COMMAND} -E sha256sum $<TARGET_FILE:gentest_cgr_mock_template_template_ctor_traits>)
+set_tests_properties(gentest_codegen_mock_template_template_ctor_traits_builds PROPERTIES LABELS "cmake;codegen")
 
-_gentest_add_cmake_helper_test(
-    gentest_codegen_deleted_annotated_case_builds
-    ${PROJECT_SOURCE_DIR}/tests/cmake/deleted_annotated_case
-    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake
-    cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-    -DTARGET_NAME=deleted_annotated_case
-    -DBUILD_CONFIG=${_gentest_fixture_build_config})
+# The deleted declaration must not be registered.
+_gentest_add_codegen_regression(gentest_cgr_deleted_annotated_case deleted_annotated_case
+    TESTS
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_inventory(
+    NAME gentest_codegen_deleted_annotated_case_builds
+    PROG gentest_cgr_deleted_annotated_case
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/codegen_deleted_annotated_case.list)
 set_property(TEST gentest_codegen_deleted_annotated_case_builds APPEND PROPERTY LABELS "codegen")
 
-gentest_add_cmake_script_test(
+_gentest_add_codegen_regression(gentest_cgr_member_operator_template_keyword member_operator_template_keyword
+    TESTS
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_inventory(
     NAME gentest_codegen_member_operator_template_keyword_builds
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckMemberOperatorTemplateKeywordBuild.cmake"
-    DEFINES
-        "PROG=${_gentest_codegen_prog}"
-        "BUILD_ROOT=${CMAKE_BINARY_DIR}/member_operator_template_keyword_check"
-        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/member_operator_template_keyword"
-        "TARGET_NAME=member_operator_template_keyword"
-        "GENERATOR=${CMAKE_GENERATOR}"
-        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-        "BUILD_CONFIG=${_gentest_fixture_build_config}"
-        "C_COMPILER=${CMAKE_C_COMPILER}"
-        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-        "LLVM_DIR=${LLVM_DIR}"
-        "Clang_DIR=${Clang_DIR}")
-set_property(TEST gentest_codegen_member_operator_template_keyword_builds APPEND PROPERTY LABELS "cmake;codegen")
+    PROG gentest_cgr_member_operator_template_keyword
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/codegen_member_operator_template_keyword.list)
+set_property(TEST gentest_codegen_member_operator_template_keyword_builds APPEND PROPERTY LABELS "codegen")
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_check_cmake_fixture_build_build_config
@@ -3932,28 +3951,30 @@ gentest_add_cmake_script_test(
         "CXX_COMPILER=${CMAKE_CXX_COMPILER}")
 set_property(TEST gentest_codegen_check_cmake_fixture_build_build_config APPEND PROPERTY LABELS "cmake;codegen")
 
-gentest_add_cmake_script_test(
+# Config-dependent target and source compile definitions must reach codegen for
+# the active configuration only; cases.hpp/cases.cpp #error if both are seen.
+set(_gentest_cgr_genex_dir "${CMAKE_CURRENT_SOURCE_DIR}/codegen_regressions/genex_compile_definitions")
+_gentest_add_codegen_regression(gentest_cgr_genex_compile_definitions genex_compile_definitions
+    SOURCES cases.cpp cases.hpp)
+target_link_libraries(gentest_cgr_genex_compile_definitions PRIVATE gentest::gentest_main)
+target_compile_definitions(gentest_cgr_genex_compile_definitions PRIVATE
+    $<$<CONFIG:Debug>:GENTEST_TARGET_DEBUG=1>
+    $<$<CONFIG:Release>:GENTEST_TARGET_RELEASE=1>)
+set_source_files_properties(${_gentest_cgr_genex_dir}/cases.cpp PROPERTIES
+    COMPILE_DEFINITIONS "$<$<CONFIG:Debug>:GENTEST_SOURCE_DEBUG=1>;$<$<CONFIG:Release>:GENTEST_SOURCE_RELEASE=1>")
+set(_gentest_cgr_genex_clang_args -std=c++20 "-I${PROJECT_SOURCE_DIR}/include")
+gentest_append_public_dependency_include_args(_gentest_cgr_genex_clang_args "${CMAKE_BINARY_DIR}")
+gentest_attach_codegen(gentest_cgr_genex_compile_definitions
+    SOURCES ${_gentest_cgr_genex_dir}/cases.cpp
+    CLANG_ARGS ${_gentest_cgr_genex_clang_args})
+gentest_add_check_inventory(
     NAME gentest_codegen_genex_compile_definitions
-    NO_EMULATOR
-    PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCmakeFixtureBuild.cmake"
-    DEFINES
-        "PROG=${_gentest_codegen_prog}"
-        "BUILD_ROOT=${CMAKE_BINARY_DIR}/genex_compile_definitions_check"
-        "GENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
-        "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/genex_compile_definitions"
-        "TARGET_NAME=genex_compile_definitions"
-        "TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"
-        "HOST_CLANG=${GENTEST_CODEGEN_HOST_CLANG}"
-        "GENERATOR=${CMAKE_GENERATOR}"
-        "MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-        "BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-        "BUILD_CONFIG=${_gentest_fixture_build_config}"
-        "C_COMPILER=${CMAKE_C_COMPILER}"
-        "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-        "LLVM_DIR=${LLVM_DIR}"
-        "Clang_DIR=${Clang_DIR}")
-set_property(TEST gentest_codegen_genex_compile_definitions APPEND PROPERTY LABELS "cmake;codegen")
+    PROG gentest_cgr_genex_compile_definitions
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/codegen_genex_compile_definitions.list)
+set_property(TEST gentest_codegen_genex_compile_definitions APPEND PROPERTY LABELS "codegen")
+unset(_gentest_cgr_genex_dir)
+unset(_gentest_cgr_genex_clang_args)
+
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_template_option_removed
@@ -4530,12 +4551,29 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_imported_module_runtime APPEND PROPERTY LABELS "modules")
 
+# One installed modules-ON producer serves both public-module consumer checks.
+set(_gentest_public_module_producer_root "${CMAKE_CURRENT_BINARY_DIR}/pmp")
+foreach(_gentest_phase IN ITEMS SETUP CLEANUP)
+    string(TOLOWER "${_gentest_phase}" _gentest_phase_lower)
+    _gentest_add_cmake_helper_test(
+        gentest_public_module_producer_${_gentest_phase_lower}
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/PublicModuleProducerFixture.cmake
+        modules
+        -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DBUILD_ROOT=${_gentest_public_module_producer_root}
+        -DPUBLIC_MODULE_PRODUCER_PHASE=${_gentest_phase})
+endforeach()
+set_tests_properties(gentest_public_module_producer_setup PROPERTIES FIXTURES_SETUP gentest_public_module_producer)
+set_tests_properties(gentest_public_module_producer_cleanup PROPERTIES FIXTURES_CLEANUP gentest_public_module_producer)
+
 _gentest_add_cmake_helper_test(
     gentest_public_module_surface
     ${PROJECT_SOURCE_DIR}/tests/cmake/public_module_surface
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPublicModuleSurface.cmake
     cmake
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DPUBLIC_MODULE_PRODUCER_ROOT=${_gentest_public_module_producer_root})
 set_property(TEST gentest_public_module_surface APPEND PROPERTY LABELS "modules")
 
 _gentest_add_cmake_helper_test(
@@ -4543,8 +4581,14 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenPublicModuleImports.cmake
     modules
-    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+    -DPUBLIC_MODULE_PRODUCER_ROOT=${_gentest_public_module_producer_root})
 set_property(TEST gentest_codegen_public_module_imports APPEND PROPERTY LABELS "codegen")
+set_tests_properties(gentest_public_module_surface gentest_codegen_public_module_imports PROPERTIES
+    FIXTURES_REQUIRED gentest_public_module_producer)
+unset(_gentest_public_module_producer_root)
+unset(_gentest_phase)
+unset(_gentest_phase_lower)
 
 _gentest_add_cmake_helper_test(
     gentest_codegen_compile_command_macro_scan
@@ -5241,6 +5285,50 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
     unset(_gentest_package_test_compiler_args)
     unset(_gentest_package_test_module_compiler_args)
 endif()
+
+# A fresh run has no CTestCostData.txt, so CTest would start the longest
+# sub-build tests in declaration order. Seed their cost (seconds, Linux Debug)
+# so they start first; CTest replaces these with measured costs after a run.
+set(_gentest_heavy_test_costs
+    gentest_explicit_mock_target_install_export=396
+    gentest_explicit_mock_target_surface=385
+    gentest_module_registration_manifest=348
+    gentest_module_cpp_source_in_tree_codegen=327
+    gentest_module_registration_cross_primary=299
+    gentest_public_module_producer_setup=290
+    gentest_module_mock_multi_imported_sibling=284
+    gentest_module_mock_imported_sibling=266
+    gentest_multi_config_module_registration_manifest=259
+    gentest_module_cpp_source=248
+    gentest_module_same_line_directives=233
+    gentest_mixed_module_mock_registry=225
+    gentest_codegen_incremental_dependencies=220
+    gentest_module_mock_additive_visibility=215
+    gentest_module_partition_import_shorthand=205
+    gentest_multi_config_explicit_mock_late_link=195
+    gentest_module_name_literal_false_match=190
+    gentest_codegen_module_cpp_source_builds=176
+    gentest_codegen_additive_main_discovery=162
+    gentest_codegen_header_shared_fixture_visibility=152
+    gentest_module_multiline_directives=142
+    gentest_module_mock_long_domain_outputs=133
+    gentest_package_consumer_include_only=130
+    gentest_codegen_artifact_protocol_direct_invocation=127
+    gentest_runtime_shared_context_exports=114
+    gentest_module_registration_without_import=109
+    gentest_module_header_unit_import_preamble=90)
+foreach(_gentest_heavy_test IN LISTS _gentest_heavy_test_costs)
+    string(REPLACE "=" ";" _gentest_heavy_test "${_gentest_heavy_test}")
+    list(GET _gentest_heavy_test 0 _gentest_heavy_test_name)
+    list(GET _gentest_heavy_test 1 _gentest_heavy_test_cost)
+    if(TEST ${_gentest_heavy_test_name})
+        set_tests_properties(${_gentest_heavy_test_name} PROPERTIES COST ${_gentest_heavy_test_cost})
+    endif()
+endforeach()
+unset(_gentest_heavy_test_costs)
+unset(_gentest_heavy_test)
+unset(_gentest_heavy_test_name)
+unset(_gentest_heavy_test_cost)
 
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
 #
