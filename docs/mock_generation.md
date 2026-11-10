@@ -178,6 +178,18 @@ include("${CMAKE_CURRENT_LIST_DIR}/clock_gmock_mocksTargets.cmake")
 
 Use `find_dependency(trompeloeil CONFIG REQUIRED)` for Trompeloeil packages.
 
+## Nice and strict mode
+
+Native mocks are strict by default: a call that no expectation accepts records `unexpected call to <method>`.
+`gentest::make_nice(mock)` relaxes this only for methods that have no expectations on that mock; such calls are ignored and
+return a value-initialized result (methods returning a reference terminate). Once a method has an expectation, nice mode does
+not change its checking. Calls beyond the configured count, including any call to a `.times(0)` method, fail with `unexpected
+call to <method>` and the expectation's declaration location, as in strict mode. Use `.allow_more()` to accept extra calls.
+`gentest::make_strict(mock)` restores strict mode. Both apply to the default gentest backend; GMock and Trompeloeil mocks use
+their own mechanisms, such as `testing::NiceMock`.
+
+Before 2.0.0, nice mode also ignored calls after a method's expectations were used up, so tests that relied on that now fail.
+
 ## Limitations
 
 Configure native mock expectations and nice/strict mode before the first invocation or verification. Configuration is frozen

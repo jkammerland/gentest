@@ -47,6 +47,10 @@
   callbacks, and resumption restores the owning test context.
 - Fetched static fmt is built with position-independent code for the clang-tidy
   plugin.
+- Nice-mode native mocks fail calls beyond a method's expectations, including
+  any call to a `.times(0)` method, with `unexpected call to <method>` as in
+  strict mode. Nice mode now ignores only methods without expectations, so tests
+  that relied on the old silence fail (#261).
 
 ## 1.3.0 - 2026-10-18
 
