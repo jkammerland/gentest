@@ -94,10 +94,14 @@ template <typename T>
 inline constexpr bool diagnostic_string =
     !std::is_null_pointer_v<std::remove_cvref_t<T>> && std::is_convertible_v<const T &, std::string_view>;
 
+// Character arrays are bounded by their extent and end at the first NUL, so
+// padded buffers such as `char buf[8] = "ab"` read as "ab". Character pointers
+// follow the C-string convention: they must point to a NUL-terminated string.
 template <typename T> auto diagnostic_string_view(const T &value) -> std::string_view {
     if constexpr (std::is_array_v<T>) {
         constexpr auto size = std::extent_v<T>;
-        return {value, size != 0 && value[size - 1] == '\0' ? size - 1 : size};
+        const auto    *end  = std::char_traits<char>::find(value, size, '\0');
+        return {value, end != nullptr ? static_cast<std::size_t>(end - value) : size};
     } else {
         return std::string_view(value);
     }
@@ -201,8 +205,15 @@ template <typename L, typename R> std::string comparison_mismatch(const L &lhs, 
             }
             ++index;
         }
-        if (index == left.size() && index == right.size())
+        if (index == left.size() && index == right.size()) {
+            if constexpr (std::is_pointer_v<L> && std::is_pointer_v<R>) {
+                // Built-in == on character pointers compares addresses, not contents.
+                if (static_cast<const void *>(lhs) != static_cast<const void *>(rhs))
+                    return "; operands are distinct pointers to equal strings (character pointers compare by address; compare "
+                           "std::string_view values to compare contents)";
+            }
             return {};
+        }
         return fmt::format("; first difference at line {}, column {} (byte {}): {} versus {}", line, column, index,
                            index < left.size() ? format_diagnostic_value(left[index]) : "<end>",
                            index < right.size() ? format_diagnostic_value(right[index]) : "<end>");

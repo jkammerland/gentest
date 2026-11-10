@@ -272,6 +272,9 @@ undo a command already accepted by the supervisor; commands have a five-second
 execution deadline. Use `stop()` to tear down the whole topology.
 
 The supervisor is PID 1 inside an `unshare` user/network/PID/mount namespace tree.
+As namespace init it also reaps orphaned descendants (for example a background
+process left by a program's shell) while the session runs, so they do not
+accumulate as zombies; exit results are reported only for launched programs.
 It checks that it has a single-ID rootless mapping and a different network
 namespace before configuring anything. Node namespaces are held by child
 processes and open descriptors. Commands receive argv directly; there is no
@@ -345,6 +348,10 @@ later outbound mapping to change ports. There is no static inbound forwarding.
 This models one useful IPv4 NAT/firewall configuration, not every consumer router
 or symmetric NAT. `execute(node, argv, stdin)` supports `ip`, `nft` and `tc` for
 additional test policy, packet counters and netem. It always runs inside a node.
+It returns the command's stdout when the command exits 0; stdout larger than one
+control reply (4088 bytes) fails explicitly rather than returning a partial tail.
+A failing command reports its exit status or signal and the last 1500 bytes of
+stderr, noting when earlier stderr was discarded.
 
 [Network tests](tests/cases.cpp) bind port 5000 in multiple nodes, verify observed
 source translations and blocked unsolicited inbound traffic, deliberately order

@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <exception>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -468,30 +469,96 @@ class sleep_awaitable {
     detail::AsyncWaitCancellation          cancellation_;
 };
 
+namespace deadline_detail {
+
+using Clock = std::chrono::steady_clock;
+
+// Converts to the clock's duration like duration_cast, but clamps values that
+// would overflow the clock's representation instead of invoking UB. Callers use
+// durations such as hours::max() to mean "no timeout".
+template <typename Rep, typename Period>
+[[nodiscard]] constexpr auto saturating_clock_duration(std::chrono::duration<Rep, Period> duration) noexcept -> Clock::duration {
+    using Target           = Clock::duration;
+    using TRep             = Target::rep;
+    constexpr auto max_rep = std::numeric_limits<TRep>::max();
+    constexpr auto min_rep = std::numeric_limits<TRep>::min();
+    if constexpr (std::is_floating_point_v<Rep>) {
+        const auto ticks = std::chrono::duration<long double, Target::period>(duration).count();
+        if (ticks != ticks) { // NaN: no meaningful deadline; treat as already due.
+            return Target::zero();
+        }
+        if (ticks >= static_cast<long double>(max_rep)) {
+            return Target::max();
+        }
+        if (ticks <= static_cast<long double>(min_rep)) {
+            return Target::min();
+        }
+        return Target{static_cast<TRep>(ticks)};
+    } else {
+        using ToTarget = std::ratio_divide<Period, Target::period>;
+        if constexpr (ToTarget::num != 1) {
+            // Coarser than the clock: duration_cast multiplies by num before dividing by den.
+            constexpr auto max_count = max_rep / ToTarget::num;
+            constexpr auto min_count = min_rep / ToTarget::num;
+            const auto     count     = duration.count();
+            if (std::cmp_greater(count, max_count)) {
+                return Target::max();
+            }
+            if constexpr (std::is_signed_v<Rep>) {
+                if (std::cmp_less(count, min_count)) {
+                    return Target::min();
+                }
+            }
+        }
+        // Equal or finer resolution only divides, so the cast cannot overflow.
+        return std::chrono::duration_cast<Target>(duration);
+    }
+}
+
+[[nodiscard]] constexpr auto saturating_add(Clock::time_point base, Clock::duration delta) noexcept -> Clock::time_point {
+    if (delta > Clock::duration::zero() && base > Clock::time_point::max() - delta) {
+        return Clock::time_point::max();
+    }
+    if (delta < Clock::duration::zero() && base < Clock::time_point::min() - delta) {
+        return Clock::time_point::min();
+    }
+    return base + delta;
+}
+
+template <typename Rep, typename Period>
+[[nodiscard]] inline auto deadline_after(std::chrono::duration<Rep, Period> duration) noexcept -> Clock::time_point {
+    return saturating_add(Clock::now(), saturating_clock_duration(duration));
+}
+
+template <typename Duration>
+[[nodiscard]] constexpr auto deadline_at(std::chrono::time_point<Clock, Duration> deadline) noexcept -> Clock::time_point {
+    return Clock::time_point{saturating_clock_duration(deadline.time_since_epoch())};
+}
+
+} // namespace deadline_detail
+
 template <typename Rep, typename Period>
 [[nodiscard]] inline auto sleep_for(std::chrono::duration<Rep, Period> duration,
                                     const std::source_location        &loc = std::source_location::current()) -> sleep_awaitable {
-    return sleep_awaitable{std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration),
-                           loc};
+    return sleep_awaitable{deadline_detail::deadline_after(duration), loc};
 }
 
 template <typename Rep, typename Period>
 [[nodiscard]] inline auto sleep_for(std::chrono::duration<Rep, Period> duration, std::stop_token stop,
                                     const std::source_location &loc = std::source_location::current()) -> sleep_awaitable {
-    return sleep_awaitable{std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration),
-                           loc, stop};
+    return sleep_awaitable{deadline_detail::deadline_after(duration), loc, stop};
 }
 
 template <typename Duration>
 [[nodiscard]] inline auto sleep_until(std::chrono::time_point<std::chrono::steady_clock, Duration> deadline,
                                       const std::source_location &loc = std::source_location::current()) -> sleep_awaitable {
-    return sleep_awaitable{std::chrono::time_point_cast<std::chrono::steady_clock::duration>(deadline), loc};
+    return sleep_awaitable{deadline_detail::deadline_at(deadline), loc};
 }
 
 template <typename Duration>
 [[nodiscard]] inline auto sleep_until(std::chrono::time_point<std::chrono::steady_clock, Duration> deadline, std::stop_token stop,
                                       const std::source_location &loc = std::source_location::current()) -> sleep_awaitable {
-    return sleep_awaitable{std::chrono::time_point_cast<std::chrono::steady_clock::duration>(deadline), loc, stop};
+    return sleep_awaitable{deadline_detail::deadline_at(deadline), loc, stop};
 }
 
 template <typename T = std::any> class event {

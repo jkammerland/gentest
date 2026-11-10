@@ -356,10 +356,11 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             return true;
         }
         if (fail_fast) {
-            while (scheduler.run_one_ready()) {
-                if (finalize_completed_runs() || should_stop()) {
-                    return true;
-                }
+            // Stop after the first resumed coroutine that fails, but bound the pass
+            // to the entries ready at entry: a yield() re-queues immediately, and an
+            // unbounded drain would keep later cases in this group from starting.
+            if (scheduler.run_ready([&] { return finalize_completed_runs() || should_stop(); })) {
+                return true;
             }
             return finalize_completed_runs() || should_stop();
         }

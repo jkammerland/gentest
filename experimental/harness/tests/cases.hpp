@@ -13,6 +13,7 @@ namespace harness_tests {
 [[gentest::test("harness/session/signals")]] auto              signals() -> gentest::awaitable<>;
 [[gentest::test("harness/session/signal_cancellation")]] auto  signalCancellation() -> gentest::awaitable<>;
 [[gentest::test("harness/session/failures")]] auto             failures() -> gentest::awaitable<>;
+[[gentest::test("harness/session/orphans")]] auto              orphans() -> gentest::awaitable<>;
 [[gentest::test("harness/session/control_backpressure")]] auto controlBackpressure() -> gentest::awaitable<>;
 [[gentest::test("harness/session/startup")]] auto              startup() -> gentest::awaitable<>;
 [[gentest::test("harness/session/descriptor_limits")]] auto    descriptorLimits() -> gentest::awaitable<>;

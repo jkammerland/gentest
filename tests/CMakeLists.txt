@@ -341,6 +341,38 @@ target_compile_features(gentest_matcher_proxy_tests PRIVATE cxx_std_20)
 add_dependencies(gentest_test_suites gentest_matcher_proxy_tests)
 add_test(NAME matcher_proxy_contract COMMAND gentest_matcher_proxy_tests)
 set_tests_properties(matcher_proxy_contract PROPERTIES LABELS "public-api;runner")
+
+# Regression for #260: a codegen-attached static library linked whole-archive
+# into a codegen-attached executable. Both targets own generated registration
+# slot 0, so each slot-0 registrar must still register only its own cases.
+set(_gentest_linked_codegen_whole_archive "${CMAKE_LINK_LIBRARY_USING_WHOLE_ARCHIVE_SUPPORTED}")
+if(DEFINED CMAKE_CXX_LINK_LIBRARY_USING_WHOLE_ARCHIVE_SUPPORTED)
+    set(_gentest_linked_codegen_whole_archive "${CMAKE_CXX_LINK_LIBRARY_USING_WHOLE_ARCHIVE_SUPPORTED}")
+endif()
+if(_gentest_linked_codegen_whole_archive)
+    add_library(gentest_linked_codegen_lib STATIC linked_codegen/lib_cases.cpp linked_codegen/lib_cases.hpp)
+    target_link_libraries(gentest_linked_codegen_lib PUBLIC gentest::gentest)
+    target_compile_features(gentest_linked_codegen_lib PUBLIC cxx_std_20)
+    gentest_attach_codegen(gentest_linked_codegen_lib)
+
+    add_executable(gentest_linked_codegen_tests linked_codegen/exe_cases.cpp linked_codegen/exe_cases.hpp)
+    target_link_libraries(gentest_linked_codegen_tests
+        PRIVATE
+            gentest::gentest_main
+            "$<LINK_LIBRARY:WHOLE_ARCHIVE,gentest_linked_codegen_lib>")
+    target_compile_features(gentest_linked_codegen_tests PRIVATE cxx_std_20)
+    gentest_attach_codegen(gentest_linked_codegen_tests)
+    add_dependencies(gentest_test_suites gentest_linked_codegen_tests)
+
+    gentest_add_check_inventory(
+        NAME gentest_linked_codegen_targets
+        PROG gentest_linked_codegen_tests
+        EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/linked_codegen.list)
+    set_property(TEST gentest_linked_codegen_targets APPEND PROPERTY LABELS "codegen;headers")
+else()
+    message(STATUS "gentest: skipping gentest_linked_codegen_targets (linker lacks WHOLE_ARCHIVE support)")
+endif()
+unset(_gentest_linked_codegen_whole_archive)
 # Generated fixture support must also compile when a helper has no callers in
 # this registration unit; clang-cl /W4 /WX diagnoses such internal functions.
 target_compile_options(gentest_failing_tests PRIVATE
@@ -689,6 +721,24 @@ gentest_add_cmake_script_test(
         "REQUIRED_SUBSTRING=[ FAIL ] async/fail_fast_final_drain/00_async_fail_after_adopted_release"
         "FORBID_SUBSTRING=fail-fast final drain allowed a later ready async case to run")
 
+# #263: a yield()-polling case must let later cases in its group start under --fail-fast.
+gentest_add_cmake_script_test(
+    NAME async_fail_fast_yield_poll_lets_later_case_start
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
+    ARGS --filter=async/fail_fast_yield_poll/* --kind=test --fail-fast --no-color
+    DEFINES
+        "TIMEOUT_SEC=10"
+        "EXPECT_RC=0")
+
+gentest_add_check_counts(
+    NAME async_yield_poll_lets_later_case_start
+    PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
+    PASS 2
+    FAIL 0
+    SKIP 0
+    ARGS --filter=async/fail_fast_yield_poll/* --kind=test --no-color)
+
 gentest_add_check_counts(
     NAME async_timer_sleep_fairness
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
@@ -874,7 +924,7 @@ gentest_add_check_counts(
     NAME async_inventory
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
     LIST
-    CASES 102
+    CASES 104
     ARGS --kind=test)
 
 gentest_add_cmake_script_test(
@@ -2309,7 +2359,7 @@ gentest_add_check_inventory(
     ARGS -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FakeBlockedInventoryProgram.cmake --
     EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/fake_inventory_blocked_status.list)
 
-gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 12 SKIP 0 BLOCKED 2)
+gentest_add_check_counts(NAME failing_counts PROG $<TARGET_FILE:gentest_failing_tests> PASS 0 FAIL 15 SKIP 0 BLOCKED 2)
 
 # The raw failing suite run is expected to fail
 set_tests_properties(failing PROPERTIES WILL_FAIL TRUE)
@@ -2470,6 +2520,37 @@ gentest_add_check_death(
         "failing/mocking/predicate_mismatch"
         "argument[0] mismatch for ::mocking::Ticker::tick: expected == 3, got 4"
     ARGS --run=failing/mocking/predicate_mismatch)
+
+# Nice mode must not hide calls beyond a method's expectations (#261).
+gentest_add_check_death(
+    NAME mocking_nice_exhausted_excess_call_message
+    PROG gentest_failing_tests
+    REQUIRED_SUBSTRINGS
+        "failing/mocking/nice_exhausted_excess_call"
+        "unexpected call to ::mocking::Ticker::tick"
+        "(expectation at tests/failing/cases.cpp:"
+    ARGS --run=failing/mocking/nice_exhausted_excess_call)
+
+gentest_add_check_death(
+    NAME mocking_nice_times_zero_call_message
+    PROG gentest_failing_tests
+    REQUIRED_SUBSTRINGS
+        "failing/mocking/nice_times_zero_call"
+        "unexpected call to ::mocking::Ticker::tick"
+        "(expectation at tests/failing/cases.cpp:"
+    ARGS --run=failing/mocking/nice_times_zero_call)
+
+# MSVC rejects the template member pointer as ambiguous, which fails the case before dispatch.
+if(NOT (WIN32 AND (MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")))
+    gentest_add_check_death(
+        NAME mocking_nice_exhausted_fallback_identity_message
+        PROG gentest_failing_tests
+        REQUIRED_SUBSTRINGS
+            "failing/mocking/nice_exhausted_fallback_identity"
+            "unexpected call to ::mocking::Ticker::tadd"
+            "(expectation at tests/failing/cases.cpp:"
+        ARGS --run=failing/mocking/nice_exhausted_fallback_identity)
+endif()
 
 if(WIN32 AND (MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC"))
     gentest_add_check_death(
@@ -3413,6 +3494,14 @@ gentest_add_cmake_script_test(
         "REQUIRED_STDOUT_SUBSTRING=\"id\":\"bench.summary\""
         "REQUIRED_STDERR_SUBSTRING=death test"
         "FORBID_STDOUT_SUBSTRING=Executed 0")
+
+gentest_add_cmake_script_test(
+    NAME cli_report_format_death_excluded_bench_json_replaces_junit
+    PROG $<TARGET_FILE:gentest_regression_runtime_selection>
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckEmptyRunReplacesJunit.cmake"
+    ARGS --filter=regressions/runtime_selection/death_bench --kind=bench --report-format=json
+    DEFINES
+        "REPORT_PATH=${CMAKE_CURRENT_BINARY_DIR}/death_excluded_bench_json/junit.xml")
 
 gentest_add_check_contains(
     NAME benches_filter_space

@@ -301,16 +301,18 @@ namespace gentest::generated::{{REGISTER_FN}} {
 constexpr std::array<gentest::Case, {{CASE_COUNT}}> kCases = {
 {{CASE_INITS}}
 };
-} // namespace
-} // namespace gentest::generated::{{REGISTER_FN}}
 
-namespace gentest::generated::{{REGISTER_FN}} {
+// The slot name is only unique within one target. Keep the registrar in this
+// unnamed namespace so its inline constructor has internal linkage; otherwise
+// two codegen-attached targets linked into one program would define the same
+// external constructor symbol and the linker would keep only one of them.
 struct {{REGISTER_FN}}_registrar {
     {{REGISTER_FN}}_registrar() {
 {{FIXTURE_REGISTRATIONS}}        gentest::detail::register_cases(std::span{kCases});
     }
 };
 [[maybe_unused]] const {{REGISTER_FN}}_registrar {{REGISTER_FN}}_instance{};
+} // namespace
 } // namespace gentest::generated::{{REGISTER_FN}}
 )CPP";
 ;
