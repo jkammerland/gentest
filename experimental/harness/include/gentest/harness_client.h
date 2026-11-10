@@ -45,6 +45,9 @@ class Channel {
 
     // Full queues and oversized messages are errors; successful sends own a copy.
     void send(const Message &message);
+    // Like send, but returns false without queueing when the queue is full, so a
+    // caller can apply backpressure. Oversized messages and closed queues throw.
+    [[nodiscard]] auto trySend(const Message &message) -> bool;
 
     // Does not wait for message arrival. Queue access can wait up to the one-second mutex deadline;
     // An empty closed queue throws ChannelClosed; lock and corruption errors remain distinct.

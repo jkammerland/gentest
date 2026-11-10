@@ -364,9 +364,14 @@ Each duplex channel has a size-sealed anonymous memfd, two eventfds, and two
 bounded queues protected by robust process-shared pthread mutexes. Each direction
 holds 16 messages of up to 4096 payload bytes. Messages copy their bytes and carry
 a 32-bit application tag. Oversized messages are rejected before locking. Full
-queues are rejected without waiting for capacity, after acquiring the queue lock;
-there is no silent loss or unbounded buffering. Topology/command descriptions must
-also fit a single control message, including framing.
+queues are rejected by `send()` without waiting for capacity, after acquiring the
+queue lock; `trySend()` instead returns `false` so a caller can apply backpressure.
+There is no silent loss or unbounded buffering in a channel. The session's control
+path uses `trySend()`: commands and replies that do not fit wait, in order, in the
+sending process until the peer drains the queue, so concurrent requests beyond 16
+are delayed rather than failing the session. That backlog holds one message per
+request the caller is still awaiting. Topology/command descriptions must also fit
+a single control message, including framing.
 
 `Channel::receive(deadline, stop_token)` provides a blocking child API;
 `Session::receive()` provides the parent's async API. Already queued messages are

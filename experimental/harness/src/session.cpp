@@ -9,6 +9,7 @@
 #include <charconv>
 #include <csignal>
 #include <cstdio>
+#include <deque>
 #include <fcntl.h>
 #include <map>
 #include <mutex>
@@ -212,12 +213,15 @@ struct Session::Impl {
     std::mutex                                      mutex;
     std::vector<std::shared_ptr<Operation>>         operations;
     std::map<std::uint32_t, std::optional<Message>> replies;
-    std::uint32_t                                   sequence{};
-    std::exception_ptr                              failure;
-    bool                                            closing{};
-    std::thread                                     monitor;
-    std::optional<Clock::time_point>                cleanupDeadline;
-    std::exception_ptr                              cleanupFailure;
+    // Commands wait here, in order, while the supervisor has not drained the
+    // bounded control queue. Guarded by mutex; flushed by senders and the monitor.
+    std::deque<Message>              outbox;
+    std::uint32_t                    sequence{};
+    std::exception_ptr               failure;
+    bool                             closing{};
+    std::thread                      monitor;
+    std::optional<Clock::time_point> cleanupDeadline;
+    std::exception_ptr               cleanupFailure;
     // Collection has one owner even when a progress monitor initiates teardown
     // concurrently with an explicit stop or destruction.
     std::mutex                                           collectionMutex;
@@ -843,19 +847,36 @@ struct Session::Impl {
         }
     }
 
+    // Caller holds mutex. Sends queued commands in order until the queue is full;
+    // wakes the monitor to retry the remainder after the supervisor drains it.
+    void flushOutbox() {
+        while (!outbox.empty() && control.trySend(outbox.front())) {
+            outbox.pop_front();
+        }
+        if (!outbox.empty()) {
+            wake(notification.value);
+        }
+    }
+
     void retire(const std::shared_ptr<Operation> &operation) noexcept {
         std::lock_guard lock(mutex);
         std::erase(operations, operation);
         if (!operation->programIndex) {
             const auto reply = replies.find(operation->request);
-            if (reply != replies.end() && !reply->second && !closing && !failure) {
+            const auto unsent =
+                std::find_if(outbox.begin(), outbox.end(), [&](const Message &queued) { return queued.tag == operation->request; });
+            if (unsent != outbox.end()) {
+                // The supervisor never saw this request, so there is nothing to cancel.
+                outbox.erase(unsent);
+            } else if (reply != replies.end() && !reply->second && !closing && !failure) {
                 // A cancelled wait must also release its supervisor-side slot.
                 // Late replies are harmless: the monitor discards unknown tags.
                 try {
                     Writer writer;
                     writer.number(static_cast<unsigned>(Command::cancel));
                     writer.number(operation->request);
-                    control.send({.tag = 0, .payload = std::move(writer.bytes)});
+                    outbox.push_back({.tag = 0, .payload = std::move(writer.bytes)});
+                    flushOutbox();
                 } catch (...) {
                     failure = std::current_exception();
                     liveness.reset();
@@ -872,6 +893,7 @@ struct Session::Impl {
             std::vector<std::function<void()>> completions;
             bool                               stop = false;
             std::optional<Clock::time_point>   deadline;
+            bool                               backlogged = false;
             {
                 std::lock_guard lock(mutex);
                 stop = closing;
@@ -882,6 +904,7 @@ struct Session::Impl {
                         pollfd    exited{.fd = process.value, .events = POLLIN, .revents = 0};
                         const int exitStatus = ::poll(&exited, 1, 0);
                         systemCheck(exitStatus >= 0 || errno == EINTR, "poll supervisor exit");
+                        flushOutbox();
                         while (auto message = control.tryReceive()) {
                             if (auto it = replies.find(message->tag); it != replies.end()) {
                                 it->second = std::move(*message);
@@ -937,6 +960,7 @@ struct Session::Impl {
                     descriptors.push_back({.fd = control.notificationFd(), .events = POLLIN, .revents = 0});
                     descriptors.push_back({.fd = process.value, .events = POLLIN, .revents = 0});
                 }
+                backlogged = !failure && !outbox.empty();
             }
             for (auto &complete : completions) {
                 complete();
@@ -944,7 +968,12 @@ struct Session::Impl {
             if (stop) {
                 return;
             }
-            const auto result = ::poll(descriptors.data(), descriptors.size(), deadline ? remainingMilliseconds(*deadline) : -1);
+            // The supervisor does not signal freed queue space; retry queued commands shortly.
+            auto timeout = deadline ? remainingMilliseconds(*deadline) : -1;
+            if (backlogged && (timeout < 0 || timeout > 5)) {
+                timeout = 5;
+            }
+            const auto result = ::poll(descriptors.data(), descriptors.size(), timeout);
             if (result < 0 && errno != EINTR) {
                 std::lock_guard lock(mutex);
                 failure = std::make_exception_ptr(std::system_error(errno, std::generic_category(), "session poll"));
@@ -1043,7 +1072,11 @@ auto Session::request(std::string command, std::optional<std::stop_token> stop, 
         impl_->replies.emplace(tag, std::nullopt);
     }
     Read pending{impl_, std::nullopt, tag, stop, deadline};
-    impl_->control.send({.tag = tag, .payload = std::move(command)});
+    {
+        std::lock_guard lock(impl_->mutex);
+        impl_->outbox.push_back({.tag = tag, .payload = std::move(command)});
+        impl_->flushOutbox();
+    }
     co_return response(co_await pending);
 }
 auto Session::start(SessionSpec spec) -> awaitable<Session> {
