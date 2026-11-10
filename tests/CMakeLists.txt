@@ -341,6 +341,38 @@ target_compile_features(gentest_matcher_proxy_tests PRIVATE cxx_std_20)
 add_dependencies(gentest_test_suites gentest_matcher_proxy_tests)
 add_test(NAME matcher_proxy_contract COMMAND gentest_matcher_proxy_tests)
 set_tests_properties(matcher_proxy_contract PROPERTIES LABELS "public-api;runner")
+
+# Regression for #260: a codegen-attached static library linked whole-archive
+# into a codegen-attached executable. Both targets own generated registration
+# slot 0, so each slot-0 registrar must still register only its own cases.
+set(_gentest_linked_codegen_whole_archive "${CMAKE_LINK_LIBRARY_USING_WHOLE_ARCHIVE_SUPPORTED}")
+if(DEFINED CMAKE_CXX_LINK_LIBRARY_USING_WHOLE_ARCHIVE_SUPPORTED)
+    set(_gentest_linked_codegen_whole_archive "${CMAKE_CXX_LINK_LIBRARY_USING_WHOLE_ARCHIVE_SUPPORTED}")
+endif()
+if(_gentest_linked_codegen_whole_archive)
+    add_library(gentest_linked_codegen_lib STATIC linked_codegen/lib_cases.cpp linked_codegen/lib_cases.hpp)
+    target_link_libraries(gentest_linked_codegen_lib PUBLIC gentest::gentest)
+    target_compile_features(gentest_linked_codegen_lib PUBLIC cxx_std_20)
+    gentest_attach_codegen(gentest_linked_codegen_lib)
+
+    add_executable(gentest_linked_codegen_tests linked_codegen/exe_cases.cpp linked_codegen/exe_cases.hpp)
+    target_link_libraries(gentest_linked_codegen_tests
+        PRIVATE
+            gentest::gentest_main
+            "$<LINK_LIBRARY:WHOLE_ARCHIVE,gentest_linked_codegen_lib>")
+    target_compile_features(gentest_linked_codegen_tests PRIVATE cxx_std_20)
+    gentest_attach_codegen(gentest_linked_codegen_tests)
+    add_dependencies(gentest_test_suites gentest_linked_codegen_tests)
+
+    gentest_add_check_inventory(
+        NAME gentest_linked_codegen_targets
+        PROG gentest_linked_codegen_tests
+        EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/linked_codegen.list)
+    set_property(TEST gentest_linked_codegen_targets APPEND PROPERTY LABELS "codegen;headers")
+else()
+    message(STATUS "gentest: skipping gentest_linked_codegen_targets (linker lacks WHOLE_ARCHIVE support)")
+endif()
+unset(_gentest_linked_codegen_whole_archive)
 # Generated fixture support must also compile when a helper has no callers in
 # this registration unit; clang-cl /W4 /WX diagnoses such internal functions.
 target_compile_options(gentest_failing_tests PRIVATE
