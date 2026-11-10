@@ -73,6 +73,7 @@ inline std::atomic<bool>            fail_fast_cancel_slow_adopted_worker_done{tr
 inline std::atomic<bool>            fail_fast_cancel_slow_adopted_frame_destroyed{true};
 inline std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_started{false};
 inline std::atomic<bool>            fail_fast_cancel_adopted_skip_worker_done{true};
+inline bool                         fail_fast_yield_poll_flag = false;
 
 inline gentest::async::manual_event                          group_fence_release;
 inline std::vector<std::string>                              group_fence_order;
@@ -652,6 +653,14 @@ gentest::awaitable<void> fail_fast_final_drain_async_fail_after_adopted_release(
 
 [[using gentest: test("fail_fast_final_drain/01_async_should_not_run_after_failure")]]
 gentest::awaitable<void> fail_fast_final_drain_async_should_not_run_after_failure();
+
+// Regression for #263: a case that polls with yield() must not keep a
+// fail-fast pump pass busy forever, or the later case that sets the flag never starts.
+[[using gentest: test("fail_fast_yield_poll/00_async_polls_with_yield")]]
+gentest::awaitable<void> fail_fast_yield_poll_async_polls_with_yield();
+
+[[using gentest: test("fail_fast_yield_poll/01_sync_sets_flag")]]
+void fail_fast_yield_poll_sync_sets_flag();
 
 [[using gentest: test("timer/00_sleep_for_waits")]]
 gentest::awaitable<void> timer_sleep_for_waits();
