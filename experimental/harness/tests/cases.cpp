@@ -396,6 +396,37 @@ auto failures() -> awaitable<> {
     } catch (const std::runtime_error &error) { commandFailed = std::string_view(error.what()).find("absent") != std::string_view::npos; }
     expect_true(commandFailed);
     expect_true((co_await session.execute("host", {"ip", "address", "show", "dev", "lo"})).find("127.0.0.1") != std::string::npos);
+
+    // Successful command stdout is returned whole up to one reply payload, not
+    // failed at the 1500-byte program-output tail.
+    for (int address = 1; address <= 25; ++address) {
+        (void)co_await session.execute("host", {"ip", "address", "add", "10.9.0." + std::to_string(address) + "/32", "dev", "lo"});
+    }
+    const auto addresses = co_await session.execute("host", {"ip", "address", "show", "dev", "lo"});
+    expect_true(addresses.size() > 1500);
+    expect_true(addresses.find("127.0.0.1") != std::string::npos && addresses.find("10.9.0.25/32") != std::string::npos);
+
+    // Stdout that cannot fit in a reply fails explicitly instead of returning a tail.
+    for (int address = 26; address <= 60; ++address) {
+        (void)co_await session.execute("host", {"ip", "address", "add", "10.9.0." + std::to_string(address) + "/32", "dev", "lo"});
+    }
+    std::string oversized;
+    try {
+        (void)co_await session.execute("host", {"ip", "address", "show", "dev", "lo"});
+    } catch (const std::runtime_error &error) { oversized = error.what(); }
+    expect_true(oversized.find("output exceeds") != std::string::npos);
+
+    // A failing command names its exit status and says when stderr was truncated.
+    std::string batch;
+    for (int line = 0; line != 80; ++line) {
+        batch += "address show dev absent\n";
+    }
+    std::string truncatedFailure;
+    try {
+        (void)co_await session.execute("host", {"ip", "-force", "-batch", "-"}, batch);
+    } catch (const std::runtime_error &error) { truncatedFailure = error.what(); }
+    expect_true(truncatedFailure.starts_with("namespace command failed: ip: exit status 1 (stderr truncated"));
+    expect_true(truncatedFailure.find("absent") != std::string::npos);
     co_await session.stop();
 
     auto invalid = local({});
