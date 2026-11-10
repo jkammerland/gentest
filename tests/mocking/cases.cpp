@@ -101,7 +101,7 @@ void interface_colliding_namespaces() {
     int done_calls = 0;
     EXPECT_CALL(mock_iface, on_done).times(1).invokes([&](std::optional<void (*)(const ::async::Job &, ::detail::Handle *)> callback) {
         ::detail::Handle handle{.id = 1};
-        (*callback)(::async::Job{.id = 2}, &handle);
+        callback.value()(::async::Job{.id = 2}, &handle);
         ++done_calls;
     });
     EXPECT_CALL(mock_iface, find).times(1).invokes([](const std::vector<::asserts::Check *(*)(::match::Pattern)> &pickers) {
@@ -123,7 +123,7 @@ void interface_colliding_namespaces() {
     EXPECT_EQ(taken, 5);
     EXPECT_EQ(iface->next().id, 7);
     EXPECT_EQ(iface->share({::async::Job{}, ::async::Job{}})->id, 2);
-    EXPECT_EQ(iface->table({::approx::Tolerance{}, ::detail::Kind::second}).at(2)->id, 3);
+    EXPECT_EQ(iface->table({::approx::Tolerance{}, ::detail::Kind::second}).at(2).value_or(::match::Pattern{.id = -1}).id, 3);
     iface->on_done(+[](const ::async::Job &job, ::detail::Handle *handle) { colliding_seen = job.id + handle->id; });
     EXPECT_EQ(colliding_seen, 3);
     EXPECT_EQ(done_calls, 1);
