@@ -135,6 +135,15 @@ unset(_gentest_manual_regression_fields)
 unset(_gentest_manual_target)
 unset(_gentest_manual_source)
 
+# Keep the full 202,000-wait space-bound stress test practical under QEMU.
+# Optimize only this driver; retain assertions and the runtime's configured flags.
+if(MSVC)
+    # Native MSVC Debug enables /RTC1, which is incompatible with /O2.
+    target_compile_options(gentest_regression_async_waiter_token_growth PRIVATE "$<$<NOT:$<CONFIG:Debug>>:/O2>")
+else()
+    target_compile_options(gentest_regression_async_waiter_token_growth PRIVATE -O2)
+endif()
+
 gentest_add_python_program_test(NAME runner_workflow_contract
     PROG gentest_regression_runner_workflow
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_runner_workflow.py)
