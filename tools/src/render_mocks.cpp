@@ -89,35 +89,6 @@ std::string_view tidy_exception_escape_suppression(const MockMethodQualifiers &q
     return {};
 }
 
-std::string ensure_global_qualifiers(std::string value) {
-    if (value.starts_with("::")) {
-        return value;
-    }
-    std::size_t pos = value.find("::");
-    if (pos != std::string::npos) {
-        std::size_t scan = pos;
-        while (scan > 0 && std::isspace(static_cast<unsigned char>(value[scan - 1]))) {
-            --scan;
-        }
-        std::size_t insert_pos = scan;
-        while (insert_pos > 0 && (std::isalnum(static_cast<unsigned char>(value[insert_pos - 1])) || value[insert_pos - 1] == '_')) {
-            --insert_pos;
-        }
-        if (insert_pos == scan) {
-            return value;
-        }
-        const std::string_view prefix(value.data() + insert_pos, scan - insert_pos);
-        if (prefix == "const" || prefix == "volatile" || prefix == "typename" || prefix == "struct" || prefix == "class" ||
-            prefix == "enum" || prefix == "signed" || prefix == "unsigned" || prefix == "long" || prefix == "short") {
-            return value;
-        }
-        if (!(insert_pos >= 2 && value[insert_pos - 1] == ':' && value[insert_pos - 2] == ':')) {
-            value.insert(insert_pos, "::");
-        }
-    }
-    return value;
-}
-
 struct MethodTypeRenderParts {
     std::string return_type;
     std::string parameter_list;
@@ -357,7 +328,7 @@ std::string join_rendered_parameter_list(const std::vector<MockParamInfo> &param
     for (std::size_t i = 0; i < params.size(); ++i) {
         if (i != 0)
             out += ", ";
-        out += ensure_global_qualifiers(params[i].type);
+        out += params[i].type;
         if (include_names && !params[i].name.empty()) {
             out += ' ';
             out += params[i].name;
@@ -372,7 +343,7 @@ std::string join_rendered_parameter_list(const std::vector<MockParamInfo> &param
 
 MethodTypeRenderParts render_method_type_parts(const MockMethodInfo &method) {
     MethodTypeRenderParts parts;
-    parts.return_type                  = ensure_global_qualifiers(method.return_type);
+    parts.return_type                  = method.return_type;
     parts.parameter_list               = join_rendered_parameter_list(method.parameters, true);
     parts.parameter_list_with_defaults = join_rendered_parameter_list(method.parameters, true, true);
     parts.parameter_types              = join_rendered_parameter_list(method.parameters, false);
@@ -1171,9 +1142,9 @@ std::string third_party_default_overload_collision_reason(const ThirdPartyBacken
 
 std::string third_party_type_aliases(std::size_t method_index, const MockMethodInfo &method) {
     RenderBuffer out;
-    out.append("    using {} = {};\n", third_party_return_alias(method_index), ensure_global_qualifiers(method.return_type));
+    out.append("    using {} = {};\n", third_party_return_alias(method_index), method.return_type);
     for (std::size_t i = 0; i < method.parameters.size(); ++i) {
-        out.append("    using {} = {};\n", third_party_arg_alias(method_index, i), ensure_global_qualifiers(method.parameters[i].type));
+        out.append("    using {} = {};\n", third_party_arg_alias(method_index, i), method.parameters[i].type);
     }
     return out.str();
 }

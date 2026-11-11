@@ -2,8 +2,13 @@
 
 #include "gentest/detail/runtime_context.h"
 
+#include <cstddef>
+#include <map>
+#include <memory>
+#include <optional>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace mocking {
 
@@ -71,6 +76,75 @@ void interface_non_default_ctor() {
 
     NeedsInit *iface = &mock_clock;
     EXPECT_EQ(iface->now(), 123);
+}
+
+namespace {
+int              colliding_seen = 0;
+::asserts::Check colliding_check{.id = 9};
+} // namespace
+
+// Generated mock signatures name ::detail, ::async, ::asserts, ::match and ::approx
+// types from inside namespace gentest; they only compile when every nested name
+// is globally qualified (#265).
+void interface_colliding_namespaces() {
+    gentest::mock<CollidingNamespaces> mock_iface;
+    int                                taken = 0;
+    EXPECT_CALL(mock_iface, take).times(1).invokes([&](::detail::Handle handle) { taken = handle.id; });
+    EXPECT_CALL(mock_iface, next).times(1).returns(::async::Job{.id = 7});
+    EXPECT_CALL(mock_iface, share).times(1).invokes([](const std::vector<::async::Job> &jobs) {
+        return std::make_shared<::detail::Handle>(::detail::Handle{.id = static_cast<int>(jobs.size())});
+    });
+    EXPECT_CALL(mock_iface, table).times(1).invokes([](const std::pair<::approx::Tolerance, ::detail::Kind> &key) {
+        std::map<int, std::optional<::match::Pattern>> out;
+        out[key.second == ::detail::Kind::second ? 2 : 1] = ::match::Pattern{.id = 3};
+        return out;
+    });
+    int done_calls = 0;
+    EXPECT_CALL(mock_iface, on_done).times(1).invokes([&](std::optional<void (*)(const ::async::Job &, ::detail::Handle *)> callback) {
+        ::detail::Handle handle{.id = 1};
+        callback.value()(::async::Job{.id = 2}, &handle);
+        ++done_calls;
+    });
+    EXPECT_CALL(mock_iface, find).times(1).invokes([](const std::vector<::asserts::Check *(*)(::match::Pattern)> &pickers) {
+        return pickers.at(0)(::match::Pattern{});
+    });
+    EXPECT_CALL(mock_iface, handles).times(1).invokes([](const std::vector<int ::detail::Handle::*> &members) {
+        auto out              = std::make_unique<::detail::Handle[]>(1);
+        out[0].*members.at(0) = 11;
+        return out;
+    });
+    EXPECT_CALL(mock_iface, tagged<::detail::Kind::second>).times(1).returns(40);
+    EXPECT_CALL(mock_iface, defaulted<::detail::Handle>).times(1);
+    EXPECT_CALL(mock_iface, collect<long>).times(1).invokes([](long value, const std::vector<::async::Job> &jobs) {
+        return std::vector<::detail::Handle>(static_cast<std::size_t>(value) + jobs.size());
+    });
+
+    CollidingNamespaces *iface = &mock_iface;
+    iface->take(::detail::Handle{.id = 5});
+    EXPECT_EQ(taken, 5);
+    EXPECT_EQ(iface->next().id, 7);
+    EXPECT_EQ(iface->share({::async::Job{}, ::async::Job{}})->id, 2);
+    EXPECT_EQ(iface->table({::approx::Tolerance{}, ::detail::Kind::second}).at(2).value_or(::match::Pattern{.id = -1}).id, 3);
+    iface->on_done(+[](const ::async::Job &job, ::detail::Handle *handle) { colliding_seen = job.id + handle->id; });
+    EXPECT_EQ(colliding_seen, 3);
+    EXPECT_EQ(done_calls, 1);
+    EXPECT_EQ(iface->find({+[](::match::Pattern) { return &colliding_check; }}), &colliding_check);
+    EXPECT_EQ(iface->handles({&::detail::Handle::id})[0].id, 11);
+    EXPECT_EQ(mock_iface.collect(2L, std::vector<::async::Job>(1)).size(), std::size_t{3});
+    EXPECT_EQ(mock_iface.tagged<::detail::Kind::second>(::detail::Handle{.id = 1}), 40);
+    mock_iface.defaulted(::detail::Handle{});
+}
+
+void interface_colliding_template_argument() {
+    gentest::mock<Store<::detail::Handle>> mock_store;
+    EXPECT_CALL(mock_store, get).times(1).returns(::detail::Handle{.id = 4});
+    std::size_t stored = 0;
+    EXPECT_CALL(mock_store, put).times(1).invokes([&](const std::vector<::detail::Handle> &values) { stored = values.size(); });
+
+    Store<::detail::Handle> *iface = &mock_store;
+    EXPECT_EQ(iface->get().id, 4);
+    iface->put({::detail::Handle{}, ::detail::Handle{}});
+    EXPECT_EQ(stored, std::size_t{2});
 }
 
 void interface_conditional_noexcept() {

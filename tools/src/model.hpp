@@ -268,7 +268,10 @@ struct TestCaseInfo {
 
 // Parameter metadata for mocked member functions.
 struct MockParamInfo {
-    std::string type; // canonical spelling used in generated signature
+    // Spelling used verbatim in generated signatures. Every namespace-scope name
+    // is globally qualified (`::ns::T`), because mocks are emitted inside
+    // namespace gentest; template parameter names stay unqualified.
+    std::string type;
     std::string name; // argument name (auto-assigned when empty)
     std::string default_arg;
     enum class PassStyle {
@@ -312,7 +315,7 @@ struct MockCtorInfo {
 struct MockMethodInfo {
     std::string                    qualified_name; // e.g. Namespace::Type::method
     std::string                    method_name;    // unqualified method identifier
-    std::string                    return_type;
+    std::string                    return_type;    // globally qualified, like MockParamInfo::type
     std::vector<MockParamInfo>     parameters;
     std::string                    template_prefix; // e.g. "template <typename T, int N>"
     std::vector<TemplateParamInfo> template_params;

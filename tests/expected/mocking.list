@@ -13,6 +13,8 @@
 [PASS] mocking/mocking/concurrency/late_mutation_rejected_after_runtime_start
 [PASS] mocking/mocking/crtp/bridge
 [PASS] mocking/mocking/crtp/bridge_matches
+[PASS] mocking/mocking/interface/colliding_namespaces
+[PASS] mocking/mocking/interface/colliding_template_argument
 [PASS] mocking/mocking/interface/conditional_noexcept
 [PASS] mocking/mocking/interface/non_default_ctor
 [PASS] mocking/mocking/interface/reset

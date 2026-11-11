@@ -48,6 +48,11 @@ void interface_reset();
 [[using gentest: test("mocking/interface/non_default_ctor")]]
 void interface_non_default_ctor();
 
+[[using gentest: test("mocking/interface/colliding_namespaces")]]
+void interface_colliding_namespaces();
+
+[[using gentest: test("mocking/interface/colliding_template_argument")]]
+void interface_colliding_template_argument();
 [[using gentest: test("mocking/interface/conditional_noexcept")]]
 void interface_conditional_noexcept();
 

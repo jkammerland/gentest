@@ -1,6 +1,7 @@
 #include "mock_discovery.hpp"
 
 #include "log.hpp"
+#include "mock_type_printer.hpp"
 #include "scan_utils.hpp"
 
 #include <algorithm>
@@ -45,31 +46,14 @@ using MethodRefQual  = MockMethodRefQualifier;
     return access == AS_public || access == AS_protected || access == AS_none;
 }
 
+// Mock specializations are emitted inside namespace gentest, so every
+// namespace-scope name in a generated signature must be globally qualified.
 [[nodiscard]] std::string print_type(const QualType &qt, const ASTContext &ctx) {
-    auto policy = PrintingPolicy(ctx.getLangOpts());
-    policy.adjustForCPlusPlus();
-    policy.SuppressScope               = false;
-    policy.FullyQualifiedName          = true;
-    policy.SuppressUnwrittenScope      = false;
-    QualType                 canonical = ctx.getCanonicalType(qt);
-    std::string              result;
-    llvm::raw_string_ostream os(result);
-    canonical.print(os, policy);
-    os.flush();
-    return result;
+    return print_mock_type(qt, ctx, MockTypeSpelling::Canonical);
 }
 
 [[nodiscard]] std::string print_type_as_written(const QualType &qt, const ASTContext &ctx) {
-    auto policy = PrintingPolicy(ctx.getLangOpts());
-    policy.adjustForCPlusPlus();
-    policy.SuppressScope          = false;
-    policy.FullyQualifiedName     = true;
-    policy.SuppressUnwrittenScope = false;
-    std::string              result;
-    llvm::raw_string_ostream os(result);
-    qt.print(os, policy);
-    os.flush();
-    return result;
+    return print_mock_type(qt, ctx, MockTypeSpelling::AsWritten);
 }
 
 [[nodiscard]] std::size_t find_top_level_default_argument(std::string_view text) {
@@ -215,20 +199,33 @@ using MethodRefQual  = MockMethodRefQualifier;
         return print_template_template_parameter_decl(*ttp, fallback_name, ctx);
     }
 
-    std::string              text;
-    llvm::raw_string_ostream os(text);
-    param.print(os, policy);
-    os.flush();
+    std::string text;
+    if (const auto *nttp = llvm::dyn_cast<NonTypeTemplateParmDecl>(&param)) {
+        // Print the parameter type with the shared printer so namespace-scope
+        // names are globally qualified, placing the name inside the declarator.
+        std::string declarator = param.getNameAsString().empty() ? std::string(fallback_name) : param.getNameAsString();
+        if (nttp->isParameterPack() && !nttp->getType()->getAs<PackExpansionType>()) {
+            declarator.insert(0, "...");
+        }
+        text = print_mock_type(nttp->getType(), ctx, MockTypeSpelling::AsWritten, declarator);
+    } else {
+        llvm::raw_string_ostream os(text);
+        param.print(os, policy);
+        os.flush();
 
-    text = strip_template_parameter_default(llvm::StringRef(text).trim().str());
-    if (param.getNameAsString().empty() && !fallback_name.empty()) {
-        text = insert_template_parameter_name(std::move(text), fallback_name);
+        text = strip_template_parameter_default(llvm::StringRef(text).trim().str());
+        if (param.getNameAsString().empty() && !fallback_name.empty()) {
+            text = insert_template_parameter_name(std::move(text), fallback_name);
+        }
     }
 
     std::string default_text;
     if (const auto *ttp = llvm::dyn_cast<TemplateTypeParmDecl>(&param)) {
         if (ttp->hasDefaultArgument()) {
-            default_text = print_template_argument_semantic(ttp->getDefaultArgument(), policy);
+            const TemplateArgument &default_arg = ttp->getDefaultArgument().getArgument();
+            default_text                        = default_arg.getKind() == TemplateArgument::Type
+                                                      ? print_type_as_written(default_arg.getAsType(), ctx)
+                                                      : print_template_argument_semantic(ttp->getDefaultArgument(), policy);
         }
     } else if (const auto *nttp = llvm::dyn_cast<NonTypeTemplateParmDecl>(&param)) {
         if (nttp->hasDefaultArgument()) {

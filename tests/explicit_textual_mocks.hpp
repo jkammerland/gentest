@@ -1,8 +1,13 @@
 #pragma once
 
 #include "consumer/service.hpp"
+#include "mocking/colliding_namespaces.h"
 #include "mocking/conditional_noexcept.h"
 #include "mocking/types.h"
+
+// Codegen reads the members of an implicitly instantiated class template
+// specialization only once the specialization has been instantiated.
+static_assert(sizeof(mocking::Store<::detail::Handle>) != 0);
 
 namespace gentest::test_mocks {
 
@@ -22,6 +27,8 @@ using RefWrapConsumerMock            = gentest::mock<mocking::RefWrapConsumer>;
 using StringerMock                   = gentest::mock<mocking::Stringer>;
 using FloaterMock                    = gentest::mock<mocking::Floater>;
 using DerivedRunnerMock              = gentest::mock<mocking::DerivedRunner>;
+using CollidingNamespacesMock        = gentest::mock<mocking::CollidingNamespaces>;
+using CollidingStoreMock             = gentest::mock<mocking::Store<::detail::Handle>>;
 using CondSinkNoThrowMock            = gentest::mock<mocking::CondSink<true>>;
 using CondSinkThrowMock              = gentest::mock<mocking::CondSink<false>>;
 using TraitSinkNoThrowMock           = gentest::mock<mocking::TraitSink<noexcept_policy::NoThrow>>;
