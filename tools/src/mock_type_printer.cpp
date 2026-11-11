@@ -73,7 +73,9 @@ class GlobalTypePrinter {
             if (!owner) {
                 return print_fallback(type, inner);
             }
-            return print_pointer_like(member_pointer->getPointeeType(), *owner + "::*", quals, inner);
+            // Parenthesize even data member pointers: MSVC otherwise parses the
+            // leading global scope after the pointee as part of its type name.
+            return print_pointer_like(member_pointer->getPointeeType(), *owner + "::*", quals, inner, true);
         }
         if (const auto *array = llvm::dyn_cast<clang::ArrayType>(node)) {
             return print_array(*array, quals, type, std::move(inner));
@@ -165,8 +167,8 @@ class GlobalTypePrinter {
         return text;
     }
 
-    [[nodiscard]] std::string print_pointer_like(QualType pointee, std::string sigil, clang::Qualifiers quals,
-                                                 const std::string &inner) const {
+    [[nodiscard]] std::string print_pointer_like(QualType pointee, std::string sigil, clang::Qualifiers quals, const std::string &inner,
+                                                 bool parenthesize = false) const {
         std::string declarator = std::move(sigil);
         if (!quals.empty()) {
             declarator += qualifier_text(quals);
@@ -175,7 +177,7 @@ class GlobalTypePrinter {
             }
         }
         declarator += inner;
-        if (needs_declarator_parens(pointee)) {
+        if (parenthesize || needs_declarator_parens(pointee)) {
             declarator = "(" + declarator + ")";
         }
         return print(pointee, std::move(declarator));

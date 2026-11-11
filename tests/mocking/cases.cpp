@@ -108,7 +108,7 @@ void interface_colliding_namespaces() {
     EXPECT_CALL(mock_iface, find).times(1).invokes([](const std::vector<::asserts::Check *(*)(::match::Pattern)> &pickers) {
         return pickers.at(0)(::match::Pattern{});
     });
-    EXPECT_CALL(mock_iface, handles).times(1).invokes([](const std::vector<int ::detail::Handle::*> &members) {
+    EXPECT_CALL(mock_iface, handles).times(1).invokes([](const std::vector<int(::detail::Handle::*)> &members) {
         auto out              = std::make_unique<::detail::Handle[]>(1);
         out[0].*members.at(0) = 11;
         return out;
