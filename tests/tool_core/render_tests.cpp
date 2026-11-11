@@ -254,7 +254,7 @@ int main() {
         const std::string rendered = render_wrappers(cases, templates);
         t.contains(rendered, "FREE_TEST kCaseInvoke_0\nstatic_cast<void>(::alpha::beta::plain_free());",
                    "render_wrappers emits direct free test wrappers");
-        t.contains(rendered, "[[maybe_unused]] const auto _ = ::__gentest_lookup_helper_1();",
+        t.contains(rendered, "[[maybe_unused]] const auto _ = ::gentest_lookup_helper_1();",
                    "render_wrappers preserves return values for parameterized free cases");
         t.contains(rendered, "return math::sum(1, 2);", "render_wrappers forwards plain call arguments inside helpers");
         t.contains(rendered, "if (!gentest_init_fixture(fx0_, \"fx::LocalFx\")) return;",
@@ -271,10 +271,11 @@ int main() {
                    "return fx::invoke(static_cast<decltype(fx0)&&>(fx0), 7, static_cast<decltype(fx1)&&>(fx1), "
                    "static_cast<decltype(fx2)&&>(fx2));",
                    "render_wrappers forwards fixture-bound helper arguments");
-        t.contains(rendered, "EPHEMERAL kCaseInvoke_3\nfixture::EphemeralFx\nstatic_cast<void>(::__gentest_lookup_helper_3(fx_.ref()));",
+        t.contains(rendered, "EPHEMERAL kCaseInvoke_3\nfixture::EphemeralFx\nstatic_cast<void>(::gentest_lookup_helper_3(fx_.ref()));",
                    "render_wrappers emits plain ephemeral member wrapper content");
-        t.contains(rendered, "[[maybe_unused]] const auto _ = ::__gentest_lookup_helper_4(*fx_);",
+        t.contains(rendered, "[[maybe_unused]] const auto _ = ::gentest_lookup_helper_4(*fx_);",
                    "render_wrappers preserves return values for shared members");
+        t.excludes(rendered, "__gentest", "render_wrappers emits no reserved double-underscore identifiers");
         t.contains(rendered, "static_cast<decltype(self)&&>(self).template go(static_cast<decltype(fx0)&&>(fx0), 42)",
                    "render_wrappers emits templated member helper calls");
         t.contains(rendered, R"(gentest_record_fixture_failure("fixture::SharedWithFx", "instance missing");)",

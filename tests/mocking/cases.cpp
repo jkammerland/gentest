@@ -299,6 +299,21 @@ void template_template_member_expect() {
 
 namespace mocking {
 
+void unnamed_template_param_member_expect() {
+    gentest::mock<UnnamedTemplateParam> mock_tagged;
+    int                                 calls = 0;
+
+    gentest::expect(mock_tagged, &UnnamedTemplateParam::template tagged<char, int>).times(1).invokes([&](int value) { calls += value; });
+
+    mock_tagged.template tagged<char>(1);
+
+    EXPECT_EQ(calls, 1);
+}
+
+} // namespace mocking
+
+namespace mocking {
+
 void template_template_ctor() {
     gentest::mock<TemplateTemplateCtorTarget> mock_target{std::array<int, 2>{1, 2}};
     EXPECT_CALL(mock_target, ping).times(1);

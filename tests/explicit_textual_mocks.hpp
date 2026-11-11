@@ -14,6 +14,7 @@ using NeedsInitMock                  = gentest::mock<mocking::NeedsInit>;
 using MoveOnlyConsumerMock           = gentest::mock<mocking::MOConsumer>;
 using ForwardingAliasMock            = gentest::mock<mocking::ForwardingAlias>;
 using TemplateTemplateFixedMock      = gentest::mock<mocking::TemplateTemplateFixed>;
+using UnnamedTemplateParamMock       = gentest::mock<mocking::UnnamedTemplateParam>;
 using TemplateTemplateCtorTargetMock = gentest::mock<mocking::TemplateTemplateCtorTarget>;
 using TemplateTemplatePackerMock     = gentest::mock<mocking::TemplateTemplatePacker>;
 using RefWrapConsumerMock            = gentest::mock<mocking::RefWrapConsumer>;
