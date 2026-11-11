@@ -20,6 +20,7 @@
 #include <clang/Basic/FileEntry.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Lex/Lexer.h>
+#include <clang/Sema/Sema.h>
 #include <filesystem>
 #include <fmt/format.h>
 #include <fstream>
@@ -728,18 +729,42 @@ struct DefaultCtorVisitState {
            }));
 }
 
-[[nodiscard]] bool is_noexcept(const CXXMethodDecl &method) {
+// Exception specification of a captured function, as far as the mock needs it.
+struct ExceptionSpecResult {
+    bool is_noexcept = false;
+    // True when Sema could not resolve a deferred specification; it has
+    // already emitted a diagnostic.
+    bool failed = false;
+};
+
+[[nodiscard]] ExceptionSpecResult resolve_noexcept(const FunctionDecl &function, Sema *sema, SourceLocation use_loc) {
     // Avoid FunctionProtoType::isNothrow()/canThrow() here: we observed SIGILL
     // in Clang 21 when querying canThrow() for some constructors (special
     // members with unresolved exception specs). For mocking, we only need the
-    // *declared* "nothrow-ness" to reproduce the signature; we don't want to
-    // evaluate dependent/noexcept expressions.
-    switch (method.getExceptionSpecType()) {
+    // *declared* "nothrow-ness" to reproduce the signature.
+    const auto *proto = function.getType()->getAs<FunctionProtoType>();
+    if (proto == nullptr) {
+        return {};
+    }
+    // Members of an implicitly instantiated class template specialization keep
+    // EST_Uninstantiated (and implicit special members EST_Unevaluated) until
+    // something needs them; `noexcept(B)` would otherwise be read as
+    // potentially throwing and dropped from the override. Let Sema instantiate
+    // or evaluate the specification exactly as the compiler will when it
+    // checks the generated override.
+    if (isUnresolvedExceptionSpec(proto->getExceptionSpecType()) && sema != nullptr) {
+        const SourceLocation loc = use_loc.isValid() ? use_loc : function.getLocation();
+        proto                    = sema->ResolveExceptionSpec(loc, proto);
+        if (proto == nullptr) {
+            return {.is_noexcept = false, .failed = true};
+        }
+    }
+    switch (proto->getExceptionSpecType()) {
     case EST_DynamicNone: // throw()
     case EST_NoThrow:     // MS __declspec(nothrow)
     case EST_BasicNoexcept:
-    case EST_NoexceptTrue: return true;
-    default: return false;
+    case EST_NoexceptTrue: return {.is_noexcept = true};
+    default: return {};
     }
 }
 
@@ -756,11 +781,11 @@ struct DefaultCtorVisitState {
     return MethodCvQual::None;
 }
 
-[[nodiscard]] MockMethodQualifiers capture_method_qualifiers(const CXXMethodDecl &method) {
+[[nodiscard]] MockMethodQualifiers capture_method_qualifiers(const CXXMethodDecl &method, bool is_noexcept) {
     return MockMethodQualifiers{
         .cv          = cv_qualifier_kind(method),
         .ref         = ref_qualifier_kind(method.getRefQualifier()),
-        .is_noexcept = is_noexcept(method),
+        .is_noexcept = is_noexcept,
     };
 }
 
@@ -1015,6 +1040,15 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         return;
     }
 
+    // `gentest::mock<Tmpl<Args>>` alone does not instantiate the target
+    // specialization. Instantiate it now, as the generated registry will, so
+    // members are read from the specialization rather than from the primary
+    // template's pattern (whose dependent signatures and exception
+    // specifications cannot be reproduced).
+    if (sema_ != nullptr && record->getDefinition() == nullptr && llvm::isa<ClassTemplateSpecializationDecl>(record)) {
+        (void)sema_->isCompleteType(use_loc.isValid() ? use_loc : record->getLocation(), target_type);
+    }
+
     const auto *definition_record = resolve_mock_target_definition_record(*record);
     if (definition_record == nullptr) {
         had_error_ = true;
@@ -1186,8 +1220,16 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         ctor_info.is_explicit = ctor->isExplicit();
         // Preserve declared noexcept-ness so the generated forwarding ctors keep
         // matching the target's signature (e.g. std::is_nothrow_constructible).
-        // The helper avoids Clang's canThrow() evaluation (see is_noexcept()).
-        ctor_info.is_noexcept     = is_noexcept(*ctor);
+        // The helper avoids Clang's canThrow() evaluation (see resolve_noexcept()).
+        const ExceptionSpecResult ctor_spec = resolve_noexcept(*ctor, sema_, use_loc);
+        if (ctor_spec.failed) {
+            had_error_ = true;
+            report(sm, use_loc,
+                   fmt::format("gentest::mock<{}>: cannot resolve the exception specification of {}", info.qualified_name,
+                               ctor->getQualifiedNameAsString()));
+            return;
+        }
+        ctor_info.is_noexcept     = ctor_spec.is_noexcept;
         auto template_info        = capture_callable_template_info(*ctor, ctx);
         ctor_info.template_prefix = std::move(template_info.prefix);
         ctor_info.template_params = std::move(template_info.params);
@@ -1204,6 +1246,10 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         if (ft == nullptr)
             continue;
         capture_ctor(llvm::dyn_cast<CXXConstructorDecl>(ft->getTemplatedDecl()));
+    }
+
+    if (had_error_) {
+        return;
     }
 
     // For polymorphic targets, require that at least one constructor is
@@ -1253,6 +1299,14 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         if (method->isCopyAssignmentOperator() || method->isMoveAssignmentOperator()) {
             return;
         }
+        const ExceptionSpecResult method_spec = resolve_noexcept(*method, sema_, use_loc);
+        if (method_spec.failed) {
+            had_error_ = true;
+            report(sm, use_loc,
+                   fmt::format("gentest::mock<{}>: cannot resolve the exception specification of {}", info.qualified_name,
+                               method->getQualifiedNameAsString()));
+            return;
+        }
         MockMethodInfo method_info;
         method_info.qualified_name = method->getQualifiedNameAsString();
         method_info.method_name    = method->getNameAsString();
@@ -1266,7 +1320,7 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
         method_info.is_variadic            = method->isVariadic();
         method_info.is_overloaded_operator = method->isOverloadedOperator();
         method_info.is_conversion_operator = llvm::isa<CXXConversionDecl>(method);
-        method_info.qualifiers             = capture_method_qualifiers(*method);
+        method_info.qualifiers             = capture_method_qualifiers(*method, method_spec.is_noexcept);
         auto template_info                 = capture_callable_template_info(*method, ctx);
         method_info.template_prefix        = std::move(template_info.prefix);
         method_info.template_params        = std::move(template_info.params);
