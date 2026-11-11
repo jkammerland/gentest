@@ -1,5 +1,25 @@
 set(GENTEST_SKIP_TEST_PREFIX "GENTEST_SKIP_TEST:")
 
+# Helper scripts run nested builds and CTest runs. Bound their parallelism so the
+# PROCESSORS that CTest reserves for these tests holds; an explicit
+# CMAKE_BUILD_PARALLEL_LEVEL or CTEST_PARALLEL_LEVEL from the caller wins.
+if(CMAKE_SCRIPT_MODE_FILE)
+  set(_gentest_helper_parallel_level "${GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
+  if("${_gentest_helper_parallel_level}" STREQUAL "")
+    set(_gentest_helper_parallel_level "$ENV{GENTEST_HELPER_BUILD_PARALLEL_LEVEL}")
+  endif()
+  if("${_gentest_helper_parallel_level}" STREQUAL "")
+    set(_gentest_helper_parallel_level 2)
+  endif()
+  foreach(_gentest_parallel_env IN ITEMS CMAKE_BUILD_PARALLEL_LEVEL CTEST_PARALLEL_LEVEL)
+    if("$ENV{${_gentest_parallel_env}}" STREQUAL "")
+      set(ENV{${_gentest_parallel_env}} "${_gentest_helper_parallel_level}")
+    endif()
+  endforeach()
+  unset(_gentest_parallel_env)
+  unset(_gentest_helper_parallel_level)
+endif()
+
 function(gentest_skip_test reason)
   message(STATUS "${GENTEST_SKIP_TEST_PREFIX} ${reason}")
 endfunction()

@@ -107,7 +107,8 @@ int main() {
         if (registry != nullptr) {
             t.contains(registry->content, "#include \"../fixture/service.hpp\"", "gentest backend includes target definition");
             t.contains(registry->content, "detail::MockAccess", "gentest backend keeps native expectation access");
-            t.contains(registry->content, "__gentest_state_", "gentest backend keeps native mock state");
+            t.contains(registry->content, "gentest_mock_state_", "gentest backend keeps native mock state");
+            t.excludes(registry->content, "__gentest", "gentest backend emits no reserved double-underscore identifiers");
             t.excludes(registry->content, "#include <gmock/gmock.h>", "gentest backend does not include gmock");
             t.excludes(registry->content, "#include <trompeloeil/mock.hpp>", "gentest backend does not include trompeloeil");
         }
@@ -174,7 +175,7 @@ int main() {
                        "trompeloeil backend does not include gentest mock forwarding");
             t.excludes(registry->content, "namespace gentest", "trompeloeil backend does not emit into gentest namespace");
             t.excludes(registry->content, "struct mock<", "trompeloeil backend does not specialize gentest::mock");
-            t.excludes(registry->content, "__gentest_state_", "trompeloeil backend does not emit native gentest state");
+            t.excludes(registry->content, "gentest_mock_state_", "trompeloeil backend does not emit native gentest state");
         }
         const MockGeneratedFile *impl = find_file(result, "public_mocks_inline.hpp");
         t.expect(impl != nullptr, "trompeloeil backend emits an implementation header");

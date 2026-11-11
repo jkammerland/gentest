@@ -31,6 +31,7 @@
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Lex/PPCallbacks.h>
 #include <clang/Lex/Preprocessor.h>
+#include <clang/Sema/SemaConsumer.h>
 #include <clang/Tooling/ArgumentsAdjusters.h>
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
@@ -1774,20 +1775,34 @@ class DependencyRecorder final : public clang::PPCallbacks {
     std::vector<std::string> &dependencies_;
 };
 
-class ScopedTraversalASTConsumer final : public clang::ASTConsumer {
+class ScopedTraversalASTConsumer final : public clang::SemaConsumer {
   public:
-    ScopedTraversalASTConsumer(clang::ast_matchers::MatchFinder &finder, SourceTraversalPolicy policy) : finder_(finder), policy_(policy) {}
+    ScopedTraversalASTConsumer(clang::ast_matchers::MatchFinder &finder, SourceTraversalPolicy policy, MockUsageCollector *mock_collector)
+        : finder_(finder), policy_(policy), mock_collector_(mock_collector) {}
+
+    void InitializeSema(clang::Sema &sema) override { sema_ = &sema; }
+    void ForgetSema() override { sema_ = nullptr; }
 
     void HandleTranslationUnit(clang::ASTContext &context) override {
+        // Mock discovery needs Sema to instantiate class template
+        // specializations and to resolve deferred exception specifications.
+        if (mock_collector_ != nullptr) {
+            mock_collector_->set_sema(sema_);
+        }
         SourceDeclMatcher matcher{finder_, context, policy_};
         for (clang::Decl *decl : context.getTranslationUnitDecl()->decls()) {
             matcher.match(decl);
+        }
+        if (mock_collector_ != nullptr) {
+            mock_collector_->set_sema(nullptr);
         }
     }
 
   private:
     clang::ast_matchers::MatchFinder &finder_;
     SourceTraversalPolicy             policy_;
+    MockUsageCollector               *mock_collector_ = nullptr;
+    clang::Sema                      *sema_           = nullptr;
 };
 
 void register_codegen_matchers(MatchFinder &finder, TestCaseCollector &test_collector, FixtureDeclCollector &fixture_collector,
@@ -1807,9 +1822,9 @@ void register_codegen_matchers(MatchFinder &finder, TestCaseCollector &test_coll
 class MatchFinderAction final : public clang::ASTFrontendAction {
   public:
     MatchFinderAction(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                      bool allow_mock_includes, bool fallback_header)
+                      bool allow_mock_includes, bool fallback_header, MockUsageCollector *mock_collector)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
-          fallback_header_(fallback_header) {}
+          fallback_header_(fallback_header), mock_collector_(mock_collector) {}
 
     bool PrepareToExecuteAction(clang::CompilerInstance &compiler) override {
         if (fallback_header_) {
@@ -1836,7 +1851,8 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
             dependencies_.push_back(normalized);
         }
         return std::make_unique<ScopedTraversalASTConsumer>(
-            finder_, SourceTraversalPolicy{.allow_includes = allow_includes_, .allow_mock_includes = allow_mock_includes_});
+            finder_, SourceTraversalPolicy{.allow_includes = allow_includes_, .allow_mock_includes = allow_mock_includes_},
+            mock_collector_);
     }
 
   private:
@@ -1845,17 +1861,19 @@ class MatchFinderAction final : public clang::ASTFrontendAction {
     bool                              allow_includes_      = false;
     bool                              allow_mock_includes_ = false;
     bool                              fallback_header_     = false;
+    MockUsageCollector               *mock_collector_      = nullptr;
 };
 
 class MatchFinderActionFactory final : public clang::tooling::FrontendActionFactory {
   public:
     MatchFinderActionFactory(clang::ast_matchers::MatchFinder &finder, std::vector<std::string> &dependencies, bool allow_includes,
-                             bool allow_mock_includes, bool fallback_header)
+                             bool allow_mock_includes, bool fallback_header, MockUsageCollector *mock_collector)
         : finder_(finder), dependencies_(dependencies), allow_includes_(allow_includes), allow_mock_includes_(allow_mock_includes),
-          fallback_header_(fallback_header) {}
+          fallback_header_(fallback_header), mock_collector_(mock_collector) {}
 
     std::unique_ptr<clang::FrontendAction> create() override {
-        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, fallback_header_);
+        return std::make_unique<MatchFinderAction>(finder_, dependencies_, allow_includes_, allow_mock_includes_, fallback_header_,
+                                                   mock_collector_);
     }
 
   private:
@@ -1864,6 +1882,7 @@ class MatchFinderActionFactory final : public clang::tooling::FrontendActionFact
     bool                              allow_includes_      = false;
     bool                              allow_mock_includes_ = false;
     bool                              fallback_header_     = false;
+    MockUsageCollector               *mock_collector_      = nullptr;
 };
 
 // MSVC cl.exe's module mapping flags that take their value as a separate argument, as spelled in
@@ -6161,9 +6180,13 @@ int run_codegen_tool(int argc, const char **argv) {
             MatchFinder finder;
             register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
                                       !mock_manifest_discovery_only);
-            MatchFinderActionFactory action_factory{finder, local_dependencies, allow_includes, options.discover_mocks,
+            MatchFinderActionFactory action_factory{finder,
+                                                    local_dependencies,
+                                                    allow_includes,
+                                                    options.discover_mocks,
                                                     idx < options.scan_slot_kinds.size() &&
-                                                        options.scan_slot_kinds[idx] == "fallback-header"};
+                                                        options.scan_slot_kinds[idx] == "fallback-header",
+                                                    mock_collector.has_value() ? &*mock_collector : nullptr};
 
             ParseResult result;
             result.status             = tool.run(&action_factory);
@@ -6300,8 +6323,12 @@ int run_codegen_tool(int argc, const char **argv) {
         MatchFinder finder;
         register_codegen_matchers(finder, collector, fixture_collector, mock_collector.has_value() ? &*mock_collector : nullptr,
                                   !mock_manifest_discovery_only);
-        MatchFinderActionFactory action_factory{finder, depfile_dependencies_local, allow_includes, options.discover_mocks,
-                                                !options.scan_slot_kinds.empty() && options.scan_slot_kinds.front() == "fallback-header"};
+        MatchFinderActionFactory action_factory{finder,
+                                                depfile_dependencies_local,
+                                                allow_includes,
+                                                options.discover_mocks,
+                                                !options.scan_slot_kinds.empty() && options.scan_slot_kinds.front() == "fallback-header",
+                                                mock_collector.has_value() ? &*mock_collector : nullptr};
 
         const int status = tool.run(&action_factory);
         if (status != 0) {

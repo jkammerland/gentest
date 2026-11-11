@@ -14,7 +14,8 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 gentest_add_mocks(explicit_header_mocks
     DEFS
@@ -46,7 +47,7 @@ gentest_link_mocks(explicit_module_consumer PRIVATE explicit_module_mocks)
 
 add_executable(explicit_late_link_consumer late_link_cases.cpp)
 target_compile_features(explicit_late_link_consumer PRIVATE cxx_std_20)
-target_link_libraries(explicit_late_link_consumer PRIVATE gentest_main)
+target_link_libraries(explicit_late_link_consumer PRIVATE gentest::gentest_main)
 gentest_attach_codegen(explicit_late_link_consumer
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/late_link")
 gentest_link_mocks(explicit_late_link_consumer PRIVATE explicit_header_mocks)
@@ -62,7 +63,7 @@ target_sources(explicit_late_link_module_consumer
     PRIVATE
         FILE_SET explicit_late_link_module_cases TYPE CXX_MODULES FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/late_link_module_cases.cppm)
-target_link_libraries(explicit_late_link_module_consumer PRIVATE gentest gentest_runtime)
+target_link_libraries(explicit_late_link_module_consumer PRIVATE gentest::gentest gentest::gentest_runtime)
 target_compile_features(explicit_late_link_module_consumer PRIVATE cxx_std_20)
 gentest_attach_codegen(explicit_late_link_module_consumer
     MODULE_REGISTRATION

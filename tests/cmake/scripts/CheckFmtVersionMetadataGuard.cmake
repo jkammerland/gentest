@@ -121,23 +121,37 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-message(STATUS "Build install target for fmt metadata guard fixture...")
-gentest_check_run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}"
-    --build "${_build_dir_install_ok}"
-    --target install
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
+# gentestConfig.cmake is generated at configure time and installed verbatim
+# (install(FILES)), so the build-tree file is what consumers get. Assert on it
+# and on the install rule that ships it instead of building the runtime and
+# codegen just to run the install step.
 file(GLOB_RECURSE _config_candidates
   LIST_DIRECTORIES FALSE
-  "${_install_prefix_ok}/*/gentestConfig.cmake"
-  "${_install_prefix_ok}/*/*/gentestConfig.cmake")
-if(NOT _config_candidates)
-  message(FATAL_ERROR "fmt metadata guard did not install gentestConfig.cmake under '${_install_prefix_ok}'")
+  "${_build_dir_install_ok}/gentestConfig.cmake")
+list(FILTER _config_candidates EXCLUDE REGEX "/CMakeFiles/")
+list(LENGTH _config_candidates _config_candidate_count)
+if(NOT _config_candidate_count EQUAL 1)
+  message(FATAL_ERROR
+    "fmt metadata guard expected exactly one generated gentestConfig.cmake under '${_build_dir_install_ok}', "
+    "found: ${_config_candidates}")
 endif()
 list(GET _config_candidates 0 _config_file)
+
+file(GLOB_RECURSE _install_scripts LIST_DIRECTORIES FALSE "${_build_dir_install_ok}/cmake_install.cmake")
+set(_config_install_rule_found FALSE)
+foreach(_install_script IN LISTS _install_scripts)
+  file(READ "${_install_script}" _install_script_text)
+  string(FIND "${_install_script_text}" "\"${_config_file}\"" _config_install_pos)
+  if(NOT _config_install_pos EQUAL -1)
+    set(_config_install_rule_found TRUE)
+    break()
+  endif()
+endforeach()
+if(NOT _config_install_rule_found)
+  message(FATAL_ERROR
+    "fmt metadata guard: no install rule ships the generated config '${_config_file}'")
+endif()
+
 file(READ "${_config_file}" _config_text)
 string(FIND "${_config_text}" "find_dependency(fmt 12.1.0 EXACT CONFIG REQUIRED)" _config_dep_pos)
 if(_config_dep_pos EQUAL -1)

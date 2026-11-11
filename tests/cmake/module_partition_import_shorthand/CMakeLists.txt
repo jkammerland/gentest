@@ -14,7 +14,8 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 add_executable(partition_import_tests
     main.cpp)
@@ -26,7 +27,7 @@ target_sources(partition_import_tests
         FILE_SET partition_helpers TYPE CXX_MODULES FILES
             ${CMAKE_CURRENT_SOURCE_DIR}/helpers.cppm)
 
-target_link_libraries(partition_import_tests PRIVATE gentest gentest_runtime)
+target_link_libraries(partition_import_tests PRIVATE gentest::gentest gentest::gentest_runtime)
 target_compile_features(partition_import_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(partition_import_tests

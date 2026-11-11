@@ -394,11 +394,11 @@ std::string wrap_in_namespaces(const std::vector<std::string> &parts, const std:
 std::string forward_param_expr(std::string_view name) { return fmt::format("static_cast<decltype({0})&&>({0})", name); }
 
 std::string helper_name_for(const WrapperSpec &spec) {
-    return "__gentest_lookup_helper_" + spec.wrapper_name.substr(std::string_view("kCaseInvoke_").size());
+    return "gentest_lookup_helper_" + spec.wrapper_name.substr(std::string_view("kCaseInvoke_").size());
 }
 
 std::string async_helper_name_for(const WrapperSpec &spec) {
-    return "__gentest_async_lookup_helper_" + spec.wrapper_name.substr(std::string_view("kCaseInvoke_").size());
+    return "gentest_async_lookup_helper_" + spec.wrapper_name.substr(std::string_view("kCaseInvoke_").size());
 }
 
 std::string build_helper_param_decls(const std::vector<FreeFixtureUse> &fixtures, bool include_self) {

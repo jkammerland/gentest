@@ -1,3 +1,4 @@
+[PASS] mocking/mocking/bench/measured_call_verification_does_not_throw
 [PASS] mocking/mocking/concrete/invokes
 [PASS] mocking/mocking/concrete/invokes_matches
 [PASS] mocking/mocking/concrete/non_default_ctor
@@ -14,6 +15,7 @@
 [PASS] mocking/mocking/crtp/bridge_matches
 [PASS] mocking/mocking/interface/colliding_namespaces
 [PASS] mocking/mocking/interface/colliding_template_argument
+[PASS] mocking/mocking/interface/conditional_noexcept
 [PASS] mocking/mocking/interface/non_default_ctor
 [PASS] mocking/mocking/interface/reset
 [PASS] mocking/mocking/interface/returns
@@ -31,8 +33,10 @@
 [PASS] mocking/mocking/move_only/refwrap_by_value
 [PASS] mocking/mocking/move_only/with_eq
 [PASS] mocking/mocking/nice/unexpected_ok
+[PASS] mocking/mocking/nice/expected_calls_ok
 [PASS] mocking/mocking/template/forwarding_alias
 [PASS] mocking/mocking/template/direct_unique_template_member_expect
 [PASS] mocking/mocking/template/template_template_ctor
 [PASS] mocking/mocking/template/template_template_member_expect
 [PASS] mocking/mocking/template/template_template_pack_direct_expect
+[PASS] mocking/mocking/template/unnamed_template_param

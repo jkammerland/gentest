@@ -165,6 +165,16 @@ if(_fixture_uses_public_modules)
   endif()
 endif()
 
+# The probe above decides public module support from source; the fixture itself
+# may consume the shared prebuilt gentest built with the same module mode.
+set(_prefix_modules OFF)
+if(_fixture_uses_public_modules)
+  set(_prefix_modules ON)
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
+gentest_fixture_prefix_cache_args(_prefix_cache_args _cmake_cache_args MODULES ${_prefix_modules})
+list(APPEND _cmake_cache_args ${_prefix_cache_args})
+
 message(STATUS "Configure ${TARGET_NAME} fixture...")
 gentest_check_run_or_fail(
   COMMAND

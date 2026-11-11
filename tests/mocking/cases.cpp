@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -144,6 +145,59 @@ void interface_colliding_template_argument() {
     EXPECT_EQ(iface->get().id, 4);
     iface->put({::detail::Handle{}, ::detail::Handle{}});
     EXPECT_EQ(stored, std::size_t{2});
+}
+
+void interface_conditional_noexcept() {
+    // The generated overrides reproduce each resolved exception specification (#266).
+    // Checked at run time: the codegen scan of this file sees placeholder mocks.
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<CondSink<true>> &>().put()));
+    EXPECT_TRUE(noexcept(std::declval<const gentest::mock<CondSink<true>> &>().peek()));
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<CondSink<true>> &&>().drain()));
+    EXPECT_TRUE(noexcept(std::declval<const gentest::mock<CondSink<true>> &>().inspect()));
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<CondSink<true>> &>().plain()));
+    EXPECT_FALSE(noexcept(std::declval<gentest::mock<CondSink<true>> &>().throwing()));
+    EXPECT_FALSE(noexcept(std::declval<gentest::mock<CondSink<false>> &>().put()));
+    EXPECT_FALSE(noexcept(std::declval<const gentest::mock<CondSink<false>> &>().peek()));
+    EXPECT_FALSE(noexcept(std::declval<gentest::mock<CondSink<false>> &&>().drain()));
+    EXPECT_FALSE(noexcept(std::declval<const gentest::mock<CondSink<false>> &>().inspect()));
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<CondSink<false>> &>().plain()));
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<TraitSink<noexcept_policy::NoThrow>> &>().put(1)));
+    EXPECT_TRUE(noexcept(std::declval<const gentest::mock<TraitSink<noexcept_policy::NoThrow>> &>().get()));
+    EXPECT_FALSE(noexcept(std::declval<gentest::mock<TraitSink<noexcept_policy::Throw>> &>().put(1)));
+    EXPECT_FALSE(noexcept(std::declval<const gentest::mock<TraitSink<noexcept_policy::Throw>> &>().get()));
+    EXPECT_TRUE(noexcept(std::declval<const gentest::mock<ValueSource<int, true>> &>().get()));
+    EXPECT_TRUE(noexcept(std::declval<gentest::mock<ValueSource<int, true>> &>().set(1)));
+    EXPECT_FALSE(noexcept(std::declval<const gentest::mock<ValueSource<long, false>> &>().get()));
+    EXPECT_FALSE(noexcept(std::declval<gentest::mock<ValueSource<long, false>> &>().set(1L)));
+    EXPECT_TRUE(std::is_nothrow_constructible_v<gentest::mock<CondCtor<true>>, int>);
+    EXPECT_TRUE(std::is_constructible_v<gentest::mock<CondCtor<false>>, int>);
+    EXPECT_FALSE(std::is_nothrow_constructible_v<gentest::mock<CondCtor<false>>, int>);
+
+    gentest::mock<CondSink<true>> sink;
+    int                           puts = 0;
+    EXPECT_CALL(sink, put).times(1).invokes([&]() { ++puts; });
+    EXPECT_CALL(sink, peek).times(1).returns(3);
+    EXPECT_CALL(sink, drain).times(1).returns(4);
+    EXPECT_CALL(sink, inspect).times(1).returns(5);
+    CondSink<true> &iface = sink;
+    iface.put();
+    EXPECT_EQ(puts, 1);
+    EXPECT_EQ(iface.peek(), 3);
+    EXPECT_EQ(static_cast<CondSink<true> &&>(iface).drain(), 4);
+    EXPECT_EQ(iface.inspect(), 5);
+
+    gentest::mock<TraitSink<noexcept_policy::NoThrow>> traits;
+    EXPECT_CALL(traits, get).times(1).returns(6);
+    EXPECT_EQ(static_cast<const TraitSink<noexcept_policy::NoThrow> &>(traits).get(), 6);
+
+    gentest::mock<ValueSource<long, false>> source;
+    EXPECT_CALL(source, get).times(1).returns(7L);
+    EXPECT_EQ(static_cast<const ValueSource<long, false> &>(source).get(), 7L);
+
+    gentest::mock<CondCtor<true>> ctor_mock{8};
+    EXPECT_CALL(ctor_mock, ping).times(1).returns(9);
+    EXPECT_EQ(ctor_mock.seed, 8);
+    EXPECT_EQ(static_cast<CondCtor<true> &>(ctor_mock).ping(), 9);
 }
 
 } // namespace mocking
@@ -367,6 +421,21 @@ void template_template_member_expect() {
     });
 
     mock_fixed.template take<std::array>(std::array<int, 2>{1, 2});
+
+    EXPECT_EQ(calls, 1);
+}
+
+} // namespace mocking
+
+namespace mocking {
+
+void unnamed_template_param_member_expect() {
+    gentest::mock<UnnamedTemplateParam> mock_tagged;
+    int                                 calls = 0;
+
+    gentest::expect(mock_tagged, &UnnamedTemplateParam::template tagged<char, int>).times(1).invokes([&](int value) { calls += value; });
+
+    mock_tagged.template tagged<char>(1);
 
     EXPECT_EQ(calls, 1);
 }
@@ -751,6 +820,55 @@ void nice_unexpected_ok() {
     // No expectations set; unexpected call should be tolerated in nice mode
     mock_tick.tick(123);
     EXPECT_TRUE(true);
+}
+
+void bench_measured_call_verification_does_not_throw() {
+    // Simulate measured call phases in diagnostic contexts so the owner test stays green.
+    const auto owner        = gentest::detail::current_test();
+    const auto every_call   = std::make_shared<gentest::detail::TestContextInfo>();
+    const auto unwinding    = std::make_shared<gentest::detail::TestContextInfo>();
+    bool       unwound      = false;
+    const auto unmet_verify = [] {
+        gentest::mock<Ticker> mock_tick;
+        EXPECT_CALL(mock_tick, tick).times(1);
+    };
+    gentest::detail::start_context(*every_call);
+    gentest::detail::start_context(*unwinding);
+    {
+        gentest::detail::BenchPhaseScope call_phase(gentest::detail::BenchPhase::Call);
+        gentest::detail::set_current_test(every_call, gentest::detail::CurrentContextRole::Owner);
+        // Destructor verification records instead of throwing, and a body that
+        // fails on every iteration keeps only a bounded prefix of failures.
+        for (int i = 0; i < 1000; ++i)
+            unmet_verify();
+#if GENTEST_EXCEPTIONS_ENABLED
+        gentest::detail::set_current_test(unwinding, gentest::detail::CurrentContextRole::Owner);
+        try {
+            gentest::mock<Ticker> mock_tick;
+            EXPECT_CALL(mock_tick, tick).times(1);
+            gentest::require(false, "fatal failure unwinds an unmet mock");
+        } catch (const gentest::assertion &) { unwound = true; }
+#endif
+        gentest::detail::set_current_test(owner, gentest::detail::CurrentContextRole::Owner);
+    }
+
+    ASSERT_EQ(every_call->failures.size(), std::size_t{8});
+    EXPECT_TRUE(every_call->failures.front().find("tick but observed 0") != std::string::npos, every_call->failures.front());
+    if constexpr (gentest::detail::exceptions_enabled) {
+        EXPECT_TRUE(unwound);
+        ASSERT_EQ(unwinding->failures.size(), std::size_t{2});
+        EXPECT_TRUE(unwinding->failures[0].find("fatal failure unwinds an unmet mock") != std::string::npos);
+        EXPECT_TRUE(unwinding->failures[1].find("but observed 0") != std::string::npos);
+    }
+}
+
+void nice_expected_calls_ok() {
+    gentest::mock<Ticker> mock_tick;
+    gentest::make_nice(mock_tick, true);
+    // Nice mode must not disturb calls that stay within the expectation.
+    gentest::expect(mock_tick, &Ticker::tick).times(2);
+    mock_tick.tick(1);
+    mock_tick.tick(2);
 }
 
 } // namespace mocking

@@ -272,6 +272,9 @@ undo a command already accepted by the supervisor; commands have a five-second
 execution deadline. Use `stop()` to tear down the whole topology.
 
 The supervisor is PID 1 inside an `unshare` user/network/PID/mount namespace tree.
+As namespace init it also reaps orphaned descendants (for example a background
+process left by a program's shell) while the session runs, so they do not
+accumulate as zombies; exit results are reported only for launched programs.
 It checks that it has a single-ID rootless mapping and a different network
 namespace before configuring anything. Node namespaces are held by child
 processes and open descriptors. Commands receive argv directly; there is no
@@ -345,6 +348,10 @@ later outbound mapping to change ports. There is no static inbound forwarding.
 This models one useful IPv4 NAT/firewall configuration, not every consumer router
 or symmetric NAT. `execute(node, argv, stdin)` supports `ip`, `nft` and `tc` for
 additional test policy, packet counters and netem. It always runs inside a node.
+It returns the command's stdout when the command exits 0; stdout larger than one
+control reply (4088 bytes) fails explicitly rather than returning a partial tail.
+A failing command reports its exit status or signal and the last 1500 bytes of
+stderr, noting when earlier stderr was discarded.
 
 [Network tests](tests/cases.cpp) bind port 5000 in multiple nodes, verify observed
 source translations and blocked unsolicited inbound traffic, deliberately order
@@ -357,9 +364,14 @@ Each duplex channel has a size-sealed anonymous memfd, two eventfds, and two
 bounded queues protected by robust process-shared pthread mutexes. Each direction
 holds 16 messages of up to 4096 payload bytes. Messages copy their bytes and carry
 a 32-bit application tag. Oversized messages are rejected before locking. Full
-queues are rejected without waiting for capacity, after acquiring the queue lock;
-there is no silent loss or unbounded buffering. Topology/command descriptions must
-also fit a single control message, including framing.
+queues are rejected by `send()` without waiting for capacity, after acquiring the
+queue lock; `trySend()` instead returns `false` so a caller can apply backpressure.
+There is no silent loss or unbounded buffering in a channel. The session's control
+path uses `trySend()`: commands and replies that do not fit wait, in order, in the
+sending process until the peer drains the queue, so concurrent requests beyond 16
+are delayed rather than failing the session. That backlog holds one message per
+request the caller is still awaiting. Topology/command descriptions must also fit
+a single control message, including framing.
 
 `Channel::receive(deadline, stop_token)` provides a blocking child API;
 `Session::receive()` provides the parent's async API. Already queued messages are

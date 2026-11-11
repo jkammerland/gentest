@@ -85,6 +85,9 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 gentest_append_public_modules_cache_arg(_cmake_cache_args)
+include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
+gentest_fixture_prefix_cache_args(_prefix_cache_args _cmake_cache_args)
+list(APPEND _cmake_cache_args ${_prefix_cache_args})
 
 gentest_prepare_fixture_command(_configure_command COMMAND
   "${CMAKE_COMMAND}" ${_cmake_gen_args} -S "${_src_dir}" -B "${_build_dir}" ${_cmake_cache_args})

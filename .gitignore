@@ -76,3 +76,7 @@ results/
 
 # Vendored third-party examples (headers/licenses are tracked)
 third_party/samples/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
