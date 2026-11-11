@@ -4,6 +4,15 @@ if(NOT DEFINED SOURCE_DIR OR NOT DEFINED BUILD_ROOT OR NOT DEFINED GENTEST_SOURC
   message(FATAL_ERROR "CheckHeaderDeclarationRegistration.cmake: required helper variable missing")
 endif()
 
+# Keep compiler portability independent from the larger behavioral acceptance
+# group so CTest can schedule both with bounded nested-build resources.
+if(NOT DEFINED REGISTRATION_GROUP)
+  set(REGISTRATION_GROUP ALL)
+endif()
+if(NOT REGISTRATION_GROUP MATCHES "^(ALL|CORE|COMPILERS)$")
+  message(FATAL_ERROR "Unknown header registration group '${REGISTRATION_GROUP}'")
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 include("${GENTEST_SOURCE_DIR}/cmake/gentest/CodegenToolchain.cmake")
@@ -52,6 +61,79 @@ endif()
 # building gentest from source.
 include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
 gentest_fixture_prefix_cache_args(_prefix_cache_args _cache_args)
+
+if(NOT REGISTRATION_GROUP STREQUAL "CORE")
+  # The scanner is always the host Clang tool, but the authored and additive
+  # registration sources must remain valid when the target compiler is GCC.
+  if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+    find_program(_gcc NAMES gcc)
+    find_program(_gxx NAMES g++)
+    if(_gcc AND _gxx)
+      set(_gcc_build_dir "${_work_dir}/gcc-build")
+      set(_gcc_cache_args ${_cache_args})
+      list(FILTER _gcc_cache_args EXCLUDE REGEX "^-DCMAKE_(C|CXX)_COMPILER=")
+      list(APPEND _gcc_cache_args "-DCMAKE_C_COMPILER=${_gcc}" "-DCMAKE_CXX_COMPILER=${_gxx}")
+      gentest_check_run_or_fail(
+        COMMAND "${CMAKE_COMMAND}" -G Ninja -S "${_src_dir}" -B "${_gcc_build_dir}" ${_gcc_cache_args}
+        WORKING_DIRECTORY "${_work_dir}"
+        STRIP_TRAILING_WHITESPACE)
+      gentest_check_run_or_fail(
+        COMMAND "${CMAKE_COMMAND}" --build "${_gcc_build_dir}" --target header_declaration_registration_tests
+        WORKING_DIRECTORY "${_work_dir}"
+        STRIP_TRAILING_WHITESPACE)
+      file(READ "${_gcc_build_dir}/compile_commands.json" _gcc_compdb)
+      string(JSON _gcc_compdb_count LENGTH "${_gcc_compdb}")
+      math(EXPR _gcc_compdb_last "${_gcc_compdb_count} - 1")
+      foreach(_gcc_compdb_idx RANGE 0 ${_gcc_compdb_last})
+        string(JSON _gcc_compdb_file GET "${_gcc_compdb}" ${_gcc_compdb_idx} file)
+        if(_gcc_compdb_file MATCHES "[/\\\\](cases_a|cases_b|cases_c|cases_rich|mock_cases|dual_target)\\.cpp$")
+          string(JSON _gcc_compdb_command GET "${_gcc_compdb}" ${_gcc_compdb_idx} command)
+          foreach(_unsupported_clangd_flag IN ITEMS "-fmodules-ts" "-fmodule-mapper=" "-fdeps-format=p1689r5")
+            string(FIND "${_gcc_compdb_command}" "${_unsupported_clangd_flag}" _unsupported_clangd_flag_pos)
+            if(NOT _unsupported_clangd_flag_pos EQUAL -1)
+              message(FATAL_ERROR
+                "Ordinary additive authored slot '${_gcc_compdb_file}' must disable CMake's GCC module scan so clangd can consume its exact command; found '${_unsupported_clangd_flag}'.\n${_gcc_compdb_command}")
+            endif()
+          endforeach()
+        endif()
+      endforeach()
+      set(_gcc_exe "${_gcc_build_dir}/header_declaration_registration_tests")
+      gentest_check_run_or_fail(
+        COMMAND "${_gcc_exe}" --run=header_declaration/a
+        WORKING_DIRECTORY "${_gcc_build_dir}"
+        STRIP_TRAILING_WHITESPACE)
+    elseif(REGISTRATION_GROUP STREQUAL "COMPILERS")
+      gentest_skip_test("header registration compiler regression: gcc/g++ not found")
+    endif()
+  else()
+    # A VS developer environment exposes cl.exe. When present, prove the same
+    # host-Clang code generator preserves the MSVC-final forced-include context.
+    find_program(_cl NAMES cl.exe cl)
+    if(_cl)
+      set(_msvc_build_dir "${_work_dir}/msvc-build")
+      set(_msvc_cache_args ${_cache_args})
+      list(FILTER _msvc_cache_args EXCLUDE REGEX "^-DCMAKE_(C|CXX)_COMPILER=")
+      list(APPEND _msvc_cache_args "-DCMAKE_C_COMPILER=${_cl}" "-DCMAKE_CXX_COMPILER=${_cl}")
+      gentest_check_run_or_fail(
+        COMMAND "${CMAKE_COMMAND}" -G Ninja -S "${_src_dir}" -B "${_msvc_build_dir}" ${_msvc_cache_args}
+        WORKING_DIRECTORY "${_work_dir}"
+        STRIP_TRAILING_WHITESPACE)
+      gentest_check_run_or_fail(
+        COMMAND "${CMAKE_COMMAND}" --build "${_msvc_build_dir}" --target header_declaration_registration_tests
+        WORKING_DIRECTORY "${_work_dir}"
+        STRIP_TRAILING_WHITESPACE)
+      gentest_check_run_or_fail(
+        COMMAND "${_msvc_build_dir}/header_declaration_registration_tests.exe" --run=header_declaration/a
+        WORKING_DIRECTORY "${_msvc_build_dir}"
+        STRIP_TRAILING_WHITESPACE)
+    elseif(REGISTRATION_GROUP STREQUAL "COMPILERS")
+      gentest_skip_test("header registration compiler regression: MSVC developer environment not found")
+    endif()
+  endif()
+endif()
+if(REGISTRATION_GROUP STREQUAL "COMPILERS")
+  return()
+endif()
 
 function(_gentest_registration_digest build_dir out_var)
   file(GLOB _registration_files "${build_dir}/generated/*.header_registration.gentest.cpp")
@@ -224,70 +306,6 @@ gentest_check_run_or_fail(
   COMMAND "${_exe}" "--filter=*fixture_parity*" "--repeat=2" --shuffle --seed 107
   WORKING_DIRECTORY "${_build_dir}"
   STRIP_TRAILING_WHITESPACE)
-
-# The scanner is always the host Clang tool, but the authored and additive
-# registration sources must remain valid when the target compiler is GCC.
-if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
-  find_program(_gcc NAMES gcc)
-  find_program(_gxx NAMES g++)
-  if(_gcc AND _gxx)
-    set(_gcc_build_dir "${_work_dir}/gcc-build")
-    set(_gcc_cache_args ${_cache_args})
-    list(FILTER _gcc_cache_args EXCLUDE REGEX "^-DCMAKE_(C|CXX)_COMPILER=")
-    list(APPEND _gcc_cache_args "-DCMAKE_C_COMPILER=${_gcc}" "-DCMAKE_CXX_COMPILER=${_gxx}")
-    gentest_check_run_or_fail(
-      COMMAND "${CMAKE_COMMAND}" -G Ninja -S "${_src_dir}" -B "${_gcc_build_dir}" ${_gcc_cache_args}
-      WORKING_DIRECTORY "${_work_dir}"
-      STRIP_TRAILING_WHITESPACE)
-    gentest_check_run_or_fail(
-      COMMAND "${CMAKE_COMMAND}" --build "${_gcc_build_dir}" --target header_declaration_registration_tests
-      WORKING_DIRECTORY "${_work_dir}"
-      STRIP_TRAILING_WHITESPACE)
-    file(READ "${_gcc_build_dir}/compile_commands.json" _gcc_compdb)
-    string(JSON _gcc_compdb_count LENGTH "${_gcc_compdb}")
-    math(EXPR _gcc_compdb_last "${_gcc_compdb_count} - 1")
-    foreach(_gcc_compdb_idx RANGE 0 ${_gcc_compdb_last})
-      string(JSON _gcc_compdb_file GET "${_gcc_compdb}" ${_gcc_compdb_idx} file)
-      if(_gcc_compdb_file MATCHES "[/\\\\](cases_a|cases_b|cases_c|cases_rich|mock_cases|dual_target)\\.cpp$")
-        string(JSON _gcc_compdb_command GET "${_gcc_compdb}" ${_gcc_compdb_idx} command)
-        foreach(_unsupported_clangd_flag IN ITEMS "-fmodules-ts" "-fmodule-mapper=" "-fdeps-format=p1689r5")
-          string(FIND "${_gcc_compdb_command}" "${_unsupported_clangd_flag}" _unsupported_clangd_flag_pos)
-          if(NOT _unsupported_clangd_flag_pos EQUAL -1)
-            message(FATAL_ERROR
-              "Ordinary additive authored slot '${_gcc_compdb_file}' must disable CMake's GCC module scan so clangd can consume its exact command; found '${_unsupported_clangd_flag}'.\n${_gcc_compdb_command}")
-          endif()
-        endforeach()
-      endif()
-    endforeach()
-    set(_gcc_exe "${_gcc_build_dir}/header_declaration_registration_tests")
-    gentest_check_run_or_fail(
-      COMMAND "${_gcc_exe}" --run=header_declaration/a
-      WORKING_DIRECTORY "${_gcc_build_dir}"
-      STRIP_TRAILING_WHITESPACE)
-  endif()
-else()
-  # A VS developer environment exposes cl.exe. When present, prove the same
-  # host-Clang code generator preserves the MSVC-final forced-include context.
-  find_program(_cl NAMES cl.exe cl)
-  if(_cl)
-    set(_msvc_build_dir "${_work_dir}/msvc-build")
-    set(_msvc_cache_args ${_cache_args})
-    list(FILTER _msvc_cache_args EXCLUDE REGEX "^-DCMAKE_(C|CXX)_COMPILER=")
-    list(APPEND _msvc_cache_args "-DCMAKE_C_COMPILER=${_cl}" "-DCMAKE_CXX_COMPILER=${_cl}")
-    gentest_check_run_or_fail(
-      COMMAND "${CMAKE_COMMAND}" -G Ninja -S "${_src_dir}" -B "${_msvc_build_dir}" ${_msvc_cache_args}
-      WORKING_DIRECTORY "${_work_dir}"
-      STRIP_TRAILING_WHITESPACE)
-    gentest_check_run_or_fail(
-      COMMAND "${CMAKE_COMMAND}" --build "${_msvc_build_dir}" --target header_declaration_registration_tests
-      WORKING_DIRECTORY "${_work_dir}"
-      STRIP_TRAILING_WHITESPACE)
-    gentest_check_run_or_fail(
-      COMMAND "${_msvc_build_dir}/header_declaration_registration_tests.exe" --run=header_declaration/a
-      WORKING_DIRECTORY "${_msvc_build_dir}"
-      STRIP_TRAILING_WHITESPACE)
-  endif()
-endif()
 
 foreach(_name IN ITEMS
     "rich/parameter(1)"

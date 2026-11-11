@@ -3864,12 +3864,32 @@ gentest_add_fixture_prefix_test(
     gentest_header_declaration_registration
     ${PROJECT_SOURCE_DIR}/tests/cmake/header_declaration_registration
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckHeaderDeclarationRegistration.cmake
-    cmake)
-set_property(TEST gentest_header_declaration_registration APPEND PROPERTY LABELS "codegen;headers")
-# This acceptance test configures and builds several nested projects. Let its
-# Ninja processes own the available machine instead of overcommitting them with
-# other nested-build CTest jobs.
-set_property(TEST gentest_header_declaration_registration PROPERTY RUN_SERIAL TRUE)
+    cmake
+    -DREGISTRATION_GROUP=CORE)
+set(_gentest_header_registration_tests gentest_header_declaration_registration)
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" OR WIN32)
+    # GCC/MSVC deliberately build their own runtime with a different ABI.
+    _gentest_add_cmake_helper_test(
+        gentest_header_declaration_registration_compilers
+        ${PROJECT_SOURCE_DIR}/tests/cmake/header_declaration_registration
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckHeaderDeclarationRegistration.cmake
+        cmake
+        -DREGISTRATION_GROUP=COMPILERS)
+    list(APPEND _gentest_header_registration_tests gentest_header_declaration_registration_compilers)
+endif()
+
+# Account for both Ninja actions and codegen's internal workers. Every nested
+# build, including expected-failure commands, inherits the same fixed budget.
+set_tests_properties(${_gentest_header_registration_tests} PROPERTIES PROCESSORS 2)
+foreach(_gentest_registration_test IN LISTS _gentest_header_registration_tests)
+    set_property(TEST ${_gentest_registration_test} APPEND PROPERTY LABELS "codegen;headers")
+    set_property(TEST ${_gentest_registration_test} APPEND PROPERTY ENVIRONMENT
+        "CMAKE_BUILD_PARALLEL_LEVEL=2"
+        "GENTEST_HELPER_BUILD_PARALLEL_LEVEL=2"
+        "GENTEST_CODEGEN_JOBS=2")
+endforeach()
+unset(_gentest_header_registration_tests)
+unset(_gentest_registration_test)
 
 _gentest_add_cmake_helper_test(
     gentest_tu_header_case_collision
@@ -5418,6 +5438,8 @@ endif()
 # sub-build tests in declaration order. Seed their cost (seconds, Linux Debug)
 # so they start first; CTest replaces these with measured costs after a run.
 set(_gentest_heavy_test_costs
+    gentest_header_declaration_registration=500
+    gentest_header_declaration_registration_compilers=300
     gentest_explicit_mock_target_install_export=396
     gentest_explicit_mock_target_surface=385
     gentest_module_registration_manifest=348
