@@ -106,6 +106,21 @@ if(TARGET gentest_codegen_support)
         COMMAND gentest_core_tooling_support_tests)
 endif()
 
+# Exercise AST-based type spelling independently of the mock renderer.
+if(TARGET gentest_codegen_support)
+    add_executable(gentest_core_mock_type_printer_tests
+        mock_type_printer_tests.cpp
+        ${_gentest_tool_core_src_dir}/mock_type_printer.cpp)
+
+    target_compile_features(gentest_core_mock_type_printer_tests PRIVATE cxx_std_20)
+    target_include_directories(gentest_core_mock_type_printer_tests PRIVATE ${_gentest_tool_core_src_dir})
+    target_link_libraries(gentest_core_mock_type_printer_tests PRIVATE gentest_codegen_support)
+    _gentest_copy_codegen_runtime_settings(gentest_core_mock_type_printer_tests)
+
+    add_test(NAME gentest_core_mock_type_printer
+        COMMAND gentest_core_mock_type_printer_tests)
+endif()
+
 if(TARGET gentest_codegen_support)
     add_executable(gentest_core_render_mocks_tests
         render_mocks_tests.cpp
