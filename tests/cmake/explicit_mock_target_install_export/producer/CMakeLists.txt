@@ -12,9 +12,15 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(gentest_INSTALL ON CACHE BOOL "" FORCE)
 set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
-
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+# Exported mock packages do not test building the generator itself. Use the
+# supplied host tool and a shared runtime when the driver provides them.
+if(DEFINED GENTEST_CODEGEN_EXECUTABLE AND NOT "${GENTEST_CODEGEN_EXECUTABLE}" STREQUAL "")
+    set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
+else()
+    set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
+endif()
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 set(_fixture_support_include_dir "${CMAKE_CURRENT_BINARY_DIR}/fixture_support/include")
 file(MAKE_DIRECTORY "${_fixture_support_include_dir}/fixture")

@@ -4501,7 +4501,8 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_explicit_mock_target_staging APPEND PROPERTY LABELS "modules")
 
-_gentest_add_cmake_helper_test(
+gentest_add_fixture_prefix_test(
+    MODULES
     gentest_explicit_mock_target_install_export
     ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_install_export
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExplicitMockTargetInstallExport.cmake
