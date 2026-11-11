@@ -381,6 +381,15 @@ if(TARGET ${PROJECT_NAME}_libassert_tests)
     gentest_link_mocks(${PROJECT_NAME}_libassert_tests PRIVATE gentest_textual_suite_mocks)
 endif()
 
+# Optional generated helpers must be warning-free in both fixture and plain suites.
+# Keep this gate in test builds so downstream warning policies remain their own.
+foreach(_warning_target IN ITEMS gentest_runtime gentest_unit_tests gentest_fixtures_tests gentest_failing_tests)
+    target_compile_options(${_warning_target} PRIVATE
+        $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Werror=unused-template>)
+endforeach()
+target_compile_options(gentest_runtime PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Werror=unused-function -Werror=unused-private-field>)
+
 # Concurrency target (no default add_test to avoid suite-wide failure)
 gentest_add_suite(concurrency TARGET ${PROJECT_NAME}_concurrency_tests NO_CTEST)
 gentest_link_mocks(${PROJECT_NAME}_concurrency_tests PRIVATE gentest_textual_suite_mocks)

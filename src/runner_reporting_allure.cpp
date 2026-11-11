@@ -18,6 +18,7 @@
 
 namespace gentest::runner {
 namespace {
+#ifdef GENTEST_USE_BOOST_JSON
 struct PendingAllureFile {
     std::filesystem::path              path;
     std::string                        label;
@@ -41,7 +42,6 @@ bool preflight_output_file(OnFailure &&on_failure, const std::filesystem::path &
     return true;
 }
 
-#ifdef GENTEST_USE_BOOST_JSON
 boost::json::value record_text(std::string_view text) { return boost::json::parse(json_string(text)); }
 
 void record_allure_failure(RunAccumulator &acc, std::string message) {
@@ -305,12 +305,15 @@ class AllureReportSession::Impl {
   private:
     void restage(RunAccumulator &acc, bool &report_ok);
 
+    // Allure state is only needed when the JSON writer is compiled.
+#ifdef GENTEST_USE_BOOST_JSON
     bool                           enabled_ = false;
     bool                           ready_   = false;
     std::filesystem::path          allure_dir_;
     std::vector<PendingAllureFile> pending_allure_files_;
     std::vector<PendingAllureFile> writable_allure_files_;
     std::vector<std::string>       blocked_allure_paths_;
+#endif
 };
 
 AllureReportSession::AllureReportSession(RunAccumulator &acc, const ReportConfig &cfg, bool &report_ok) {

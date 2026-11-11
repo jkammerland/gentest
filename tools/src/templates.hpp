@@ -76,7 +76,7 @@ inline constexpr std::string_view registration_preamble_full = R"CPP(#include <a
 inline constexpr std::string_view wrapper_support_common = R"CPP(
 namespace {
 template <typename T>
-inline void gentest_maybe_setup(T& t) {
+[[maybe_unused]] inline void gentest_maybe_setup(T& t) {
     if constexpr (std::is_base_of_v<gentest::FixtureSetup, T>) {
         ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::setup, true);
         t.setUp();
@@ -84,7 +84,7 @@ inline void gentest_maybe_setup(T& t) {
 }
 
 template <typename T>
-inline void gentest_maybe_teardown(T& t) {
+[[maybe_unused]] inline void gentest_maybe_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::FixtureTearDown, T>) {
         ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::teardown, true);
         t.tearDown();
@@ -92,7 +92,7 @@ inline void gentest_maybe_teardown(T& t) {
 }
 
 template <typename T>
-inline ::gentest::awaitable<void> gentest_maybe_async_setup(T& t) {
+[[maybe_unused]] inline ::gentest::awaitable<void> gentest_maybe_async_setup(T& t) {
     if constexpr (std::is_base_of_v<gentest::AsyncFixtureSetup, T>) {
         ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::setup, true);
         co_await t.setUp();
@@ -104,7 +104,7 @@ inline ::gentest::awaitable<void> gentest_maybe_async_setup(T& t) {
 }
 
 template <typename T>
-inline ::gentest::awaitable<void> gentest_maybe_async_teardown(T& t) {
+[[maybe_unused]] inline ::gentest::awaitable<void> gentest_maybe_async_teardown(T& t) {
     if constexpr (std::is_base_of_v<gentest::AsyncFixtureTearDown, T>) {
         ::gentest::detail::FrameworkPhaseScope events(::gentest::FrameworkPhase::teardown, true);
         co_await t.tearDown();
@@ -115,7 +115,7 @@ inline ::gentest::awaitable<void> gentest_maybe_async_teardown(T& t) {
     co_return;
 }
 
-inline void gentest_record_fixture_failure(std::string_view fixture, std::string_view reason) {
+[[maybe_unused]] inline void gentest_record_fixture_failure(std::string_view fixture, std::string_view reason) {
     std::string msg =
         reason.empty() ? fmt::format("fixture allocation failed for '{}'", fixture) : fmt::format("fixture allocation failed for '{}': {}", fixture, reason);
     if (::gentest::detail::bench_phase() != ::gentest::detail::BenchPhase::None) {
@@ -141,7 +141,7 @@ struct gentest_noexceptions_local_teardown {
 };
 
 template <typename BodyFn, typename TeardownFn>
-inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+[[maybe_unused]] inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
 #if GENTEST_EXCEPTIONS_ENABLED
     try {
         body();
@@ -210,7 +210,7 @@ struct gentest_async_local_teardown_guard {
 };
 
 template <typename BodyFn, typename TeardownFn>
-inline ::gentest::awaitable<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+[[maybe_unused]] inline ::gentest::awaitable<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
     auto teardown_fn = std::forward<TeardownFn>(teardown);
     gentest_async_local_teardown_guard<decltype(teardown_fn)> teardown_state{&teardown_fn};
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -237,7 +237,7 @@ inline ::gentest::awaitable<void> gentest_run_async_with_local_teardown(BodyFn &
 }
 
 template <typename Handle>
-inline bool gentest_init_fixture(Handle& handle, std::string_view fixture) {
+[[maybe_unused]] inline bool gentest_init_fixture(Handle& handle, std::string_view fixture) {
     if (!handle.init()) {
         gentest_record_fixture_failure(fixture, "returned null");
         return false;
@@ -246,7 +246,7 @@ inline bool gentest_init_fixture(Handle& handle, std::string_view fixture) {
 }
 
 template <typename T>
-inline bool gentest_init_shared_fixture(::gentest::detail::FixtureHandle<T>& handle,
+[[maybe_unused]] inline bool gentest_init_shared_fixture(::gentest::detail::FixtureHandle<T>& handle,
                                         ::gentest::detail::SharedFixtureScope scope,
                                         std::string_view suite,
                                         std::string_view fixture) {

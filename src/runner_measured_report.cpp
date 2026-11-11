@@ -415,7 +415,7 @@ void append_tsv_metric(std::string &out, std::string_view key, double value) { a
 
 template <typename Int>
     requires(std::is_integral_v<Int> && !std::is_same_v<std::remove_cv_t<Int>, bool>)
-void append_tsv_metric(std::string &out, std::string_view key, Int value) {
+[[maybe_unused]] void append_tsv_metric(std::string &out, std::string_view key, Int value) {
     append_tsv_metric(out, key, fmt::format("{}", value));
 }
 
@@ -448,11 +448,6 @@ double safe_axis_max(std::initializer_list<double> values) {
 double scale_x(double value, double axis_max, double left, double width) {
     const double clamped = std::clamp(value, 0.0, axis_max);
     return left + ((axis_max > 0.0) ? (clamped / axis_max) * width : 0.0);
-}
-
-double scale_y(double value, double axis_max, double top, double height) {
-    const double clamped = std::clamp(value, 0.0, axis_max);
-    return top + height - ((axis_max > 0.0) ? (clamped / axis_max) * height : 0.0);
 }
 
 std::string make_bench_summary_svg(const gentest::Case &c, const BenchResult &result) {
