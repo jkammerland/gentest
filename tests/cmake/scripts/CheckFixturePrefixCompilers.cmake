@@ -1,3 +1,6 @@
+# Script mode needs its own policy baseline for operators such as IN_LIST.
+cmake_minimum_required(VERSION 3.31)
+
 include("${GENTEST_SOURCE_DIR}/tests/cmake/FixturePrefix.cmake")
 
 # Use the same Clang selection as consumers, including fallback from GCC or
