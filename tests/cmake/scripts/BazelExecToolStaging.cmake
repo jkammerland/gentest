@@ -1,5 +1,19 @@
 include_guard(GLOBAL)
 
+# Checkout leaks are absolute path tokens, not relative artifact names such as
+# parallel/workstealing.h or boost/asio/work_guard.hpp in a short /work checkout.
+function(gentest_bazel_has_checkout_path out_var action_text checkout)
+  set(_path_pattern "${checkout}")
+  foreach(_special IN ITEMS "\\" "." "^" "$" "*" "+" "?" "(" ")" "[" "]" "|")
+    string(REPLACE "${_special}" "\\${_special}" _path_pattern "${_path_pattern}")
+  endforeach()
+  if(action_text MATCHES "(^|[ \t\r\n=\"']|\\[|,)(-I|-isystem|-iquote)?${_path_pattern}(/|[ \t\r\n=\"']|\\]|,|$)")
+    set(${out_var} TRUE PARENT_SCOPE)
+  else()
+    set(${out_var} FALSE PARENT_SCOPE)
+  endif()
+endfunction()
+
 # Inspect the action environment, not incidental SDK paths in inputs or arguments.
 # xcrun may return a versioned alias for the same physical SDK directory.
 function(gentest_bazel_local_sdk_matches out_var action_text selected_sdk)
