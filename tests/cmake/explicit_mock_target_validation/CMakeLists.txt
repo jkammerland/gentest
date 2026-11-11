@@ -17,7 +17,8 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 if(TEST_CASE STREQUAL "duplicate_output_dir")
     gentest_add_mocks(explicit_validation_a

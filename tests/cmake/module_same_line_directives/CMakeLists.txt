@@ -14,7 +14,8 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 add_executable(same_line_directive_tests
     main.cpp)
@@ -25,7 +26,7 @@ target_sources(same_line_directive_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/provider.ixx
             ${CMAKE_CURRENT_SOURCE_DIR}/consumer.cppm)
 
-target_link_libraries(same_line_directive_tests PRIVATE gentest gentest_runtime)
+target_link_libraries(same_line_directive_tests PRIVATE gentest::gentest gentest::gentest_runtime)
 target_compile_features(same_line_directive_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(same_line_directive_tests

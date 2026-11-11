@@ -14,7 +14,8 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 add_executable(module_registration_mock_split_tests)
 
@@ -24,7 +25,7 @@ target_sources(module_registration_mock_split_tests
             ${CMAKE_CURRENT_SOURCE_DIR}/provider.cppm
             ${CMAKE_CURRENT_SOURCE_DIR}/cases.cppm)
 
-target_link_libraries(module_registration_mock_split_tests PRIVATE gentest gentest_main)
+target_link_libraries(module_registration_mock_split_tests PRIVATE gentest::gentest gentest::gentest_main)
 target_compile_features(module_registration_mock_split_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(module_registration_mock_split_tests
