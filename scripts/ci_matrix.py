@@ -52,6 +52,11 @@ def select_matrix(source: Path = MATRIX_FILE) -> dict[str, dict]:
             effective = [(entry["llvm-version"], entry["variant"], entry.get("test_cxx_standard")) for entry in entries]
             if len(effective) != len(set(effective)):
                 raise ValueError("Duplicate effective Windows configuration")
+
+            # Keep both native compilers for every LLVM version, but let their
+            # build/test pipelines run on separate runners instead of in series.
+            entries = [{**entry, "compiler": compiler}
+                       for entry in entries for compiler in ("clang", "msvc")]
         result[platform] = {"include": entries}
     return result
 

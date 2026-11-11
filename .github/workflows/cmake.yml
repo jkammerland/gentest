@@ -182,7 +182,7 @@ jobs:
 
   windows:
     needs: plan
-    name: Windows • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }} ${{ matrix.compatibility && '• compatibility' || '' }}
+    name: Windows • ${{ matrix.compiler == 'msvc' && 'MSVC' || 'Clang' }} • LLVM ${{ matrix.llvm-version }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.preset }} ${{ matrix.compatibility && '• compatibility' || '' }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -297,6 +297,7 @@ jobs:
           & (Join-Path $env:LLVM_BIN "clang++.exe") --version
 
       - name: Configure
+        if: matrix.compiler == 'clang'
         shell: pwsh
         run: |
           $cmakeArgs = @(
@@ -315,21 +316,24 @@ jobs:
           cmake @cmakeArgs
 
       - name: Build
+        if: matrix.compiler == 'clang'
         shell: pwsh
         run: cmake --build --preset=${{ matrix.preset }} --config RelWithDebInfo
 
       - name: Test Bazel helper contract
+        if: matrix.compiler == 'clang'
         shell: pwsh
         run: ctest --preset=${{ matrix.preset }} -C RelWithDebInfo --output-on-failure -R '^(gentest_bazel_helpers_use_configured_toolchain)$'
 
       - name: Test
+        if: matrix.compiler == 'clang'
         shell: pwsh
         run: |
           $ctestArgs = @("--no-tests=error", "--preset=${{ matrix.preset }}", "-C", "RelWithDebInfo", "--output-on-failure", "--parallel", "4", "-E", "^(gentest_bazel_helpers_use_configured_toolchain)$")
           ctest @ctestArgs
 
       - name: Configure/Build/Test (MSVC)
-        if: matrix.preset == 'debug-system'
+        if: matrix.compiler == 'msvc'
         shell: pwsh
         run: |
           # Validate MSVC + LLVM tooling once per LLVM version.
