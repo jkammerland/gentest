@@ -56,6 +56,41 @@ using MethodRefQual  = MockMethodRefQualifier;
     return print_mock_type(qt, ctx, MockTypeSpelling::AsWritten);
 }
 
+// True when `type` is a pointer, reference or member pointer (possibly
+// nested) to a function or array. Such a return type cannot be written in
+// front of a function name, nor composed into `R(Args)` or `R (C::*)(Args)`,
+// because its declarator wraps the name: `void (*get())(int)`.
+[[nodiscard]] bool return_type_wraps_declarator(QualType type, const ASTContext &ctx) {
+    type          = ctx.getCanonicalType(type);
+    bool indirect = false;
+    while (true) {
+        const Type *node = type.getTypePtr();
+        if (const auto *pointer = node->getAs<PointerType>()) {
+            type = pointer->getPointeeType();
+        } else if (const auto *reference = node->getAs<ReferenceType>()) {
+            type = reference->getPointeeType();
+        } else if (const auto *member_pointer = node->getAs<MemberPointerType>()) {
+            type = member_pointer->getPointeeType();
+        } else {
+            return indirect && (node->isFunctionType() || node->isArrayType());
+        }
+        indirect = true;
+    }
+}
+
+// Return types are emitted before the method name and composed into
+// function, member-pointer and expectation types. Types whose declarator
+// would wrap the name are spelled through `::std::type_identity_t`, which
+// composes everywhere. Parameters must not use this wrapper because it would
+// block template argument deduction in member function templates.
+[[nodiscard]] std::string print_return_type(QualType type, const ASTContext &ctx, bool is_template) {
+    std::string text = is_template ? print_type_as_written(type, ctx) : print_type(type, ctx);
+    if (return_type_wraps_declarator(type, ctx)) {
+        text = fmt::format("::std::type_identity_t<{}>", text);
+    }
+    return text;
+}
+
 [[nodiscard]] std::size_t find_top_level_default_argument(std::string_view text) {
     int angles = 0;
     int parens = 0;
@@ -503,14 +538,18 @@ void apply_default_argument_replacements(std::string &text, std::vector<DefaultA
 
 [[nodiscard]] MockParamInfo build_param_info(const ParmVarDecl &param, const ASTContext &ctx, bool is_template, unsigned index) {
     MockParamInfo info;
-    info.type        = is_template ? print_type_as_written(param.getType(), ctx) : print_type(param.getType(), ctx);
-    info.pass_style  = classify_param_pass_style(param);
-    info.default_arg = print_default_argument(param, ctx);
+    const auto    spelling = is_template ? MockTypeSpelling::AsWritten : MockTypeSpelling::Canonical;
+    info.type              = print_mock_type(param.getType(), ctx, spelling);
+    info.pass_style        = classify_param_pass_style(param);
+    info.default_arg       = print_default_argument(param, ctx);
     if (!param.getNameAsString().empty()) {
         info.name = param.getNameAsString();
     } else {
         info.name = fmt::format("arg{}", index);
     }
+    // The name belongs inside the declarator for pointers and references to
+    // functions or arrays: `void (*cb)(int)`, `const int (&values)[3]`.
+    info.declaration = print_mock_type(param.getType(), ctx, spelling, info.name);
     return info;
 }
 
@@ -1305,11 +1344,10 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
             return;
         }
         MockMethodInfo method_info;
-        method_info.qualified_name = method->getQualifiedNameAsString();
-        method_info.method_name    = method->getNameAsString();
-        const bool is_template     = method->getDescribedFunctionTemplate() != nullptr;
-        method_info.return_type =
-            is_template ? print_type_as_written(method->getReturnType(), ctx) : print_type(method->getReturnType(), ctx);
+        method_info.qualified_name         = method->getQualifiedNameAsString();
+        method_info.method_name            = method->getNameAsString();
+        const bool is_template             = method->getDescribedFunctionTemplate() != nullptr;
+        method_info.return_type            = print_return_type(method->getReturnType(), ctx, is_template);
         method_info.is_static              = method->isStatic();
         method_info.is_virtual             = method->isVirtual();
         method_info.is_pure_virtual        = method->isPureVirtual();

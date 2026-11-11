@@ -147,6 +147,82 @@ void interface_colliding_template_argument() {
     EXPECT_EQ(stored, std::size_t{2});
 }
 
+namespace {
+int declarator_seen = 0;
+int declarator_rows[2][2]{{1, 2}, {3, 4}};
+
+void declarator_record(int value) { declarator_seen = value; }
+} // namespace
+
+// Parameter names must be placed inside the declarator of function-pointer,
+// array-reference and member-function-pointer parameters (#276).
+void interface_declarator_parameters() {
+    gentest::mock<Declarators> mock_iface;
+    EXPECT_CALL(mock_iface, set_callback).times(1).invokes([](void (*cb)(int)) { cb(7); });
+    // Actions receive decayed arguments, so array references arrive as pointers.
+    EXPECT_CALL(mock_iface, sum).times(1).invokes([](const int *values) { return values[0] + values[1] + values[2]; });
+    EXPECT_CALL(mock_iface, apply).times(1).invokes([](int (DeclaratorTarget::*method)(int) const, int arg) {
+        const DeclaratorTarget target{.value = 3};
+        return (target.*method)(arg);
+    });
+    EXPECT_CALL(mock_iface, aliased).times(1).invokes([](DeclaratorCallback cb) {
+        cb(11);
+        return cb;
+    });
+    int unnamed_calls = 0;
+    EXPECT_CALL(mock_iface, unnamed).times(1).invokes([&](void (*cb)(int), int *values) {
+        values[1] = 9;
+        cb(values[0] + values[1]);
+        ++unnamed_calls;
+    });
+
+    Declarators *iface = &mock_iface;
+    iface->set_callback(&declarator_record);
+    EXPECT_EQ(declarator_seen, 7);
+    const int values[3]{1, 2, 3};
+    EXPECT_EQ(iface->sum(values), 6);
+    EXPECT_EQ(iface->apply(&DeclaratorTarget::scaled, 5), 15);
+    EXPECT_EQ(iface->aliased(&declarator_record), &declarator_record);
+    EXPECT_EQ(declarator_seen, 11);
+    int pair[2]{4, 0};
+    iface->unnamed(&declarator_record, pair);
+    EXPECT_EQ(pair[1], 9);
+    EXPECT_EQ(declarator_seen, 13);
+    EXPECT_EQ(unnamed_calls, 1);
+}
+
+// Function-pointer, array-pointer and member-function-pointer return types
+// cannot be written in front of the method name (#276).
+void interface_declarator_returns() {
+    gentest::mock<Declarators> mock_iface;
+    EXPECT_CALL(mock_iface, get_callback).times(1).returns(&declarator_record);
+    EXPECT_CALL(mock_iface, row).times(1).invokes([](int index) { return &declarator_rows[index]; });
+    EXPECT_CALL(mock_iface, pick).times(1).returns(&DeclaratorTarget::scaled);
+
+    Declarators *iface = &mock_iface;
+    void (*cb)(int)    = iface->get_callback();
+    cb(21);
+    EXPECT_EQ(declarator_seen, 21);
+    int (*selected)[2] = iface->row(1);
+    EXPECT_EQ((*selected)[0] + (*selected)[1], 7);
+    const DeclaratorTarget target{.value = 2};
+    EXPECT_EQ((target.*(iface->pick()))(4), 8);
+}
+
+void interface_declarator_template_and_ctor() {
+    gentest::mock<Declarators> mock_iface;
+    // EXPECT_CALL cannot take a template-id with a top-level comma.
+    gentest::expect<&Declarators::first<int, 3>>(mock_iface, "first").times(1).invokes([](int *values) { return values[2]; });
+    int values[3]{5, 6, 7};
+    EXPECT_EQ(mock_iface.first(values), 7);
+
+    gentest::mock<DeclaratorCtor> mock_ctor(&declarator_record, {20, 22});
+    EXPECT_EQ(declarator_seen, 42);
+    EXPECT_CALL(mock_ctor, get).times(1).returns(5);
+    const DeclaratorCtor &iface = mock_ctor;
+    EXPECT_EQ(iface.get(), 5);
+}
+
 void interface_conditional_noexcept() {
     // The generated overrides reproduce each resolved exception specification (#266).
     // Checked at run time: the codegen scan of this file sees placeholder mocks.

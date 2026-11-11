@@ -235,6 +235,67 @@ int main() {
     }
 
     {
+        // Discovery places parameter names inside wrapping declarators and spells
+        // return types that cannot precede a name through type_identity_t (#276).
+        MockClassInfo cls          = service_mock_without_ref_qualifier();
+        cls.methods[0].return_type = "::std::type_identity_t<void (*)(int)>";
+        cls.methods[0].parameters  = {
+            MockParamInfo{.type = "void (*)(int)", .name = "cb", .declaration = "void (*cb)(int)"},
+            MockParamInfo{.type = "const int (&)[3]", .name = "values", .declaration = "const int (&values)[3]"},
+            MockParamInfo{.type        = "int (::fixture::Target::*)(int) const",
+                          .name        = "arg2",
+                          .declaration = "int (::fixture::Target::*arg2)(int) const"},
+        };
+        cls.methods[0].parameters[1].pass_style = MockParamInfo::PassStyle::LValueRef;
+
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(), {cls});
+        t.expect(result.error.empty(), "gentest backend renders declarator-wrapping types");
+        const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
+        t.expect(registry != nullptr, "gentest backend emits a registry for declarator-wrapping types");
+        if (registry != nullptr) {
+            t.contains(registry->content,
+                       "::std::type_identity_t<void (*)(int)> compute(void (*cb)(int), const int (&values)[3], "
+                       "int (::fixture::Target::*arg2)(int) const) const noexcept override;",
+                       "parameter names are placed inside their declarators");
+            t.contains(registry->content, "#include <type_traits>", "gentest backend makes type_identity_t available");
+            t.excludes(registry->content, "void (*)(int) cb", "parameter names never follow a wrapping declarator");
+        }
+        const MockGeneratedFile *impl = find_file(result, "public_mocks_inline.hpp");
+        t.expect(impl != nullptr, "gentest backend emits an implementation for declarator-wrapping types");
+        if (impl != nullptr) {
+            t.contains(
+                impl->content,
+                "::std::type_identity_t<void (*)(int)> gentest::mock<::fixture::Service>::compute(void (*cb)(int), const int (&values)[3], "
+                "int (::fixture::Target::*arg2)(int) const) const noexcept",
+                "out-of-line definitions place parameter names inside their declarators");
+            t.contains(impl->content,
+                       "static_cast<::std::type_identity_t<void (*)(int)> (::fixture::Service::*)(void (*)(int), const int (&)[3], "
+                       "int (::fixture::Target::*)(int) const) const noexcept>",
+                       "member-function pointer types compose with a type_identity_t return type");
+            t.contains(impl->content,
+                       "dispatch_with_fallback<::std::type_identity_t<void (*)(int)>, void (*)(int), const int (&)[3], "
+                       "int (::fixture::Target::*)(int) const>",
+                       "expectation types compose with a type_identity_t return type");
+        }
+
+        cls.methods[0].parameters[2].default_arg = "nullptr";
+        for (const auto backend : {MockBackend::GMock, MockBackend::Trompeloeil}) {
+            const MockRenderResult   third_party    = gentest::codegen::render::render_mocks(mock_options(backend), {cls});
+            const MockGeneratedFile *third_registry = find_file(third_party, "public_mocks_registry.hpp");
+            t.expect(third_party.error.empty() && third_registry != nullptr, "third-party backends render declarator-wrapping types");
+            if (third_registry != nullptr) {
+                t.contains(third_registry->content, "#include <type_traits>", "third-party backends make type_identity_t available");
+                t.contains(third_registry->content, "using MockReturn0_ = ::std::type_identity_t<void (*)(int)>;",
+                           "third-party backends alias type_identity_t return types");
+                t.contains(third_registry->content, "using MockArg0_1_ = const int (&)[3];",
+                           "third-party backends alias declarator-wrapping parameter types");
+                t.contains(third_registry->content, "MockReturn0_ compute(MockArg0_0_ cb, MockArg0_1_ values) const noexcept",
+                           "default-argument overloads name parameters through aliases");
+            }
+        }
+    }
+
+    {
         MockClassInfo cls              = service_mock();
         cls.methods[0].template_prefix = "template <typename T>";
         cls.methods[0].template_params.push_back({.name = "T"});
