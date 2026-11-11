@@ -50,6 +50,9 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
             -P ${script_path})
 
     set_tests_properties(${name} PROPERTIES LABELS "${label}")
+    if(COMMAND gentest_configure_test_compiler_cache)
+        gentest_configure_test_compiler_cache("${name}")
+    endif()
     # Defined by GentestTests.cmake; standalone harness projects may omit it.
     if(COMMAND gentest_reuse_fetched_fmt_sources)
         gentest_reuse_fetched_fmt_sources(${name})

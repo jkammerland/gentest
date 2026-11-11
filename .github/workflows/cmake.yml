@@ -47,6 +47,10 @@ jobs:
         run: python3 scripts/ci_matrix.py --github-output "$GITHUB_OUTPUT"
 
   macos:
+    env:
+      GENTEST_TEST_COMPILER_CACHE: "ON"
+      CCACHE_DIR: ${{ github.workspace }}/build/compiler-cache
+      CCACHE_COMPILERCHECK: content
     needs: plan
     name: macOS • ${{ matrix.compiler == 'appleclang' && 'AppleClang (Xcode 26)' || format('Homebrew {0}', matrix.compiler) }} • ${{ matrix.variant == 'cxx23' && 'C++23 tests' || matrix.build-type }} ${{ matrix.compatibility && '• compatibility' || '' }}
     runs-on: ${{ matrix.compiler == 'appleclang' && 'macos-26' || 'macos-15' }}
@@ -116,7 +120,6 @@ jobs:
       - name: Configure environment
         run: |
           echo "SDKROOT=$(xcrun --show-sdk-path)" >> $GITHUB_ENV
-          echo "CCACHE_DISABLE=1" >> $GITHUB_ENV
           echo "CMAKE_GENERATOR=Ninja" >> $GITHUB_ENV
 
       - name: Show tool versions
@@ -347,6 +350,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   linux:
+    env:
+      GENTEST_TEST_COMPILER_CACHE: "ON"
+      CCACHE_DIR: ${{ github.workspace }}/build/compiler-cache
+      CCACHE_COMPILERCHECK: content
     needs: plan
     name: ${{ matrix.name }} • ${{ matrix.preset == 'debug-system-cxx23' && 'C++23 tests' || matrix.build_type }}
     runs-on: ubuntu-24.04

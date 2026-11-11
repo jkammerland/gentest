@@ -29,6 +29,15 @@ set(CMAKE_EXPERIMENTAL_CXX_MODULE_DYNDEP 0)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# CI and local fixture builds can share compiler results while keeping their
+# CMake targets and generated artifacts independent. The environment default
+# also reaches nested source builds without changing installed package inputs.
+option(GENTEST_TEST_COMPILER_CACHE "Use ccache for Unix test and fixture builds" "$ENV{GENTEST_TEST_COMPILER_CACHE}")
+include(GentestTestCompilerCache)
+if(GENTEST_TEST_COMPILER_CACHE)
+    gentest_enable_test_compiler_cache()
+endif()
+
 include(GentestDependencies)
 include(GentestCompilerChecks)
 include(GentestPublicModules)

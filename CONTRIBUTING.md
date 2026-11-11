@@ -12,6 +12,31 @@ cmake --build --preset=debug-system
 ctest --preset=debug-system --output-on-failure
 ```
 
+## Compiler cache for fixture builds
+
+On Unix hosts with GNU-style Clang or GCC drivers, install `ccache` and enable
+`GENTEST_TEST_COMPILER_CACHE` for the main build and its nested fixtures:
+
+```bash
+export GENTEST_TEST_COMPILER_CACHE=ON
+export CCACHE_DIR="$PWD/build/compiler-cache"
+export CCACHE_COMPILERCHECK=content
+cmake --preset=debug-system
+cmake --build --preset=debug-system
+ctest --preset=debug-system --output-on-failure
+```
+
+The option defaults to `OFF` and can also be set with `-D`. It selects a compiler
+launcher and normalizes build-directory paths in debug information with
+`-fdebug-prefix-map`; `__FILE__` and `std::source_location` retain their source
+paths. Existing custom compiler launchers must be configured separately with
+this option disabled.
+
+Ccache validates compiler and header inputs with its normal checks. No
+sloppiness settings are needed. Unsupported compilation modes, including named
+modules, can pass through uncached; fixtures still build their own targets and
+run their complete codegen and install checks.
+
 ## Repository LLVM toolchain
 
 Repository builds and lint use LLVM 23, selected by

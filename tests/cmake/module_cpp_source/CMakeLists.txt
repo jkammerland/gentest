@@ -43,6 +43,19 @@ gentest_attach_codegen(cpp_source_module_tests
     FILE_SET cpp_source_cases
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
+# Keep the source-built host-tool path distinct from external-tool consumers,
+# including when a compiler cache reuses the tool's object files.
+if(NOT DEFINED GENTEST_CODEGEN_EXECUTABLE OR "${GENTEST_CODEGEN_EXECUTABLE}" STREQUAL "")
+    if(NOT TARGET gentest_codegen)
+        message(FATAL_ERROR "In-tree codegen fixture did not create gentest_codegen")
+    endif()
+    get_target_property(_codegen_imported gentest_codegen IMPORTED)
+    if(_codegen_imported)
+        message(FATAL_ERROR "In-tree codegen fixture unexpectedly imported its host tool")
+    endif()
+    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/native_codegen_path.txt" CONTENT "$<TARGET_FILE:gentest_codegen>")
+endif()
+
 get_target_property(_module_registration_sources cpp_source_module_tests SOURCES)
 set(_generated_registration_count 0)
 foreach(_source IN LISTS _module_registration_sources)
