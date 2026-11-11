@@ -28,6 +28,11 @@ function(gentest_package_test_producer_args out_config out_compiler_args out_mod
 
     set(_module_compiler_args ${_compiler_args})
     if(UNIX)
+        # Match the compiler inputs passed to consumer scripts. In particular,
+        # Alpine's versioned clang++ and SDK clang++ are distinct executables.
+        set(C_COMPILER "${CMAKE_C_COMPILER}")
+        set(CXX_COMPILER "${CMAKE_CXX_COMPILER}")
+        set(CXX_COMPILER_CLANG_SCAN_DEPS "${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
         gentest_resolve_clang_fixture_compilers(_module_c _module_cxx)
         if(NOT "${_module_c}" STREQUAL "" AND NOT "${_module_cxx}" STREQUAL "")
             set(_module_compiler_args

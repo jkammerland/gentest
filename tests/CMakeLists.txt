@@ -3796,6 +3796,12 @@ _gentest_add_cmake_helper_test(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckLlvmSdk.cmake
     "cmake;codegen")
 
+_gentest_add_cmake_helper_test(
+    gentest_fixture_prefix_compilers
+    ${PROJECT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckFixturePrefixCompilers.cmake
+    "cmake;package")
+
 _gentest_add_python_configure_failure_test(
     gentest_codegen_output_collision
     ${PROJECT_SOURCE_DIR}/tests/cmake/codegen_output_collision
