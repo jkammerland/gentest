@@ -19,10 +19,15 @@ include(FetchContent)
 # Provide a buildable predefined fmt target without version metadata. The
 # guard is about gentest's install/export probe, not about whether the host
 # environment happens to expose <fmt/...> through ambient compiler paths.
-FetchContent_Populate(
-    fmt_headers
-    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG 12.1.0)
+# Reuse the outer build's fmt 12.1.0 checkout when the test harness provides one.
+if(NOT "$ENV{GENTEST_FMT_SOURCE_DIR}" STREQUAL "")
+    set(fmt_headers_SOURCE_DIR "$ENV{GENTEST_FMT_SOURCE_DIR}")
+else()
+    FetchContent_Populate(
+        fmt_headers
+        GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+        GIT_TAG 12.1.0)
+endif()
 
 add_library(fmt_predefined INTERFACE)
 target_include_directories(fmt_predefined INTERFACE "${fmt_headers_SOURCE_DIR}/include")

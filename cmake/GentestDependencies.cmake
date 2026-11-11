@@ -93,6 +93,14 @@ function(gentest_ensure_fmt)
             set(FMT_INSTALL ${_gentest_fmt_install} CACHE BOOL "Enable fmt install rules" FORCE)
             unset(_gentest_fmt_install)
 
+            # GENTEST_FMT_SOURCE_DIR (environment) points the fallback at an existing
+            # fmt 12.1.0 checkout instead of cloning; an explicit
+            # FETCHCONTENT_SOURCE_DIR_FMT still wins. gentest's own fixture tests use it
+            # to reuse the outer build's fmt sources.
+            if("${FETCHCONTENT_SOURCE_DIR_FMT}" STREQUAL "" AND NOT "$ENV{GENTEST_FMT_SOURCE_DIR}" STREQUAL "")
+                set(FETCHCONTENT_SOURCE_DIR_FMT "$ENV{GENTEST_FMT_SOURCE_DIR}")
+            endif()
+
             FetchContent_Declare(
                 fmt
                 GIT_REPOSITORY https://github.com/fmtlib/fmt.git

@@ -127,9 +127,44 @@ if(_disabled_pos EQUAL -1)
     "Expected configure output to mention 'public named modules disabled automatically', but it did not.\n${_configure_out}")
 endif()
 
-message(STATUS "Build public module fallback fixture (${FALLBACK_MODE})...")
+# The fallback must leave no module scanning in the generated build: scan and
+# dyndep steps need clang-scan-deps and Ninja >= 1.11, which is exactly what is
+# missing here. Check the build plan directly instead of compiling the whole
+# runtime to find out.
+file(GLOB _ninja_files "${_build_dir}/*.ninja" "${_build_dir}/CMakeFiles/*.ninja")
+foreach(_ninja_file IN LISTS _ninja_files)
+  file(STRINGS "${_ninja_file}" _scan_statements REGEX "^build [^\n]*: CXX_SCAN__|^  dyndep = ")
+  if(_scan_statements)
+    list(GET _scan_statements 0 _scan_statement)
+    message(FATAL_ERROR
+      "Public module fallback (${FALLBACK_MODE}) still schedules C++ module scanning in '${_ninja_file}':\n${_scan_statement}")
+  endif()
+endforeach()
+
+# Compile one gentest runtime TU and the consumer TU through the generated
+# (unscanned) rules to prove the fallback build plan works with this toolchain.
+execute_process(
+  COMMAND "${_real_ninja}" -C "${_build_dir}" -t targets all
+  RESULT_VARIABLE _targets_rc
+  OUTPUT_VARIABLE _targets_out
+  ERROR_VARIABLE _targets_err)
+if(NOT _targets_rc EQUAL 0)
+  message(FATAL_ERROR "Failed to list fallback fixture build targets:\n${_targets_out}\n${_targets_err}")
+endif()
+set(_object_targets "")
+foreach(_object_pattern IN ITEMS
+    "[^\n]*gentest_main\\.dir(/|\\\\)[^\n]*gentest_main\\.cpp\\.o(bj)?"
+    "[^\n]*fallback_consumer\\.dir(/|\\\\)[^\n]*trivial\\.cpp\\.o(bj)?")
+  string(REGEX MATCH "(^|\n)(${_object_pattern}): " _object_match "${_targets_out}")
+  if(NOT _object_match)
+    message(FATAL_ERROR "Fallback fixture has no object target matching '${_object_pattern}':\n${_targets_out}")
+  endif()
+  list(APPEND _object_targets "${CMAKE_MATCH_2}")
+endforeach()
+
+message(STATUS "Compile public module fallback fixture objects (${FALLBACK_MODE})...")
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target fallback_consumer
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target ${_object_targets}
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
