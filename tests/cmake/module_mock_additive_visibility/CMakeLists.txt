@@ -17,7 +17,8 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 set(_gentest_generated_root "generated")
 set(_gentest_header_leaf "header_mocks")
@@ -46,6 +47,6 @@ add_executable(additive_tests
     header_consumer.cpp
     provider_consumer.cpp)
 
-target_link_libraries(additive_tests PRIVATE gentest gentest_runtime)
+target_link_libraries(additive_tests PRIVATE gentest::gentest gentest::gentest_runtime)
 gentest_link_mocks(additive_tests PRIVATE additive_header_mocks additive_provider_mocks)
 target_compile_features(additive_tests PRIVATE cxx_std_20)

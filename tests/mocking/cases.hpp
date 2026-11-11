@@ -53,6 +53,8 @@ void interface_colliding_namespaces();
 
 [[using gentest: test("mocking/interface/colliding_template_argument")]]
 void interface_colliding_template_argument();
+[[using gentest: test("mocking/interface/conditional_noexcept")]]
+void interface_conditional_noexcept();
 
 [[using gentest: test("mocking/interface/declarator_parameters")]]
 void interface_declarator_parameters();
@@ -101,6 +103,9 @@ void direct_unique_template_member_expect();
 
 [[using gentest: test("mocking/template/template_template_member_expect")]]
 void template_template_member_expect();
+
+[[using gentest: test("mocking/template/unnamed_template_param")]]
+void unnamed_template_param_member_expect();
 
 [[using gentest: test("mocking/template/template_template_ctor")]]
 void template_template_ctor();
@@ -155,5 +160,10 @@ void concurrency_late_mutation_rejected_after_runtime_start();
 
 [[using gentest: test("mocking/nice/unexpected_ok")]]
 void nice_unexpected_ok();
+
+[[using gentest: test("mocking/bench/measured_call_verification_does_not_throw")]]
+void bench_measured_call_verification_does_not_throw();
+[[using gentest: test("mocking/nice/expected_calls_ok")]]
+void nice_expected_calls_ok();
 
 } // namespace mocking

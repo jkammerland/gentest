@@ -162,6 +162,25 @@ void fail_fast_snapshot_release_waiters() { fail_fast_snapshot_release.set("fail
 
 namespace async {
 
+gentest::awaitable<void> fail_fast_yield_poll_async_polls_with_yield() {
+    // Bound the poll so a regression fails instead of spinning without limit.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!fail_fast_yield_poll_flag) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            gentest::fail("fail-fast yield poll never observed the later case");
+            co_return;
+        }
+        co_await gentest::async::yield();
+    }
+    fail_fast_yield_poll_flag = false;
+}
+
+void fail_fast_yield_poll_sync_sets_flag() { fail_fast_yield_poll_flag = true; }
+
+} // namespace async
+
+namespace async {
+
 gentest::awaitable<void> fail_fast_self_adopted_async_fails_with_adopted_worker() {
     fail_fast_self_adopted_worker_started.store(false, std::memory_order_release);
     fail_fast_self_adopted_worker_done.store(false, std::memory_order_release);

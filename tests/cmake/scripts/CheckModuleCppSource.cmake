@@ -78,6 +78,12 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 gentest_append_public_modules_cache_arg(_cmake_cache_args)
+if(NOT NO_EXPLICIT_CODEGEN)
+  # The in-tree codegen variant must keep building gentest and its host tool from source.
+  include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
+  gentest_fixture_prefix_cache_args(_prefix_cache_args _cmake_cache_args)
+  list(APPEND _cmake_cache_args ${_prefix_cache_args})
+endif()
 
 gentest_check_run_or_fail(
   COMMAND

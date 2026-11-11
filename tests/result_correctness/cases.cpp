@@ -1,6 +1,7 @@
 #include "cases.hpp"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
 #include <limits>
 
@@ -78,6 +79,37 @@ void late_mock(int operation) {
     case 8: gentest::make_nice(clock); break;
     default: gentest::fail("unsupported late-mock probe operation");
     }
+}
+
+void bench_unmet_mock() {
+    gentest::mock<mocking::Calculator> calculator;
+    gentest::expect(calculator, &mocking::Calculator::reset).times(1);
+}
+
+void jitter_unmet_mock() {
+    gentest::mock<mocking::Calculator> calculator;
+    gentest::expect(calculator, &mocking::Calculator::reset).times(1);
+}
+
+void bench_require_unwinds_mock() {
+    gentest::mock<mocking::Calculator> calculator;
+    gentest::expect(calculator, &mocking::Calculator::reset).times(1);
+    gentest::require(false, "bench require unwinds mock");
+}
+
+void bench_late_unmet_mock() {
+    // Satisfied until calibration reaches a large epoch, then unmet on every call.
+    static std::size_t                 calls = 0;
+    gentest::mock<mocking::Calculator> calculator;
+    gentest::expect(calculator, &mocking::Calculator::reset).times(1);
+    if (++calls < 100)
+        calculator.reset();
+}
+
+void bench_satisfied_mock() {
+    gentest::mock<mocking::Calculator> calculator;
+    gentest::expect(calculator, &mocking::Calculator::reset).times(1);
+    calculator.reset();
 }
 
 } // namespace result_correctness

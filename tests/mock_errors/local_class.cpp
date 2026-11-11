@@ -4,7 +4,7 @@
 
 #include "gentest/mock.h"
 
-static int _gentest_mock_local_class_odr() {
+static int gentest_mock_local_class_odr() {
     struct Local {
         void g() {}
     };

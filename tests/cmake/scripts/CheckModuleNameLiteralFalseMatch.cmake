@@ -165,6 +165,9 @@ if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
   if(NOT "${_clang_scan_deps}" STREQUAL "")
     list(APPEND _fixture_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_clang_scan_deps}")
   endif()
+  include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
+  gentest_fixture_prefix_cache_args(_prefix_cache_args _fixture_cache_args)
+  list(APPEND _fixture_cache_args ${_prefix_cache_args})
 
   gentest_check_run_or_fail(
     COMMAND

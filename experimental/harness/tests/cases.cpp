@@ -15,7 +15,9 @@
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <thread>
+#include <tuple>
 #include <unistd.h>
+#include <utility>
 
 namespace harness_tests {
 using namespace gentest;
@@ -34,7 +36,12 @@ void queue() {
         parent.send({.tag = 99, .payload = "overflow"});
     } catch (const std::runtime_error &) { full = true; }
     expect_true(full);
-    for (unsigned i = 0; i != Channel::capacity; ++i) {
+    // trySend reports a full queue without queueing, then succeeds once space frees.
+    expect_true(!parent.trySend({.tag = 98, .payload = "backpressure"}));
+    const auto first = child.tryReceive();
+    expect_true(first.has_value() && first->tag == 0U);
+    expect_true(parent.trySend({.tag = Channel::capacity, .payload = "payload-" + std::to_string(Channel::capacity)}));
+    for (unsigned i = 1; i != Channel::capacity + 1; ++i) {
         const auto received = child.tryReceive();
         if (!received) {
             throw std::runtime_error("queued message missing");
@@ -396,6 +403,37 @@ auto failures() -> awaitable<> {
     } catch (const std::runtime_error &error) { commandFailed = std::string_view(error.what()).find("absent") != std::string_view::npos; }
     expect_true(commandFailed);
     expect_true((co_await session.execute("host", {"ip", "address", "show", "dev", "lo"})).find("127.0.0.1") != std::string::npos);
+
+    // Successful command stdout is returned whole up to one reply payload, not
+    // failed at the 1500-byte program-output tail.
+    for (int address = 1; address <= 25; ++address) {
+        (void)co_await session.execute("host", {"ip", "address", "add", "10.9.0." + std::to_string(address) + "/32", "dev", "lo"});
+    }
+    const auto addresses = co_await session.execute("host", {"ip", "address", "show", "dev", "lo"});
+    expect_true(addresses.size() > 1500);
+    expect_true(addresses.find("127.0.0.1") != std::string::npos && addresses.find("10.9.0.25/32") != std::string::npos);
+
+    // Stdout that cannot fit in a reply fails explicitly instead of returning a tail.
+    for (int address = 26; address <= 60; ++address) {
+        (void)co_await session.execute("host", {"ip", "address", "add", "10.9.0." + std::to_string(address) + "/32", "dev", "lo"});
+    }
+    std::string oversized;
+    try {
+        (void)co_await session.execute("host", {"ip", "address", "show", "dev", "lo"});
+    } catch (const std::runtime_error &error) { oversized = error.what(); }
+    expect_true(oversized.find("output exceeds") != std::string::npos);
+
+    // A failing command names its exit status and says when stderr was truncated.
+    std::string batch;
+    for (int line = 0; line != 80; ++line) {
+        batch += "address show dev absent\n";
+    }
+    std::string truncatedFailure;
+    try {
+        (void)co_await session.execute("host", {"ip", "-force", "-batch", "-"}, batch);
+    } catch (const std::runtime_error &error) { truncatedFailure = error.what(); }
+    expect_true(truncatedFailure.starts_with("namespace command failed: ip: exit status 1 (stderr truncated"));
+    expect_true(truncatedFailure.find("absent") != std::string::npos);
     co_await session.stop();
 
     auto invalid = local({});
@@ -405,6 +443,57 @@ auto failures() -> awaitable<> {
         (void)co_await Session::start(std::move(invalid));
     } catch (const std::runtime_error &) { rejected = true; }
     expect_true(rejected);
+}
+
+auto orphans() -> awaitable<> {
+    // The inner shell backgrounds a short-lived process and exits, so that
+    // process is reparented to the supervisor (namespace PID 1). The program
+    // reports whether it was reaped or left behind as a zombie.
+    SessionSpec spec;
+    spec.supervisor = HARNESS_SUPERVISOR;
+    spec.topology.nodes.push_back({.name = "host", .ipv4Forwarding = false, .bridgeAddress = {}});
+    spec.programs.push_back({.node             = "host",
+                             .argv             = {"/bin/sh", "-c",
+                                                  "orphan=$(sh -c 'true & echo $!'); i=0;"
+                                                  "while [ -e /proc/$orphan ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done;"
+                                                  "if [ -e /proc/$orphan ]; then grep State /proc/$orphan/status; exit 1; fi;"
+                                                  "echo reaped"},
+                             .environment      = {},
+                             .workingDirectory = {}});
+    auto session = co_await Session::start(std::move(spec));
+    co_await session.launch(0);
+    const auto result = co_await session.wait(0);
+    expect_true(result.succeeded(), result.standardOutput);
+    expect_true(result.standardOutput.find("reaped") != std::string::npos, result.standardOutput);
+    co_await session.stop();
+}
+
+template <std::size_t... Index> auto inspectConcurrently(Session &session, std::index_sequence<Index...>) -> awaitable<std::size_t> {
+    auto results = co_await when_all(((void)Index, session.inspect(0))...);
+    co_return std::apply([](const auto &...result) { return (std::size_t{result.running ? 1U : 0U} + ...); }, results);
+}
+
+auto controlBackpressure() -> awaitable<> {
+    auto session = co_await Session::start(local({"echo"}));
+    co_await session.launch(0);
+    expect_eq((co_await session.receive(0)).payload, std::string("ready"));
+
+    // The supervisor runs a command synchronously, so requests sent meanwhile
+    // queue up: far more than the 16-slot control queue holds. Once it is free,
+    // it answers each inspect immediately, so the replies arrive in a burst too.
+    std::string busy;
+    for (int line = 0; line != 180; ++line) {
+        busy += "link set dev lo up\n";
+    }
+    constexpr std::size_t requests = 40;
+    auto [output, running]         = co_await when_all(session.execute("host", {"ip", "-batch", "-"}, busy),
+                                                       inspectConcurrently(session, std::make_index_sequence<requests>{}));
+    expect_true(output.empty());
+    expect_eq(running, requests);
+
+    // A full queue is backpressure, not failure: the session remains usable.
+    expect_true((co_await session.inspect(0)).running);
+    co_await session.stop();
 }
 
 auto startup() -> awaitable<> {

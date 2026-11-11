@@ -13,7 +13,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 gentest_add_mocks(dep_mocks
     DEFS
@@ -22,7 +23,7 @@ gentest_add_mocks(dep_mocks
     HEADER_NAME public/dep_mocks.hpp)
 
 add_executable(dep_tests cases.cpp)
-target_link_libraries(dep_tests PRIVATE gentest_main)
+target_link_libraries(dep_tests PRIVATE gentest::gentest_main)
 gentest_link_mocks(dep_tests PRIVATE dep_mocks)
 target_compile_features(dep_tests PRIVATE cxx_std_20)
 target_include_directories(dep_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -36,6 +36,33 @@ void ambiguous_template_member_pointer() {
     gentest::expect(mock_obj, &mocking::Ticker::tadd<int>).times(1);
 }
 
+// Nice mode only relaxes methods without expectations; once a method has
+// expectations, calls beyond them must fail exactly as in strict mode.
+void nice_exhausted_excess_call() {
+    gentest::mock<mocking::Ticker> mock_obj;
+    gentest::make_nice(mock_obj, true);
+    gentest::expect(mock_obj, &mocking::Ticker::tick).times(1);
+    mock_obj.tick(1);
+    mock_obj.tick(2); // exceeds times(1): must fail
+}
+
+void nice_times_zero_call() {
+    gentest::mock<mocking::Ticker> mock_obj;
+    gentest::make_nice(mock_obj, true);
+    gentest::expect(mock_obj, &mocking::Ticker::tick).times(0);
+    mock_obj.tick(1); // forbidden by times(0): must fail
+}
+
+// Template members configured through a runtime member pointer are matched via
+// the dispatcher's fallback identity; exhausting them must fail too.
+void nice_exhausted_fallback_identity() {
+    gentest::mock<mocking::Ticker> mock_obj;
+    gentest::make_nice(mock_obj, true);
+    gentest::expect(mock_obj, &mocking::Ticker::tadd<int>).times(1);
+    mock_obj.tadd(1);
+    mock_obj.tadd(2); // exceeds times(1): must fail
+}
+
 } // namespace failing
 
 namespace failing {

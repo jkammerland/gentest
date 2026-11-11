@@ -36,4 +36,11 @@ struct AbortingTeardown : gentest::FixtureTearDown {
 
 [[using gentest: test, parameters(operation, 0, 1, 2, 3, 4, 5, 6, 7, 8)]] void late_mock(int operation);
 
+// Measured bodies whose mock destructor reports an unmet expectation (#262).
+[[using gentest: bench("bench_unmet_mock")]] void           bench_unmet_mock();
+[[using gentest: jitter("jitter_unmet_mock")]] void         jitter_unmet_mock();
+[[using gentest: bench("bench_require_unwinds_mock")]] void bench_require_unwinds_mock();
+[[using gentest: bench("bench_late_unmet_mock")]] void      bench_late_unmet_mock();
+[[using gentest: bench("bench_satisfied_mock")]] void       bench_satisfied_mock();
+
 } // namespace result_correctness

@@ -763,7 +763,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
             fmt::print(stderr, "Note: excluded {} death test(s). Use --include-death to run them.\n", selection.filtered_death);
             print_empty_machine_measured_report(opt, !death_included_selection.bench_idxs.empty(),
                                                 !death_included_selection.jitter_idxs.empty());
-            return 0;
+            return write_empty_execution_reports(opt);
         }
         fmt::print("Executed 0 case(s). (death tests excluded; use --include-death)\n");
         return write_empty_execution_reports(opt);

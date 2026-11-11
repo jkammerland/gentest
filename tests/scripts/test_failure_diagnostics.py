@@ -35,6 +35,17 @@ def main():
         assert 'lhs="a\\nb\\0", rhs="a\\nc\\0"' in failures[0], failures
         assert "line 2, column 1 (byte 2)" in failures[0], failures
 
+        # Character arrays end at their first NUL instead of exposing padding.
+        failures, _ = run("padded_array_failure")
+        assert 'lhs="ab", rhs="ac"' in failures[0], failures
+        assert "\\0" not in failures[0], failures
+        run("padded_array_matcher", expected=0)
+
+        # Equal contents behind distinct pointers explain address comparison.
+        failures, _ = run("distinct_pointer_failure")
+        assert 'lhs="same", rhs="same"' in failures[0], failures
+        assert "distinct pointers to equal strings" in failures[0], failures
+
         failures, _ = run("scoped_failure")
         assert len(failures) == 2, failures
         assert "element[1]" in failures[0] and "expected == 2, got 9" in failures[0], failures

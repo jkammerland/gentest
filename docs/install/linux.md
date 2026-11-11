@@ -11,7 +11,7 @@ separate [toolchain and setup guide](../modules.md).
 | Application compiler | A C++20 compiler and standard library, including `std::stop_token`. Ordinary header-based tests can use Clang or GCC. |
 | Build tools | CMake 3.31 or newer, Ninja, and Git. Both Ninja and Ninja Multi-Config are supported. |
 | Code generator | Matching LLVM and Clang development packages, major version 19 or newer, plus a real host `clang++` executable and its builtin headers. The generator runs on the build host. |
-| Formatting dependency | A CMake-discoverable fmt development package. If absent, the source build fetches fmt 12.1.0, which requires network access. |
+| Formatting dependency | A CMake-discoverable fmt development package. If absent, the source build fetches fmt 12.1.0, which requires network access unless `FETCHCONTENT_SOURCE_DIR_FMT` or the `GENTEST_FMT_SOURCE_DIR` environment variable names an existing fmt 12.1.0 source tree. |
 
 The compiler that builds your application and the host Clang used by
 `gentest_codegen` have separate roles. The commands below use one LLVM

@@ -105,6 +105,9 @@ if(NOT "${_clang_scan_deps}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_clang_scan_deps}")
 endif()
 gentest_append_host_apple_sysroot(_cmake_cache_args)
+include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
+gentest_fixture_prefix_cache_args(_prefix_cache_args _cmake_cache_args)
+list(APPEND _cmake_cache_args ${_prefix_cache_args})
 
 function(_gentest_case_dirs test_case out_work_dir out_src_dir out_build_dir)
   if(CMAKE_HOST_WIN32)
@@ -182,8 +185,10 @@ function(_gentest_expect_build_failure test_case expected_substring)
       "--- stdout ---\n${_configure_out}\n--- stderr ---\n${_configure_err}")
   endif()
 
+  # Every rejection below is a gentest_codegen diagnostic, so build only the
+  # fixture's codegen steps; the runtime and fmt are not needed to reach them.
   execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}"
+    COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target explicit_validation_codegen
     RESULT_VARIABLE _build_rc
     OUTPUT_VARIABLE _build_out
     ERROR_VARIABLE _build_err

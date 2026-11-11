@@ -50,6 +50,10 @@ function(_gentest_add_cmake_helper_test name source_dir script_path label)
             -P ${script_path})
 
     set_tests_properties(${name} PROPERTIES LABELS "${label}")
+    # Defined by GentestTests.cmake; standalone harness projects may omit it.
+    if(COMMAND gentest_reuse_fetched_fmt_sources)
+        gentest_reuse_fetched_fmt_sources(${name})
+    endif()
     if(NOT _gentest_package_fixture STREQUAL "")
         set_tests_properties(${name} PROPERTIES FIXTURES_REQUIRED "${_gentest_package_fixture}")
     endif()

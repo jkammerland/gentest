@@ -14,7 +14,8 @@ else()
     set(GENTEST_BUILD_CODEGEN ON CACHE BOOL "" FORCE)
 endif()
 
-add_subdirectory("${GENTEST_SOURCE_DIR}" gentest)
+include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
+gentest_fixture_add_gentest(gentest)
 
 add_executable(cpp_source_module_tests)
 
@@ -34,7 +35,7 @@ set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/imported_cases.cpp PROPE
     CXX_SCAN_FOR_MODULES ON
     GENTEST_MODULE_NAME gentest.cpp_source_imported_cases)
 
-target_link_libraries(cpp_source_module_tests PRIVATE gentest gentest_main)
+target_link_libraries(cpp_source_module_tests PRIVATE gentest::gentest gentest::gentest_main)
 target_compile_features(cpp_source_module_tests PRIVATE cxx_std_20)
 
 gentest_attach_codegen(cpp_source_module_tests

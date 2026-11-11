@@ -40,7 +40,7 @@ def main():
         run("--run=result_correctness/pass", "--junit=" + str(report))
         assert ET.parse(report).getroot().attrib["tests"] == "1"
         for args in (("--filter=absent",), ("--filter=absent", "--kind=test"),
-                     ("--kind=bench", "--report-format=json"),
+                     ("--kind=bench", "--exclude=*_mock", "--report-format=json"),
                      ("--filter=absent", "--report-format=json"),
                      ("--filter=*body_death",)):
             report.write_text("stale evidence")
@@ -48,6 +48,28 @@ def main():
             suite = ET.parse(report).getroot()
             assert suite.attrib == {"name": "gentest", "tests": "0", "failures": "0", "skipped": "0", "errors": "0"}, suite.attrib
             assert not list(suite), list(suite)
+        # Mock verification inside a measured call reports a failure instead of terminating (#262).
+        measured = {
+            "bench_late_unmet_mock": "expected 1 call(s) to ::mocking::Calculator::reset but observed 0",
+            "bench_require_unwinds_mock": "bench require unwinds mock",
+            "bench_satisfied_mock": None,
+            "bench_unmet_mock": "expected 1 call(s) to ::mocking::Calculator::reset but observed 0",
+            "jitter_unmet_mock": "expected 1 call(s) to ::mocking::Calculator::reset but observed 0",
+        }
+        text = run("--filter=result_correctness/*_mock", "--bench-min-epoch-time-s=0.001", "--junit=" + str(report), expected=1)
+        assert "terminate" not in text, text
+        assert "Summary: passed 1/5; failed 4;" in text, text
+        suite = ET.parse(report).getroot()
+        assert suite.attrib["tests"] == "5" and suite.attrib["failures"] == "4", suite.attrib
+        cases = {item.attrib["name"]: item for item in suite.iter("testcase")}
+        for name, message in measured.items():
+            failure = cases["result_correctness/" + name].find("failure")
+            if message is None:
+                assert failure is None, ET.tostring(failure)
+            else:
+                assert failure is not None and message in failure.text, (name, failure)
+                assert message in text, (name, text)
+
         report.write_text("preview sentinel")
         run("--list-selected", "--filter=absent", "--junit=" + str(report))
         assert report.read_text() == "preview sentinel"

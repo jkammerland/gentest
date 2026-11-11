@@ -44,6 +44,9 @@ class BatchAsyncScheduler final : public gentest::detail::AsyncScheduler {
     void               add_top_level(std::size_t run_index, gentest::detail::AsyncTask &task);
     [[nodiscard]] auto run_one_ready() -> bool;
     void               run_ready();
+    // Resumes at most the entries ready at entry, so re-queued yields wait for the
+    // next pass. Returns true as soon as after_progress requests a stop.
+    [[nodiscard]] auto run_ready(const ProgressCallback &after_progress) -> bool;
     [[nodiscard]] auto has_ready() const noexcept -> bool;
     void               cancel_owner(std::size_t owner);
     [[nodiscard]] auto finish_unresumable(const StopCallback &should_stop = {}, const ProgressCallback &after_progress = {}) -> bool;

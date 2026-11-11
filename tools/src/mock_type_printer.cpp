@@ -9,6 +9,7 @@
 #include <clang/AST/TemplateName.h>
 #include <llvm/ADT/APSInt.h>
 #include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallString.h>
 #include <llvm/ADT/SmallVector.h>
 #include <llvm/Support/Casting.h>
@@ -60,19 +61,19 @@ class GlobalTypePrinter {
         const clang::Qualifiers    quals = split.Quals;
 
         if (const auto *pointer = llvm::dyn_cast<clang::PointerType>(node)) {
-            return print_pointer_like(pointer->getPointeeType(), "*", quals, std::move(inner));
+            return print_pointer_like(pointer->getPointeeType(), "*", quals, inner);
         }
         if (const auto *reference = llvm::dyn_cast<clang::ReferenceType>(node)) {
             const char *sigil = llvm::isa<clang::LValueReferenceType>(reference) ? "&" : "&&";
-            return print_pointer_like(reference->getPointeeType(), sigil, quals, std::move(inner));
+            return print_pointer_like(reference->getPointeeType(), sigil, quals, inner);
         }
         if (const auto *member_pointer = llvm::dyn_cast<clang::MemberPointerType>(node)) {
             const auto *record = member_pointer->getMostRecentCXXRecordDecl();
             const auto  owner  = record != nullptr ? print_tag_decl(*record) : std::nullopt;
             if (!owner) {
-                return print_fallback(type, std::move(inner));
+                return print_fallback(type, inner);
             }
-            return print_pointer_like(member_pointer->getPointeeType(), *owner + "::*", quals, std::move(inner));
+            return print_pointer_like(member_pointer->getPointeeType(), *owner + "::*", quals, inner);
         }
         if (const auto *array = llvm::dyn_cast<clang::ArrayType>(node)) {
             return print_array(*array, quals, type, std::move(inner));
@@ -82,25 +83,28 @@ class GlobalTypePrinter {
         }
         if (const auto *tag = llvm::dyn_cast<clang::TagType>(node)) {
             if (const auto name = print_tag_decl(*tag->getDecl())) {
-                return leaf(*name, quals, std::move(inner));
+                return leaf(*name, quals, inner);
             }
-            return print_fallback(type, std::move(inner));
+            return print_fallback(type, inner);
         }
         if (const auto *typedef_type = llvm::dyn_cast<clang::TypedefType>(node)) {
             // peel_transparent_sugar() only keeps typedefs whose scope is printable.
-            return leaf(*print_named_decl(*typedef_type->getDecl()), quals, std::move(inner));
+            if (const auto name = print_named_decl(*typedef_type->getDecl())) {
+                return leaf(*name, quals, inner);
+            }
+            return print_fallback(type, inner);
         }
         if (const auto *specialization = llvm::dyn_cast<clang::TemplateSpecializationType>(node)) {
             if (const auto name = print_template_name(specialization->getTemplateName())) {
-                return leaf(*name + print_written_template_arguments(specialization->template_arguments()), quals, std::move(inner));
+                return leaf(*name + print_written_template_arguments(specialization->template_arguments()), quals, inner);
             }
-            return print_fallback(type, std::move(inner));
+            return print_fallback(type, inner);
         }
         if (const auto *parameter = llvm::dyn_cast<clang::TemplateTypeParmType>(node)) {
             if (const auto *identifier = parameter->getIdentifier()) {
-                return leaf(identifier->getName().str(), quals, std::move(inner));
+                return leaf(identifier->getName().str(), quals, inner);
             }
-            return print_fallback(type, std::move(inner));
+            return print_fallback(type, inner);
         }
         if (const auto *expansion = llvm::dyn_cast<clang::PackExpansionType>(node)) {
             std::string text = print(expansion->getPattern(), {}) + "...";
@@ -110,7 +114,7 @@ class GlobalTypePrinter {
             }
             return text;
         }
-        return print_fallback(type, std::move(inner));
+        return print_fallback(type, inner);
     }
 
     // Typedefs and template specializations are kept as written when their
@@ -144,7 +148,7 @@ class GlobalTypePrinter {
 
     [[nodiscard]] std::string qualifier_text(clang::Qualifiers quals) const { return quals.getAsString(policy_); }
 
-    [[nodiscard]] std::string leaf(std::string name, clang::Qualifiers quals, std::string inner) const {
+    [[nodiscard]] std::string leaf(const std::string &name, clang::Qualifiers quals, const std::string &inner) const {
         std::string text;
         if (!quals.empty()) {
             text = qualifier_text(quals);
@@ -161,7 +165,8 @@ class GlobalTypePrinter {
         return text;
     }
 
-    [[nodiscard]] std::string print_pointer_like(QualType pointee, std::string sigil, clang::Qualifiers quals, std::string inner) const {
+    [[nodiscard]] std::string print_pointer_like(QualType pointee, std::string sigil, clang::Qualifiers quals,
+                                                 const std::string &inner) const {
         std::string declarator = std::move(sigil);
         if (!quals.empty()) {
             declarator += qualifier_text(quals);
@@ -182,11 +187,11 @@ class GlobalTypePrinter {
             bound = std::to_string(constant->getSize().getZExtValue());
         } else if (const auto *dependent = llvm::dyn_cast<clang::DependentSizedArrayType>(&array)) {
             if (dependent->getSizeExpr() == nullptr) {
-                return print_fallback(type, std::move(inner));
+                return print_fallback(type, inner);
             }
             bound = print_expression(*dependent->getSizeExpr());
         } else if (!llvm::isa<clang::IncompleteArrayType>(&array)) {
-            return print_fallback(type, std::move(inner));
+            return print_fallback(type, inner);
         }
         inner += "[" + bound + "]";
         // cv-qualifiers on an array type apply to its elements.
@@ -230,7 +235,7 @@ class GlobalTypePrinter {
         return print(function.getReturnType(), std::move(inner));
     }
 
-    [[nodiscard]] std::string print_fallback(QualType type, std::string inner) const {
+    [[nodiscard]] std::string print_fallback(QualType type, const std::string &inner) const {
         std::string              text;
         llvm::raw_string_ostream os(text);
         type.print(os, policy_);
@@ -291,8 +296,8 @@ class GlobalTypePrinter {
         }
 
         std::string scope;
-        for (auto it = parts.rbegin(); it != parts.rend(); ++it) {
-            scope += *it;
+        for (const auto &part : llvm::reverse(parts)) {
+            scope += part;
             scope += "::";
         }
         return scope;

@@ -316,8 +316,8 @@ std::string dispatch_block(const std::string &indent, const MockClassInfo &cls, 
         fmt::format("static_cast<{0}>(&{1}::{2}{3})", type_parts.pointer_type, fq_type, method.method_name, tpl_usage);
     const std::string raw_method_ref = fmt::format("&{0}::{1}{2}", fq_type, method.method_name, tpl_usage);
     block.append("{0}auto token = ::gentest::detail::mocking::method_constant_identity<{1}>();\n", indent, method_constant_ref);
-    block.append("{0}auto fallback_token = this->__gentest_state_.identify({1});\n", indent, raw_method_ref);
-    block.append("{0}{1}this->__gentest_state_.template dispatch_with_fallback<{2}>(token, fallback_token, \"{3}\"{4});\n", indent,
+    block.append("{0}auto fallback_token = this->gentest_mock_state_.identify({1});\n", indent, raw_method_ref);
+    block.append("{0}{1}this->gentest_mock_state_.template dispatch_with_fallback<{2}>(token, fallback_token, \"{3}\"{4});\n", indent,
                  returns_value ? "return " : "", type_parts.expectation_push_types, fq_method_escaped, dispatch_args);
     return block.str();
 }
@@ -624,7 +624,7 @@ std::string build_class_declaration(const MockClassInfo &cls) {
     header.append_raw("\n");
     header.append_raw("  private:\n");
     header.append("    friend struct detail::MockAccess<mock<{}>>;\n", fq_type);
-    header.append_raw("    mutable detail::mocking::InstanceState __gentest_state_;\n");
+    header.append_raw("    mutable detail::mocking::InstanceState gentest_mock_state_;\n");
     header.append_raw("};\n\n");
     return header.str();
 }
@@ -658,7 +658,7 @@ std::string build_mock_access(const MockClassInfo &cls, bool module_mode = false
     body.append_raw("        using ::gentest::detail::mocking::MethodTraits;\n");
     body.append_raw("        using Signature = typename MethodTraits<decltype(Method)>::Signature;\n");
     body.append_raw("        auto token = ::gentest::detail::mocking::method_constant_identity<Method>();\n");
-    body.append("        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.__gentest_state_, "
+    body.append("        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.gentest_mock_state_, "
                 "token, {0}(method_name));\n",
                 string_name);
     body.append("        return ExpectationHandle<Signature>{{expectation, {0}(method_name)}};\n", string_name);
@@ -726,20 +726,21 @@ std::string build_mock_access(const MockClassInfo &cls, bool module_mode = false
         body.append("{0} (::gentest::detail::mocking::same_v<MethodPtr, {1}>) {{\n", branch_intro, pointer_type);
         body.append("            if (method == static_cast<MethodPtr>(&{0}::{1})) {{\n", fq_type, method.method_name);
         body.append("                auto token = ::gentest::detail::mocking::method_constant_identity<{3}>();\n"
-                    "                auto expectation = instance.__gentest_state_.template push_expectation<{2}>(token, \"{4}\");\n"
+                    "                auto expectation = instance.gentest_mock_state_.template push_expectation<{2}>(token, \"{4}\");\n"
                     "                return ExpectationHandle<{5}>{{expectation, \"{4}\"}};\n",
                     fq_type, method.method_name, type_parts.expectation_push_types, method_constant_ref, fq_method_escaped,
                     type_parts.signature);
         body.append_raw("            }\n");
         body.append_raw("        }\n");
     }
-    body.append_raw("        auto token = instance.__gentest_state_.identify(method);\n");
-    body.append_raw("        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.__gentest_state_, "
-                    "token, \"(mock method)\");\n");
+    body.append_raw("        auto token = instance.gentest_mock_state_.identify(method);\n");
+    body.append_raw(
+        "        auto expectation = ::gentest::detail::mocking::ExpectationPusher<Signature>::push(instance.gentest_mock_state_, "
+        "token, \"(mock method)\");\n");
     body.append_raw("        return ExpectationHandle<Signature>{expectation, \"(mock method)\"};\n");
     body.append_raw("    }\n");
     body.append_raw("\n");
-    body.append("    static void set_nice(mock<{0}> &instance, bool v) {{ instance.__gentest_state_.set_nice(v); }}\n", fq_type);
+    body.append("    static void set_nice(mock<{0}> &instance, bool v) {{ instance.gentest_mock_state_.set_nice(v); }}\n", fq_type);
     body.append_raw("};\n\n");
     return body.str();
 }
@@ -915,7 +916,7 @@ void append_mock_implementation(RenderBuffer &impl, const MockClassInfo &cls) {
     if (cls.has_accessible_default_ctor) {
         // Spell out state initialization so imported-module mocks do not rely
         // on compiler defaulting behavior for InstanceState.
-        impl.append("inline mock<{0}>::mock() : __gentest_state_{{}} {{}}\n", fq_type);
+        impl.append("inline mock<{0}>::mock() : gentest_mock_state_{{}} {{}}\n", fq_type);
     }
     for (const auto &ctor : cls.constructors) {
         if (!ctor.template_prefix.empty()) {
@@ -937,10 +938,10 @@ void append_mock_implementation(RenderBuffer &impl, const MockClassInfo &cls) {
                 const auto &p = ctor.parameters[i];
                 impl.append("{}", argument_expr(p));
             }
-            impl.append_raw("), __gentest_state_{}");
+            impl.append_raw("), gentest_mock_state_{}");
             impl.append_raw(" {}\n");
         } else {
-            impl.append_raw(" : __gentest_state_{} {\n");
+            impl.append_raw(" : gentest_mock_state_{} {\n");
             for (const auto &p : ctor.parameters) {
                 impl.append("    (void){};\n", p.name);
             }
@@ -948,7 +949,7 @@ void append_mock_implementation(RenderBuffer &impl, const MockClassInfo &cls) {
         }
         impl.append_raw("\n");
     }
-    impl.append("inline mock<{0}>::~mock() {{ this->__gentest_state_.verify_all(); }}\n\n", fq_type);
+    impl.append("inline mock<{0}>::~mock() {{ this->gentest_mock_state_.verify_all(); }}\n\n", fq_type);
     for (const auto &method : cls.methods) {
         if (!method.template_prefix.empty())
             continue; // defined inline in class declaration

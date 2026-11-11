@@ -94,6 +94,9 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
 endif()
 gentest_append_public_modules_cache_arg(_cmake_cache_args)
 gentest_append_host_apple_sysroot(_cmake_cache_args)
+include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
+gentest_fixture_prefix_cache_args(_prefix_cache_args _cmake_cache_args)
+list(APPEND _cmake_cache_args ${_prefix_cache_args})
 
 message(STATUS "Configure explicit mock target surface fixture...")
 gentest_check_run_or_fail(

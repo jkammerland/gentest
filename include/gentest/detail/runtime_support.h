@@ -42,6 +42,20 @@ struct BenchPhaseScope {
 
 inline BenchPhase bench_phase() { return bench_phase_storage(); }
 
+GENTEST_RUNTIME_API auto deferred_failure_depth_storage() -> int &;
+
+// Failures recorded inside this scope never throw, not even during a measured
+// bench/jitter call. Generated mock destructors verify expectations inside it,
+// so an unmet expectation cannot escape an implicitly noexcept destructor; the
+// measured executor still observes the recorded failure when the call phase
+// ends and stops the benchmark there.
+struct DeferredFailureScope {
+    DeferredFailureScope() noexcept { ++deferred_failure_depth_storage(); }
+    ~DeferredFailureScope() { --deferred_failure_depth_storage(); }
+    DeferredFailureScope(const DeferredFailureScope &)            = delete;
+    DeferredFailureScope &operator=(const DeferredFailureScope &) = delete;
+};
+
 inline void record_bench_error(std::string msg) {
     auto &bench_error = bench_error_storage();
     if (bench_error.empty()) {
