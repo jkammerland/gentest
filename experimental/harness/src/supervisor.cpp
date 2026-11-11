@@ -6,6 +6,7 @@
 #include <charconv>
 #include <csignal>
 #include <cstdlib>
+#include <deque>
 #include <fcntl.h>
 #include <fstream>
 #include <iostream>
@@ -79,12 +80,21 @@ struct OwnerWatch {
     }
 };
 
+// Program results carry both stream tails in one reply, so each keeps 1500 bytes.
+constexpr std::size_t programOutputTail = 1500;
+// A namespace command returns its stdout as the whole reply value, after the
+// reply's status and length fields.
+constexpr std::size_t commandOutputLimit = Channel::maxPayload - 8;
+
 struct Child {
     pid_t       pid{-1};
     Fd          pidfd, output, error;
     std::string stdoutText, stderrText;
-    bool        done{}, truncated{};
+    std::size_t stdoutLimit{programOutputTail};
+    bool        done{}, stdoutTruncated{}, stderrTruncated{};
     int         status{};
+
+    [[nodiscard]] auto truncated() const -> bool { return stdoutTruncated || stderrTruncated; }
 };
 using CleanupClock = std::chrono::steady_clock;
 
@@ -96,7 +106,8 @@ auto cleanupDeadline(std::uint64_t encoded) -> CleanupClock::time_point {
         std::chrono::duration_cast<CleanupClock::duration>(std::chrono::nanoseconds(static_cast<std::int64_t>(encoded))));
 }
 
-void append(Fd &fd, std::string &text, bool &truncated, CleanupClock::time_point deadline = CleanupClock::time_point::max()) {
+void append(Fd &fd, std::string &text, bool &truncated, std::size_t limit,
+            CleanupClock::time_point deadline = CleanupClock::time_point::max()) {
     // Drain a snapshot so a continuously writing child cannot starve liveness
     // or cancellation. After waitpid, this includes all of that child's writes.
     int available{};
@@ -119,8 +130,8 @@ void append(Fd &fd, std::string &text, bool &truncated, CleanupClock::time_point
         const auto count = static_cast<std::size_t>(size);
         remaining -= count;
         text.append(buffer.data(), count);
-        if (text.size() > 1500) {
-            text.erase(0, text.size() - 1500);
+        if (text.size() > limit) {
+            text.erase(0, text.size() - limit);
             truncated = true;
         }
     }
@@ -134,10 +145,10 @@ void collect(Child &child, CleanupClock::time_point deadline = CleanupClock::tim
         child.done = result == child.pid;
     }
     if (child.output.value >= 0) {
-        append(child.output, child.stdoutText, child.truncated, deadline);
+        append(child.output, child.stdoutText, child.stdoutTruncated, child.stdoutLimit, deadline);
     }
     if (child.error.value >= 0) {
-        append(child.error, child.stderrText, child.truncated, deadline);
+        append(child.error, child.stderrText, child.stderrTruncated, programOutputTail, deadline);
     }
 }
 
@@ -425,10 +436,10 @@ void stopChildren(std::span<Child *> children, CleanupClock::time_point deadline
         // bytes; namespace PID 1 exit supplies the final descendant boundary.
         try {
             if (child->output.value >= 0) {
-                append(child->output, child->stdoutText, child->truncated, deadline);
+                append(child->output, child->stdoutText, child->stdoutTruncated, child->stdoutLimit, deadline);
             }
             if (child->error.value >= 0) {
-                append(child->error, child->stderrText, child->truncated, deadline);
+                append(child->error, child->stderrText, child->stderrTruncated, programOutputTail, deadline);
             }
         } catch (...) { rememberFailure(); }
     }
@@ -438,13 +449,28 @@ void stopChildren(std::span<Child *> children, CleanupClock::time_point deadline
     }
 }
 
+// The supervisor is PID 1 of its namespace, so orphaned descendants are
+// reparented to it. Reap exited processes it does not own; owned programs and
+// namespace keepers keep their statuses for collect() and stopChildren().
+void reapOrphans(const std::vector<pid_t> &owned) {
+    std::ifstream list("/proc/self/task/" + std::to_string(::getpid()) + "/children");
+    pid_t         pid{};
+    while (list >> pid) {
+        if (std::find(owned.begin(), owned.end(), pid) != owned.end()) {
+            continue;
+        }
+        while (::waitpid(pid, nullptr, WNOHANG) < 0 && errno == EINTR) {}
+    }
+}
+
 void stopChild(Child &child) {
     std::array<Child *, 1> children{&child};
     stopChildren(children, CleanupClock::now() + 2s);
 }
 auto run(const OwnerWatch &owner, int net, std::vector<std::string> arguments, std::string input = {}) -> std::string {
     owner.check();
-    auto       child    = spawn(owner, net, arguments, std::move(input));
+    auto child          = spawn(owner, net, arguments, std::move(input));
+    child.stdoutLimit   = commandOutputLimit;
     const auto deadline = std::chrono::steady_clock::now() + 5s;
     try {
         while (!child.done) {
@@ -465,8 +491,17 @@ auto run(const OwnerWatch &owner, int net, std::vector<std::string> arguments, s
         stopChild(child);
         throw;
     }
-    if (!WIFEXITED(child.status) || WEXITSTATUS(child.status) != 0 || child.truncated) {
-        throw std::runtime_error("namespace command failed: " + arguments[0] + ": " + child.stderrText);
+    // Success is the exit status. Stdout is the returned value, so a truncated
+    // tail would be wrong data; stderr is diagnostic only.
+    if (!WIFEXITED(child.status) || WEXITSTATUS(child.status) != 0) {
+        const auto outcome = WIFEXITED(child.status) ? "exit status " + std::to_string(WEXITSTATUS(child.status))
+                                                     : "signal " + std::to_string(WTERMSIG(child.status));
+        const auto note    = child.stderrTruncated ? " (stderr truncated to its last " + std::to_string(programOutputTail) + " bytes)" : "";
+        throw std::runtime_error("namespace command failed: " + arguments[0] + ": " + outcome + note + ": " + child.stderrText);
+    }
+    if (child.stdoutTruncated) {
+        throw std::runtime_error("namespace command output exceeds " + std::to_string(commandOutputLimit) +
+                                 " bytes and cannot be returned: " + arguments[0]);
     }
     return child.stdoutText;
 }
@@ -625,7 +660,7 @@ auto processResult(const Child &child) -> std::string {
     result.number(WIFSIGNALED(child.status) ? WTERMSIG(child.status) : 0);
     result.text(child.stdoutText);
     result.text(child.stderrText);
-    result.number(child.truncated);
+    result.number(child.truncated());
     return result.bytes;
 }
 
@@ -657,11 +692,29 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
     Network                                         network(owner);
     std::map<unsigned, Child>                       children;
     std::vector<std::pair<std::uint32_t, unsigned>> waiters;
-    auto                                            reply = [&](std::uint32_t tag, bool ok, const std::string &value) {
+    // Replies wait here, in order, while the parent has not drained the bounded
+    // control queue; a full queue is backpressure, not a session failure.
+    std::deque<Message> outbox;
+    const auto          flushReplies = [&] {
+        while (!outbox.empty() && control.trySend(outbox.front())) {
+            outbox.pop_front();
+        }
+    };
+    auto reply = [&](std::uint32_t tag, bool ok, const std::string &value) {
         Writer body;
         body.number(ok);
         body.text(value);
-        control.send({.tag = tag, .payload = std::move(body.bytes)});
+        outbox.push_back({.tag = tag, .payload = std::move(body.bytes)});
+        flushReplies();
+    };
+    // Deliver replies still queued at exit, including the shutdown
+    // acknowledgement, within the cleanup deadline.
+    const auto drainReplies = [&](CleanupClock::time_point deadline) {
+        flushReplies();
+        while (!outbox.empty() && CleanupClock::now() < deadline) {
+            (void)::poll(nullptr, 0, 2);
+            flushReplies();
+        }
     };
     bool       cleanupHandled{};
     const auto fallbackDeadline = [&] { return std::min(CleanupClock::now() + 2s, initialDeadline); };
@@ -695,12 +748,22 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
     try {
         while (!stopping && !interrupted) {
             owner.check();
+            flushReplies();
+            std::vector<pid_t> owned;
             for (auto &[index, child] : children) {
                 collect(child);
                 if (child.done) {
                     channels[index].close();
+                } else {
+                    owned.push_back(child.pid);
                 }
             }
+            for (const auto &keeper : network.keepers) {
+                if (!keeper.done) {
+                    owned.push_back(keeper.pid);
+                }
+            }
+            reapOrphans(owned);
             for (auto it = waiters.begin(); it != waiters.end();) {
                 if (children.at(it->second).done) {
                     reply(it->first, true, processResult(children.at(it->second)));
@@ -871,7 +934,9 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
                     fds.push_back({.fd = child.error.value, .events = POLLIN, .revents = 0});
                 }
             }
-            systemCheck(::poll(fds.data(), fds.size(), -1) >= 0 || errno == EINTR, "poll supervisor");
+            // Orphan exits do not wake the loop, and the parent does not signal freed
+            // queue space: a bounded wait reaps orphans and retries pending replies.
+            systemCheck(::poll(fds.data(), fds.size(), outbox.empty() ? 250 : 5) >= 0 || errno == EINTR, "poll supervisor");
             owner.check();
         }
     } catch (const OwnerExited &) {
@@ -884,6 +949,7 @@ void supervise(unsigned count, std::string_view originalNamespace, unsigned desc
         throw;
     }
     cleanupChildren(fallbackDeadline());
+    drainReplies(fallbackDeadline());
     // Exiting namespace PID 1 also kills/reaps descendants that outlived their
     // immediate parent, including programs which double-forked.
 }

@@ -6,8 +6,10 @@
 #include <coroutine>
 #include <cstdio>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
+#include <ratio>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
@@ -721,6 +723,62 @@ void ordinaryCompletionDeadlineReceipt() {
     }
 }
 
+void unboundedDeadlinesSaturate() {
+    using Clock   = std::chrono::steady_clock;
+    using Seconds = std::chrono::time_point<Clock, std::chrono::seconds>;
+    namespace dd  = gentest::async::deadline_detail;
+    static_assert(dd::saturating_clock_duration(std::chrono::hours::max()) == Clock::duration::max());
+    static_assert(dd::saturating_clock_duration(std::chrono::hours::min()) == Clock::duration::min());
+    static_assert(dd::saturating_clock_duration(std::chrono::seconds{5}) == std::chrono::seconds{5});
+    static_assert(dd::saturating_clock_duration(-3ms) == -3ms);
+    static_assert(dd::saturating_clock_duration(std::chrono::duration<double>{std::numeric_limits<double>::infinity()}) ==
+                  Clock::duration::max());
+    static_assert(dd::saturating_clock_duration(std::chrono::duration<double>{-std::numeric_limits<double>::infinity()}) ==
+                  Clock::duration::min());
+    static_assert(dd::saturating_clock_duration(std::chrono::duration<unsigned long long, std::ratio<3600>>::max()) ==
+                  Clock::duration::max());
+    static_assert(dd::deadline_at(Seconds::max()) == Clock::time_point::max());
+    static_assert(dd::deadline_at(Seconds::min()) == Clock::time_point::min());
+    static_assert(dd::saturating_add(Clock::time_point::max() - 1ns, 1h) == Clock::time_point::max());
+    static_assert(dd::saturating_add(Clock::time_point::min() + 1ns, -1h) == Clock::time_point::min());
+
+    // Unbounded sleeps must not be ready immediately (overflow used to put the deadline in the past).
+    require(!gentest::async::sleep_for(std::chrono::hours::max()).await_ready(), "sleep_for(hours::max()) was immediately ready");
+    require(!gentest::async::sleep_until(Seconds::max()).await_ready(), "sleep_until(max) was immediately ready");
+
+    gentest::async::promise<int> first;
+    gentest::async::promise<int> second;
+    std::vector<int>             values;
+    auto waiting = [](gentest::async::promise<int> &a, gentest::async::promise<int> &b, std::vector<int> &out) -> gentest::awaitable<> {
+        auto by_duration = co_await gentest::async::wait_for(a.get_future(), std::chrono::hours::max());
+        require(by_duration.ready(), "wait_for(hours::max()) timed out");
+        out.push_back(std::move(by_duration).value());
+        auto by_deadline = co_await gentest::async::wait_until(b.get_future(), Seconds::max());
+        require(by_deadline.ready(), "wait_until(max) timed out");
+        out.push_back(std::move(by_deadline).value());
+    };
+    auto producing = [](gentest::async::promise<int> &target, int value) -> gentest::awaitable<> {
+        target.set_value(value);
+        co_return;
+    };
+    auto      waiter = waiting(first, second, values);
+    Scheduler scheduler;
+    scheduler.start(waiter);
+    scheduler.pump();
+    require(!waiter.handle().done(), "wait_for(hours::max()) completed before its input");
+    auto produce_first = producing(first, 41);
+    scheduler.start(produce_first);
+    scheduler.pump();
+    requireDone(produce_first);
+    require(!waiter.handle().done(), "wait_until(max) completed before its input");
+    auto produce_second = producing(second, 43);
+    scheduler.start(produce_second);
+    scheduler.pump();
+    requireDone(produce_second);
+    requireDone(waiter);
+    require(values == std::vector<int>{41, 43}, "unbounded waits lost their values");
+}
+
 void pendingFutureTimeoutPreservesValue() {
     gentest::async::promise<int>               producer;
     auto                                       future = producer.get_future();
@@ -836,6 +894,7 @@ int main() {
         {.name = "direct future and expired deadline", .run = &directFutureAndExpiredDeadline},
         {.name = "ordinary completion deadline receipt", .run = &ordinaryCompletionDeadlineReceipt},
         {.name = "future timeout preserves later value", .run = &pendingFutureTimeoutPreservesValue},
+        {.name = "unbounded deadlines saturate", .run = &unboundedDeadlinesSaturate},
         {.name = "ready builtins honor inherited stop and empty override", .run = &inheritedStopPrecedesReadyBuiltins},
         {.name = "composition keeps owning test context", .run = &compositionKeepsContext},
     };

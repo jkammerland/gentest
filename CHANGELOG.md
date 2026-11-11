@@ -53,6 +53,10 @@
   fails with the mock message, later cases run, and reports are written. A
   body that fails on every iteration records at most eight failures per call
   phase. The measured loops are unchanged (#262).
+- Nice-mode native mocks fail calls beyond a method's expectations, including
+  any call to a `.times(0)` method, with `unexpected call to <method>` as in
+  strict mode. Nice mode now ignores only methods without expectations, so tests
+  that relied on the old silence fail (#261).
 
 ## 1.3.0 - 2026-10-18
 

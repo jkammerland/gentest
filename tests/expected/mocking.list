@@ -30,6 +30,7 @@
 [PASS] mocking/mocking/move_only/refwrap_by_value
 [PASS] mocking/mocking/move_only/with_eq
 [PASS] mocking/mocking/nice/unexpected_ok
+[PASS] mocking/mocking/nice/expected_calls_ok
 [PASS] mocking/mocking/template/forwarding_alias
 [PASS] mocking/mocking/template/direct_unique_template_member_expect
 [PASS] mocking/mocking/template/template_template_ctor

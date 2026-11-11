@@ -717,4 +717,13 @@ void bench_measured_call_verification_does_not_throw() {
     }
 }
 
+void nice_expected_calls_ok() {
+    gentest::mock<Ticker> mock_tick;
+    gentest::make_nice(mock_tick, true);
+    // Nice mode must not disturb calls that stay within the expectation.
+    gentest::expect(mock_tick, &Ticker::tick).times(2);
+    mock_tick.tick(1);
+    mock_tick.tick(2);
+}
+
 } // namespace mocking

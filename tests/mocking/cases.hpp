@@ -143,5 +143,7 @@ void nice_unexpected_ok();
 
 [[using gentest: test("mocking/bench/measured_call_verification_does_not_throw")]]
 void bench_measured_call_verification_does_not_throw();
+[[using gentest: test("mocking/nice/expected_calls_ok")]]
+void nice_expected_calls_ok();
 
 } // namespace mocking

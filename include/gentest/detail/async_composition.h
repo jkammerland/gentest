@@ -597,15 +597,13 @@ template <typename Awaitable, typename Duration>
                               const std::source_location &loc = std::source_location::current()) {
     static_assert(GENTEST_EXCEPTIONS_ENABLED || !std::is_same_v<Awaitable, Awaitable>,
                   "gentest::async::wait_until and wait_for require exception support for cancellation and joining");
-    return timeout_detail::timeout_awaitable<Awaitable>{std::forward<Awaitable>(awaitable),
-                                                        std::chrono::time_point_cast<std::chrono::steady_clock::duration>(deadline), loc};
+    return timeout_detail::timeout_awaitable<Awaitable>{std::forward<Awaitable>(awaitable), deadline_detail::deadline_at(deadline), loc};
 }
 
 template <typename Awaitable, typename Rep, typename Period>
 [[nodiscard]] auto wait_for(Awaitable &&awaitable, std::chrono::duration<Rep, Period> duration,
                             const std::source_location &loc = std::source_location::current()) {
-    return wait_until(std::forward<Awaitable>(awaitable),
-                      std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration), loc);
+    return wait_until(std::forward<Awaitable>(awaitable), deadline_detail::deadline_after(duration), loc);
 }
 
 } // namespace gentest::async
