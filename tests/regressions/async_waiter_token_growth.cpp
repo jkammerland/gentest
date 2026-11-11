@@ -9,7 +9,6 @@
 #include <iostream>
 #include <string>
 #include <string_view>
-#include <thread>
 
 // Regression for #264: every completed wait used to leave an expired waiter
 // token entry behind until its frame finished, so one long-running case grew
@@ -21,8 +20,18 @@ constexpr int         kYieldWaits = 200000;
 constexpr int         kTimerWaits = 2000;
 constexpr std::size_t kMaxTracked = 64;
 
+// Advance the scheduler clock to each pending timer instead of waiting on the
+// host clock; this regression measures token retention, not timer precision.
+struct ManualClock {
+    using Clock                              = std::chrono::steady_clock;
+    static inline Clock::duration::rep ticks = 0;
+    static auto                        now() noexcept -> Clock::time_point { return Clock::time_point{Clock::duration{ticks}}; }
+};
+
 class CountingScheduler final : public gentest::detail::AsyncScheduler {
   public:
+    CountingScheduler() : core_({}, &ManualClock::now) {}
+
     ~CountingScheduler() override {
         deactivate();
         core_.cancel_all();
@@ -47,11 +56,16 @@ class CountingScheduler final : public gentest::detail::AsyncScheduler {
         core_.attach_child(child, parent);
     }
     [[nodiscard]] auto make_waiter(std::coroutine_handle<> handle) -> WaiterTokenPtr override {
+        ++waiters_created;
         return core_.make_waiter(handle, control());
     }
     void schedule_timer(std::chrono::steady_clock::time_point deadline, const WaiterTokenPtr &token) override {
+        ++timers_scheduled;
         core_.schedule_timer(deadline, token);
     }
+
+    std::size_t waiters_created  = 0;
+    std::size_t timers_scheduled = 0;
 
     // Runs the task to completion and returns the largest number of waiter
     // tokens tracked for its frame between resumptions.
@@ -67,7 +81,7 @@ class CountingScheduler final : public gentest::detail::AsyncScheduler {
             auto ready = core_.pop_ready();
             if (!ready) {
                 if (const auto deadline = core_.next_timer_deadline()) {
-                    std::this_thread::sleep_until(*deadline);
+                    ManualClock::ticks = deadline->time_since_epoch().count();
                     continue;
                 }
                 break;
@@ -93,7 +107,8 @@ auto many_waits() -> gentest::awaitable<void> {
         co_await gentest::async::yield();
     }
     for (int i = 0; i < kTimerWaits; ++i) {
-        co_await gentest::async::sleep_for(std::chrono::microseconds(50));
+        // A distant deadline guarantees await_suspend runs even on slow hosts.
+        co_await gentest::async::sleep_until(std::chrono::steady_clock::time_point::max());
     }
 }
 
@@ -112,6 +127,9 @@ int main() try {
         return fail("waiter token growth task did not complete");
     }
     std::cout << "max tracked waiter tokens across " << (kYieldWaits + kTimerWaits) << " waits: " << max_tracked << '\n';
+    if (scheduler.waiters_created != kYieldWaits + kTimerWaits || scheduler.timers_scheduled != kTimerWaits || max_tracked == 0) {
+        return fail("waiter token growth task did not exercise every yield and timer suspension");
+    }
     if (max_tracked > kMaxTracked) {
         return fail("completed waiter tokens were not pruned: tracked " + std::to_string(max_tracked) + " > " +
                     std::to_string(kMaxTracked));

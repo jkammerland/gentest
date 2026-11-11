@@ -98,11 +98,11 @@ void bench_require_unwinds_mock() {
 }
 
 void bench_late_unmet_mock() {
-    // Satisfied until calibration reaches a large epoch, then unmet on every call.
+    // With one calibration call and one warmup call, fail in the first measured epoch.
     static std::size_t                 calls = 0;
     gentest::mock<mocking::Calculator> calculator;
     gentest::expect(calculator, &mocking::Calculator::reset).times(1);
-    if (++calls < 100)
+    if (++calls < 3)
         calculator.reset();
 }
 

@@ -38,10 +38,12 @@ void ambiguous_template_member_pointer() {
 
 // Nice mode only relaxes methods without expectations; once a method has
 // expectations, calls beyond them must fail exactly as in strict mode.
+// Use constant method identities because Ticker also has tadd<int> with the same
+// signature, making runtime member-pointer selection ambiguous on the MSVC ABI.
 void nice_exhausted_excess_call() {
     gentest::mock<mocking::Ticker> mock_obj;
     gentest::make_nice(mock_obj, true);
-    gentest::expect(mock_obj, &mocking::Ticker::tick).times(1);
+    gentest::expect<&mocking::Ticker::tick>(mock_obj, "::mocking::Ticker::tick").times(1);
     mock_obj.tick(1);
     mock_obj.tick(2); // exceeds times(1): must fail
 }
@@ -49,7 +51,7 @@ void nice_exhausted_excess_call() {
 void nice_times_zero_call() {
     gentest::mock<mocking::Ticker> mock_obj;
     gentest::make_nice(mock_obj, true);
-    gentest::expect(mock_obj, &mocking::Ticker::tick).times(0);
+    gentest::expect<&mocking::Ticker::tick>(mock_obj, "::mocking::Ticker::tick").times(0);
     mock_obj.tick(1); // forbidden by times(0): must fail
 }
 

@@ -56,7 +56,9 @@ def main():
             "bench_unmet_mock": "expected 1 call(s) to ::mocking::Calculator::reset but observed 0",
             "jitter_unmet_mock": "expected 1 call(s) to ::mocking::Calculator::reset but observed 0",
         }
-        text = run("--filter=result_correctness/*_mock", "--bench-min-epoch-time-s=0.001", "--junit=" + str(report), expected=1)
+        # Zero target epoch time fixes calibration at one call, independently of host speed.
+        text = run("--filter=result_correctness/*_mock", "--bench-min-epoch-time-s=0",
+                   "--bench-warmup=1", "--junit=" + str(report), expected=1)
         assert "terminate" not in text, text
         assert "Summary: passed 1/5; failed 4;" in text, text
         suite = ET.parse(report).getroot()

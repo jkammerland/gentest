@@ -253,7 +253,7 @@ class AsyncSchedulerCore {
         std::vector<WaiterTokenPtr> due;
         {
             std::lock_guard<std::mutex> lk(mtx_);
-            due = timers_.pop_due(std::chrono::steady_clock::now());
+            due = timers_.pop_due(now_());
         }
         for (auto &token : due) {
             token->post();

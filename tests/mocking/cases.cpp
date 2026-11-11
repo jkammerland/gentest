@@ -942,7 +942,8 @@ void nice_expected_calls_ok() {
     gentest::mock<Ticker> mock_tick;
     gentest::make_nice(mock_tick, true);
     // Nice mode must not disturb calls that stay within the expectation.
-    gentest::expect(mock_tick, &Ticker::tick).times(2);
+    // Select tick explicitly: tadd<int> shares its signature on the MSVC ABI.
+    gentest::expect<&Ticker::tick>(mock_tick, "::mocking::Ticker::tick").times(2);
     mock_tick.tick(1);
     mock_tick.tick(2);
 }
