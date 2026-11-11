@@ -2,6 +2,7 @@
 #  -DBUILD_ROOT=<path>
 #  -DGENTEST_SOURCE_DIR=<path to gentest source tree>
 #  -DPROG=<path to gentest_codegen>
+#  -DPUBLIC_MODULE_PRODUCER_ROOT=<shared producer from PublicModuleProducerFixture.cmake>
 
 if(NOT DEFINED BUILD_ROOT OR "${BUILD_ROOT}" STREQUAL "")
   message(FATAL_ERROR "CheckCodegenPublicModuleImports.cmake: BUILD_ROOT not set")
@@ -13,32 +14,21 @@ if(NOT DEFINED PROG OR "${PROG}" STREQUAL "")
   message(FATAL_ERROR "CheckCodegenPublicModuleImports.cmake: PROG not set")
 endif()
 
-include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
-include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/PublicModuleProducer.cmake")
 
 set(_work_dir "${BUILD_ROOT}/cgpmi")
-set(_producer_build_dir "${_work_dir}/p")
 set(_consumer_build_dir "${_work_dir}/consumer")
 set(_consumer_missing_build_dir "${_work_dir}/missing")
-set(_install_prefix "${_work_dir}/i")
 set(_consumer_source_dir "${GENTEST_SOURCE_DIR}/tests/consumer")
 
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY "${_work_dir}")
 
-gentest_resolve_clang_fixture_compilers(_clang _clangxx)
-if(NOT _clang OR NOT _clangxx)
-  gentest_skip_test("codegen public module imports regression: clang/clang++ not found")
+gentest_public_module_toolchain()
+if(NOT _pm_skip_reason STREQUAL "")
+  gentest_skip_test("codegen public module imports regression: ${_pm_skip_reason}")
   return()
 endif()
-
-gentest_find_supported_ninja(_ninja _ninja_reason)
-if(NOT _ninja)
-  gentest_skip_test("codegen public module imports regression: ${_ninja_reason}")
-  return()
-endif()
-
-gentest_find_clang_scan_deps(_target_scan_deps "${_clangxx}")
 
 # Select host tooling explicitly. The target compiler's scanner may come from
 # a different installation; inherited host overrides must not change an assertion.
@@ -75,29 +65,10 @@ endif()
 gentest_append_windows_native_llvm_cache_args(_common_cache_args "${_clangxx}" ${_common_cache_args})
 gentest_append_host_apple_sysroot(_common_cache_args)
 
-message(STATUS "Configure producer for required module dependency scanning...")
-gentest_check_run_or_fail(
-  COMMAND
-    "${CMAKE_COMMAND}"
-    -G Ninja
-    -S "${GENTEST_SOURCE_DIR}"
-    -B "${_producer_build_dir}"
-    ${_common_cache_args}
-    "-Dgentest_INSTALL=ON"
-    "-Dgentest_BUILD_TESTING=OFF"
-    "-DGENTEST_BUILD_CODEGEN=ON"
-    "-DGENTEST_ENABLE_PUBLIC_MODULES=ON"
-    "-DCMAKE_INSTALL_PREFIX=${_install_prefix}"
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-gentest_assert_windows_native_llvm_cache_args(
-  "${_producer_build_dir}" "${_clangxx}" "required module dependency scanning producer")
-
-message(STATUS "Build and install producer...")
-gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}" --target install
-  WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
+# The fixture setup installs the modules-ON producer shared with
+# gentest_public_module_surface.
+gentest_require_public_module_producer()
+set(_install_prefix "${_pm_install_prefix}")
 
 function(_gentest_configure_consumer build_dir)
   gentest_check_run_or_fail(

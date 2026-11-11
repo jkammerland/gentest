@@ -37,7 +37,8 @@ function(gentest_register_package_fixture out_fixture out_root source_dir)
                 "-DPACKAGE_PRODUCER_ROOT=${_producer_root}"
                 "-DPACKAGE_TEST_PHASE=${_phase}")
         endforeach()
-        set_tests_properties("${_setup}" PROPERTIES FIXTURES_SETUP "${_fixture}")
+        # Producer builds dominate a fresh run; start them first.
+        set_tests_properties("${_setup}" PROPERTIES FIXTURES_SETUP "${_fixture}" COST 400)
         set_tests_properties("${_cleanup}" PROPERTIES FIXTURES_CLEANUP "${_fixture}")
     endif()
 

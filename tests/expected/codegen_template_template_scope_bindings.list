@@ -1,0 +1,5 @@
+[PASS] template_scope/nested/shadowed_alias<ShadowVec>
+[PASS] template_scope/nested/shadowed_enum<(ShadowFlag::A)>
+[PASS] template_scope/nested/unqualified_alias<VecAlias>
+[PASS] template_scope/nested/unqualified_alias<std::list>
+[PASS] template_scope/nested/unqualified_parenthesized_enum<(Flag::A)>
