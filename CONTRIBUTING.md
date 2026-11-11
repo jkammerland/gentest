@@ -37,6 +37,21 @@ sloppiness settings are needed. Unsupported compilation modes, including named
 modules, can pass through uncached; fixtures still build their own targets and
 run their complete codegen and install checks.
 
+## Interactive async demos
+
+Build `gentest_async_live_slow_tests` and run its ping-pong demo in a terminal:
+
+```bash
+cmake --build --preset=debug-system --target gentest_async_live_slow_tests
+build/debug-system/tests/gentest_async_live_slow_tests --filter='async_live_slow/pingpong/*'
+```
+
+The demo pauses 600 ms at each ping-pong handoff so its progress is visible.
+Set `GENTEST_ASYNC_DEMO_FAST=1` for 50 ms pacing in both the ping-pong and panel
+demos. Automated CTest checks select this mode while retaining all rounds,
+logs, event waits, and terminal assertions. Real timer and cancellation stress
+tests use their own deadlines and repetition counts.
+
 ## Repository LLVM toolchain
 
 Repository builds and lint use LLVM 23, selected by

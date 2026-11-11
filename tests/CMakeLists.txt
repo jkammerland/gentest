@@ -902,6 +902,19 @@ gentest_add_cmake_script_test(
     DEFINES
         "CAPTURE_ENV=TERM_DUMB")
 
+# These cases are interactive demos with deliberate pacing, rather than timer
+# precision tests. Keep their handoffs, logs, and real terminal redraw checks.
+set_property(TEST
+    async_live_slow_pingpong_demo
+    async_live_slow_pingpong_terminal_tail_zero
+    async_live_slow_terminal_rendering
+    async_live_slow_terminal_rendering_no_color
+    async_live_slow_terminal_rendering_log_tail_zero
+    async_live_slow_captured_terminal_plain_codex
+    async_live_slow_captured_terminal_plain_ci
+    async_live_slow_captured_terminal_plain_dumb
+    APPEND PROPERTY ENVIRONMENT "GENTEST_ASYNC_DEMO_FAST=1")
+
 gentest_add_check_counts(
     NAME async_value_discard
     PROG $<TARGET_FILE:${PROJECT_NAME}_async_tests>
