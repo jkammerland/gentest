@@ -1,3 +1,4 @@
+[PASS] mocking/mocking/bench/measured_call_verification_does_not_throw
 [PASS] mocking/mocking/concrete/invokes
 [PASS] mocking/mocking/concrete/invokes_matches
 [PASS] mocking/mocking/concrete/non_default_ctor
