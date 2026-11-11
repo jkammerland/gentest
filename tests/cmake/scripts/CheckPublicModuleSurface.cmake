@@ -57,6 +57,7 @@ gentest_check_run_or_fail(
     -B "${_consumer_build_dir}"
     ${_common_cache_args}
     "-DCMAKE_PREFIX_PATH=${_install_prefix}"
+    "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 gentest_assert_windows_native_llvm_cache_args(

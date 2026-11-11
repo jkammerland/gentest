@@ -4697,21 +4697,30 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_imported_module_runtime APPEND PROPERTY LABELS "modules")
 
-# One installed modules-ON producer serves both public-module consumer checks.
-set(_gentest_public_module_producer_root "${CMAKE_CURRENT_BINARY_DIR}/pmp")
-foreach(_gentest_phase IN ITEMS SETUP CLEANUP)
-    string(TOLOWER "${_gentest_phase}" _gentest_phase_lower)
-    _gentest_add_cmake_helper_test(
-        gentest_public_module_producer_${_gentest_phase_lower}
-        ${PROJECT_SOURCE_DIR}
-        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/PublicModuleProducerFixture.cmake
-        modules
-        -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-        -DBUILD_ROOT=${_gentest_public_module_producer_root}
-        -DPUBLIC_MODULE_PRODUCER_PHASE=${_gentest_phase})
-endforeach()
-set_tests_properties(gentest_public_module_producer_setup PROPERTIES FIXTURES_SETUP gentest_public_module_producer)
-set_tests_properties(gentest_public_module_producer_cleanup PROPERTIES FIXTURES_CLEANUP gentest_public_module_producer)
+# Reuse the module fixture package when its toolchain is compatible. Both public
+# surface checks bring the main host tool; installed-tool consumers still upgrade
+# the shared producer when package tests are enabled.
+gentest_fixture_prefix_package_args(_gentest_public_module_package_args MODULES)
+if(_gentest_public_module_package_args)
+    gentest_register_package_fixture(_gentest_public_module_fixture _gentest_public_module_producer_root
+        "${PROJECT_SOURCE_DIR}" ${_gentest_public_module_package_args})
+else()
+    set(_gentest_public_module_producer_root "${CMAKE_CURRENT_BINARY_DIR}/pmp")
+    foreach(_gentest_phase IN ITEMS SETUP CLEANUP)
+        string(TOLOWER "${_gentest_phase}" _gentest_phase_lower)
+        _gentest_add_cmake_helper_test(
+            gentest_public_module_producer_${_gentest_phase_lower}
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/PublicModuleProducerFixture.cmake
+            modules
+            -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+            -DBUILD_ROOT=${_gentest_public_module_producer_root}
+            -DPUBLIC_MODULE_PRODUCER_PHASE=${_gentest_phase})
+    endforeach()
+    set_tests_properties(gentest_public_module_producer_setup PROPERTIES FIXTURES_SETUP gentest_public_module_producer)
+    set_tests_properties(gentest_public_module_producer_cleanup PROPERTIES FIXTURES_CLEANUP gentest_public_module_producer)
+    set(_gentest_public_module_fixture gentest_public_module_producer)
+endif()
 
 _gentest_add_cmake_helper_test(
     gentest_public_module_surface
@@ -4731,7 +4740,9 @@ _gentest_add_cmake_helper_test(
     -DPUBLIC_MODULE_PRODUCER_ROOT=${_gentest_public_module_producer_root})
 set_property(TEST gentest_codegen_public_module_imports APPEND PROPERTY LABELS "codegen")
 set_tests_properties(gentest_public_module_surface gentest_codegen_public_module_imports PROPERTIES
-    FIXTURES_REQUIRED gentest_public_module_producer)
+    FIXTURES_REQUIRED "${_gentest_public_module_fixture}")
+unset(_gentest_public_module_package_args)
+unset(_gentest_public_module_fixture)
 unset(_gentest_public_module_producer_root)
 unset(_gentest_phase)
 unset(_gentest_phase_lower)

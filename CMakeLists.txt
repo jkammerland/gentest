@@ -134,10 +134,10 @@ endif()
 option(GENTEST_BUILD_CODEGEN "Build the gentest code generator tool (gentest_codegen)" "${_gentest_build_codegen_default}")
 unset(_gentest_build_codegen_default)
 
-if(${PROJECT_NAME}_INSTALL AND NOT CMAKE_CROSSCOMPILING AND NOT GENTEST_BUILD_CODEGEN)
-    message(FATAL_ERROR
-        "${PROJECT_NAME}_INSTALL=ON requires GENTEST_BUILD_CODEGEN=ON so the installed CMake package includes "
-        "the gentest_codegen host tool used by GentestCodegen.cmake.")
+# Runtime-only installs use an explicitly selected host tool in their consumers.
+# Native installs still build and install codegen by default.
+if(${PROJECT_NAME}_INSTALL AND NOT GENTEST_BUILD_CODEGEN)
+    message(STATUS "gentest: installing runtime without codegen; consumers must select a host tool")
 endif()
 
 if(GENTEST_BUILD_CODEGEN)
