@@ -69,6 +69,7 @@ gentest_append_host_apple_sysroot(_common_cache_args)
 # gentest_public_module_surface.
 gentest_require_public_module_producer()
 set(_install_prefix "${_pm_install_prefix}")
+gentest_public_module_dependency_cache_args(_producer_dependency_args)
 
 function(_gentest_configure_consumer build_dir)
   gentest_check_run_or_fail(
@@ -78,6 +79,7 @@ function(_gentest_configure_consumer build_dir)
       -S "${_consumer_source_dir}"
       -B "${build_dir}"
       ${_common_cache_args}
+      ${_producer_dependency_args}
       "-DCMAKE_PREFIX_PATH=${_install_prefix}"
       "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}"
       "-DGENTEST_CONSUMER_USE_MODULES=ON"

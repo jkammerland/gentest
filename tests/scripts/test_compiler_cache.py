@@ -22,8 +22,10 @@ set(GENTEST_TEST_COMPILER_CACHE OFF)
 add_test(NAME probe COMMAND "${{CMAKE_COMMAND}}" -E true)
 gentest_configure_test_compiler_cache(probe)
 ''')
-            env = dict(os.environ, GENTEST_TEST_COMPILER_CACHE='ON')
-            result = subprocess.run(['cmake', '-S', str(root), '-B', str(root / 'build')], env=env, text=True, capture_output=True)
+            # This property-only fixture uses one configuration even when the
+            # host defaults to Visual Studio or another multi-config generator.
+            env = dict(os.environ, GENTEST_TEST_COMPILER_CACHE='ON', CMAKE_GENERATOR='Ninja Multi-Config')
+            result = subprocess.run(['cmake', '-G', 'Ninja', '-S', str(root), '-B', str(root / 'build')], env=env, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             result = subprocess.run(['ctest', '--test-dir', str(root / 'build'), '--show-only=json-v1'], text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -31,6 +33,20 @@ gentest_configure_test_compiler_cache(probe)
             self.assertEqual(len(tests), 1)
             properties = {p['name']: p['value'] for p in tests[0]['properties']}
             self.assertIn('GENTEST_TEST_COMPILER_CACHE=OFF', properties['ENVIRONMENT'])
+
+    def test_unsupported_host_reports_the_complete_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / 'CMakeLists.txt').write_text(f'''cmake_minimum_required(VERSION 3.31)
+project(cache_unsupported LANGUAGES NONE)
+set(CMAKE_HOST_UNIX FALSE)
+include("{ROOT.as_posix()}/cmake/GentestTestCompilerCache.cmake")
+gentest_enable_test_compiler_cache()
+''')
+            result = subprocess.run(['cmake', '-G', 'Ninja', '-S', str(root), '-B', str(root / 'build')], text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            diagnostics = ' '.join((result.stdout + result.stderr).split())
+            self.assertIn('GENTEST_TEST_COMPILER_CACHE requires a GNU-style C++ compiler on a Unix host', diagnostics)
 
     def test_existing_custom_launcher_is_not_overwritten(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -72,7 +88,8 @@ add_executable(probe main.cpp)
             compiler = (build / 'compiler.txt').read_text().split(';')
             if os.name == 'nt' or compiler[0] not in ('GNU', 'Clang', 'AppleClang') or compiler[1] == 'MSVC':
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn('GNU-style C++ compiler on a Unix host', result.stdout + result.stderr)
+                diagnostics = ' '.join((result.stdout + result.stderr).split())
+                self.assertIn('GNU-style C++ compiler on a Unix host', diagnostics)
                 return
             if not shutil.which('ccache'):
                 self.assertNotEqual(result.returncode, 0)

@@ -238,7 +238,7 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_manual_ci.py)
 set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github")
 
-foreach(_gentest_validation_contract IN ITEMS full_ci ci_matrix llvm_tools llvm_dependency_shims package_fixtures fixture_prefix compiler_cache target_command fixture_target_command report_output_isolation tsan_death_tests backend_prerequisite_skips clang_leak_probes validate_local discovery_skip coverage_policy)
+foreach(_gentest_validation_contract IN ITEMS full_ci ci_matrix llvm_tools llvm_dependency_shims package_fixtures fixture_prefix compiler_cache public_module_producer target_command fixture_target_command report_output_isolation tsan_death_tests backend_prerequisite_skips clang_leak_probes validate_local discovery_skip coverage_policy)
     add_test(NAME ${_gentest_validation_contract}_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_${_gentest_validation_contract}.py)
     set_property(TEST ${_gentest_validation_contract}_contract APPEND PROPERTY LABELS "scripts")

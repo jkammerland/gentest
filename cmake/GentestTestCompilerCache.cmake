@@ -21,10 +21,12 @@ function(gentest_enable_test_compiler_cache)
     endforeach()
 
     # Normalize the compilation directory in debug info, without changing
-    # __FILE__ or source_location. Keep ccache's compiler/header validation.
+    # __FILE__ or source_location. CMake exports private module compile options
+    # too, so keep this build-directory mapping out of every exported target.
+    # Keep ccache's compiler/header validation.
     add_compile_options(
-        "$<$<COMPILE_LANG_AND_ID:C,GNU,Clang,AppleClang>:-fdebug-prefix-map=${CMAKE_BINARY_DIR}=.>"
-        "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-fdebug-prefix-map=${CMAKE_BINARY_DIR}=.>")
+        "$<BUILD_LOCAL_INTERFACE:$<$<COMPILE_LANG_AND_ID:C,GNU,Clang,AppleClang>:-fdebug-prefix-map=${CMAKE_BINARY_DIR}=.>>"
+        "$<BUILD_LOCAL_INTERFACE:$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-fdebug-prefix-map=${CMAKE_BINARY_DIR}=.>>")
     message(STATUS "gentest: compiler cache launcher '${GENTEST_CCACHE_EXECUTABLE}'")
 endfunction()
 
