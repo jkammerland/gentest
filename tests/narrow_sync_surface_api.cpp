@@ -32,6 +32,7 @@ struct CaseLayoutMirror {
     std::string_view                  owner{};
     gentest::BenchmarkOptions         benchmark{};
     bool                              reports_body_start{false};
+    void (*measured_fn)(void *){nullptr};
 };
 
 static_assert(!kCompleteType<gentest::detail::AsyncTask>, "gentest/test.h and Case must not parse the full async implementation");
@@ -58,6 +59,7 @@ static_assert(offsetof(gentest::Case, is_async) == offsetof(CaseLayoutMirror, is
 static_assert(offsetof(gentest::Case, items_per_call) == offsetof(CaseLayoutMirror, items_per_call));
 static_assert(offsetof(gentest::Case, owner) == offsetof(CaseLayoutMirror, owner));
 static_assert(offsetof(gentest::Case, benchmark) == offsetof(CaseLayoutMirror, benchmark));
+static_assert(offsetof(gentest::Case, measured_fn) == offsetof(CaseLayoutMirror, measured_fn));
 
 [[using gentest: test("narrow_surface/metadata"), fast, req("NARROW-1"), owner("headers"), skip("compile-only")]]
 void synchronous_case_declaration() {}

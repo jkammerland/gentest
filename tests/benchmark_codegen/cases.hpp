@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gentest/attributes.h"
+#include "gentest/fixture.h"
 
 [[using gentest: bench("codegen/once_supplied"), bench_once, bench_warmup(0), bench_time("supplied"), fast, owner("codegen")]]
 void once_supplied();
@@ -19,3 +20,11 @@ void default_jitter();
 
 [[using gentest: test("codegen/test"), slow]]
 void ordinary_test();
+
+struct LocalFixture : gentest::FixtureSetup, gentest::FixtureTearDown {
+    void setUp() override;
+    void tearDown() override;
+};
+
+[[using gentest: bench("codegen/fixture")]]
+void fixture_benchmark(LocalFixture &);
