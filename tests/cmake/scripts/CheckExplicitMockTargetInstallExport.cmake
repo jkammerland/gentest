@@ -94,6 +94,13 @@ endif()
 gentest_append_public_modules_cache_arg(_cmake_cache_args)
 gentest_append_windows_native_llvm_cache_args(_cmake_cache_args "${_clangxx}" ${_cmake_cache_args})
 gentest_append_host_apple_sysroot(_cmake_cache_args)
+if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
+  list(APPEND _cmake_cache_args "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}")
+endif()
+include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
+gentest_fixture_prefix_cache_args(_prefix_cache_args _cmake_cache_args)
+list(APPEND _cmake_cache_args ${_prefix_cache_args})
+
 
 set(_consumer_cache_args
   "-DCMAKE_PREFIX_PATH=${_install_prefix}"
@@ -123,6 +130,7 @@ gentest_check_run_or_fail(
     ${_cmake_cache_args}
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
+
 gentest_assert_windows_native_llvm_cache_args(
   "${_producer_build_dir}" "${_clangxx}" "explicit mock install/export producer")
 
@@ -131,6 +139,24 @@ gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_producer_build_dir}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
+
+if(DEFINED PROG AND NOT "${PROG}" STREQUAL "")
+  gentest_read_cache_value("${_producer_build_dir}/CMakeCache.txt" GENTEST_BUILD_CODEGEN _found _built_codegen)
+  if(NOT _found OR _built_codegen)
+    message(FATAL_ERROR "Export fixture unexpectedly enabled an in-tree host tool")
+  endif()
+endif()
+
+# Preserve the combined, relocatable installation exercised by this regression.
+# Reuse the dependency's installed binaries, then install the newly built exports.
+foreach(_arg IN LISTS _prefix_cache_args)
+  if(_arg MATCHES "^-DGENTEST_FIXTURE_PREFIX=(.*)$")
+    if(IS_DIRECTORY "${_producer_build_dir}/gentest")
+      message(FATAL_ERROR "Export fixture unexpectedly rebuilt its shared runtime dependency")
+    endif()
+    file(COPY "${CMAKE_MATCH_1}/" DESTINATION "${_install_prefix}")
+  endif()
+endforeach()
 
 message(STATUS "Install explicit mock target producer...")
 gentest_check_run_or_fail(

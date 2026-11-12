@@ -96,6 +96,11 @@ gentest_check_run_or_fail(
   STRIP_TRAILING_WHITESPACE)
 
 if(DEFINED NO_EXPLICIT_CODEGEN AND NO_EXPLICIT_CODEGEN)
+  file(READ "${_build_dir}/native_codegen_path.txt" _native_codegen_path)
+  cmake_path(IS_PREFIX _build_dir "${_native_codegen_path}" NORMALIZE _native_tool_is_local)
+  if(NOT _native_tool_is_local)
+    message(FATAL_ERROR "In-tree codegen fixture selected a tool outside its build: ${_native_codegen_path}")
+  endif()
   file(GLOB _scan_helper_dirs
     LIST_DIRECTORIES TRUE
     "${_work_dir}/gentest_scan_inspector_*"

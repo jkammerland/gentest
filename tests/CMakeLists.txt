@@ -238,7 +238,7 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_manual_ci.py)
 set_property(TEST manual_ci_contract APPEND PROPERTY LABELS "scripts;github")
 
-foreach(_gentest_validation_contract IN ITEMS full_ci ci_matrix llvm_tools llvm_dependency_shims package_fixtures target_command fixture_target_command report_output_isolation tsan_death_tests backend_prerequisite_skips clang_leak_probes validate_local discovery_skip coverage_policy)
+foreach(_gentest_validation_contract IN ITEMS full_ci ci_matrix llvm_tools llvm_dependency_shims package_fixtures fixture_prefix compiler_cache public_module_producer target_command fixture_target_command report_output_isolation tsan_death_tests backend_prerequisite_skips clang_leak_probes validate_local discovery_skip coverage_policy)
     add_test(NAME ${_gentest_validation_contract}_contract
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_${_gentest_validation_contract}.py)
     set_property(TEST ${_gentest_validation_contract}_contract APPEND PROPERTY LABELS "scripts")
@@ -380,6 +380,15 @@ target_compile_options(gentest_failing_tests PRIVATE
 if(TARGET ${PROJECT_NAME}_libassert_tests)
     gentest_link_mocks(${PROJECT_NAME}_libassert_tests PRIVATE gentest_textual_suite_mocks)
 endif()
+
+# Optional generated helpers must be warning-free in both fixture and plain suites.
+# Keep this gate in test builds so downstream warning policies remain their own.
+foreach(_warning_target IN ITEMS gentest_runtime gentest_unit_tests gentest_fixtures_tests gentest_failing_tests)
+    target_compile_options(${_warning_target} PRIVATE
+        $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Werror=unused-template>)
+endforeach()
+target_compile_options(gentest_runtime PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Werror=unused-function -Werror=unused-private-field>)
 
 # Concurrency target (no default add_test to avoid suite-wide failure)
 gentest_add_suite(concurrency TARGET ${PROJECT_NAME}_concurrency_tests NO_CTEST)
@@ -892,6 +901,19 @@ gentest_add_cmake_script_test(
     ARGS --run=async_live_slow/panel/02_short_pass --kind=test
     DEFINES
         "CAPTURE_ENV=TERM_DUMB")
+
+# These cases are interactive demos with deliberate pacing, rather than timer
+# precision tests. Keep their handoffs, logs, and real terminal redraw checks.
+set_property(TEST
+    async_live_slow_pingpong_demo
+    async_live_slow_pingpong_terminal_tail_zero
+    async_live_slow_terminal_rendering
+    async_live_slow_terminal_rendering_no_color
+    async_live_slow_terminal_rendering_log_tail_zero
+    async_live_slow_captured_terminal_plain_codex
+    async_live_slow_captured_terminal_plain_ci
+    async_live_slow_captured_terminal_plain_dumb
+    APPEND PROPERTY ENVIRONMENT "GENTEST_ASYNC_DEMO_FAST=1")
 
 gentest_add_check_counts(
     NAME async_value_discard
@@ -3855,12 +3877,32 @@ gentest_add_fixture_prefix_test(
     gentest_header_declaration_registration
     ${PROJECT_SOURCE_DIR}/tests/cmake/header_declaration_registration
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckHeaderDeclarationRegistration.cmake
-    cmake)
-set_property(TEST gentest_header_declaration_registration APPEND PROPERTY LABELS "codegen;headers")
-# This acceptance test configures and builds several nested projects. Let its
-# Ninja processes own the available machine instead of overcommitting them with
-# other nested-build CTest jobs.
-set_property(TEST gentest_header_declaration_registration PROPERTY RUN_SERIAL TRUE)
+    cmake
+    -DREGISTRATION_GROUP=CORE)
+set(_gentest_header_registration_tests gentest_header_declaration_registration)
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" OR WIN32)
+    # GCC/MSVC deliberately build their own runtime with a different ABI.
+    _gentest_add_cmake_helper_test(
+        gentest_header_declaration_registration_compilers
+        ${PROJECT_SOURCE_DIR}/tests/cmake/header_declaration_registration
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckHeaderDeclarationRegistration.cmake
+        cmake
+        -DREGISTRATION_GROUP=COMPILERS)
+    list(APPEND _gentest_header_registration_tests gentest_header_declaration_registration_compilers)
+endif()
+
+# Account for both Ninja actions and codegen's internal workers. Every nested
+# build, including expected-failure commands, inherits the same fixed budget.
+set_tests_properties(${_gentest_header_registration_tests} PROPERTIES PROCESSORS 2)
+foreach(_gentest_registration_test IN LISTS _gentest_header_registration_tests)
+    set_property(TEST ${_gentest_registration_test} APPEND PROPERTY LABELS "codegen;headers")
+    set_property(TEST ${_gentest_registration_test} APPEND PROPERTY ENVIRONMENT
+        "CMAKE_BUILD_PARALLEL_LEVEL=2"
+        "GENTEST_HELPER_BUILD_PARALLEL_LEVEL=2"
+        "GENTEST_CODEGEN_JOBS=2")
+endforeach()
+unset(_gentest_header_registration_tests)
+unset(_gentest_registration_test)
 
 _gentest_add_cmake_helper_test(
     gentest_tu_header_case_collision
@@ -4492,7 +4534,8 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_explicit_mock_target_staging APPEND PROPERTY LABELS "modules")
 
-_gentest_add_cmake_helper_test(
+gentest_add_fixture_prefix_test(
+    MODULES
     gentest_explicit_mock_target_install_export
     ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_target_install_export
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExplicitMockTargetInstallExport.cmake
@@ -4688,21 +4731,30 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_imported_module_runtime APPEND PROPERTY LABELS "modules")
 
-# One installed modules-ON producer serves both public-module consumer checks.
-set(_gentest_public_module_producer_root "${CMAKE_CURRENT_BINARY_DIR}/pmp")
-foreach(_gentest_phase IN ITEMS SETUP CLEANUP)
-    string(TOLOWER "${_gentest_phase}" _gentest_phase_lower)
-    _gentest_add_cmake_helper_test(
-        gentest_public_module_producer_${_gentest_phase_lower}
-        ${PROJECT_SOURCE_DIR}
-        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/PublicModuleProducerFixture.cmake
-        modules
-        -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
-        -DBUILD_ROOT=${_gentest_public_module_producer_root}
-        -DPUBLIC_MODULE_PRODUCER_PHASE=${_gentest_phase})
-endforeach()
-set_tests_properties(gentest_public_module_producer_setup PROPERTIES FIXTURES_SETUP gentest_public_module_producer)
-set_tests_properties(gentest_public_module_producer_cleanup PROPERTIES FIXTURES_CLEANUP gentest_public_module_producer)
+# Reuse the module fixture package when its toolchain is compatible. Both public
+# surface checks bring the main host tool; installed-tool consumers still upgrade
+# the shared producer when package tests are enabled.
+gentest_fixture_prefix_package_args(_gentest_public_module_package_args MODULES)
+if(_gentest_public_module_package_args)
+    gentest_register_package_fixture(_gentest_public_module_fixture _gentest_public_module_producer_root
+        "${PROJECT_SOURCE_DIR}" ${_gentest_public_module_package_args})
+else()
+    set(_gentest_public_module_producer_root "${CMAKE_CURRENT_BINARY_DIR}/pmp")
+    foreach(_gentest_phase IN ITEMS SETUP CLEANUP)
+        string(TOLOWER "${_gentest_phase}" _gentest_phase_lower)
+        _gentest_add_cmake_helper_test(
+            gentest_public_module_producer_${_gentest_phase_lower}
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/PublicModuleProducerFixture.cmake
+            modules
+            -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+            -DBUILD_ROOT=${_gentest_public_module_producer_root}
+            -DPUBLIC_MODULE_PRODUCER_PHASE=${_gentest_phase})
+    endforeach()
+    set_tests_properties(gentest_public_module_producer_setup PROPERTIES FIXTURES_SETUP gentest_public_module_producer)
+    set_tests_properties(gentest_public_module_producer_cleanup PROPERTIES FIXTURES_CLEANUP gentest_public_module_producer)
+    set(_gentest_public_module_fixture gentest_public_module_producer)
+endif()
 
 _gentest_add_cmake_helper_test(
     gentest_public_module_surface
@@ -4722,7 +4774,9 @@ _gentest_add_cmake_helper_test(
     -DPUBLIC_MODULE_PRODUCER_ROOT=${_gentest_public_module_producer_root})
 set_property(TEST gentest_codegen_public_module_imports APPEND PROPERTY LABELS "codegen")
 set_tests_properties(gentest_public_module_surface gentest_codegen_public_module_imports PROPERTIES
-    FIXTURES_REQUIRED gentest_public_module_producer)
+    FIXTURES_REQUIRED "${_gentest_public_module_fixture}")
+unset(_gentest_public_module_package_args)
+unset(_gentest_public_module_fixture)
 unset(_gentest_public_module_producer_root)
 unset(_gentest_phase)
 unset(_gentest_phase_lower)
@@ -5397,6 +5451,8 @@ endif()
 # sub-build tests in declaration order. Seed their cost (seconds, Linux Debug)
 # so they start first; CTest replaces these with measured costs after a run.
 set(_gentest_heavy_test_costs
+    gentest_header_declaration_registration=500
+    gentest_header_declaration_registration_compilers=300
     gentest_explicit_mock_target_install_export=396
     gentest_explicit_mock_target_surface=385
     gentest_module_registration_manifest=348

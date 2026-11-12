@@ -229,6 +229,24 @@ Use the default Gentest mock backend for Gentest's runner and reports. The
 [mock-generation guide](../mock_generation.md) explains GMock and Trompeloeil
 backends and their framework-specific execution/reporting.
 
+## Runtime-only packages
+
+A native install includes `gentest_codegen` by default. To install only the
+runtime, set `-Dgentest_INSTALL=ON -DGENTEST_BUILD_CODEGEN=OFF`. This build does not
+require the LLVM development libraries needed to compile the generator.
+
+Consumers of a runtime-only package select a compatible host tool before calling
+`gentest_attach_codegen()` or `gentest_add_mocks()`:
+
+```cmake
+find_package(gentest CONFIG REQUIRED)
+set(GENTEST_CODEGEN_EXECUTABLE "/path/to/host/gentest_codegen")
+```
+
+`GENTEST_CODEGEN_TARGET` can instead name an executable target. Cross builds
+require that target to be imported. The host tool and installed headers must
+come from the same Gentest version.
+
 ## Cross-compiling
 
 Build `gentest_codegen` for the host and select it with

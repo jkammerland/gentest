@@ -35,6 +35,7 @@ endif()
 # gentest_codegen_public_module_imports.
 gentest_require_public_module_producer()
 set(_install_prefix "${_pm_install_prefix}")
+gentest_public_module_dependency_cache_args(_producer_dependency_args)
 
 set(_common_cache_args
   "-DCMAKE_MAKE_PROGRAM=${_ninja}"
@@ -56,7 +57,9 @@ gentest_check_run_or_fail(
     -S "${_src_dir}"
     -B "${_consumer_build_dir}"
     ${_common_cache_args}
+    ${_producer_dependency_args}
     "-DCMAKE_PREFIX_PATH=${_install_prefix}"
+    "-DGENTEST_CODEGEN_EXECUTABLE=${PROG}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 gentest_assert_windows_native_llvm_cache_args(

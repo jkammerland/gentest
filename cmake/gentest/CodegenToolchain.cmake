@@ -288,8 +288,8 @@ function(_gentest_resolve_codegen_backend)
     else()
         message(FATAL_ERROR
             "gentest_attach_codegen: no gentest code generator available. "
-            "Either enable -DGENTEST_BUILD_CODEGEN=ON (native builds) or provide a host tool via "
-            "-DGENTEST_CODEGEN_EXECUTABLE=<path> (cross builds).")
+            "Enable -DGENTEST_BUILD_CODEGEN=ON for a native source build, or select a host tool with "
+            "-DGENTEST_CODEGEN_EXECUTABLE=<path> or -DGENTEST_CODEGEN_TARGET=<executable-target>.")
     endif()
 
     set(${GENTEST_OUT_CODEGEN_TARGET} "${_gentest_codegen_target}" PARENT_SCOPE)

@@ -129,13 +129,25 @@ set(_disk_cache "${_root}/disk-cache")
 set(_repo_contents_cache "${_root}/repo-cache")
 set(_output_one "${_root}/output-one")
 set(_output_two "${_root}/output-two")
-set(_output_three "${_root}/output-three")
-set(_output_four "${_root}/output-four")
-set(_output_five "${_root}/output-five")
 set(_output_windows_contract "${_root}/output-windows-contract")
 set(_output_migration "${_root}/output-migration")
 set(_output_local "${_root}/output-local")
 set(_output_local_sdk_contract "${_root}/output-local-sdk-contract")
+# Retain the server between related phases; release each isolated server as
+# soon as its contract is checked. The idle limit remains failure cleanup.
+set(_bazel_idle_secs 60)
+function(_gentest_shutdown_bazel output_root)
+  execute_process(
+    COMMAND "${_bazel}" --output_user_root=${output_root} --max_idle_secs=${_bazel_idle_secs} shutdown
+    WORKING_DIRECTORY "${SOURCE_DIR}"
+    RESULT_VARIABLE _shutdown_rc
+    OUTPUT_QUIET
+    ERROR_QUIET)
+  if(NOT _shutdown_rc EQUAL 0)
+    message(WARNING "Bazel server shutdown failed for ${output_root}; --max_idle_secs=${_bazel_idle_secs} remains the fallback cleanup.")
+  endif()
+endfunction()
+
 file(REMOVE_RECURSE "${_root}")
 file(MAKE_DIRECTORY "${_tool_repo}" "${_disk_cache}" "${_repo_contents_cache}")
 
@@ -497,7 +509,7 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_local_bazel_env}
           "${_bazel}"
           --output_user_root=${_output_local}
-          --max_idle_secs=5
+          --max_idle_secs=${_bazel_idle_secs}
           aquery
           --output=text
           "mnemonic(\"GentestTextualSuiteCodegen\", deps(//:gentest_consumer_textual_bazel__codegen))"
@@ -535,6 +547,8 @@ if(_local_absolute_clang_pos EQUAL -1 OR NOT _local_relative_clang_pos EQUAL -1)
     "expected Clang: ${_clang}\n${_local_aquery_out}")
 endif()
 
+_gentest_shutdown_bazel("${_output_local}")
+
 # Exercise the provider branch on every Unix host: local-only toolchains must
 # export an absolute host-owned SDK, while the packaged leg below must retain a
 # relative declared execroot path and normal cache/sandbox eligibility.
@@ -542,7 +556,7 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
           "${_bazel}"
           --output_user_root=${_output_local_sdk_contract}
-          --max_idle_secs=5
+          --max_idle_secs=${_bazel_idle_secs}
           aquery
           --output=text
           --repo_contents_cache=${_repo_contents_cache}
@@ -571,14 +585,9 @@ if(NOT _local_sdk_external_pos EQUAL -1)
     "Host-owned local macOS SDK action exported a relative external-repository SDK.\n${_local_sdk_aquery_out}")
 endif()
 
+_gentest_shutdown_bazel("${_output_local_sdk_contract}")
+
 if(_staged_resource_ownership STREQUAL "host")
-  foreach(_host_contract_output IN ITEMS "${_output_local}" "${_output_local_sdk_contract}")
-    execute_process(
-      COMMAND "${_bazel}" --output_user_root=${_host_contract_output} shutdown
-      WORKING_DIRECTORY "${SOURCE_DIR}"
-      OUTPUT_QUIET
-      ERROR_QUIET)
-  endforeach()
   file(REMOVE_RECURSE "${_root}")
   message(STATUS
     "Staged AppleClang correctly retained its Xcode-owned resource directory and the local action contract passed; "
@@ -593,7 +602,7 @@ if(_exec_os STREQUAL "linux")
     COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
             "${_bazel}"
             --output_user_root=${_output_windows_contract}
-            --max_idle_secs=5
+            --max_idle_secs=${_bazel_idle_secs}
             aquery
             --output=text
             --repo_contents_cache=${_repo_contents_cache}
@@ -622,7 +631,7 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
           "${_bazel}"
           --output_user_root=${_output_windows_contract}
-          --max_idle_secs=5
+          --max_idle_secs=${_bazel_idle_secs}
           aquery
           --output=text
           --repo_contents_cache=${_repo_contents_cache}
@@ -645,11 +654,13 @@ if(_windows_missing_roots_message_pos EQUAL -1)
     "Missing Windows system-root failure lacked the toolchain diagnostic.\n${_windows_missing_roots_log}")
 endif()
 
+_gentest_shutdown_bazel("${_output_windows_contract}")
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
           "${_bazel}"
           --output_user_root=${_output_one}
-          --max_idle_secs=5
+          --max_idle_secs=${_bazel_idle_secs}
           aquery
           --output=text
           --repo_contents_cache=${_repo_contents_cache}
@@ -713,8 +724,8 @@ if(APPLE)
     message(FATAL_ERROR "Packaged macOS codegen leaked the ambient selected SDK.\n${_aquery_out}")
   endif()
 endif()
-string(FIND "${_aquery_out}" "${SOURCE_DIR}" _absolute_source_pos)
-if(NOT _absolute_source_pos EQUAL -1)
+gentest_bazel_has_checkout_path(_absolute_source_leaked "${_aquery_out}" "${SOURCE_DIR}")
+if(_absolute_source_leaked)
   message(FATAL_ERROR "Bazel codegen aquery leaked an absolute source checkout path.\n${_aquery_out}")
 endif()
 
@@ -722,7 +733,7 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
           "${_bazel}"
           --output_user_root=${_output_migration}
-          --max_idle_secs=5
+          --max_idle_secs=${_bazel_idle_secs}
           build
           --repo_contents_cache=${_repo_contents_cache}
           --override_repository=gentest_local_exec_tools=${_tool_repo}
@@ -748,11 +759,13 @@ foreach(_migration_token IN ITEMS
   endif()
 endforeach()
 
+_gentest_shutdown_bazel("${_output_migration}")
+
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
           "${_bazel}"
           --output_user_root=${_output_one}
-          --max_idle_secs=5
+          --max_idle_secs=${_bazel_idle_secs}
           aquery
           --experimental_cpp_modules
           --output=text
@@ -813,7 +826,7 @@ function(_gentest_disk_cache_build output_root out_var)
     COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
             "${_bazel}"
             --output_user_root=${output_root}
-            --max_idle_secs=5
+            --max_idle_secs=${_bazel_idle_secs}
             build
             --subcommands
             --execution_log_json_file=${_execution_log}
@@ -862,16 +875,24 @@ function(_gentest_assert_codegen_cache_state execution_log expected_cache_hit ph
   endforeach()
 endfunction()
 
-function(_gentest_shutdown_bazel output_root)
+# Normal clean discards local action/output state while preserving the JVM,
+# repository downloads, and the external disk cache under test. Remove the
+# previous execution log too, so every assertion observes this build's actions.
+function(_gentest_clear_local_actions output_root)
   execute_process(
-    COMMAND "${_bazel}" --output_user_root=${output_root} shutdown
+    COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
+            "${_bazel}"
+            --output_user_root=${output_root}
+            --max_idle_secs=${_bazel_idle_secs}
+            clean
     WORKING_DIRECTORY "${SOURCE_DIR}"
-    RESULT_VARIABLE _shutdown_rc
-    OUTPUT_QUIET
-    ERROR_QUIET)
-  if(NOT _shutdown_rc EQUAL 0)
-    message(WARNING "Bazel server shutdown failed for ${output_root}; --max_idle_secs=5 remains the fallback cleanup.")
+    RESULT_VARIABLE _clean_rc
+    OUTPUT_VARIABLE _clean_out
+    ERROR_VARIABLE _clean_err)
+  if(NOT _clean_rc EQUAL 0)
+    message(FATAL_ERROR "Bazel local action reset failed.\n${_clean_out}\n${_clean_err}")
   endif()
+  file(REMOVE "${output_root}/execution-log.json")
 endfunction()
 
 _gentest_disk_cache_build("${_output_one}" _first_build_log)
@@ -886,7 +907,7 @@ execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
           "${_bazel}"
           --output_user_root=${_output_one}
-          --max_idle_secs=5
+          --max_idle_secs=${_bazel_idle_secs}
           info bazel-bin
   WORKING_DIRECTORY "${SOURCE_DIR}"
   RESULT_VARIABLE _bazel_bin_rc
@@ -915,15 +936,19 @@ foreach(_module_compdb_required IN ITEMS "${_standard_discovery_flag}" "${_stage
   endif()
 endforeach()
 
+_gentest_shutdown_bazel("${_output_one}")
+
+# This first disk-cache hit must still come from an independent output root.
 _gentest_disk_cache_build("${_output_two}" _second_build_log)
 file(READ "${_output_two}/execution-log.json" _second_execution_log)
 _gentest_assert_codegen_cache_state("${_second_execution_log}" TRUE "second isolated-output-base build")
 
 # A declared Clang resource closure change must invalidate the action cache.
 file(APPEND "${_tool_repo}/lib/clang/${_clang_resource_version}/include/stddef.h" "\n// staged Clang resource input changed\n")
-_gentest_disk_cache_build("${_output_three}" _changed_build_log)
+_gentest_clear_local_actions("${_output_two}")
+_gentest_disk_cache_build("${_output_two}" _changed_build_log)
 string(FIND "${_changed_build_log}" "--textual-registration-output" _changed_codegen_pos)
-file(READ "${_output_three}/execution-log.json" _changed_execution_log)
+file(READ "${_output_two}/execution-log.json" _changed_execution_log)
 if(_changed_codegen_pos EQUAL -1)
   message(FATAL_ERROR
     "Changing a declared exec-tool runtime input did not rerun Gentest textual codegen.\n${_changed_build_log}")
@@ -932,11 +957,12 @@ _gentest_assert_codegen_cache_state("${_changed_execution_log}" FALSE "declared-
 
 # A C++ standard-library header is both declared and actively parsed by the
 # consumer (<string>/<vector>). Replacing it must produce a distinct action
-# key and rerun all codegen actions in a fresh output base.
+# key and rerun all codegen actions after clearing local action state.
 file(APPEND "${_tool_repo}/${_staged_cxx_header_relative}" "\n// staged C++ standard-library input changed\n")
-_gentest_disk_cache_build("${_output_four}" _changed_cxx_build_log)
+_gentest_clear_local_actions("${_output_two}")
+_gentest_disk_cache_build("${_output_two}" _changed_cxx_build_log)
 string(FIND "${_changed_cxx_build_log}" "--textual-registration-output" _changed_cxx_codegen_pos)
-file(READ "${_output_four}/execution-log.json" _changed_cxx_execution_log)
+file(READ "${_output_two}/execution-log.json" _changed_cxx_execution_log)
 if(_changed_cxx_codegen_pos EQUAL -1)
   message(FATAL_ERROR
     "Changing a declared C++ standard-library input did not rerun Gentest textual codegen.\n${_changed_cxx_build_log}")
@@ -949,9 +975,10 @@ if(_exec_os STREQUAL "linux")
   # system input invalidates every codegen action rather than merely testing
   # an unused marker file.
   file(APPEND "${_tool_repo}/${_staged_system_header_relative}" "\n// staged Linux system input changed\n")
-  _gentest_disk_cache_build("${_output_five}" _changed_system_build_log)
+  _gentest_clear_local_actions("${_output_two}")
+  _gentest_disk_cache_build("${_output_two}" _changed_system_build_log)
   string(FIND "${_changed_system_build_log}" "--textual-registration-output" _changed_system_codegen_pos)
-  file(READ "${_output_five}/execution-log.json" _changed_system_execution_log)
+  file(READ "${_output_two}/execution-log.json" _changed_system_execution_log)
   if(_changed_system_codegen_pos EQUAL -1)
     message(FATAL_ERROR
       "Changing a declared Linux system header did not rerun Gentest textual codegen.\n${_changed_system_build_log}")
@@ -959,9 +986,5 @@ if(_exec_os STREQUAL "linux")
   _gentest_assert_codegen_cache_state("${_changed_system_execution_log}" FALSE "declared-Linux-system-input change")
 endif()
 
-foreach(_output_root IN ITEMS
-    "${_output_one}" "${_output_two}" "${_output_three}" "${_output_four}" "${_output_five}"
-    "${_output_migration}" "${_output_local}" "${_output_local_sdk_contract}" "${_output_windows_contract}")
-  _gentest_shutdown_bazel("${_output_root}")
-endforeach()
+_gentest_shutdown_bazel("${_output_two}")
 file(REMOVE_RECURSE "${_root}")

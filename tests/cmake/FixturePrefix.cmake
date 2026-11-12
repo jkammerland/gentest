@@ -27,7 +27,7 @@ function(gentest_package_test_producer_args out_config out_compiler_args out_mod
     endif()
 
     set(_module_compiler_args ${_compiler_args})
-    if(UNIX)
+    if(UNIX OR WIN32)
         # Match the compiler inputs passed to consumer scripts. In particular,
         # Alpine's versioned clang++ and SDK clang++ are distinct executables.
         set(C_COMPILER "${CMAKE_C_COMPILER}")
@@ -62,12 +62,12 @@ endfunction()
 #   DEFAULT  the outer build's compilers, public modules off
 #   NONE     no shared prefix: the fixture builds gentest from source
 # Returns no arguments where the installed package cannot stand in for the
-# fixture's own build: on Windows the producer uses the native LLVM CRT flags
-# the fixtures do not, cross builds would build the host tool for the target,
-# and multi-config outer builds pass fixtures no build type to match.
+# fixture's own build: native fixtures cannot share a cross-target ABI, and
+# multi-config outer builds pass fixtures no build type to match. Windows
+# consumers inherit compatible native LLVM settings only after cache validation.
 function(gentest_fixture_prefix_package_args out_var variant)
     set(${out_var} "" PARENT_SCOPE)
-    if(variant STREQUAL "NONE" OR WIN32 OR CMAKE_CROSSCOMPILING OR CMAKE_CONFIGURATION_TYPES)
+    if(variant STREQUAL "NONE" OR CMAKE_CROSSCOMPILING OR CMAKE_CONFIGURATION_TYPES)
         return()
     endif()
 

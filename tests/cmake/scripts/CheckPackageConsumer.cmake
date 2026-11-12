@@ -23,6 +23,7 @@
 #     [-DPACKAGE_TEST_DRY_RUN_CONSUMER_EXE=<ON|OFF>]
 #     [-DBUILD_TYPE=<Debug|Release|...>]
 #     [-DBUILD_CONFIG=<Debug|Release|...>]   # for multi-config generators
+#     [-DPACKAGE_TEST_PRODUCER_CODEGEN=<ON|OFF>]
 #     [-DPACKAGE_TEST_PHASE=<SETUP|CONSUMER|CLEANUP>]
 #     [-DPACKAGE_PRODUCER_ROOT=<shared CTest fixture root>]
 #     -P tests/cmake/scripts/CheckPackageConsumer.cmake
@@ -184,6 +185,10 @@ if(PACKAGE_TEST_PHASE STREQUAL "CLEANUP")
 endif()
 
 if(PACKAGE_TEST_PHASE STREQUAL "SETUP")
+  if(NOT DEFINED PACKAGE_TEST_PRODUCER_CODEGEN)
+    set(PACKAGE_TEST_PRODUCER_CODEGEN ON)
+  endif()
+  list(APPEND _cmake_cache_args "-DGENTEST_BUILD_CODEGEN=${PACKAGE_TEST_PRODUCER_CODEGEN}")
   # CTest owns freshness and lifetime. Every invocation starts from source;
   # there is no partial-source fingerprint, cached producer, or lock protocol.
   gentest_remove_fixture_path("${_producer_root}")
@@ -210,6 +215,12 @@ if(PACKAGE_TEST_PHASE STREQUAL "SETUP")
     list(APPEND _producer_build_args --config "${_effective_build_config}")
   endif()
   run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_producer_build_args})
+  set(_installed_codegen "${_install_prefix}/bin/gentest_codegen${_exe_ext}")
+  if(PACKAGE_TEST_PRODUCER_CODEGEN AND NOT EXISTS "${_installed_codegen}")
+    message(FATAL_ERROR "Producer did not install the required host codegen: ${_installed_codegen}")
+  elseif(NOT PACKAGE_TEST_PRODUCER_CODEGEN AND EXISTS "${_installed_codegen}")
+    message(FATAL_ERROR "Runtime-only producer unexpectedly installed codegen: ${_installed_codegen}")
+  endif()
   return()
 elseif(NOT PACKAGE_TEST_PHASE STREQUAL "CONSUMER")
   message(FATAL_ERROR "Unknown package fixture phase: ${PACKAGE_TEST_PHASE}")

@@ -23,7 +23,14 @@ class MatrixTests(unittest.TestCase):
         for host, entries in catalog.items():
             with self.subTest(host=host):
                 self.assertTrue(entries)
-                self.assertEqual(selected[host]["include"], entries)
+                if host == "windows":
+                    for compiler in ("clang", "msvc"):
+                        actual = [{key: value for key, value in entry.items() if key != "compiler"}
+                                  for entry in selected[host]["include"] if entry["compiler"] == compiler]
+                        self.assertEqual(actual, entries)
+                    self.assertEqual(len(selected[host]["include"]), 2 * len(entries))
+                else:
+                    self.assertEqual(selected[host]["include"], entries)
                 self.assertFalse(any("routine" in entry for entry in entries))
         self.assertTrue(any(job.get("enable_package_tests") == "ON" for job in selected["windows"]["include"]))
         self.assertTrue(any(job["compiler"] == "appleclang" for job in selected["macos"]["include"]))
@@ -55,10 +62,24 @@ class MatrixTests(unittest.TestCase):
 
     def test_windows_effective_configs_are_unique_and_keep_msvc(self):
         windows = select_matrix()["windows"]["include"]
-        self.assertEqual(len({(entry["llvm-version"], entry["variant"]) for entry in windows}), len(windows))
+        self.assertEqual(len({(entry["llvm-version"], entry["variant"], entry["compiler"]) for entry in windows}), len(windows))
         self.assertTrue(all(entry["preset"] == "debug-system" for entry in windows))
+        catalog = json.loads(MATRIX_FILE.read_text(encoding="utf-8"))["windows"]
+        expected = {(entry["llvm-version"], entry["variant"], compiler)
+                    for entry in catalog for compiler in ("clang", "msvc")}
+        self.assertTrue(expected)
+        self.assertEqual({(entry["llvm-version"], entry["variant"], entry["compiler"]) for entry in windows}, expected)
+
         workflow = (ROOT / ".github/workflows/cmake.yml").read_text()
-        self.assertIn("if: matrix.preset == 'debug-system'", workflow)
+        windows_workflow = workflow.split("\n  windows:\n", 1)[1].split("\n  linux:\n", 1)[0]
+        steps = {step.splitlines()[0]: step for step in windows_workflow.split("      - name: ")[1:]}
+        for name in ("Configure", "Build", "Test Bazel helper contract", "Test"):
+            self.assertIn("if: matrix.compiler == 'clang'", steps[name])
+            self.assertIn("RelWithDebInfo", steps[name])
+        self.assertIn("if: matrix.compiler == 'msvc'", steps["Configure/Build/Test (MSVC)"])
+        self.assertIn("ctest @ctestArgs", steps["Configure/Build/Test (MSVC)"])
+        self.assertIn("RelWithDebInfo", steps["Configure/Build/Test (MSVC)"])
+        self.assertIn("matrix.compiler", windows_workflow.split("    runs-on:", 1)[0])
         with tempfile.TemporaryDirectory() as temp:
             catalog = json.loads(MATRIX_FILE.read_text(encoding="utf-8"))
             catalog["windows"].append({**catalog["windows"][0], "preset": "release-system"})

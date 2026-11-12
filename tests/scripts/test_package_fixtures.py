@@ -34,25 +34,36 @@ project(sample LANGUAGES C)
 file(APPEND "${CMAKE_SOURCE_DIR}/events.txt" "configure:${CMAKE_BUILD_TYPE}\n")
 set(GENTEST_FMT_VERSION 1.0.0 CACHE STRING "fixture dependency version")
 add_library(sample STATIC answer.c)
-add_executable(gentest_codegen tool.c)
+file(APPEND "${CMAKE_SOURCE_DIR}/codegen-events.txt" "${GENTEST_BUILD_CODEGEN}\n")
+if(GENTEST_BUILD_CODEGEN)
+  add_executable(gentest_codegen tool.c)
+endif()
 install(TARGETS sample EXPORT sampleTargets ARCHIVE DESTINATION lib)
-install(TARGETS gentest_codegen RUNTIME DESTINATION bin)
+if(GENTEST_BUILD_CODEGEN)
+  install(TARGETS gentest_codegen RUNTIME DESTINATION bin)
+endif()
 install(EXPORT sampleTargets NAMESPACE sample:: DESTINATION lib/cmake/sample)
 file(WRITE "${CMAKE_BINARY_DIR}/sampleConfig.cmake"
   "# find_dependency(fmt 1.0.0 EXACT CONFIG REQUIRED)\ninclude(\\"\\${CMAKE_CURRENT_LIST_DIR}/sampleTargets.cmake\\")\n")
 install(FILES "${CMAKE_BINARY_DIR}/sampleConfig.cmake" DESTINATION lib/cmake/sample)
 install(CODE "file(APPEND \\"${CMAKE_SOURCE_DIR}/events.txt\\" \\"install:${CMAKE_BUILD_TYPE}\\n\\")")
-install(CODE "file(SHA256 \\"\\${CMAKE_INSTALL_PREFIX}/bin/gentest_codegen${CMAKE_EXECUTABLE_SUFFIX}\\" digest)
+if(GENTEST_BUILD_CODEGEN)
+  install(CODE "file(SHA256 \\"\\${CMAKE_INSTALL_PREFIX}/bin/gentest_codegen${CMAKE_EXECUTABLE_SUFFIX}\\" digest)
 file(WRITE \\"\\${CMAKE_INSTALL_PREFIX}/codegen.digest\\" \\"\\${digest}\\")")
+endif()
 ''')
         (self.consumer / "CMakeLists.txt").write_text('''cmake_minimum_required(VERSION 3.25)
 project(consumer LANGUAGES C)
 find_package(sample CONFIG REQUIRED)
 get_filename_component(prefix "${sample_DIR}/../../.." ABSOLUTE)
-file(READ "${prefix}/codegen.digest" expected)
-file(SHA256 "${prefix}/bin/gentest_codegen${CMAKE_EXECUTABLE_SUFFIX}" actual)
-if(NOT actual STREQUAL expected)
-  message(FATAL_ERROR "A consumer changed the shared installed codegen")
+if(EXISTS "${prefix}/bin/gentest_codegen${CMAKE_EXECUTABLE_SUFFIX}")
+  file(READ "${prefix}/codegen.digest" expected)
+  file(SHA256 "${prefix}/bin/gentest_codegen${CMAKE_EXECUTABLE_SUFFIX}" actual)
+  if(NOT actual STREQUAL expected)
+    message(FATAL_ERROR "A consumer changed the shared installed codegen")
+  endif()
+elseif(NOT EXISTS "${GENTEST_CODEGEN_EXECUTABLE}")
+  message(FATAL_ERROR "Runtime-only consumer did not receive its external tool")
 endif()
 add_executable(gentest_consumer main.c)
 target_link_libraries(gentest_consumer PRIVATE sample::sample)
@@ -63,22 +74,26 @@ target_link_libraries(gentest_consumer PRIVATE sample::sample)
         (self.consumer / "main.c").write_text(
             f"int answer(void);\nint main(void) {{ return answer() != {answer}; }}\n")
 
-    def configure(self, *, extra="", generator="Ninja"):
+    def configure(self, *, extra="", generator="Ninja", include_native=True, native_first=False):
+        native_registration = f'''
+_gentest_add_cmake_helper_test(consumer_native "{self.source.as_posix()}"
+  "{ROOT.as_posix()}/tests/cmake/scripts/CheckPackageConsumer.cmake" package
+  -DPACKAGE_NAME=sample -DPACKAGE_TEST_USE_MODULES=OFF -DBUILD_TYPE=Release -DBUILD_CONFIG=Release
+  -DCONSUMER_LINK_MODE=double -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF)
+''' if include_native else ""
         (self.driver / "CMakeLists.txt").write_text(f'''cmake_minimum_required(VERSION 3.25)
 project(driver LANGUAGES NONE)
 include(CTest)
 include("{ROOT.as_posix()}/tests/cmake/GentestCmakeFixtureTests.cmake")
 set(_gentest_codegen_prog "${{CMAKE_COMMAND}}")
+{native_registration if native_first else ""}
 foreach(mode IN ITEMS main_only runtime_only double)
   _gentest_add_cmake_helper_test("consumer_${{mode}}" "{self.source.as_posix()}"
     "{ROOT.as_posix()}/tests/cmake/scripts/CheckPackageConsumer.cmake" package
     -DPACKAGE_NAME=sample -DPACKAGE_TEST_USE_MODULES=OFF -DBUILD_TYPE=Release -DBUILD_CONFIG=Release
     -DCONSUMER_LINK_MODE=${{mode}} -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=ON)
 endforeach()
-_gentest_add_cmake_helper_test(consumer_native "{self.source.as_posix()}"
-  "{ROOT.as_posix()}/tests/cmake/scripts/CheckPackageConsumer.cmake" package
-  -DPACKAGE_NAME=sample -DPACKAGE_TEST_USE_MODULES=OFF -DBUILD_TYPE=Release -DBUILD_CONFIG=Release
-  -DCONSUMER_LINK_MODE=double -DPACKAGE_TEST_INJECT_CODEGEN_EXECUTABLE=OFF)
+{native_registration if not native_first else ""}
 {extra}
 ''')
         self.run_command([self.cmake, "-G", generator, "-S", str(self.driver), "-B", str(self.build)])
@@ -104,6 +119,19 @@ _gentest_add_cmake_helper_test(consumer_native "{self.source.as_posix()}"
         inventory = json.loads(self.run_command([self.ctest, "--test-dir", str(self.build), "--show-only=json-v1"]).stdout)
         self.assertEqual(sum(test["name"].endswith("_setup") for test in inventory["tests"]), 1)
         self.run_ctest()
+        self.assertEqual((self.source / "codegen-events.txt").read_text().splitlines(), ["ON"])
+        self.assert_events(["RelWithDebInfo" if os.name == "nt" else "Release"])
+
+    def test_external_only_consumers_do_not_build_or_install_codegen(self):
+        self.configure(include_native=False)
+        self.run_ctest()
+        self.assertEqual((self.source / "codegen-events.txt").read_text().splitlines(), ["OFF"])
+        self.assert_events(["RelWithDebInfo" if os.name == "nt" else "Release"])
+
+    def test_native_consumer_registered_first_keeps_installed_codegen(self):
+        self.configure(native_first=True)
+        self.run_ctest()
+        self.assertEqual((self.source / "codegen-events.txt").read_text().splitlines(), ["ON"])
         self.assert_events(["RelWithDebInfo" if os.name == "nt" else "Release"])
 
     def test_single_consumer_selection_adds_setup_and_cleanup_and_rebuilds_changed_source(self):

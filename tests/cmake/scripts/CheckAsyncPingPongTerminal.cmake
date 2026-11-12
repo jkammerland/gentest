@@ -77,6 +77,14 @@ if(NOT _rc EQUAL 0)
   message(FATAL_ERROR "async ping-pong terminal command failed with rc=${_rc}. Output:\n${_all}")
 endif()
 
+# Require an actual live redraw as well as the completed summaries. A plain
+# final report must not accidentally satisfy this terminal regression.
+string(ASCII 27 _esc)
+string(FIND "${_all}" "${_esc}[2K" _redraw_pos)
+if(_redraw_pos EQUAL -1)
+  message(FATAL_ERROR "Async ping-pong check did not redraw the terminal. Output:\n${_all}")
+endif()
+
 foreach(_required IN ITEMS
     "async_live_slow/pingpong/00_ping :: 8 log(s)"
     "async_live_slow/pingpong/01_pong :: 8 log(s)"

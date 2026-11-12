@@ -102,7 +102,13 @@ template <typename OnWaiting = gentest::detail::IgnoreAdoptedContextWait> class 
     std::shared_ptr<gentest::detail::TestContextInfo> ctx_;
     std::shared_ptr<gentest::detail::TestContextInfo> previous_;
     gentest::detail::CurrentContextRole               previous_role_;
-    [[no_unique_address]] OnWaiting                   on_waiting_;
+    // MSVC-compatible layouts use the vendor attribute when it is supported.
+#if defined(_MSC_VER) && __has_cpp_attribute(msvc::no_unique_address)
+    [[msvc::no_unique_address]]
+#elif !defined(_MSC_VER) && __has_cpp_attribute(no_unique_address)
+    [[no_unique_address]]
+#endif
+    OnWaiting on_waiting_;
 };
 
 using CurrentTestScope = BasicCurrentTestScope<>;

@@ -7,6 +7,35 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/BazelExecToolStaging.cmake")
 
+# Check the same spelling collisions that occur in real SDK/stdlib closures,
+# and retain detection for leaked include flags and the checkout root itself.
+foreach(_action IN ITEMS
+    "Inputs: [external/cxx/parallel/workstealing.h, external/sdk/work/header.h]"
+    "Command Line: /worker/bin/clang++ -Iexternal/work/include")
+  gentest_bazel_has_checkout_path(_leaked "${_action}" "/work")
+  if(_leaked)
+    message(FATAL_ERROR "Relative artifact falsely matched checkout /work: ${_action}")
+  endif()
+endforeach()
+foreach(_action IN ITEMS
+    "Inputs: [/work/cases.hpp]"
+    "Command Line: --source-root /work"
+    "Command Line: --source-root=/work"
+    "Environment: [ROOT='/work']"
+    "Command Line: -fdebug-prefix-map=/work=/debug"
+    "Command Line: -I/work/include"
+    "Command Line: -isystem/work/include"
+    "Command Line: -iquote/work/include")
+  gentest_bazel_has_checkout_path(_leaked "${_action}" "/work")
+  if(NOT _leaked)
+    message(FATAL_ERROR "Absolute checkout token was missed: ${_action}")
+  endif()
+endforeach()
+gentest_bazel_has_checkout_path(_leaked "Command Line: '/tmp/a+[b]/repo/space file.hpp'" "/tmp/a+[b]/repo")
+if(NOT _leaked)
+  message(FATAL_ERROR "Checkout matching did not preserve literal regex metacharacters")
+endif()
+
 set(_work_dir "${BUILD_ROOT}/bazel_exec_tool_staging")
 file(REMOVE_RECURSE "${_work_dir}")
 file(MAKE_DIRECTORY

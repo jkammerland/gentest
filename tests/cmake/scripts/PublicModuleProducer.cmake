@@ -2,7 +2,7 @@ include_guard(GLOBAL)
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 
-# Shared installed gentest producer (public modules ON, codegen ON) for the
+# Shared installed gentest producer (public modules ON) for the
 # public-module regressions. The CTest fixture setup builds it once; consumer
 # scripts resolve the same toolchain and reuse its install prefix.
 #
@@ -46,4 +46,16 @@ function(gentest_require_public_module_producer)
       "Shared public-module producer is unavailable under '${PUBLIC_MODULE_PRODUCER_ROOT}'. "
       "Run through CTest (fixture gentest_public_module_producer) first.")
   endif()
+endfunction()
+
+# A shared producer may resolve fmt from a toolchain-specific external prefix.
+# Consumers must select that exact package, even when the host has another fmt.
+function(gentest_public_module_dependency_cache_args out_var)
+  gentest_require_public_module_producer()
+  gentest_read_cache_value("${PUBLIC_MODULE_PRODUCER_ROOT}/p/CMakeCache.txt" fmt_DIR _fmt_dir_found _fmt_dir)
+  set(_args "")
+  if(_fmt_dir_found AND IS_DIRECTORY "${_fmt_dir}")
+    list(APPEND _args "-Dfmt_DIR=${_fmt_dir}")
+  endif()
+  set(${out_var} "${_args}" PARENT_SCOPE)
 endfunction()
