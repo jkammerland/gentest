@@ -174,7 +174,7 @@ set_property(TEST format_value APPEND PROPERTY LABELS "public-api")
 # Public assertion/formatting header regressions. Each program owns its case
 # table: the failing cases pin their source lines with #line, and the death
 # checks require the reported location to be the test's own file and line.
-foreach(_gentest_assertion_header_test IN ITEMS throw_forms)
+foreach(_gentest_assertion_header_test IN ITEMS throw_forms fmt_location)
     add_executable(gentest_assertion_headers_${_gentest_assertion_header_test}_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/${_gentest_assertion_header_test}.cpp)
     target_compile_features(gentest_assertion_headers_${_gentest_assertion_header_test}_tests PRIVATE cxx_std_20)
@@ -202,8 +202,42 @@ gentest_add_check_death(
         "but no exception was thrown"
         "throw_forms.cpp:2005"
         "throw_forms.cpp:2006")
+gentest_add_check_death(
+    NAME assertion_headers_fmt_location_fail
+    PROG gentest_assertion_headers_fmt_location_tests
+    ARGS --filter=fmt_location/failing/* --no-color
+    REQUIRED_SUBSTRINGS
+        "fmt_location.cpp:1001"
+        "lower expect 1"
+        "fmt_location.cpp:1002"
+        "lower expect_true 2"
+        "fmt_location.cpp:1003"
+        "lower expect_eq 3"
+        "fmt_location.cpp:1004"
+        "lower expect_ne 4"
+        "fmt_location.cpp:1005"
+        "lower require 5"
+        "fmt_location.cpp:1006"
+        "lower require_eq 6"
+        "fmt_location.cpp:1007"
+        "lower require_ne 7"
+        "fmt_location.cpp:1008"
+        "upper EXPECT_TRUE 8"
+        "fmt_location.cpp:1009"
+        "upper EXPECT_EQ 9"
+        "fmt_location.cpp:1010"
+        "upper EXPECT_NE 10"
+        "fmt_location.cpp:1011"
+        "upper ASSERT_TRUE 11"
+        "fmt_location.cpp:1012"
+        "upper ASSERT_EQ 12"
+        "fmt_location.cpp:1013"
+        "upper ASSERT_NE 13"
+        "fmt_location.cpp:1014"
+        "runtime format 14")
 set_property(TEST
         assertion_headers_throw_forms_fail
+        assertion_headers_fmt_location_fail
     APPEND PROPERTY LABELS "public-api;headers")
 
 # A lambda-expression handed to a statement macro would never be called, so the
