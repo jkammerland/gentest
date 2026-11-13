@@ -432,6 +432,24 @@ namespace inc {
     CODEGEN_ARGS --quiet-clang --compile-context-id "demo_target:src/cases.hpp")
   _gentest_cdr_expect_success("whole path component")
   _gentest_cdr_expect_registered("whole path component" "#include \"src/cases.hpp\"")
+elseif(SCENARIO STREQUAL "placeholder_like_text")
+  # User text that looks like a template placeholder is emitted as written.
+  _gentest_cdr_scan(placeholders CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+#include <string_view>
+namespace subst {
+[[using gentest: test("name {{REGISTER_FN}} {{CASE_INITS}}")]] inline void named() {}
+[[using gentest: test("param"), parameters(text, "{{CASE_INITS}}", "{{FIXTURE_REGISTRATIONS}}{{CASE_COUNT}}")]]
+inline void param(std::string_view text) { (void)text; }
+} // namespace subst
+]=])
+  _gentest_cdr_expect_success("placeholder-like user text")
+  _gentest_cdr_expect_registered("placeholder-like user text"
+    "\"subst/name {{REGISTER_FN}} {{CASE_INITS}}\"" "subst::param(\"{{CASE_INITS}}\")"
+    "subst::param(\"{{FIXTURE_REGISTRATIONS}}{{CASE_COUNT}}\")"
+    "namespace gentest::generated::register_tu_0000 {" "std::array<gentest::Case, 3> kCases")
+  _gentest_cdr_expect_count("placeholder-like user text" "{{" 8)
+  _gentest_cdr_expect_not_registered("placeholder-like user text" "{{FORWARD_DECLS}}" "{{TRAIT_DECLS}}" "{{WRAPPER_IMPLS}}")
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()
