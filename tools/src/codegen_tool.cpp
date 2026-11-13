@@ -2054,29 +2054,34 @@ std::string normalize_compdb_lookup_path(std::string_view path, std::string_view
 
 bool is_shell_control_token(std::string_view arg) { return arg == "&&" || arg == "||" || arg == ";" || arg == "|"; }
 
-std::optional<std::string> trim_embedded_shell_control_tail(std::string_view arg) {
-    static constexpr std::array<std::string_view, 4> kEmbeddedPatterns = {" && ", " || ", " ; ", " | "};
-    for (const auto pattern : kEmbeddedPatterns) {
-        if (const auto pos = arg.find(pattern); pos != std::string_view::npos) {
-            return trim_ascii_copy(arg.substr(0, pos));
-        }
+// CMake appends "&& <cmake> -E cmake_transform_depfile ..." to Ninja custom
+// commands that declare a DEPFILE. When that outer command line is re-split by
+// something other than a shell, the tail can end up glued onto the last real
+// argument. This is the only embedded form recognised: an argument is
+// otherwise opaque, because shell operators are ordinary text inside macro
+// definitions such as -DEXPR=(1 || 0) or -DGREETING="a && b".
+std::optional<std::string> trim_embedded_depfile_transform_tail(std::string_view arg) {
+    static constexpr std::string_view kOperator = " && ";
+    static constexpr std::string_view kMarker   = " -E cmake_transform_depfile ";
+    const auto                        marker    = arg.find(kMarker);
+    if (marker == std::string_view::npos) {
+        return std::nullopt;
     }
-    static constexpr std::array<std::string_view, 4> kLeadingPatterns = {"&& ", "|| ", "; ", "| "};
-    for (const auto pattern : kLeadingPatterns) {
-        if (arg.starts_with(pattern)) {
-            return std::string{};
-        }
+    const auto pos = arg.rfind(kOperator, marker);
+    if (pos == std::string_view::npos) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return trim_ascii_copy(arg.substr(0, pos));
 }
 
+// Only a whole-token shell operator ends the compile command.
 void strip_shell_control_tail(clang::tooling::CommandLineArguments &command_line) {
     for (auto it = command_line.begin(); it != command_line.end(); ++it) {
         if (is_shell_control_token(*it)) {
             command_line.erase(it, command_line.end());
             return;
         }
-        if (const auto trimmed = trim_embedded_shell_control_tail(*it); trimmed.has_value()) {
+        if (const auto trimmed = trim_embedded_depfile_transform_tail(*it); trimmed.has_value()) {
             if (trimmed->empty()) {
                 command_line.erase(it, command_line.end());
             } else {

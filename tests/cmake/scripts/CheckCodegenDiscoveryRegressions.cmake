@@ -128,6 +128,25 @@ namespace quiet {
   if(NOT _log MATCHES "unknown attribute")
     message(FATAL_ERROR "Expected the unsuppressed scan to report the unknown-attribute warning:\n${_log}")
   endif()
+elseif(SCENARIO STREQUAL "shell_operator_arguments")
+  # Shell operators inside one argument are ordinary text. Only a whole-token
+  # operator ends a compile command (covered by CheckCodegenModuleCommandRetargeting).
+  set(_content [=[
+#pragma once
+#if !(EXPR) || !defined(LATER_DEFINE) || !defined(EXTRA_LATER)
+#error a flag after an argument containing a shell operator was dropped
+#endif
+namespace shell {
+inline const char *greeting = GREETING;
+[[using gentest: test("kept")]] inline void kept() {}
+} // namespace shell
+]=])
+  _gentest_cdr_scan(embedded CONTENT "${_content}"
+    FLAGS "-DEXPR=(1 || 0)" "-DPIPE=(1 | 2)" "-DGREETING=\"a && b | c\"" -DLATER_DEFINE=1
+    CLANG_ARGS "-DEXTRA_EXPR=(0 || 1)" -DEXTRA_LATER=1)
+  _gentest_cdr_expect_success("embedded shell operators")
+  _gentest_cdr_expect_registered("embedded shell operators" "\"shell/kept\"")
+
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()

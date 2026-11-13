@@ -4942,7 +4942,8 @@ unset(_gentest_driver_mode)
 # Direct-invocation regressions for attribute discovery, axis expansion and
 # registration rendering; one scenario per defect.
 foreach(_gentest_cdr_scenario IN ITEMS
-        quiet_clang_parse_error)
+        quiet_clang_parse_error
+        shell_operator_arguments)
     _gentest_add_cmake_helper_test(
         gentest_codegen_discovery_regression_${_gentest_cdr_scenario}
         ${PROJECT_SOURCE_DIR}
