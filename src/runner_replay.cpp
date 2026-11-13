@@ -10,24 +10,21 @@
 namespace gentest::runner {
 namespace {
 
-auto quote_argument(std::string_view value) -> std::string {
-    std::string quoted = "'";
-    for (const char ch : value) {
-        if (ch == '\'') {
-#if defined(_WIN32)
-            quoted += "''";
-#else
-            quoted += "'\\''";
-#endif
-        } else {
-            quoted += ch;
+// PowerShell accepts four more single-quote delimiters besides ASCII U+0027:
+// U+2018, U+2019, U+201A and U+201B, which are E2 80 98..9B in UTF-8.
+auto powershell_quote_length(std::string_view value, std::size_t pos) -> std::size_t {
+    if (value[pos] == '\'') {
+        return 1;
+    }
+    if (value.size() - pos >= 3 && value[pos] == '\xE2' && value[pos + 1] == '\x80') {
+        const auto last = static_cast<unsigned char>(value[pos + 2]);
+        if (last >= 0x98U && last <= 0x9BU) {
+            return 3;
         }
     }
-    quoted += '\'';
-    return quoted;
+    return 0;
 }
 
-#if defined(_WIN32)
 auto quote_windows_argument(std::string_view value) -> std::string {
     std::string quoted      = "\"";
     std::size_t backslashes = 0;
@@ -44,33 +41,62 @@ auto quote_windows_argument(std::string_view value) -> std::string {
     quoted += '"';
     return quoted;
 }
-#endif
+
+} // namespace
+
+std::string quote_replay_argument(std::string_view value, ReplayShell shell) {
+    std::string quoted = "'";
+    for (std::size_t pos = 0; pos < value.size();) {
+        if (shell == ReplayShell::PowerShell) {
+            // Any quote delimiter is escaped by doubling it; the doubled pair yields that character.
+            if (const std::size_t length = powershell_quote_length(value, pos); length != 0) {
+                quoted.append(value.substr(pos, length));
+                quoted.append(value.substr(pos, length));
+                pos += length;
+                continue;
+            }
+        } else if (value[pos] == '\'') {
+            quoted += "'\\''";
+            ++pos;
+            continue;
+        }
+        quoted += value[pos];
+        ++pos;
+    }
+    quoted += '\'';
+    return quoted;
+}
+
+std::string replay_command(std::string_view executable, const std::vector<std::string> &arguments, ReplayShell shell) {
+    if (shell == ReplayShell::PowerShell) {
+        std::string native_arguments;
+        for (const auto &argument : arguments) {
+            if (!native_arguments.empty()) {
+                native_arguments += ' ';
+            }
+            native_arguments += quote_windows_argument(argument);
+        }
+        // Start-Process bypasses legacy PowerShell native argument re-quoting.
+        // Pass one CRT-encoded argument string, preserving embedded quotes/backslashes.
+        return fmt::format("& {{ $gentestRerun = Start-Process -FilePath {} -ArgumentList {} -NoNewWindow -Wait -PassThru; "
+                           "$global:LASTEXITCODE = $gentestRerun.ExitCode }}",
+                           quote_replay_argument(executable, shell), quote_replay_argument(native_arguments, shell));
+    }
+    auto command = quote_replay_argument(executable, shell);
+    for (const auto &argument : arguments) {
+        command += ' ';
+        command += quote_replay_argument(argument, shell);
+    }
+    return command;
+}
+
+namespace {
 
 auto make_command(const CliOptions &opt, const std::vector<std::string> &arguments) -> std::string {
     if (!opt.executable) {
         return {};
     }
-#if defined(_WIN32)
-    std::string native_arguments;
-    for (const auto &argument : arguments) {
-        if (!native_arguments.empty()) {
-            native_arguments += ' ';
-        }
-        native_arguments += quote_windows_argument(argument);
-    }
-    // Start-Process bypasses legacy PowerShell native argument re-quoting.
-    // Pass one CRT-encoded argument string, preserving embedded quotes/backslashes.
-    return fmt::format("& {{ $gentestRerun = Start-Process -FilePath {} -ArgumentList {} -NoNewWindow -Wait -PassThru; "
-                       "$global:LASTEXITCODE = $gentestRerun.ExitCode }}",
-                       quote_argument(opt.executable), quote_argument(native_arguments));
-#else
-    auto command = quote_argument(opt.executable);
-    for (const auto &argument : arguments) {
-        command += ' ';
-        command += quote_argument(argument);
-    }
-    return command;
-#endif
+    return replay_command(opt.executable, arguments, kNativeReplayShell);
 }
 
 } // namespace

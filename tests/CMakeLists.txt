@@ -2888,6 +2888,12 @@ gentest_add_check_exit_code(
     EXPECT_RC 0
     ARGS calibration-cap)
 
+gentest_add_check_exit_code(
+    NAME regression_replay_powershell_quote_delimiters
+    PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+    EXPECT_RC 0
+    ARGS replay-quoting)
+
 gentest_add_manual_regression(
     TARGET gentest_regression_async_status_renderer
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/async_status_renderer.cpp)

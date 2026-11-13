@@ -2,6 +2,7 @@
 // Each mode is registered as its own CTest entry so one failure stays isolated.
 #include "../../src/runner_cli.h"
 #include "../../src/runner_measured_executor.h"
+#include "../../src/runner_replay.h"
 #include "../../src/runner_selector.h"
 #include "gentest/detail/generated_runtime.h"
 #include "gentest/runner.h"
@@ -125,6 +126,45 @@ int check_calibration_cap() {
     return g_failures == 0 ? 0 : 1;
 }
 
+// PowerShell treats U+2018, U+2019, U+201A and U+201B as single-quote delimiters too.
+int check_replay_quoting() {
+    using gentest::runner::quote_replay_argument;
+    using gentest::runner::ReplayShell;
+    const std::string_view left  = "\xE2\x80\x98"; // U+2018
+    const std::string_view right = "\xE2\x80\x99"; // U+2019
+    const std::string_view low   = "\xE2\x80\x9A"; // U+201A
+    const std::string_view high  = "\xE2\x80\x9B"; // U+201B
+
+    const auto power = [](std::string_view value) { return quote_replay_argument(value, ReplayShell::PowerShell); };
+    const auto posix = [](std::string_view value) { return quote_replay_argument(value, ReplayShell::Posix); };
+    const auto twice = [](std::string_view quote) { return std::string(quote) + std::string(quote); };
+
+    expect(power("plain") == "'plain'", "PowerShell: plain text is wrapped");
+    expect(power("it's") == "'it''s'", "PowerShell: ASCII apostrophe is doubled");
+    for (const auto quote : {left, right, low, high}) {
+        const std::string value = "a" + std::string(quote) + "b";
+        expect(power(value) == "'a" + twice(quote) + "b'", "PowerShell: typographic single quote is doubled");
+        expect(posix(value) == "'" + value + "'", "POSIX: typographic single quotes are ordinary characters");
+    }
+    // Neighbouring code points and truncated sequences are left alone.
+    expect(power("\xE2\x80\x9C") == "'\xE2\x80\x9C'", "PowerShell: U+201C is not a single-quote delimiter");
+    expect(power("\xE2\x80\x97") == "'\xE2\x80\x97'", "PowerShell: U+2017 is not a single-quote delimiter");
+    expect(power("\xE2\x80") == "'\xE2\x80'", "PowerShell: truncated sequence is copied");
+    expect(posix("it's") == "'it'\\''s'", "POSIX: apostrophe closes, escapes and reopens");
+
+    const std::string name    = "--run=suite/" + std::string(right) + "case";
+    const std::string command = gentest::runner::replay_command("C:\\t dir\\it" + std::string(left) + ".exe", {name, "--kind=test"},
+                                                                ReplayShell::PowerShell);
+    expect(command.find("-FilePath 'C:\\t dir\\it" + twice(left) + ".exe'") != std::string::npos,
+           "PowerShell command doubles quotes in the executable path");
+    expect(command.find("-ArgumentList '\"--run=suite/" + twice(right) + "case\" \"--kind=test\"'") != std::string::npos,
+           "PowerShell command doubles quotes in the argument list");
+    expect(gentest::runner::replay_command("./t", {"--run=a b"}, ReplayShell::Posix) == "'./t' '--run=a b'", "POSIX command shape");
+    if (g_failures != 0)
+        std::cerr << command << '\n';
+    return g_failures == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -133,6 +173,8 @@ int main(int argc, char **argv) {
         return check_wildcard_literal_star();
     if (mode == "calibration-cap")
         return check_calibration_cap();
+    if (mode == "replay-quoting")
+        return check_replay_quoting();
     std::cerr << "usage: runner_selection_reports <mode> [args]\n";
     return 2;
 }
