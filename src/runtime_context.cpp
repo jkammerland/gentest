@@ -1,12 +1,12 @@
 #include "gentest/detail/runtime_context.h"
 
 #include "gentest/detail/async_completion.h"
+#include "gentest/detail/runtime_support.h"
 #include "gentest/diagnostics.h"
 #include "runner_debug.h"
 
 #include <cstddef>
 #include <exception>
-#include <filesystem>
 #include <ranges>
 
 namespace gentest::detail {
@@ -80,23 +80,10 @@ auto prepare_current_failure_buffer(std::string_view operation) -> TestContextLo
 }
 
 auto normalize_failure_file(std::string file) -> std::string {
-    if (file.empty()) {
-        return {};
+    if (!file.empty()) {
+        file = trim_source_path(file);
     }
-
-    std::filesystem::path p(std::move(file));
-    p                     = p.lexically_normal();
-    std::string s         = p.generic_string();
-    auto        keep_from = [&](std::string_view marker) -> bool {
-        const std::size_t pos = s.find(marker);
-        if (pos != std::string::npos) {
-            s = s.substr(pos);
-            return true;
-        }
-        return false;
-    };
-    (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
-    return s;
+    return file;
 }
 
 // A measured call phase stops at its next boundary once a failure has been
