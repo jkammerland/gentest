@@ -5450,8 +5450,14 @@ endif()
 # A fresh run has no CTestCostData.txt, so CTest would start the longest
 # sub-build tests in declaration order. Seed their cost (seconds, Linux Debug)
 # so they start first; CTest replaces these with measured costs after a run.
+# The Bazel, Xmake and Meson consumers are declared last and mostly wait on
+# their own fetch and analysis phases, and the native explicit-mock validation
+# builds are the longest tests of a cross build. Unseeded, they finish alone
+# while the other CTest slots sit idle.
 set(_gentest_heavy_test_costs
+    gentest_bazel_codegen_action_cache=593
     gentest_header_declaration_registration=500
+    gentest_explicit_mock_target_validation_native_additional=308
     gentest_header_declaration_registration_compilers=300
     gentest_explicit_mock_target_install_export=396
     gentest_explicit_mock_target_surface=385
@@ -5461,6 +5467,7 @@ set(_gentest_heavy_test_costs
     gentest_public_module_producer_setup=290
     gentest_module_mock_multi_imported_sibling=284
     gentest_module_mock_imported_sibling=266
+    gentest_bazel_bzlmod_consumer=264
     gentest_multi_config_module_registration_manifest=259
     gentest_module_cpp_source=248
     gentest_module_same_line_directives=233
@@ -5470,16 +5477,24 @@ set(_gentest_heavy_test_costs
     gentest_module_partition_import_shorthand=205
     gentest_multi_config_explicit_mock_late_link=195
     gentest_module_name_literal_false_match=190
+    gentest_bazel_module_consumer=189
+    gentest_explicit_mock_target_validation_native_smoke=185
+    gentest_bazel_textual_consumer=182
     gentest_codegen_module_cpp_source_builds=176
+    gentest_xmake_xrepo_consumer=168
     gentest_codegen_additive_main_discovery=162
     gentest_codegen_header_shared_fixture_visibility=152
     gentest_module_multiline_directives=142
     gentest_module_mock_long_domain_outputs=133
     gentest_package_consumer_include_only=130
     gentest_codegen_artifact_protocol_direct_invocation=127
+    gentest_meson_textual_fmt_fallback=122
     gentest_runtime_shared_context_exports=114
     gentest_module_registration_without_import=109
-    gentest_module_header_unit_import_preamble=90)
+    gentest_xmake_module_consumer=92
+    gentest_module_header_unit_import_preamble=90
+    gentest_xmake_textual_consumer=74
+    gentest_meson_wrap_consumer=72)
 foreach(_gentest_heavy_test IN LISTS _gentest_heavy_test_costs)
     string(REPLACE "=" ";" _gentest_heavy_test "${_gentest_heavy_test}")
     list(GET _gentest_heavy_test 0 _gentest_heavy_test_name)
