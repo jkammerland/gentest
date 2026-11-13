@@ -5508,6 +5508,18 @@ unset(_gentest_heavy_test)
 unset(_gentest_heavy_test_name)
 unset(_gentest_heavy_test_cost)
 
+# Async cases assert wall-clock deadlines (wait_for budgets, CheckNoTimeout
+# limits). Under a user-mode emulator, parallel CTest load stretches them past
+# those deadlines, so run them alone there.
+if(CMAKE_CROSSCOMPILING_EMULATOR)
+    get_property(_gentest_directory_tests DIRECTORY PROPERTY TESTS)
+    list(FILTER _gentest_directory_tests INCLUDE REGEX "^(async_|regression_async_)")
+    if(_gentest_directory_tests)
+        set_tests_properties(${_gentest_directory_tests} PROPERTIES RUN_SERIAL TRUE)
+    endif()
+    unset(_gentest_directory_tests)
+endif()
+
 # Local dev workflow: run test suite under valgrind via CTest's MemCheck step.
 #
 # Notes:
