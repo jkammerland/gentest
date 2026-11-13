@@ -2873,6 +2873,16 @@ gentest_add_check_exit_code(
     EXPECT_RC 0)
 
 gentest_add_manual_regression(
+    TARGET gentest_regression_runner_selection_reports
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/runner_selection_reports.cpp)
+
+gentest_add_check_exit_code(
+    NAME regression_selection_wildcard_literal_star
+    PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+    EXPECT_RC 0
+    ARGS wildcard-literal-star)
+
+gentest_add_manual_regression(
     TARGET gentest_regression_async_status_renderer
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/async_status_renderer.cpp)
 
