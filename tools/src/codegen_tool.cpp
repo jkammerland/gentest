@@ -205,6 +205,37 @@ bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
         }
     }
 
+    // Base names can differ while the registered names collide: test("p")
+    // with parameters(i, 1) and a separate test("p(1)") both register "p(1)".
+    // Uniqueness is a property of the final display name.
+    std::unordered_map<std::string, std::string> first_display_location;
+    for (const auto idx : order) {
+        if (!keep[idx]) {
+            continue;
+        }
+        const auto &c = cases[idx];
+        if (c.display_name.empty()) {
+            continue;
+        }
+        const std::string here = fmt::format("{}:{}", c.filename, c.line);
+        auto              it   = first_display_location.find(c.display_name);
+        if (it == first_display_location.end()) {
+            first_display_location.emplace(c.display_name, here);
+            continue;
+        }
+        if (it->second == here) {
+            continue; // the same declaration seen through more than one scan slot
+        }
+        ok        = false;
+        keep[idx] = false;
+
+        const std::string report_key = fmt::format("display\n{}\n{}", c.display_name, here);
+        if (reported.insert(report_key).second) {
+            gentest::codegen::log_err("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", c.display_name, here,
+                                      it->second);
+        }
+    }
+
     if (!ok) {
         std::vector<TestCaseInfo> filtered;
         filtered.reserve(cases.size());
