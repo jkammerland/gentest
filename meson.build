@@ -1,4 +1,4 @@
-project('gentest', 'cpp', default_options: ['cpp_std=c++20'])
+project('gentest', 'cpp', version: '2.0.0', default_options: ['cpp_std=c++20'])
 
 cpp = meson.get_compiler('cpp')
 fs = import('fs')
@@ -151,7 +151,7 @@ libgentest_runtime = static_library(
   objects: libgentest_bench_escape.extract_all_objects(recursive: false),
   link_with: libgentest_notifications,
   include_directories: project_includes,
-  cpp_args: runtime_cargs,
+  cpp_args: runtime_cargs + ['-DGENTEST_VERSION_STR="@0@"'.format(meson.project_version())],
   dependencies: runtime_deps,
 )
 
