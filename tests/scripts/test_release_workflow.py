@@ -50,6 +50,43 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn('tag -s "${RELEASE_TAG}" -m "${RELEASE_TAG}"', self.workflow)
         self.assertIn('git verify-tag "${RELEASE_TAG}"', self.workflow)
 
+    def test_changelog_and_packaging_are_checked_before_the_tag_exists(self) -> None:
+        step = self.workflow.split("- name: Sign and verify release tag", 1)[1].split("\n      - name: ", 1)[0]
+        tag_creation = step.index('tag -s "${RELEASE_TAG}"')
+        tag_lookup = step.index("git ls-remote origin")
+        changelog_check = step.index('grep -Eq "${changelog_heading}" CHANGELOG.md')
+        dry_run = step.index('python3 scripts/package_source_release.py "${dry_run_dir}" --ref "${release_commit}"')
+        self.assertLess(changelog_check, tag_lookup)
+        self.assertLess(dry_run, tag_lookup)
+        self.assertLess(tag_lookup, tag_creation)
+        # The dry run must not sign, and must not leave assets where the real packaging writes.
+        self.assertIn("env -u GPG_SIGNING_KEY -u GPG_PASSPHRASE_FILE GENTEST_REQUIRE_PACKAGE_SIGNING=OFF", step)
+        self.assertNotIn('"${RUNNER_TEMP}/gentest-release"', step)
+        # Workflow inputs reach the shell only through env.
+        self.assertEqual(re.findall(r"\$\{\{[^}]*\}\}", step), ["${{ inputs.tag }}"])
+        self.assertIn("RELEASE_TAG: ${{ inputs.tag }}", step.split("run: |", 1)[0])
+
+        heading = next(line.strip() for line in step.splitlines() if line.strip().startswith("changelog_heading="))
+        bash = find_bash()
+        self.assertIsNotNone(bash, "bash is required to exercise the changelog check")
+        cases = {
+            "## 2.0.0 - 2026-11-20\n": True,
+            "# Changelog\n\n## 2.0.0 - 2026-11-20\n\n## 1.3.0 - 2026-10-18\n": True,
+            "## 2.0.0 - Unreleased\n\n## 1.3.0 - 2026-10-18\n": False,
+            "## 1.3.0 - 2026-10-18\n": False,
+            "## 12.0.0 - 2026-11-20\n## 2.0.01 - 2026-11-20\n## 2x0y0 - 2026-11-20\n": False,
+            "notes mention ## 2.0.0 - 2026-11-20 inline\n": False,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            changelog = Path(tmp) / "CHANGELOG.md"
+            for text, accepted in cases.items():
+                with self.subTest(text=text):
+                    changelog.write_text(text, encoding="utf-8")
+                    result = subprocess.run(
+                        [bash, "-c", f'set -euo pipefail\n{heading}\ngrep -Eq "${{changelog_heading}}" CHANGELOG.md'],
+                        cwd=tmp, env={**os.environ, "project_version": "2.0.0"}, check=False)
+                    self.assertEqual(result.returncode == 0, accepted)
+
     def test_release_title_matches_tag_for_new_and_resumed_drafts(self) -> None:
         self.assertEqual(self.workflow.count('-f name="${RELEASE_TAG}"'), 2)
         self.assertIn(
