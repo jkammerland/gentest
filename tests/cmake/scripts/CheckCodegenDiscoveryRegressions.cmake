@@ -88,6 +88,19 @@ function(_gentest_cdr_expect_registered what)
   endforeach()
 endfunction()
 
+# Needles must not contain ';' (a CMake list separator).
+function(_gentest_cdr_expect_count what needle expected_count)
+  string(REPLACE "${needle}" "" _without "${_registration}")
+  string(LENGTH "${_registration}" _len_with)
+  string(LENGTH "${_without}" _len_without)
+  string(LENGTH "${needle}" _len_needle)
+  math(EXPR _count "(${_len_with} - ${_len_without}) / ${_len_needle}")
+  if(NOT _count EQUAL expected_count)
+    message(FATAL_ERROR
+      "${what}: expected ${expected_count} occurrence(s) of '${needle}', found ${_count}.\n${_log}\nRegistration:\n${_registration}")
+  endif()
+endfunction()
+
 function(_gentest_cdr_expect_not_registered what)
   foreach(_needle IN LISTS ARGN)
     string(FIND "${_registration}" "${_needle}" _pos)
@@ -181,6 +194,36 @@ inline void unannotated_free() {}
     "\"scan/subscript(kTable[kIndex[0]])\"" "\"scan/inline_member\"" "\"scan/plain_member\"" "\"scan/static_member\""
     "\"scan/const_ref_member\"" "\"scan/constexpr_member\"")
   _gentest_cdr_expect_not_registered("attribute text scan" "unannotated")
+elseif(SCENARIO STREQUAL "global_fixture_type")
+  # A fixture type in the global namespace keeps its canonical spelling and is
+  # never bound to a same-named type declared elsewhere.
+  _gentest_cdr_scan(global CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+struct GFx {};
+namespace other {
+struct [[using gentest: fixture(suite)]] GFx {};
+} // namespace other
+namespace ns {
+struct LFx {};
+[[using gentest: test("global_local")]] inline void global_local(GFx &fx) { (void)fx; }
+[[using gentest: test("ns_local")]] inline void ns_local(LFx &fx) { (void)fx; }
+namespace inner {
+struct GFx {};
+[[using gentest: test("inner_global")]] inline void inner_global(::GFx &fx) { (void)fx; }
+[[using gentest: test("inner_own")]] inline void inner_own(GFx &fx) { (void)fx; }
+} // namespace inner
+} // namespace ns
+namespace other::deep {
+[[using gentest: test("other_global")]] inline void other_global(::GFx &fx) { (void)fx; }
+[[using gentest: test("other_shared")]] inline void other_shared(other::GFx &fx) { (void)fx; }
+} // namespace other::deep
+]=])
+  _gentest_cdr_expect_success("global fixture type")
+  _gentest_cdr_expect_not_registered("global fixture type" "FixtureHandle<ns::GFx>" "FixtureHandle<other::deep::GFx>")
+  _gentest_cdr_expect_count("global fixture type" "auto fx0_ = ::gentest::detail::FixtureHandle<GFx>::empty()" 3)
+  _gentest_cdr_expect_count("global fixture type" "auto fx0_ = ::gentest::detail::FixtureHandle<ns::LFx>::empty()" 1)
+  _gentest_cdr_expect_count("global fixture type" "auto fx0_ = ::gentest::detail::FixtureHandle<ns::inner::GFx>::empty()" 1)
+  _gentest_cdr_expect_registered("global fixture type" "\"other::GFx\")) return")
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()
