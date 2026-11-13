@@ -57,6 +57,20 @@ attribute skips appear as skipped. Fixture teardown and report-write errors retu
 A successful execution with `--junit=<path>` writes a report for that invocation, including zero-test selections and empty case
 tables. Use `--fail-on-empty` when CI requires a nonempty selection. Listing and preview operations do not write reports.
 
+Report outcome mapping:
+
+| Outcome | JUnit | Allure `status` |
+| --- | --- | --- |
+| pass | no child element | `passed` |
+| fail, unexpected pass | `<failure>`, counted in `failures` | `failed` |
+| skip, expected failure | `<skipped>`, counted in `skipped` | `skipped` (expected failures add an `xfail` label) |
+| blocked | `<error type="blocked">`, counted in `errors` | `broken`, with `blocked` and `blocked_reason` labels |
+| runner or fixture infrastructure error | `<system-err>`, counted in `errors` | separate `failed` result under `gentest/infra` |
+
+A blocked case did not run and makes the run exit `1`, so it is reported as an error, never as a skip. JUnit `time` values are
+seconds in fixed-point decimal notation and, like the counts, do not depend on the process locale. Text that is not valid UTF-8
+is replaced in both formats (`?` in JUnit, U+FFFD in Allure).
+
 Manual benchmarks may set source-level execution policy with the
 `Case::benchmark` field:
 

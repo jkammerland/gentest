@@ -1553,7 +1553,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_setup_skip_member_junit_reports_blocked_outcome
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip.xml
-    REQUIRED_SUBSTRING "tests=\"2\" failures=\"0\" skipped=\"2\" errors=\"2\""
+    REQUIRED_SUBSTRING "tests=\"2\" failures=\"0\" skipped=\"0\" errors=\"4\""
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip.xml)
 
@@ -1561,8 +1561,8 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_setup_skip_member_junit_reports_suite_case_blocked_element
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_suite_failure_tag.xml
-    REQUIRED_SUBSTRING "name=\"regressions/member_shared_setup_skip/suite_member\" time=\"0\">
-    <skipped message=\"blocked: shared fixture unavailable for 'regressions::NullMemberSuiteFixture': fixture allocation failed\"/>"
+    REQUIRED_SUBSTRING "name=\"regressions/member_shared_setup_skip/suite_member\" time=\"0.000000000\">
+    <error type=\"blocked\" message=\"blocked: shared fixture unavailable for 'regressions::NullMemberSuiteFixture': fixture allocation failed\"/>"
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_suite_failure_tag.xml)
 
@@ -1570,8 +1570,8 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_setup_skip_member_junit_reports_global_case_blocked_element
     PROG $<TARGET_FILE:gentest_regression_member_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_global_failure_tag.xml
-    REQUIRED_SUBSTRING "name=\"regressions/member_shared_setup_skip/global_member\" time=\"0\">
-    <skipped message=\"blocked: shared fixture unavailable for 'regressions::NullMemberGlobalFixture': fixture allocation failed\"/>"
+    REQUIRED_SUBSTRING "name=\"regressions/member_shared_setup_skip/global_member\" time=\"0.000000000\">
+    <error type=\"blocked\" message=\"blocked: shared fixture unavailable for 'regressions::NullMemberGlobalFixture': fixture allocation failed\"/>"
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_global_failure_tag.xml)
 
@@ -1599,7 +1599,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_setup_skip_junit_reports_blocked_outcome
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip.xml
-    REQUIRED_SUBSTRING "tests=\"2\" failures=\"0\" skipped=\"2\" errors=\"2\""
+    REQUIRED_SUBSTRING "tests=\"2\" failures=\"0\" skipped=\"0\" errors=\"4\""
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip.xml)
 
@@ -1607,7 +1607,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_setup_skip_junit_reports_global_case_blocked_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_global_failure_tag.xml
-    REQUIRED_SUBSTRING "<skipped message=\"blocked: shared fixture unavailable for 'regressions::shared_setup_skip::NullGlobalFx': fixture allocation returned null\"/>"
+    REQUIRED_SUBSTRING "<error type=\"blocked\" message=\"blocked: shared fixture unavailable for 'regressions::shared_setup_skip::NullGlobalFx': fixture allocation returned null\"/>"
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_global_failure_tag.xml)
 
@@ -1615,7 +1615,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_setup_skip_junit_reports_suite_case_blocked_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip>
     FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_suite_failure_tag.xml
-    REQUIRED_SUBSTRING "<skipped message=\"blocked: shared fixture unavailable for 'regressions::shared_setup_skip::NullSuiteFx': fixture allocation returned null\"/>"
+    REQUIRED_SUBSTRING "<error type=\"blocked\" message=\"blocked: shared fixture unavailable for 'regressions::shared_setup_skip::NullSuiteFx': fixture allocation returned null\"/>"
     EXPECT_RC 1
     ARGS --kind=test --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_suite_failure_tag.xml)
 
@@ -1702,7 +1702,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_setup_skip_bench_junit_reports_blocked
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
     FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench.xml
-    REQUIRED_SUBSTRING "tests=\"1\" failures=\"0\" skipped=\"1\""
+    REQUIRED_SUBSTRING "tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"2\""
     EXPECT_RC 1
     ARGS --run=regressions/shared_setup_skip_bench_jitter/suite_bench --kind=bench --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench.xml)
 
@@ -1713,7 +1713,7 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/shared_setup_skip_bench_jitter/suite_bench --kind=bench --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench_not_skipped.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench_not_skipped.xml"
-        "REQUIRED_SUBSTRING=<skipped message=\"blocked: shared fixture unavailable"
+        "REQUIRED_SUBSTRING=<error type=\"blocked\" message=\"blocked: shared fixture unavailable"
         "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
@@ -1724,7 +1724,7 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/shared_setup_skip_bench_jitter/suite_bench --kind=bench --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench_blocked_contract.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_bench_blocked_contract.xml"
-        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\""
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"2\""
         "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
@@ -1750,7 +1750,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_setup_skip_jitter_junit_reports_blocked
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_setup_skip_bench_jitter>
     FILE ${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter.xml
-    REQUIRED_SUBSTRING "tests=\"1\" failures=\"0\" skipped=\"1\""
+    REQUIRED_SUBSTRING "tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"2\""
     EXPECT_RC 1
     ARGS --run=regressions/shared_setup_skip_bench_jitter/global_jitter --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter.xml)
 
@@ -1761,7 +1761,7 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/shared_setup_skip_bench_jitter/global_jitter --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter_not_skipped.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter_not_skipped.xml"
-        "REQUIRED_SUBSTRING=<skipped message=\"blocked: shared fixture unavailable"
+        "REQUIRED_SUBSTRING=<error type=\"blocked\" message=\"blocked: shared fixture unavailable"
         "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
@@ -1772,7 +1772,7 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/shared_setup_skip_bench_jitter/global_jitter --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter_blocked_contract.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_shared_fixture_setup_skip_jitter_blocked_contract.xml"
-        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\""
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"2\""
         "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
@@ -1827,7 +1827,7 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_bench.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_bench.xml"
-        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"0\""
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"1\""
         "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
@@ -1838,7 +1838,7 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/member_shared_setup_skip_measured/bench_member --kind=bench --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_bench_blocked_contract.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_bench_blocked_contract.xml"
-        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\""
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"1\""
         "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
@@ -1871,7 +1871,7 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_jitter.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_jitter.xml"
-        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"0\""
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"1\""
         "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
@@ -1882,7 +1882,7 @@ gentest_add_cmake_script_test(
     ARGS --run=regressions/member_shared_setup_skip_measured/jitter_member --kind=jitter --junit=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_jitter_blocked_contract.xml
     DEFINES
         "FILE=${CMAKE_BINARY_DIR}/regression_member_shared_fixture_setup_skip_measured_jitter_blocked_contract.xml"
-        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"1\""
+        "REQUIRED_SUBSTRING=tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"1\""
         "FORBID_SUBSTRING=<failure"
         "EXPECT_RC=1")
 
@@ -2058,7 +2058,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_create_assert_junit_reports_blocked_outcome
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_mixed_outcome.xml
-    REQUIRED_SUBSTRING "failures=\"0\" skipped=\"1\" errors=\"1\""
+    REQUIRED_SUBSTRING "failures=\"0\" skipped=\"0\" errors=\"2\""
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_mixed_outcome.xml)
 
@@ -2066,7 +2066,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_create_assert_junit_reports_blocked_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_create_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_failure_tag.xml
-    REQUIRED_SUBSTRING "<skipped message=\"blocked: shared fixture unavailable for 'regressions::AssertingCreateFixture': fixture allocation failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:9: manual-create-assert\"/>"
+    REQUIRED_SUBSTRING "<error type=\"blocked\" message=\"blocked: shared fixture unavailable for 'regressions::AssertingCreateFixture': fixture allocation failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_create_assert_skip.cpp:9: manual-create-assert\"/>"
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_create_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_create_assert_failure_tag.xml)
 
@@ -2096,7 +2096,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_setup_assert_junit_reports_blocked_outcome
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_mixed_outcome.xml
-    REQUIRED_SUBSTRING "failures=\"0\" skipped=\"1\" errors=\"1\""
+    REQUIRED_SUBSTRING "failures=\"0\" skipped=\"0\" errors=\"2\""
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_mixed_outcome.xml)
 
@@ -2104,7 +2104,7 @@ gentest_add_run_and_check_file(
     NAME regression_shared_fixture_manual_setup_assert_junit_reports_blocked_element
     PROG $<TARGET_FILE:gentest_regression_shared_fixture_manual_setup_assert_skip>
     FILE ${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_failure_tag.xml
-    REQUIRED_SUBSTRING "<skipped message=\"blocked: shared fixture unavailable for 'regressions::AssertingSetupFixture': fixture setup failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:13: manual-setup-assert\"/>"
+    REQUIRED_SUBSTRING "<error type=\"blocked\" message=\"blocked: shared fixture unavailable for 'regressions::AssertingSetupFixture': fixture setup failed: ASSERT_TRUE  failed at tests/regressions/shared_fixture_manual_setup_assert_skip.cpp:13: manual-setup-assert\"/>"
     EXPECT_RC 1
     ARGS --run=regressions/shared_fixture_manual_setup_assert_skip/member_case --kind=test --junit=${CMAKE_CURRENT_BINARY_DIR}/shared_fixture_manual_setup_assert_failure_tag.xml)
 

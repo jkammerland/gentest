@@ -3,6 +3,7 @@
 #include "../../src/runner_cli.h"
 #include "../../src/runner_measured_executor.h"
 #include "../../src/runner_replay.h"
+#include "../../src/runner_reporting.h"
 #include "../../src/runner_selector.h"
 #include "gentest/detail/generated_runtime.h"
 #include "gentest/detail/runtime_support.h"
@@ -14,6 +15,8 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <locale>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -233,6 +236,70 @@ int check_measured_death_marker(const std::filesystem::path &directory) {
     return g_failures == 0 ? 0 : 1;
 }
 
+bool contains(std::string_view haystack, std::string_view needle) { return haystack.find(needle) != std::string_view::npos; }
+
+std::filesystem::path fresh_directory(const std::filesystem::path &directory) {
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+    std::filesystem::create_directories(directory);
+    return directory;
+}
+
+gentest::runner::ReportItem make_item(std::string name, gentest::runner::Outcome outcome, double time_s) {
+    gentest::runner::ReportItem item;
+    item.suite   = "regressions";
+    item.name    = std::move(name);
+    item.outcome = outcome;
+    item.time_s  = time_s;
+    return item;
+}
+
+gentest::runner::ReportItem make_blocked_item() {
+    auto item        = make_item("reports/blocked", gentest::runner::Outcome::Blocked, 1.2e-05);
+    item.skipped     = true;
+    item.skip_reason = "blocked: fixture down";
+    return item;
+}
+
+// Decimal comma and digit grouping, as a user-installed global locale could impose.
+struct GroupingPunct : std::numpunct<char> {
+    char        do_decimal_point() const override { return ','; }
+    char        do_thousands_sep() const override { return '.'; }
+    std::string do_grouping() const override { return "\3"; }
+};
+
+// JUnit: a blocked case is an <error>, and numbers are locale-independent fixed-point decimals.
+int check_junit_report(const std::filesystem::path &directory) {
+    const auto junit = fresh_directory(directory) / "report.xml";
+
+    gentest::runner::RunAccumulator acc;
+    acc.report_items.push_back(make_blocked_item());
+    acc.report_items.push_back(make_item("reports/slow", gentest::runner::Outcome::Pass, 1234.5));
+    auto skipped        = make_item("reports/skipped", gentest::runner::Outcome::Skip, 0.0);
+    skipped.skipped     = true;
+    skipped.skip_reason = "not today";
+    acc.report_items.push_back(skipped);
+    for (int i = 0; i < 1200; ++i)
+        acc.report_items.push_back(make_item("reports/many/" + std::to_string(i), gentest::runner::Outcome::Pass, 0.5));
+
+    const std::locale previous = std::locale::global(std::locale(std::locale::classic(), new GroupingPunct));
+    const std::string path     = junit.string();
+    const bool        ok       = gentest::runner::write_reports(acc, {.junit_path = path.c_str(), .allure_dir = nullptr});
+    std::locale::global(previous);
+
+    const std::string xml = read_file(junit);
+    expect(ok, "the JUnit report is written");
+    expect(contains(xml, R"(tests="1203" failures="0" skipped="1" errors="1">)"), "blocked counts as an error; counts are ungrouped");
+    expect(contains(xml, R"(<error type="blocked" message="blocked: fixture down"/>)"), "blocked case carries an <error> element");
+    expect(contains(xml, R"(<skipped message="not today"/>)"), "an ordinary skip stays <skipped>");
+    expect(!contains(xml, R"(<skipped message="blocked)") && !contains(xml, "<skipped/>"), "blocked case is not written as <skipped>");
+    expect(contains(xml, R"(name="reports/blocked" time="0.000012000")"), "small times are fixed-point, not exponent notation");
+    expect(contains(xml, R"(name="reports/slow" time="1234.500000000")"), "times ignore the global locale");
+    if (g_failures != 0)
+        std::cerr << xml.substr(0, 600) << '\n';
+    return g_failures == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -247,6 +314,8 @@ int main(int argc, char **argv) {
         return check_failure_path_trim();
     if (mode == "measured-death-marker" && argc == 3)
         return check_measured_death_marker(argv[2]);
+    if (mode == "junit-report" && argc == 3)
+        return check_junit_report(argv[2]);
     std::cerr << "usage: runner_selection_reports <mode> [args]\n";
     return 2;
 }
