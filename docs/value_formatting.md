@@ -18,6 +18,8 @@ Module consumers get the same API from `import gentest;`.
    Character arrays end at their first NUL (or their full extent), so `char buffer[8] = "ab"` prints as `"ab"`.
    Non-null character pointers are read as NUL-terminated C strings and must point to one.
    Signed/unsigned byte values and `std::byte` print as numbers.
+   Pointers to signed/unsigned bytes (`unsigned char *`, `std::uint8_t *`, `signed char *`) are not strings: they print as
+   an address like any other object pointer, or `nullptr` when null, and are never read through.
 2. A value with `operator<<` is written to an `std::ostringstream`. Booleans use `std::boolalpha`; floating-point values use
    `max_digits10` precision so adjacent unequal values remain distinguishable.
 3. Otherwise, a value accepted by `fmt` uses the default `{}` presentation.
