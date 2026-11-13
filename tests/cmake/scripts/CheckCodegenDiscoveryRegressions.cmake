@@ -147,6 +147,40 @@ inline const char *greeting = GREETING;
   _gentest_cdr_expect_success("embedded shell operators")
   _gentest_cdr_expect_registered("embedded shell operators" "\"shell/kept\"")
 
+elseif(SCENARIO STREQUAL "attribute_text_scan")
+  # Attribute discovery must not depend on text that only looks like a literal
+  # or a comment, nor on specifiers written between attributes and a member.
+  _gentest_cdr_scan(text CONTENT [=[
+#pragma once
+#if 0
+See the users' guide.
+An "unterminated quote.
+#endif
+// A line comment with one " quote and an apostrophe: don't
+namespace scan {
+[[using gentest: test("after_skipped_text")]] inline void after_skipped_text() {}
+/* see http://example.com */ [[using gentest: test("after_block_comment")]] inline void after_block_comment() {}
+[[using gentest: test("comment_before_decl")]] /* https://example.com/x */ // trailing
+inline void comment_before_decl() {}
+[[using gentest: test("subscript"), parameters(value, kTable[kIndex[0]])]] inline void subscript(int value) { (void)value; }
+struct Members {
+    [[using gentest: test("inline_member")]] inline void inline_member() {}
+    [[using gentest: test("plain_member")]] void plain_member() {}
+    [[using gentest: test("static_member")]] static inline void static_member() {}
+    [[using gentest: test("const_ref_member")]] const int &const_ref_member() { return value; }
+    [[nodiscard]] [[using gentest: test("constexpr_member")]] constexpr inline int constexpr_member() const { return value; }
+    void unannotated() {}
+    int value = 0;
+};
+inline void unannotated_free() {}
+} // namespace scan
+]=])
+  _gentest_cdr_expect_success("attribute text scan")
+  _gentest_cdr_expect_registered("attribute text scan"
+    "\"scan/after_skipped_text\"" "\"scan/after_block_comment\"" "\"scan/comment_before_decl\""
+    "\"scan/subscript(kTable[kIndex[0]])\"" "\"scan/inline_member\"" "\"scan/plain_member\"" "\"scan/static_member\""
+    "\"scan/const_ref_member\"" "\"scan/constexpr_member\"")
+  _gentest_cdr_expect_not_registered("attribute text scan" "unannotated")
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()
