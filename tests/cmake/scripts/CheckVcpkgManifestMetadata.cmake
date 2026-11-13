@@ -38,6 +38,55 @@ if(NOT _manifest_version STREQUAL _project_version)
     "CheckVcpkgManifestMetadata.cmake: vcpkg manifest version '${_manifest_version}' does not match project version '${_project_version}'")
 endif()
 
+# The other build systems restate the version; none of them may drift from CMake.
+function(_gentest_check_restated_version relative_path pattern description)
+  set(_path "${_project_root}/${relative_path}")
+  if(NOT EXISTS "${_path}")
+    message(FATAL_ERROR "CheckVcpkgManifestMetadata.cmake: missing ${_path}")
+  endif()
+  file(READ "${_path}" _text)
+  if(NOT _text MATCHES "${pattern}")
+    message(FATAL_ERROR
+      "CheckVcpkgManifestMetadata.cmake: unable to find ${description} in ${_path}")
+  endif()
+  if(NOT CMAKE_MATCH_1 STREQUAL _project_version)
+    message(FATAL_ERROR
+      "CheckVcpkgManifestMetadata.cmake: ${description} in ${relative_path} is '${CMAKE_MATCH_1}', "
+      "which does not match project version '${_project_version}'")
+  endif()
+endfunction()
+
+_gentest_check_restated_version(MODULE.bazel
+  "module\\([ \t\r\n]*name[ \t]*=[ \t]*\"gentest\"[ \t]*,[ \t]*version[ \t]*=[ \t]*\"([^\"]*)\""
+  "the Bazel module version")
+_gentest_check_restated_version(BUILD.bazel
+  "\n_gentest_version[ \t]*=[ \t]*'([^']*)'"
+  "the Bazel runtime version (_gentest_version)")
+_gentest_check_restated_version(meson.build
+  "project\\([ \t\r\n]*'gentest'[^)]*version[ \t]*:[ \t]*'([^']*)'"
+  "the Meson project version")
+_gentest_check_restated_version(xmake.lua
+  "\nlocal gentest_version[ \t]*=[ \t]*\"([^\"]*)\"[ \t]*\r?\nset_version\\(gentest_version\\)"
+  "the xmake project version (gentest_version passed to set_version)")
+
+# Every backend must hand the runtime that version for `--help`.
+foreach(_define_use IN ITEMS
+    "src/CMakeLists.txt|GENTEST_VERSION_STR=\"\${PROJECT_VERSION}\""
+    "BUILD.bazel|'GENTEST_VERSION_STR=\\\\\"' + _gentest_version"
+    "meson.build|-DGENTEST_VERSION_STR=\"@0@\"'.format(meson.project_version())"
+    "xmake.lua|\"GENTEST_VERSION_STR=\\\"\" .. gentest_version")
+  string(REPLACE "|" ";" _define_use_parts "${_define_use}")
+  list(GET _define_use_parts 0 _define_file)
+  list(GET _define_use_parts 1 _define_text)
+  file(READ "${_project_root}/${_define_file}" _define_file_text)
+  string(FIND "${_define_file_text}" "${_define_text}" _define_pos)
+  if(_define_pos EQUAL -1)
+    message(FATAL_ERROR
+      "CheckVcpkgManifestMetadata.cmake: ${_define_file} must define GENTEST_VERSION_STR for the runtime from its "
+      "project version (expected to find: ${_define_text})")
+  endif()
+endforeach()
+
 set(_baseline "")
 string(JSON _builtin_baseline ERROR_VARIABLE _builtin_baseline_error GET "${_manifest_json}" builtin-baseline)
 if(NOT _builtin_baseline_error AND NOT "${_builtin_baseline}" STREQUAL "")

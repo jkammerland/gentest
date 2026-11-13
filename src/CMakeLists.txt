@@ -73,6 +73,9 @@ add_library(gentest_main STATIC
 set_property(TARGET ${PROJECT_NAME} gentest_runtime gentest_main
     PROPERTY SPDX_LICENSE "${gentest_SPDX_LICENSE}")
 
+# The runner prints this in --help; only the runtime reads it.
+target_compile_definitions(gentest_runtime PRIVATE GENTEST_VERSION_STR="${PROJECT_VERSION}")
+
 target_link_libraries(gentest_main
     PUBLIC
         ${PROJECT_NAME}
