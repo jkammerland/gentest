@@ -2,72 +2,121 @@
 
 ## 2.0.0 - Unreleased
 
+### Upgrading
+
+- Regenerate and rebuild with matching 2.0.0 codegen, headers, and runtime; 1.x generated sources are not compatible.
+- Rename `async_test<T>` to `gentest::awaitable<T>` and replace `await_subscribe` / `cancel_wait` with ordinary C++ awaiters.
+- Add `FILE_SET gentest_explicit_mock_defs DESTINATION include` when installing `gentest_add_mocks()` targets.
+- Review nice-mode mocks that relied on ignored extra calls, and shared fixtures expected to set up when unused.
+
 ### Breaking changes
 
-- Async cases, helpers, and fixture hooks now return `gentest::awaitable<T = void>`
-  instead of `async_test<T>`. Headers, named modules, and generated adapters use
-  the same public type.
-- Custom operations use ordinary C++ awaiters directly or in composition and
-  deadline waits. The required `await_subscribe` / `cancel_wait` protocol and
-  public callback-storage alias are removed; scoped backend registrations own
-  cleanup.
-- `when_any`, `wait_for`, and `wait_until` require exceptions. Builds without
-  exceptions still support `awaitable` and `when_all`.
-- `gentest_add_mocks()` uses `DEFS` in place instead of copying them and the
-  headers they include into `OUTPUT_DIR/defs/`. The DEFS are public headers of
-  the mock target: their includes must be reachable by consumers, normally via
-  `LINK_LIBRARIES`. Textual DEFS publish a new `gentest_explicit_mock_defs` file
-  set; `install(TARGETS)` must name it. Installed packages whose DEFS include
-  headers that were neither installed nor exported now fail to compile; install
-  those headers or add them to that file set. Generated mock headers include
-  mocked types by the spelling consumers use, such as `"app/clock.hpp"`.
+- Async cases, helpers, and fixture hooks return `gentest::awaitable<T = void>` instead of `async_test<T>`.
+- Custom async operations are ordinary C++ awaiters; `await_subscribe` / `cancel_wait` and the callback-storage alias are removed.
+- `when_any`, `wait_for`, and `wait_until` require exceptions; `awaitable` and `when_all` do not.
+- The generated-registration contract is version 6 (`GENTEST_CASE_API_VERSION`), up from 4 (#238, #299).
+- Shared suite and global fixtures set up on first use by a selected case, not at the start of the run (#240).
+- Nice-mode native mocks fail calls beyond a method's expectations, including `.times(0)` (#261).
+- Changing native mock configuration after its first call or verification records a test failure (#238).
+- `gentest_add_mocks()` uses `DEFS` in place as public headers of the mock target instead of copying them (#239).
+- Installing a textual mock target requires its new `gentest_explicit_mock_defs` file set.
+- A `HEADER_NAME` with the same include path as a `DEFS` file is rejected.
+- `DEFS` are included by their path relative to the current source or binary directory, or to the new `BASE_DIRS` argument.
+- Two mock targets used by one test must not spell different `DEFS` files by the same include path; configure fails if they do.
+- JUnit reports blocked cases as `<error>` and Allure as `broken`, instead of skipped.
+- Duplicate single-valued runner options, `--repeat` outside 1..1000000, `--bench-epochs=0`, and `--jitter-bins` above 10000 are errors.
+- `EXPECT_NO_THROW` / `EXPECT_THROW` macros (and `ASSERT_` forms) reject a lambda argument at compile time; pass a statement, or call `(EXPECT_NO_THROW)(fn)`.
+- `when_all` and `when_any` are class templates used through deduction; they can no longer take explicit template arguments or have their address taken.
+- Explicit stop-token overloads of `sleep_for`, `yield`, `event.wait`, and `future.wait` require exceptions.
+- `--quiet-clang` / `QUIET_CLANG` no longer hides parse errors; a file that fails to parse fails codegen.
+- Numeric `range` / `linspace` bounds must be numeric literals; a mocked method named `mock` and template tests without a full `template(...)` set are rejected.
 
 ### Added
 
-- `when_all` returns an owning tuple in input order; `when_any` returns an owning
-  variant for the first completed input and requests stop for the others. Both
-  join every input before returning or propagating an exception.
-- Custom callback awaitables with typed, move-only results and application-defined
-  completion reasons. Continuations queue both value publication and coroutine
-  execution on the owning test runner, including worker and inline callbacks.
-- Sixteen runnable async examples in eight stages cover awaitables, composition,
-  cancellation, fixtures, events and futures, polling, worker callbacks, and
-  cancellation acknowledgement.
+- `when_all` and `when_any` compose awaitables, returning an owning tuple or variant after joining every input.
+- Custom callback awaitables with typed, move-only results that resume on the owning test runner.
+- Sixteen runnable async examples in eight stages.
+- Failure messages show formatted values and the first mismatch for containers, strings, tuples, optionals, and variants (#243).
+- `diagnostic_context(...)` scopes label failures with helper-call and loop context (#243).
+- `gentest/matchers.h` shares matchers between assertions and native mocks, with `expect_that`, `require_that`, and `ElementsAre` (#243).
+- Native mock failures name the expectation's declaration location (#243).
+- Tag selection with `--tag`, `--exclude-tag`, `--exclude`, and `--list-tags` (#240).
+- Discovery adds case tags to CTest `LABELS` (#240).
+- `--output=full|compact|failures-only` and `--log-output=all|failures` (#242).
+- `--break-on-failure` stops in a debugger at the failing assertion (#242).
+- Failing cases print a shell-quoted command that reruns exactly that case (#242).
+- Repeated shuffled runs print each iteration's seed and replay command (#242).
+- `--skip-return-code=N` sets the exit status when every selected case skips (#238).
+- Progress notifications and watchdogs: `gentest::notifications` and Linux-only `gentest::notifications_linux` (#209).
+- Opt-in framework progress events through `RunConfiguration`, `FrameworkEventVisitor`, and `currentNotifier()` (#210).
+- Experimental, opt-in Linux network harness (`GENTEST_BUILD_HARNESS=ON`); not installed.
+- Linux first-use guide and developer build measurements (#237, #241).
+- `RunConfiguration::suspendProgressInterval` limits framework progress records per subject (1 ms default).
+- `gentest_add_mocks(... DEPENDS ...)` is documented for ordering mock codegen after generated inputs.
 
 ### Changed
 
-- Nested awaitables and built-in event, future, sleep, and yield waits inherit
-  cooperative cancellation. Explicit stop tokens override inheritance; an empty
-  token allows cleanup waits. Cancelling a future wait preserves its producer
-  and result.
-- Deadline waits use the same composition machinery, request stop on timeout,
-  and join the operation. Cancellation cleanup can extend beyond the deadline.
+- Nested awaitables and built-in waits inherit cooperative cancellation; explicit stop tokens override it.
+- Deadline waits request stop on timeout and join the operation, so cleanup can extend past the deadline.
+- Discovered cases report runtime skips to CTest with exit code 77 (#238).
+- Discovered death tests pass only if the case body started; setup deaths and CLI errors fail (#238).
+- `Approx` defines exact equality, signed zero, NaN, infinity, and zero tolerance (#238).
+- Successful runs that execute no cases write a fresh zero-test JUnit report (#238).
+- Benchmark and jitter loops call a body-only generated entrypoint (#299).
+- Full CI runs the QEMU and libassert test lanes in parallel (#300).
+- Native mock calls dispatch about twice as fast.
+- JUnit `time` is written as a fixed-point decimal, independent of locale.
+- Runs that fail before executing any case replace a stale JUnit report, and stale gentest result files are removed from `--allure-dir`.
+- Mock codegen is ordered after linked library targets and after the `DEFS` files.
+- `gentest_attach_codegen()` exports compile commands for its target without `CMAKE_EXPORT_COMPILE_COMMANDS`.
+- The release workflow checks for a dated changelog heading and packages once before pushing the tag.
 
 ### Fixed
 
-- Codegen depfiles escape literal dollar signs correctly in targets and
-  dependencies. Regression tests cover direct Ninja consumption and nested CMake
-  incremental builds with Ninja and Ninja Multi-Config.
-- Async completion generations reject stale and competing callbacks before they
-  can publish into a later suspension. Deadline decisions retain queue-admission
-  time even when runner delivery is delayed.
-- Coroutine frames and composition inputs stay alive during reentrant stop
-  callbacks, and resumption restores the owning test context.
-- Fetched static fmt is built with position-independent code for the clang-tidy
-  plugin.
-- An unmet mock expectation in a bench or jitter body no longer terminates the
-  run. Mock destructor verification, and failures recorded while an assertion
-  unwinds the body, are reported when the measured call phase ends. The case
-  fails with the mock message, later cases run, and reports are written. A
-  body that fails on every iteration records at most eight failures per call
-  phase. The measured loops are unchanged (#262).
-- Nice-mode native mocks fail calls beyond a method's expectations, including
-  any call to a `.times(0)` method, with `unexpected call to <method>` as in
-  strict mode. Nice mode now ignores only methods without expectations, so tests
-  that relied on the old silence fail (#261).
-- A test can include a production header and the generated mock header that
-  mocks it in the same translation unit, in either order, when that production
-  header uses `#pragma once` without an include guard (#239).
+- Codegen depfiles escape literal dollar signs (#213).
+- Stale and competing async callbacks can no longer publish into a later suspension.
+- Coroutine frames and composition inputs stay alive during reentrant stop callbacks.
+- Fetched static fmt is built position-independent for the clang-tidy plugin.
+- An unmet mock expectation in a bench or jitter body fails the case instead of terminating the run (#262).
+- A production header using only `#pragma once` can be included alongside the mock header that mocks it (#239).
+- Very large durations and time points saturate instead of overflowing into an immediate timeout (#248).
+- `--fail-fast` no longer hangs when a case polls with `yield()` (#263).
+- Completed waiter tokens are pruned, bounding memory in long async cases (#264).
+- Measured runs whose matches are all excluded death tests rewrite stale reports (#252).
+- Per-TU test registrars have internal linkage, so linked codegen targets keep their cases (#260).
+- Codegen no longer emits reserved identifiers into user code (#267).
+- Generated mock signatures globally qualify every nested name (#265).
+- Generated mocks keep `noexcept(expr)` on class template specializations (#266).
+- Generated mocks handle function-pointer and array-reference parameters and returns (#276).
+- `--filter` and `--exclude` match names containing a literal `*`.
+- Compile flags containing ` || `, ` && `, ` | ` or ` ; ` no longer truncate the codegen compile command.
+- Quotes and `//` in skipped or commented text, and `inline` member tests, no longer hide later test attributes.
+- Global-namespace fixtures, `long double` / hex / exponent axis bounds, and string parameter escapes generate correct code.
+- Template tests bind fixture parameters to their template arguments, and member template tests keep their method name.
+- Benchmarks returning a reference no longer copy the result inside the timed loop.
+- Duplicate display names are rejected, and placeholder-like text in names or parameters is left intact.
+- Module sources with `/*` or `//` inside string literals are recognised; `.inl`, `.ipp`, and `.tpp` headers can be scanned alone.
+- Native mocks distinguish methods of different base classes instead of sharing one expectation slot.
+- Native mocks compile for parameters without `operator==`, abstract parameter types, non-default-constructible returns, overloads, and parameter packs.
+- `.with()` owns text arguments and compares `const char*` by content; stateful and out-parameter `invokes` actions work.
+- Generated native mocks compile with GCC for inherited virtual methods, and with parameters named `token`.
+- GMock and Trompeloeil default-argument overloads forward move-only and rvalue arguments.
+- The fmt-message assertion overloads compile and report the caller's location.
+- `EXPECT_THROW` works without RTTI, byte pointers print as addresses, and `record_cbor.h` compiles without exceptions.
+- Failure paths are trimmed at path-component boundaries.
+- Hand-written death-tagged benchmarks report body entry instead of terminating.
+- Allure results sanitise invalid UTF-8.
+- Rerun commands printed for PowerShell quote typographic single quotes.
+- Polling with `yield()` under the Linux notification transport no longer overflows the progress queue.
+- Completed or cancelled timers are released without waiting for an earlier timer.
+- The Linux notifier leaves inherited descriptors untouched when they fail validation.
+- A newer producer generation retires the older generation's watchdog subjects.
+- A process that exits right after its final notification is not reported as exited early.
+- `--help` prints the real version in every build system.
+- gentest no longer forces the MSVC runtime into a consumer's cache.
+- Installs honour `CMAKE_INSTALL_DATADIR`, find `gentest_codegen` in their own prefix, and do not export the Homebrew libc++ path.
+- Bazel `gentest_attach_codegen_textual(main = ...)` links the runtime; Meson passes the fmt fallback include to codegen.
+- The clang-tidy gate, `ctest -R` steps, and negative codegen checks fail when they check nothing.
 
 ## 1.3.0 - 2026-10-18
 
