@@ -788,4 +788,4 @@ jobs:
       - name: Build
         run: cmake --build --preset=libassert-noexc --parallel
       - name: Test
-        run: ctest --preset=libassert-noexc --output-on-failure --no-tests=error
+        run: ctest --preset=libassert-noexc --output-on-failure --no-tests=error --parallel 4
