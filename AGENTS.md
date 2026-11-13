@@ -4,10 +4,10 @@
 - Public headers live in `include/gentest/` (`runner.h`, `attributes.h`) and are exposed via an interface library.
 - Public named-module interfaces also live in `include/gentest/` (notably `gentest.cppm`, `gentest.mock.cppm`, and `gentest.bench_util.cppm`) when module support is enabled.
 - Runtime execution lives in `src/` (notably `src/runner_impl.cpp`). Fixture allocation and ownership live in `include/gentest/fixture.h`.
-- Code generation is in `tools/gentest_codegen` (a clang-tooling binary) that scans annotated cases and emits generated registrations/implementation sources. Codegen templates live in `tools/src/templates.hpp` and `tools/src/templates_mocks.hpp`.
+- Code generation is `gentest_codegen` (a clang-tooling binary built from `tools/src/`, target defined in `tools/CMakeLists.txt`) that scans annotated cases and emits generated registrations/implementation sources. Codegen templates live in `tools/src/templates.hpp` and `tools/src/templates_mocks.hpp`.
 - Helper macro wiring is in `cmake/GentestCodegen.cmake`.
 - `gentest_codegen` supports two test-registration output styles:
-  - Additive header-declaration mode (ordinary textual default): annotations live in headers, authored `.cpp` files remain attached, and stable per-slot generated registration `.cpp` files are appended.
+  - Additive header-declaration mode (ordinary textual default): annotations live in headers, authored `.cpp` files remain attached, and stable per-slot generated registration files (`tu_XXXX_<stem>.header_registration.gentest.cpp`) are appended.
   - CMake module-registration mode (`gentest_attach_codegen(... MODULE_REGISTRATION FILE_SET <name>)`): emits ordinary importer registration TUs (`tu_*.registration.gentest.cpp`), per-TU headers, and `<target>.artifact_manifest.json`; authored module interfaces stay in the target and annotated cases/fixtures must be exported.
 - Additive header-declaration mode never includes or replaces an authored `.cpp`. Explicit named-module mocks retain a separate generated provider path; it is not a test-registration fallback.
 - Public named modules are controlled by `GENTEST_ENABLE_PUBLIC_MODULES=AUTO|ON|OFF` (default `OFF`); set `ON` or `AUTO` explicitly when you want the public module surface.
@@ -100,13 +100,13 @@
 - Executables return non‑zero on any `gentest::failure`; always run `ctest` before pushing.
 - Prefer free-function tests/benches/jitters with fixture parameters inferred from function signatures. The legacy `fixtures(...)` attribute is removed. Member tests are deprecated; they are treated as suite-level fixtures (shared instance across methods) and should be avoided in new code.
 - Suite/global fixtures are scoped to their declaring namespace and its descendants; declare fixtures in the common ancestor namespace that owns the tests.
-- If you add tests, update `tests/CMakeLists.txt` counts (`*_counts`, `*_list_counts`, `*_list_tests_lines`) accordingly.
+- If you add tests, update the matching expectations in `tests/CMakeLists.txt`: the `gentest_add_check_counts(...)` pass/fail/skip (and `LIST ... CASES`) numbers and any `gentest_add_check_inventory(...)` expectations.
 - Always run tests for your changes before reporting back.
 
 ## CMake Regression Check Scripts
-- `cmake/CheckNoTimeout.cmake` validates a command completes within a timeout and can optionally enforce an exact exit code via `EXPECT_RC`.
-- `cmake/CheckTuHeaderCaseCollision.cmake` validates codegen fails when per-TU generated header names collide case-insensitively.
-- `cmake/CheckMockCrossRootInclude.cmake` validates mock codegen succeeds for cross-root/cross-drive header includes on Windows (falls back to absolute include paths when relative paths are impossible).
+- `tests/cmake/scripts/CheckNoTimeout.cmake` validates a command completes within a timeout and can optionally enforce an exact exit code via `EXPECT_RC`.
+- `tests/cmake/scripts/CheckTuHeaderCaseCollision.cmake` validates codegen fails when per-TU generated header names collide case-insensitively.
+- `tests/cmake/scripts/CheckMockCrossRootInclude.cmake` validates mock codegen succeeds for cross-root/cross-drive header includes on Windows (falls back to absolute include paths when relative paths are impossible).
 - In `tests/CMakeLists.txt`, prefer `gentest_add_cmake_script_test(...)` for these checks and pass required `DEFINES` explicitly (for example `TIMEOUT_SEC`, `EXPECT_RC`, `BUILD_ROOT`, `TARGET_ARG`).
 
 ## Commit & Pull Request Guidelines
@@ -177,7 +177,7 @@
               loop:
                 idx = next_index++
                 if idx >= N: exit
-                render + write slot_XXXX.header_registration.gentest.cpp
+                render + write tu_XXXX_<stem>.header_registration.gentest.cpp
                 (unowned slots still receive valid empty additive sources)
 
          MOCK OUTPUTS (single thread)

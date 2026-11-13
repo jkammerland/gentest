@@ -19,14 +19,17 @@ $env:LLVM_DIR = "$llvm\lib\cmake\llvm"; $env:Clang_DIR = "$llvm\lib\cmake\clang"
 
 ## Build this repo (recommended)
 
+Windows validation builds use `RelWithDebInfo`: prebuilt LLVM packages ship release-mode libraries.
+
 ```pwsh
-cmake --preset=debug-system -G Ninja `
+cmake --preset=debug-system -B build/relwithdebinfo-system `
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo `
   -DCMAKE_C_COMPILER="$env:LLVM_BIN\clang.exe" `
   -DCMAKE_CXX_COMPILER="$env:LLVM_BIN\clang++.exe" `
   -DLLVM_DIR="$env:LLVM_DIR" `
   -DClang_DIR="$env:Clang_DIR"
-cmake --build --preset=debug-system
-ctest --preset=debug-system --output-on-failure
+cmake --build build/relwithdebinfo-system --config RelWithDebInfo
+ctest --test-dir build/relwithdebinfo-system -C RelWithDebInfo --output-on-failure
 ```
 
 ## Alternative: MSVC + LLVM tooling
@@ -34,10 +37,10 @@ ctest --preset=debug-system --output-on-failure
 ```pwsh
 & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64
 
-$msvcBuildDir = 'build\debug-system-msvc'
-cmake -S . -B $msvcBuildDir -G Ninja -DCMAKE_BUILD_TYPE=Debug `
+$msvcBuildDir = 'build\relwithdebinfo-system-msvc'
+cmake -S . -B $msvcBuildDir -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
   -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
-  -Dgentest_BUILD_TESTING=ON `
+  -Dgentest_BUILD_TESTING=ON -DGENTEST_ENABLE_PACKAGE_TESTS=ON `
   -DLLVM_DIR="$env:LLVM_DIR" -DClang_DIR="$env:Clang_DIR"
 cmake --build $msvcBuildDir
 ctest --test-dir $msvcBuildDir --output-on-failure
