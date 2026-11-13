@@ -242,11 +242,18 @@ class AsyncSchedulerCore {
         if (!token) {
             return;
         }
+        std::vector<WaiterTokenPtr> retired;
         {
             std::lock_guard<std::mutex> lk(mtx_);
-            timers_.push(deadline, token);
+            retired = timers_.push(deadline, token);
         }
         notify_wake(true);
+    }
+
+    // Timer entries held by the queue, including stale ones awaiting compaction.
+    [[nodiscard]] auto timer_entries() const -> std::size_t {
+        std::lock_guard<std::mutex> lk(mtx_);
+        return timers_.size();
     }
 
     void post_due_timers() {
