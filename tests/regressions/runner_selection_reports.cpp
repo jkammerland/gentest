@@ -245,6 +245,11 @@ std::filesystem::path fresh_directory(const std::filesystem::path &directory) {
     return directory;
 }
 
+void write_file(const std::filesystem::path &path, std::string_view contents) {
+    std::ofstream out(path, std::ios::binary);
+    out << contents;
+}
+
 gentest::runner::ReportItem make_item(std::string name, gentest::runner::Outcome outcome, double time_s) {
     gentest::runner::ReportItem item;
     item.suite   = "regressions";
@@ -300,6 +305,92 @@ int check_junit_report(const std::filesystem::path &directory) {
     return g_failures == 0 ? 0 : 1;
 }
 
+bool is_valid_utf8(std::string_view text) {
+    for (std::size_t i = 0; i < text.size();) {
+        const auto  lead   = static_cast<unsigned char>(text[i]);
+        std::size_t length = 0;
+        if (lead < 0x80U)
+            length = 1;
+        else if (lead >= 0xC2U && lead <= 0xDFU)
+            length = 2;
+        else if (lead >= 0xE0U && lead <= 0xEFU)
+            length = 3;
+        else if (lead >= 0xF0U && lead <= 0xF4U)
+            length = 4;
+        if (length == 0 || i + length > text.size())
+            return false;
+        for (std::size_t k = 1; k < length; ++k) {
+            if ((static_cast<unsigned char>(text[i + k]) & 0xC0U) != 0x80U)
+                return false;
+        }
+        i += length;
+    }
+    return true;
+}
+
+// Allure: blocked is "broken", every string is valid UTF-8, and result files left by an
+// earlier run are removed while files gentest does not name are kept.
+int check_allure_report(const std::filesystem::path &directory) {
+    const auto       results = fresh_directory(directory);
+    const std::array stale{"result-7-result.json", "result-7-attachment.txt", "result-12-custom-1.bin", "runtime-record-3-0.cbor",
+                           "runtime-case-9-index.json"};
+    const std::array foreign{
+        "categories.json",       "environment.properties",  "result-x-result.json",    "results-1-result.json", "result-7",
+        "runtime-record-3.cbor", "runtime-case-index.json", "my-result-1-result.json", "runtime-record-3-0.txt"};
+    for (const auto *name : stale)
+        write_file(results / name, R"({"name":"stale","status":"passed"})");
+    for (const auto *name : foreign)
+        write_file(results / name, "keep");
+    std::filesystem::create_directories(results / "result-8-directory");
+
+    const std::string               bad = "bad\xFF\xC3(bytes";
+    gentest::runner::RunAccumulator acc;
+    acc.report_items.push_back(make_blocked_item());
+    auto failed  = make_item("reports/name-" + bad, gentest::runner::Outcome::Fail, 0.25);
+    failed.suite = "suite-" + bad;
+    failed.failures.push_back("failure-" + bad);
+    failed.attachments.push_back(gentest::runner::ReportAttachment{
+        .name           = "attachment-" + bad,
+        .mime_type      = "text/" + bad,
+        .file_extension = ".txt",
+        .contents       = std::make_shared<const std::string>("payload"),
+    });
+    acc.report_items.push_back(failed);
+    auto skipped        = make_item("reports/skipped", gentest::runner::Outcome::Skip, 0.0);
+    skipped.skipped     = true;
+    skipped.skip_reason = "xfail: reason-" + bad;
+    acc.report_items.push_back(skipped);
+    auto blocked_bad        = make_blocked_item();
+    blocked_bad.skip_reason = "blocked: reason-" + bad;
+    acc.report_items.push_back(blocked_bad);
+    acc.infra_errors.push_back("infra-" + bad);
+
+    const std::string path = results.string();
+    expect(gentest::runner::write_reports(acc, {.junit_path = nullptr, .allure_dir = path.c_str()}), "the Allure results are written");
+
+    for (const auto *name : stale)
+        expect(!std::filesystem::exists(results / name), std::string("stale gentest file is removed: ") + name);
+    for (const auto *name : foreign)
+        expect(read_file(results / name) == "keep", std::string("foreign file is untouched: ") + name);
+    expect(std::filesystem::is_directory(results / "result-8-directory"), "directories are never removed");
+
+    for (int index = 0; index < 5; ++index) {
+        const auto        file = results / ("result-" + std::to_string(index) + "-result.json");
+        const std::string json = read_file(file);
+        expect(!json.empty(), "result file exists: " + file.filename().string());
+        expect(is_valid_utf8(json), "result file is valid UTF-8: " + file.filename().string());
+        expect(!contains(json, "stale"), "result file belongs to this run: " + file.filename().string());
+    }
+    const std::string blocked = read_file(results / "result-0-result.json");
+    expect(contains(blocked, R"("status":"broken")"), "a blocked case has the failing status 'broken'");
+    expect(contains(blocked, R"({"name":"blocked","value":"true"})"), "a blocked case keeps its blocked label");
+    expect(contains(blocked, R"("message":"blocked: fixture down")"), "a blocked case keeps its reason");
+    expect(contains(read_file(results / "result-1-result.json"), "failure-bad\xEF\xBF\xBD\xEF\xBF\xBD(bytes"),
+           "malformed bytes become U+FFFD");
+    expect(contains(read_file(results / "result-2-result.json"), R"("status":"skipped")"), "an ordinary skip stays skipped");
+    return g_failures == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -316,6 +407,8 @@ int main(int argc, char **argv) {
         return check_measured_death_marker(argv[2]);
     if (mode == "junit-report" && argc == 3)
         return check_junit_report(argv[2]);
+    if (mode == "allure-report" && argc == 3)
+        return check_allure_report(argv[2]);
     std::cerr << "usage: runner_selection_reports <mode> [args]\n";
     return 2;
 }
