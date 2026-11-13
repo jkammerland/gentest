@@ -986,7 +986,7 @@ is not supported.
 ./my_tests --github-annotations
 ```
 
-`--allure-dir` currently requires a `GENTEST_USE_BOOST_JSON=ON` build. Without that backend, no Allure files are written. In supported builds, measured cases emit richer native artifacts:
+`--allure-dir` currently requires a `GENTEST_USE_BOOST_JSON=ON` build. Without that backend, no Allure files are written. Each run replaces the result files it owns in that directory (`result-<n>-*` and `runtime-*` records) and leaves other files alone, so give every test executable its own directory. Blocked cases are reported as JUnit `<error>` / Allure `broken`; see [report outcome mapping](docs/runner_api.md). In supported builds, measured cases emit richer native artifacts:
 - bench metrics as TSV plus an SVG summary plot
 - jitter metrics/histogram as TSV plus an SVG histogram plot and sampled raw JSON
 

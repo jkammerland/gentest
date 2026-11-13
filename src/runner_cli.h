@@ -52,6 +52,8 @@ struct BenchConfig {
     double      max_total_time_s = 1.0;  // per benchmark
     std::size_t warmup_epochs    = 1;
     std::size_t measure_epochs   = 12;
+    // Largest per-epoch call count calibration may try; not a CLI option.
+    std::size_t max_calibration_iterations = static_cast<std::size_t>(1) << 30U;
 };
 
 struct CliOptions {

@@ -3,6 +3,7 @@
 #include "runner_reporting_allure.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fmt/format.h>
@@ -165,6 +166,9 @@ void write_xml_cdata(std::ostream &out, std::string_view s) {
     out << "]]>";
 }
 
+// Seconds as fixed-point xs:decimal: never exponent notation, never locale digits.
+std::string junit_time(double seconds) { return fmt::format("{:.9f}", std::isfinite(seconds) && seconds > 0.0 ? seconds : 0.0); }
+
 template <typename OnFailure>
 bool preflight_output_file(OnFailure &&on_failure, const std::filesystem::path &path, std::string_view label) {
     std::ofstream out(path, std::ios::binary);
@@ -267,22 +271,27 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
             report_ok = false;
             return;
         }
-        std::size_t total_tests = acc.report_items.size();
-        std::size_t total_fail  = 0;
-        std::size_t total_skip  = 0;
-        std::size_t total_err   = acc.infra_errors.size();
+        // A blocked case did not run and fails the run, so it is an error, not a skip.
+        const auto        is_blocked  = [](const ReportItem &it) { return it.outcome == Outcome::Blocked && it.failures.empty(); };
+        const std::size_t total_tests = acc.report_items.size();
+        std::size_t       total_fail  = 0;
+        std::size_t       total_skip  = 0;
+        std::size_t       total_err   = acc.infra_errors.size();
         for (const auto &it : acc.report_items) {
-            if (it.skipped)
+            if (is_blocked(it))
+                ++total_err;
+            else if (it.skipped)
                 ++total_skip;
             if (!it.failures.empty())
                 ++total_fail;
         }
+        // fmt keeps numbers independent of the global locale; times stay plain xs:decimal.
         out << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-        out << R"(<testsuite name="gentest" tests=")" << total_tests << "\" failures=\"" << total_fail << "\" skipped=\"" << total_skip
-            << "\" errors=\"" << total_err << "\">\n";
+        out << fmt::format("<testsuite name=\"gentest\" tests=\"{}\" failures=\"{}\" skipped=\"{}\" errors=\"{}\">\n", total_tests,
+                           total_fail, total_skip, total_err);
         for (const auto &it : acc.report_items) {
             out << "  <testcase classname=\"" << escape_xml_attribute(it.suite) << "\" name=\"" << escape_xml_attribute(it.name)
-                << "\" time=\"" << it.time_s << "\">\n";
+                << "\" time=\"" << junit_time(it.time_s) << "\">\n";
             if (!it.requirements.empty() || !it.properties.empty() || !it.record_index.empty()) {
                 out << "    <properties>\n";
                 for (const auto &req : it.requirements) {
@@ -296,7 +305,12 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
                     out << R"(      <property name="gentest.records" value=")" << escape_xml_attribute(it.record_index) << "\"/>\n";
                 out << "    </properties>\n";
             }
-            if (it.skipped) {
+            if (is_blocked(it)) {
+                out << "    <error type=\"blocked\"";
+                if (!it.skip_reason.empty())
+                    out << " message=\"" << escape_xml_attribute(it.skip_reason) << "\"";
+                out << "/>\n";
+            } else if (it.skipped) {
                 out << "    <skipped";
                 if (!it.skip_reason.empty())
                     out << " message=\"" << escape_xml_attribute(it.skip_reason) << "\"";

@@ -17,6 +17,9 @@ per-call samples without an averaging warning.
 summaries use `Max sample`. Adding a timer around each call would bring clock
 overhead back into those very small measurements.
 
+`--jitter-bins=N` sets the histogram bin count (default 10). It accepts 1–10000;
+larger values are rejected before any case runs.
+
 Main timing columns remain normalized per item. `Calls/sample` counts function
 invocations and is separate from `Items/call`, which counts logical items within
 each function invocation.

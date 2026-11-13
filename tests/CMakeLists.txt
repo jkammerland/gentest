@@ -2873,6 +2873,61 @@ gentest_add_check_exit_code(
     EXPECT_RC 0)
 
 gentest_add_manual_regression(
+    TARGET gentest_regression_runner_selection_reports
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/runner_selection_reports.cpp)
+
+gentest_add_check_exit_code(
+    NAME regression_selection_wildcard_literal_star
+    PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+    EXPECT_RC 0
+    ARGS wildcard-literal-star)
+
+gentest_add_check_exit_code(
+    NAME regression_measured_calibration_cap
+    PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+    EXPECT_RC 0
+    ARGS calibration-cap)
+
+gentest_add_check_exit_code(
+    NAME regression_replay_powershell_quote_delimiters
+    PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+    EXPECT_RC 0
+    ARGS replay-quoting)
+
+gentest_add_check_exit_code(
+    NAME regression_failure_path_trim_component_boundary
+    PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+    EXPECT_RC 0
+    ARGS failure-path-trim)
+
+gentest_add_check_exit_code(
+    NAME regression_measured_death_marker_body_start
+    PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+    EXPECT_RC 0
+    ARGS measured-death-marker ${CMAKE_CURRENT_BINARY_DIR}/regression_measured_death_marker)
+
+gentest_add_check_exit_code(
+    NAME regression_junit_blocked_error_and_decimal_time
+    PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+    EXPECT_RC 0
+    ARGS junit-report ${CMAKE_CURRENT_BINARY_DIR}/regression_junit_blocked_error)
+
+if(GENTEST_USE_BOOST_JSON)
+    gentest_add_check_exit_code(
+        NAME regression_allure_blocked_utf8_and_stale_results
+        PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+        EXPECT_RC 0
+        ARGS allure-report ${CMAKE_CURRENT_BINARY_DIR}/regression_allure_blocked_utf8_stale)
+    set_tests_properties(regression_allure_blocked_utf8_and_stale_results PROPERTIES LABELS "allure")
+endif()
+
+gentest_add_check_exit_code(
+    NAME regression_junit_early_exit_replaces_stale_report
+    PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+    EXPECT_RC 0
+    ARGS stale-junit ${CMAKE_CURRENT_BINARY_DIR}/regression_junit_early_exit)
+
+gentest_add_manual_regression(
     TARGET gentest_regression_async_status_renderer
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/async_status_renderer.cpp)
 
