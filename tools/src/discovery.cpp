@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <clang/AST/Decl.h>
 #include <clang/AST/DeclTemplate.h>
 #include <clang/AST/ODRHash.h>
@@ -26,8 +27,10 @@
 #endif
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fmt/format.h>
 #include <iterator>
+#include <limits>
 #include <llvm/ADT/SmallString.h>
 #include <map>
 #include <mutex>
@@ -35,6 +38,8 @@
 #include <ranges>
 #include <set>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -648,6 +653,157 @@ bool is_gentest_mock_adapter_type(QualType type) {
     return record != nullptr && record->getSpecializedTemplate()->getQualifiedNameAsString() == "gentest::mock";
 }
 
+// Numeric axis generators (range/linspace/geom/logspace) are expanded while
+// generating code, so their bounds must be numeric literals. Parse the whole
+// literal or nothing: a partially parsed bound silently changes the cases.
+enum class AxisNumberKind { Integer, Floating, Unsupported };
+
+AxisNumberKind classify_axis_type(QualType type, const ASTContext &context) {
+    type = type.getNonReferenceType().getCanonicalType().getUnqualifiedType();
+    if (type.isNull() || type->isDependentType()) {
+        return AxisNumberKind::Unsupported;
+    }
+    if (type->isIntegralType(context)) {
+        return AxisNumberKind::Integer;
+    }
+    if (type->isRealFloatingType()) {
+        return AxisNumberKind::Floating;
+    }
+    return AxisNumberKind::Unsupported;
+}
+
+std::string_view trim_axis_text(std::string_view text) {
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())) != 0) {
+        text.remove_prefix(1);
+    }
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())) != 0) {
+        text.remove_suffix(1);
+    }
+    return text;
+}
+
+// Splits an optional sign from a literal and drops C++14 digit separators.
+// Returns false when a separator is not between two digits.
+bool split_axis_literal(std::string_view text, bool &negative, std::string &digits) {
+    text     = trim_axis_text(text);
+    negative = false;
+    if (!text.empty() && (text.front() == '-' || text.front() == '+')) {
+        negative = text.front() == '-';
+        text.remove_prefix(1);
+        text = trim_axis_text(text);
+    }
+    digits.clear();
+    digits.reserve(text.size());
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] != '\'') {
+            digits.push_back(text[i]);
+            continue;
+        }
+        if (i == 0 || i + 1 >= text.size() || std::isxdigit(static_cast<unsigned char>(text[i - 1])) == 0 ||
+            std::isxdigit(static_cast<unsigned char>(text[i + 1])) == 0) {
+            return false;
+        }
+    }
+    return !digits.empty();
+}
+
+// Decimal, hexadecimal, binary and octal integer literals with digit
+// separators and u/l/ll/z suffixes, when the value fits in long long.
+std::optional<long long> parse_axis_integer_literal(std::string_view text) {
+    bool        negative = false;
+    std::string digits;
+    if (!split_axis_literal(text, negative, digits)) {
+        return std::nullopt;
+    }
+    std::string_view body = digits;
+    int              base = 10;
+    if (body.size() > 2 && body[0] == '0' && (body[1] == 'x' || body[1] == 'X')) {
+        base = 16;
+        body.remove_prefix(2);
+    } else if (body.size() > 2 && body[0] == '0' && (body[1] == 'b' || body[1] == 'B')) {
+        base = 2;
+        body.remove_prefix(2);
+    } else if (body.size() > 1 && body[0] == '0') {
+        base = 8;
+        body.remove_prefix(1);
+    }
+    std::size_t suffix_length = 0;
+    while (suffix_length < body.size() && suffix_length < 3) {
+        const char ch = body[body.size() - suffix_length - 1];
+        if (ch != 'u' && ch != 'U' && ch != 'l' && ch != 'L' && ch != 'z' && ch != 'Z') {
+            break;
+        }
+        ++suffix_length;
+    }
+    body.remove_suffix(suffix_length);
+    if (body.empty()) {
+        return std::nullopt;
+    }
+    unsigned long long magnitude = 0;
+    const auto [end, error]      = std::from_chars(body.data(), body.data() + body.size(), magnitude, base);
+    if (error != std::errc{} || end != body.data() + body.size()) {
+        return std::nullopt;
+    }
+    constexpr auto max_positive = static_cast<unsigned long long>(std::numeric_limits<long long>::max());
+    if (negative) {
+        if (magnitude > max_positive + 1ULL) {
+            return std::nullopt;
+        }
+        return magnitude == max_positive + 1ULL ? std::numeric_limits<long long>::min() : -static_cast<long long>(magnitude);
+    }
+    if (magnitude > max_positive) {
+        return std::nullopt;
+    }
+    return static_cast<long long>(magnitude);
+}
+
+// Integer literals plus decimal/hexadecimal floating literals with an optional
+// exponent and f/l suffix. Names, expressions, inf and nan are rejected.
+std::optional<double> parse_axis_floating_literal(std::string_view text) {
+    if (const auto integer = parse_axis_integer_literal(text); integer.has_value()) {
+        return static_cast<double>(*integer);
+    }
+    bool        negative = false;
+    std::string digits;
+    if (!split_axis_literal(text, negative, digits)) {
+        return std::nullopt;
+    }
+    if (std::isdigit(static_cast<unsigned char>(digits.front())) == 0 && digits.front() != '.') {
+        return std::nullopt;
+    }
+    const bool hexadecimal  = digits.size() > 2 && digits[0] == '0' && (digits[1] == 'x' || digits[1] == 'X');
+    const bool has_exponent = digits.find_first_of(hexadecimal ? "pP" : "eE") != std::string::npos;
+    const char last         = digits.back();
+    if ((last == 'f' || last == 'F' || last == 'l' || last == 'L') && (!hexadecimal || has_exponent)) {
+        digits.pop_back();
+    }
+    if (digits.empty() || (hexadecimal && !has_exponent)) {
+        return std::nullopt;
+    }
+    char        *end   = nullptr;
+    const double value = std::strtod(digits.c_str(), &end);
+    if (end != digits.c_str() + digits.size() || !std::isfinite(value)) {
+        return std::nullopt;
+    }
+    return negative ? -value : value;
+}
+
+// An integer bound may be written as a floating literal with an integral
+// value, for example a count of 1e3.
+std::optional<long long> parse_axis_integer(std::string_view text) {
+    if (const auto integer = parse_axis_integer_literal(text); integer.has_value()) {
+        return integer;
+    }
+    const auto floating = parse_axis_floating_literal(text);
+    if (!floating.has_value() || std::trunc(*floating) != *floating || std::abs(*floating) >= 9.2e18) {
+        return std::nullopt;
+    }
+    return static_cast<long long>(*floating);
+}
+
+// Upper bound for one generated axis; anything larger is a mistyped bound.
+constexpr std::size_t kMaxAxisValues = 1'000'000;
+
 struct FunctionParamInfo {
     const ParmVarDecl          *decl = nullptr;
     std::string                 name;
@@ -1178,58 +1334,61 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         scalar_axes.push_back(std::move(axis));
     }
 
-    // Range-based generators expanded using declared parameter type.
-    auto normalize_type = [](std::string_view text) -> std::string {
-        std::string out(text);
-        std::erase_if(out, [](unsigned char c) { return std::isspace(c) != 0; });
-        std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        return out;
-    };
-    std::unordered_map<std::string, std::string> param_types_norm;
-    param_types_norm.reserve(param_types.size());
-    for (const auto &[name, ty] : param_types) {
-        param_types_norm.emplace(name, normalize_type(ty));
+    // Range-based generators expanded using the declared parameter type.
+    std::unordered_map<std::string, AxisNumberKind> axis_kinds;
+    for (const auto &param : function_params) {
+        if (!param.name.empty() && param.decl != nullptr) {
+            axis_kinds.emplace(param.name, classify_axis_type(param.decl->getType(), *result.Context));
+        }
     }
-    auto is_integer_type = [&](const std::string &t) -> bool {
-        if (t.find("bool") != std::string::npos)
-            return true;
-        if (t.find("char") != std::string::npos && t.find("char_t") == std::string::npos)
-            return true;
-        if (t.find("short") != std::string::npos)
-            return true;
-        if (t.find("int") != std::string::npos)
-            return true;
-        if (t.find("longlong") != std::string::npos || t == "longlong" || t == "unsignedlonglong")
-            return true;
-        if (t.find("long") != std::string::npos && t.find("longlong") == std::string::npos)
-            return true;
-        if (t.find("size_t") != std::string::npos)
-            return true;
-        if (t.find("ptrdiff_t") != std::string::npos)
-            return true;
-        return false;
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    const auto report_axis_literal = [&](std::string_view origin, const std::string &name, std::string_view role, std::string_view text,
+                                         std::string_view expected) {
+        had_error_ = true;
+        report(fmt::format("{} for '{}': {} '{}' is not {}; axis values are computed during code generation, so named constants and "
+                           "expressions are not supported",
+                           origin, name, role, text, expected));
     };
-    auto is_float_type = [&](const std::string &t) -> bool {
-        return t.find("float") != std::string::npos || t.find("double") != std::string::npos;
-    };
-    auto to_int = [](std::string_view s) -> long long {
-        try {
-            return std::stoll(std::string(s));
-        } catch (...) {
-            try {
-                const double d = std::stod(std::string(s));
-                return static_cast<long long>(std::llround(d));
-            } catch (...) { return 0LL; }
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    const auto axis_int = [&](std::string_view origin, const std::string &name, std::string_view role,
+                              std::string_view text) -> std::optional<long long> {
+        auto value = parse_axis_integer(text);
+        if (!value.has_value()) {
+            report_axis_literal(origin, name, role, text, "an integer literal that fits in 'long long'");
         }
+        return value;
     };
-    auto to_double = [](std::string_view s) -> double {
-        try {
-            return std::stod(std::string(s));
-        } catch (...) {
-            try {
-                return static_cast<double>(std::stoll(std::string(s)));
-            } catch (...) { return 0.0; }
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    const auto axis_double = [&](std::string_view origin, const std::string &name, std::string_view role,
+                                 std::string_view text) -> std::optional<double> {
+        auto value = parse_axis_floating_literal(text);
+        if (!value.has_value()) {
+            report_axis_literal(origin, name, role, text, "a finite numeric literal");
         }
+        return value;
+    };
+    const auto axis_unsupported = [&](std::string_view origin, const std::string &name) {
+        had_error_ = true;
+        report(fmt::format("{} not supported for parameter '{}' of type '{}'; expected an integer or floating-point type", origin, name,
+                           param_types.at(name)));
+    };
+    const auto axis_too_large = [&](std::string_view origin, const std::string &name) {
+        had_error_ = true;
+        report(fmt::format("{} for '{}' expands to more than {} values", origin, name, kMaxAxisValues));
+    };
+    const auto axis_count = [&](std::string_view origin, const std::string &name, std::string_view text) -> std::optional<long long> {
+        auto count = axis_int(origin, name, "count", text);
+        if (!count.has_value()) {
+            return std::nullopt;
+        }
+        if (*count < 1) {
+            count = 1;
+        }
+        if (static_cast<unsigned long long>(*count) > kMaxAxisValues) {
+            axis_too_large(origin, name);
+            return std::nullopt;
+        }
+        return count;
     };
     auto fmt_int    = [](long long v) -> std::string { return std::to_string(v); };
     auto fmt_double = [](double v) -> std::string {
@@ -1238,30 +1397,49 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         return {buf};
     };
     for (const auto &rs : summary.parameter_ranges) {
-        const std::string                               &ty = param_types_norm.at(rs.name);
+        const AxisNumberKind                             kind = axis_kinds.at(rs.name);
         std::vector<std::pair<std::string, std::string>> axis;
-        if (is_integer_type(ty)) {
-            long long a = to_int(rs.start), st = to_int(rs.step), b = to_int(rs.end);
-            if (st == 0)
-                st = 1;
+        if (kind == AxisNumberKind::Integer) {
+            const auto start = axis_int("parameters_range", rs.name, "start", rs.start);
+            const auto step  = axis_int("parameters_range", rs.name, "step", rs.step);
+            const auto end   = axis_int("parameters_range", rs.name, "end", rs.end);
+            if (!start || !step || !end) {
+                return;
+            }
+            const long long a  = *start;
+            const long long st = *step == 0 ? 1 : *step;
+            const long long b  = *end;
             if ((st > 0 && a > b) || (st < 0 && a < b)) {
                 had_error_ = true;
                 report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name));
                 return;
             }
-            if (st > 0) {
-                for (long long v = a; v <= b; v += st)
-                    axis.emplace_back(rs.name, fmt_int(v));
-            } else {
-                for (long long v = a; v >= b; v += st)
-                    axis.emplace_back(rs.name, fmt_int(v));
+            // Distances are computed in unsigned arithmetic so a bound near
+            // the limits of long long cannot overflow the loop variable.
+            const auto magnitude = st > 0 ? static_cast<unsigned long long>(st) : 0ULL - static_cast<unsigned long long>(st);
+            for (long long v = a;;) {
+                if (axis.size() >= kMaxAxisValues) {
+                    axis_too_large("parameters_range", rs.name);
+                    return;
+                }
+                axis.emplace_back(rs.name, fmt_int(v));
+                const auto remaining = st > 0 ? static_cast<unsigned long long>(b) - static_cast<unsigned long long>(v)
+                                              : static_cast<unsigned long long>(v) - static_cast<unsigned long long>(b);
+                if (remaining < magnitude) {
+                    break;
+                }
+                v += st;
             }
-        } else if (is_float_type(ty)) {
-            const double a  = to_double(rs.start);
-            double       st = to_double(rs.step);
-            const double b  = to_double(rs.end);
-            if (st == 0.0)
-                st = 1.0;
+        } else if (kind == AxisNumberKind::Floating) {
+            const auto start = axis_double("parameters_range", rs.name, "start", rs.start);
+            const auto step  = axis_double("parameters_range", rs.name, "step", rs.step);
+            const auto end   = axis_double("parameters_range", rs.name, "end", rs.end);
+            if (!start || !step || !end) {
+                return;
+            }
+            const double a  = *start;
+            const double st = *step == 0.0 ? 1.0 : *step;
+            const double b  = *end;
             if ((st > 0.0 && a > b) || (st < 0.0 && a < b)) {
                 had_error_ = true;
                 report(fmt::format("parameters_range for '{}' has inconsistent bounds", rs.name));
@@ -1283,34 +1461,55 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                     if (v < b - eps)
                         break;
                 }
+                if (axis.size() >= kMaxAxisValues) {
+                    axis_too_large("parameters_range", rs.name);
+                    return;
+                }
                 axis.emplace_back(rs.name, fmt_double(v));
             }
         } else {
-            had_error_ = true;
-            report(fmt::format("parameters_range not supported for parameter type '{}'", ty));
+            axis_unsupported("parameters_range", rs.name);
             return;
         }
         scalar_axes.push_back(std::move(axis));
     }
     for (const auto &ls : summary.parameter_linspaces) {
-        const std::string                               &ty = param_types_norm.at(ls.name);
+        const AxisNumberKind                             kind = axis_kinds.at(ls.name);
         std::vector<std::pair<std::string, std::string>> axis;
-        long long                                        n = to_int(ls.count);
-        if (n < 1)
-            n = 1;
-        if (is_integer_type(ty)) {
-            long long a = to_int(ls.start), b = to_int(ls.end);
+        if (kind == AxisNumberKind::Unsupported) {
+            axis_unsupported("parameters_linspace", ls.name);
+            return;
+        }
+        const auto count = axis_count("parameters_linspace", ls.name, ls.count);
+        if (!count) {
+            return;
+        }
+        const long long n = *count;
+        if (kind == AxisNumberKind::Integer) {
+            const auto start = axis_int("parameters_linspace", ls.name, "start", ls.start);
+            const auto end   = axis_int("parameters_linspace", ls.name, "end", ls.end);
+            if (!start || !end) {
+                return;
+            }
+            const long long a = *start;
+            const long long b = *end;
             if (n == 1) {
                 axis.emplace_back(ls.name, fmt_int(a));
             } else {
-                const double step = static_cast<double>(b - a) / static_cast<double>(n - 1);
+                const double step = (static_cast<double>(b) - static_cast<double>(a)) / static_cast<double>(n - 1);
                 for (long long i = 0; i < n; ++i) {
                     const double d = static_cast<double>(a) + step * static_cast<double>(i);
                     axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(d))));
                 }
             }
-        } else if (is_float_type(ty)) {
-            double a = to_double(ls.start), b = to_double(ls.end);
+        } else {
+            const auto start = axis_double("parameters_linspace", ls.name, "start", ls.start);
+            const auto end   = axis_double("parameters_linspace", ls.name, "end", ls.end);
+            if (!start || !end) {
+                return;
+            }
+            const double a = *start;
+            const double b = *end;
             if (n == 1) {
                 axis.emplace_back(ls.name, fmt_double(a));
             } else {
@@ -1320,77 +1519,59 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                     axis.emplace_back(ls.name, fmt_double(d));
                 }
             }
-        } else {
-            had_error_ = true;
-            report(fmt::format("parameters_linspace not supported for parameter type '{}'", ty));
-            return;
         }
         scalar_axes.push_back(std::move(axis));
     }
     for (const auto &gs : summary.parameter_geoms) {
-        const std::string                               &ty = param_types_norm.at(gs.name);
+        const AxisNumberKind                             kind = axis_kinds.at(gs.name);
         std::vector<std::pair<std::string, std::string>> axis;
-        long long                                        n = to_int(gs.count);
-        if (n < 1)
-            n = 1;
-        if (is_integer_type(ty)) {
-            const long long a = to_int(gs.start);
-            const double    f = to_double(gs.factor);
-            auto            v = static_cast<double>(a);
-            for (long long i = 0; i < n; ++i) {
-                axis.emplace_back(gs.name, fmt_int(static_cast<long long>(std::llround(v))));
-                v *= f;
-            }
-        } else if (is_float_type(ty)) {
-            const double a = to_double(gs.start);
-            const double f = to_double(gs.factor);
-            auto         v = a;
-            for (long long i = 0; i < n; ++i) {
-                axis.emplace_back(gs.name, fmt_double(v));
-                v *= f;
-            }
-        } else {
-            had_error_ = true;
-            report(fmt::format("parameters_geom not supported for parameter type '{}'", ty));
+        if (kind == AxisNumberKind::Unsupported) {
+            axis_unsupported("parameters_geom", gs.name);
             return;
+        }
+        const auto count  = axis_count("parameters_geom", gs.name, gs.count);
+        const auto start  = axis_double("parameters_geom", gs.name, "start", gs.start);
+        const auto factor = axis_double("parameters_geom", gs.name, "factor", gs.factor);
+        if (!count || !start || !factor) {
+            return;
+        }
+        double v = *start;
+        for (long long i = 0; i < *count; ++i) {
+            if (!std::isfinite(v) || (kind == AxisNumberKind::Integer && std::abs(v) >= 9.2e18)) {
+                had_error_ = true;
+                report(fmt::format("parameters_geom for '{}' produced a value outside the representable range", gs.name));
+                return;
+            }
+            axis.emplace_back(gs.name, kind == AxisNumberKind::Integer ? fmt_int(static_cast<long long>(std::llround(v))) : fmt_double(v));
+            v *= *factor;
         }
         scalar_axes.push_back(std::move(axis));
     }
     for (const auto &ls : summary.parameter_logspaces) {
-        const std::string                               &ty = param_types_norm.at(ls.name);
+        const AxisNumberKind                             kind = axis_kinds.at(ls.name);
         std::vector<std::pair<std::string, std::string>> axis;
-        long long                                        n = to_int(ls.count);
-        if (n < 1)
-            n = 1;
-        const double base = ls.base.empty() ? 10.0 : to_double(ls.base);
-        const double aexp = to_double(ls.start_exp);
-        const double bexp = to_double(ls.end_exp);
-        if (n == 1) {
-            const double val = std::pow(base, aexp);
-            if (is_integer_type(ty))
-                axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
-            else if (is_float_type(ty))
-                axis.emplace_back(ls.name, fmt_double(val));
-            else {
+        if (kind == AxisNumberKind::Unsupported) {
+            axis_unsupported("logspace", ls.name);
+            return;
+        }
+        const auto count = axis_count("logspace", ls.name, ls.count);
+        const auto base  = ls.base.empty() ? std::optional<double>{10.0} : axis_double("logspace", ls.name, "base", ls.base);
+        const auto aexp  = axis_double("logspace", ls.name, "start exponent", ls.start_exp);
+        const auto bexp  = axis_double("logspace", ls.name, "end exponent", ls.end_exp);
+        if (!count || !base || !aexp || !bexp) {
+            return;
+        }
+        const long long n    = *count;
+        const double    step = n == 1 ? 0.0 : (*bexp - *aexp) / static_cast<double>(n - 1);
+        for (long long i = 0; i < n; ++i) {
+            const double val = std::pow(*base, *aexp + step * static_cast<double>(i));
+            if (!std::isfinite(val) || (kind == AxisNumberKind::Integer && std::abs(val) >= 9.2e18)) {
                 had_error_ = true;
-                report(fmt::format("logspace not supported for parameter type '{}'", ty));
+                report(fmt::format("logspace for '{}' produced a value outside the representable range", ls.name));
                 return;
             }
-        } else {
-            const double step = (bexp - aexp) / static_cast<double>(n - 1);
-            for (long long i = 0; i < n; ++i) {
-                const double e   = aexp + step * static_cast<double>(i);
-                const double val = std::pow(base, e);
-                if (is_integer_type(ty))
-                    axis.emplace_back(ls.name, fmt_int(static_cast<long long>(std::llround(val))));
-                else if (is_float_type(ty))
-                    axis.emplace_back(ls.name, fmt_double(val));
-                else {
-                    had_error_ = true;
-                    report(fmt::format("logspace not supported for parameter type '{}'", ty));
-                    return;
-                }
-            }
+            axis.emplace_back(ls.name,
+                              kind == AxisNumberKind::Integer ? fmt_int(static_cast<long long>(std::llround(val))) : fmt_double(val));
         }
         scalar_axes.push_back(std::move(axis));
     }

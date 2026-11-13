@@ -224,6 +224,64 @@ namespace other::deep {
   _gentest_cdr_expect_count("global fixture type" "auto fx0_ = ::gentest::detail::FixtureHandle<ns::LFx>::empty()" 1)
   _gentest_cdr_expect_count("global fixture type" "auto fx0_ = ::gentest::detail::FixtureHandle<ns::inner::GFx>::empty()" 1)
   _gentest_cdr_expect_registered("global fixture type" "\"other::GFx\")) return")
+elseif(SCENARIO STREQUAL "numeric_axes")
+  # Axis generators classify the parameter by its real type and parse whole
+  # literals; anything else is an error instead of a silent 0.
+  _gentest_cdr_scan(values CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+#include <cstddef>
+namespace axis {
+using Wide = long double;
+[[using gentest: test("ld"), range(x, 0.0, 0.25, 1.0)]] inline void ld(Wide x) { (void)x; }
+[[using gentest: test("hex"), range(i, 0x10, 1, 0x12)]] inline void hex(int i) { (void)i; }
+[[using gentest: test("lin"), linspace(x, 0, 1, 1e3)]] inline void lin(double x) { (void)x; }
+[[using gentest: test("big"), range(i, 9223372036854775805, 1, 9223372036854775807)]] inline void big(long long i) { (void)i; }
+[[using gentest: test("sep"), range(n, 1'000u, 500, 2'000UL)]] inline void sep(const std::size_t &n) { (void)n; }
+[[using gentest: test("down"), range(i, 1, -1, -1)]] inline void down(short i) { (void)i; }
+[[using gentest: test("flt"), range(f, 2.5e-1f, .25, 7.5e-1)]] inline void flt(float f) { (void)f; }
+[[using gentest: test("geo"), geom(i, 0b1, 2, 4)]] inline void geo(unsigned i) { (void)i; }
+} // namespace axis
+]=])
+  _gentest_cdr_expect_success("numeric axes")
+  _gentest_cdr_expect_registered("numeric axes"
+    "\"axis/ld(0)\"" "\"axis/ld(0.25)\"" "\"axis/ld(0.5)\"" "\"axis/ld(0.75)\"" "\"axis/ld(1)\""
+    "\"axis/hex(16)\"" "\"axis/hex(17)\"" "\"axis/hex(18)\""
+    "\"axis/lin(0)\"" "\"axis/lin(1)\""
+    "\"axis/big(9223372036854775805)\"" "\"axis/big(9223372036854775806)\"" "\"axis/big(9223372036854775807)\""
+    "\"axis/sep(1000)\"" "\"axis/sep(1500)\"" "\"axis/sep(2000)\""
+    "\"axis/down(1)\"" "\"axis/down(0)\"" "\"axis/down(-1)\""
+    "\"axis/flt(0.25)\"" "\"axis/flt(0.5)\"" "\"axis/flt(0.75)\""
+    "\"axis/geo(1)\"" "\"axis/geo(2)\"" "\"axis/geo(4)\"" "\"axis/geo(8)\"")
+  _gentest_cdr_expect_count("numeric axes" "\"axis/ld(" 5)
+  _gentest_cdr_expect_count("numeric axes" "\"axis/hex(" 3)
+  _gentest_cdr_expect_count("numeric axes" "\"axis/lin(" 1000)
+  _gentest_cdr_expect_count("numeric axes" "\"axis/big(" 3)
+
+  _gentest_cdr_scan(named_constant CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace axis {
+inline constexpr int kLast = 3;
+[[using gentest: test("named"), range(i, 0, 1, kLast)]] inline void named(int i) { (void)i; }
+} // namespace axis
+]=])
+  _gentest_cdr_expect_failure("named axis bound" "end 'kLast' is not an integer literal")
+
+  _gentest_cdr_scan(partial_literal CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace axis {
+[[using gentest: test("partial"), linspace(x, 0, 1.5.2, 3)]] inline void partial(double x) { (void)x; }
+} // namespace axis
+]=])
+  _gentest_cdr_expect_failure("partially numeric axis bound" "end '1.5.2' is not a finite numeric literal")
+
+  _gentest_cdr_scan(substring_type CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace axis {
+struct Point {};
+[[using gentest: test("substring"), range(p, 0, 1, 2)]] inline void substring(Point p) { (void)p; }
+} // namespace axis
+]=])
+  _gentest_cdr_expect_failure("non-numeric axis parameter" "parameters_range not supported for parameter 'p' of type 'axis::Point'")
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()
