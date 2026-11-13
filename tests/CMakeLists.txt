@@ -2912,6 +2912,15 @@ gentest_add_check_exit_code(
     EXPECT_RC 0
     ARGS junit-report ${CMAKE_CURRENT_BINARY_DIR}/regression_junit_blocked_error)
 
+if(GENTEST_USE_BOOST_JSON)
+    gentest_add_check_exit_code(
+        NAME regression_allure_blocked_utf8_and_stale_results
+        PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+        EXPECT_RC 0
+        ARGS allure-report ${CMAKE_CURRENT_BINARY_DIR}/regression_allure_blocked_utf8_stale)
+    set_tests_properties(regression_allure_blocked_utf8_and_stale_results PROPERTIES LABELS "allure")
+endif()
+
 gentest_add_manual_regression(
     TARGET gentest_regression_async_status_renderer
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/async_status_renderer.cpp)

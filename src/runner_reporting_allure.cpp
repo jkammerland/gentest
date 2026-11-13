@@ -42,6 +42,8 @@ bool preflight_output_file(OnFailure &&on_failure, const std::filesystem::path &
     return true;
 }
 
+// boost::json stores and serializes string bytes as given, so every caller-derived
+// string goes through the shared sanitiser: malformed UTF-8 becomes U+FFFD.
 boost::json::value record_text(std::string_view text) { return boost::json::parse(json_string(text)); }
 
 void record_allure_failure(RunAccumulator &acc, std::string message) {
@@ -108,6 +110,61 @@ std::string sanitize_attachment_extension(std::string_view extension) {
     return cleaned;
 }
 
+// Consume one or more decimal digits from the front of `text`.
+bool consume_digits(std::string_view &text) {
+    std::size_t count = 0;
+    while (count < text.size() && text[count] >= '0' && text[count] <= '9') {
+        ++count;
+    }
+    text.remove_prefix(count);
+    return count != 0;
+}
+
+bool consume_prefix(std::string_view &text, std::string_view prefix) {
+    if (!text.starts_with(prefix)) {
+        return false;
+    }
+    text.remove_prefix(prefix.size());
+    return true;
+}
+
+// Names this writer produces: result-<n>-<anything>, runtime-record-<n>-<n>.<ext>
+// and runtime-case-<n>-index.json. Anything else in the directory is not ours.
+bool is_gentest_allure_file_name(std::string_view name) {
+    if (std::string_view rest = name; consume_prefix(rest, "result-")) {
+        return consume_digits(rest) && consume_prefix(rest, "-") && !rest.empty();
+    }
+    if (std::string_view rest = name; consume_prefix(rest, "runtime-record-")) {
+        return consume_digits(rest) && consume_prefix(rest, "-") && consume_digits(rest) &&
+               (rest == ".json" || rest == ".cbor" || rest == ".bin");
+    }
+    if (std::string_view rest = name; consume_prefix(rest, "runtime-case-")) {
+        return consume_digits(rest) && rest == "-index.json";
+    }
+    return false;
+}
+
+// Results are numbered per run, so files left by an earlier (larger or differently
+// filtered) run would be merged into this report. Remove only files this writer names.
+void remove_stale_allure_files(RunAccumulator &acc, const std::filesystem::path &allure_dir, bool &report_ok) {
+    std::error_code                    ec;
+    std::vector<std::filesystem::path> stale;
+    for (std::filesystem::directory_iterator it(allure_dir, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code status_ec;
+        if (it->is_regular_file(status_ec) && !it->is_symlink(status_ec) && is_gentest_allure_file_name(it->path().filename().string())) {
+            stale.push_back(it->path());
+        }
+    }
+    for (const auto &path : stale) {
+        std::error_code remove_ec;
+        std::filesystem::remove(path, remove_ec);
+        if (remove_ec) {
+            record_allure_failure(acc, fmt::format("failed to remove stale Allure file: {} ({})", path.string(), remove_ec.message()));
+            report_ok = false;
+        }
+    }
+}
+
 bool write_allure_file(RunAccumulator &acc, const PendingAllureFile &file) {
     std::ofstream out(file.path, std::ios::binary);
     if (!out) {
@@ -129,13 +186,13 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
     std::set<std::string>          shared_record_files;
     for (const auto &it : acc.report_items) {
         boost::json::object obj;
-        obj["name"] = it.name;
+        obj["name"] = record_text(it.name);
         // A blocked case did not run and fails the run: Allure's "broken", never "skipped".
         const bool blocked = it.outcome == Outcome::Blocked && it.failures.empty();
         obj["status"]      = !it.failures.empty() ? "failed" : (blocked ? "broken" : (it.skipped ? "skipped" : "passed"));
         obj["time"]        = it.time_s;
         boost::json::array labels;
-        labels.push_back({{"name", "suite"}, {"value", it.suite}});
+        labels.push_back({{"name", "suite"}, {"value", record_text(it.suite)}});
         if (it.outcome == Outcome::Blocked) {
             labels.push_back({{"name", "blocked"}, {"value", "true"}});
         }
@@ -148,7 +205,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
             } else if (r == "xfail") {
                 r = std::string_view{};
             }
-            labels.push_back({{"name", "xfail"}, {"value", std::string(r)}});
+            labels.push_back({{"name", "xfail"}, {"value", record_text(r)}});
         } else if (it.outcome == Outcome::Blocked) {
             std::string_view r = it.skip_reason;
             if (r.starts_with("blocked:")) {
@@ -157,7 +214,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
                     r.remove_prefix(1);
             }
             if (!r.empty()) {
-                labels.push_back({{"name", "blocked_reason"}, {"value", std::string(r)}});
+                labels.push_back({{"name", "blocked_reason"}, {"value", record_text(r)}});
             }
         }
         obj["labels"] = std::move(labels);
@@ -168,11 +225,11 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
         obj["parameters"] = std::move(parameters);
         if (!it.failures.empty()) {
             boost::json::object ex;
-            ex["message"]        = it.failures.front();
+            ex["message"]        = record_text(it.failures.front());
             obj["statusDetails"] = std::move(ex);
         } else if (it.skipped && !it.skip_reason.empty()) {
             boost::json::object ex;
-            ex["message"]        = it.skip_reason;
+            ex["message"]        = record_text(it.skip_reason);
             obj["statusDetails"] = std::move(ex);
         }
         boost::json::array       attachments;
@@ -226,7 +283,8 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
                 .label    = "Allure attachment",
                 .contents = attachment.contents,
             });
-            attachments.push_back({{"name", attachment.name}, {"source", attachment_name}, {"type", attachment.mime_type}});
+            attachments.push_back(
+                {{"name", record_text(attachment.name)}, {"source", attachment_name}, {"type", record_text(attachment.mime_type)}});
             has_attachments = true;
         }
         if (has_attachments) {
@@ -252,7 +310,7 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
         obj["labels"] = std::move(labels);
 
         boost::json::object details;
-        details["message"]   = message;
+        details["message"]   = record_text(message);
         obj["statusDetails"] = std::move(details);
 
         files.push_back(PendingAllureFile{
@@ -353,6 +411,7 @@ void AllureReportSession::Impl::initialize(RunAccumulator &acc, const ReportConf
         ready_    = false;
         return;
     }
+    remove_stale_allure_files(acc, allure_dir_, report_ok);
     restage(acc, report_ok);
 #else
     (void)acc;

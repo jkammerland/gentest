@@ -71,6 +71,11 @@ A blocked case did not run and makes the run exit `1`, so it is reported as an e
 seconds in fixed-point decimal notation and, like the counts, do not depend on the process locale. Text that is not valid UTF-8
 is replaced in both formats (`?` in JUnit, U+FFFD in Allure).
 
+`--allure-dir=<dir>` owns the files it names: `result-<n>-*`, `runtime-record-<n>-<n>.*` and `runtime-case-<n>-index.json`.
+Before writing, the runner removes regular files with those names left by an earlier run, so a filtered rerun into the same
+directory does not merge old results. Other files and all subdirectories are left alone. Result numbering restarts for every
+invocation; give each test executable its own directory.
+
 Manual benchmarks may set source-level execution policy with the
 `Case::benchmark` field:
 
