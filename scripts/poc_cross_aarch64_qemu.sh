@@ -113,6 +113,7 @@ fi
 cmake -S "${root}" -B "${target_build_dir}" -G Ninja \
   -DCMAKE_BUILD_TYPE="${build_type}" \
   "${toolchain_args[@]}" \
+  -Dgentest_BUILD_TESTING=ON \
   -DGENTEST_BUILD_CODEGEN=OFF \
   -DGENTEST_CODEGEN_EXECUTABLE="${codegen}" \
   -DGENTEST_ENABLE_PACKAGE_TESTS=OFF
