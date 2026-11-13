@@ -96,6 +96,9 @@ static ParseU64DecimalResult parse_u64_decimal_strict(std::string_view s) {
     return ParseU64DecimalResult{.value = v, .status = ParseU64DecimalStatus::Ok};
 }
 
+// Largest in-process repeat count; larger requests are rejected, not clamped.
+constexpr std::uint64_t kMaxRepeat = 1000000;
+
 static std::uint64_t make_random_seed() {
     std::random_device rd;
     const auto         hi = static_cast<std::uint64_t>(rd()) << 32U;
@@ -121,6 +124,7 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
     bool github_annotations_flag = false;
 
     bool seen_repeat               = false;
+    bool seen_kind                 = false;
     bool seen_async_log_tail       = false;
     bool seen_bench_min_epoch_time = false;
     bool seen_bench_min_total_time = false;
@@ -275,6 +279,16 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             return false;
         }
         out_value = value.data();
+        return true;
+    };
+
+    // Single-valued options reject repetition instead of silently choosing a winner.
+    auto reject_duplicate_option = [&](bool &seen, std::string_view opt_name) -> bool {
+        if (seen) {
+            fmt::print(stderr, "error: duplicate {}\n", opt_name);
+            return false;
+        }
+        seen = true;
         return true;
     };
 
@@ -443,14 +457,9 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
 
         if (const OptionParseResult seed_result = parse_value_option(i, s, "--seed",
                                                                      [&](std::string_view value) {
-                                                                         std::uint64_t seed_value = 0;
-                                                                         if (!parse_u64_option("--seed", value, seed_value))
+                                                                         if (!reject_duplicate_option(opt.seed_provided, "--seed"))
                                                                              return false;
-                                                                         if (!opt.seed_provided) {
-                                                                             opt.seed_provided = true;
-                                                                             opt.seed_value    = seed_value;
-                                                                         }
-                                                                         return true;
+                                                                         return parse_u64_option("--seed", value, opt.seed_value);
                                                                      });
             seed_result != OptionParseResult::NoMatch) {
             if (seed_result == OptionParseResult::Error)
@@ -458,25 +467,25 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             continue;
         }
 
-        if (!seen_repeat) {
-            if (const OptionParseResult repeat_result = parse_value_option(i, s, "--repeat",
-                                                                           [&](std::string_view value) {
-                                                                               std::uint64_t rep = 0;
-                                                                               if (!parse_u64_option("--repeat", value, rep))
-                                                                                   return false;
-                                                                               if (rep == 0)
-                                                                                   rep = 1;
-                                                                               if (rep > 1000000)
-                                                                                   rep = 1000000;
-                                                                               opt.repeat_n = static_cast<std::size_t>(rep);
-                                                                               seen_repeat  = true;
-                                                                               return true;
-                                                                           });
-                repeat_result != OptionParseResult::NoMatch) {
-                if (repeat_result == OptionParseResult::Error)
-                    return false;
-                continue;
-            }
+        if (const OptionParseResult repeat_result =
+                parse_value_option(i, s, "--repeat",
+                                   [&](std::string_view value) {
+                                       if (!reject_duplicate_option(seen_repeat, "--repeat"))
+                                           return false;
+                                       std::uint64_t rep = 0;
+                                       if (!parse_u64_option("--repeat", value, rep))
+                                           return false;
+                                       if (rep == 0 || rep > kMaxRepeat) {
+                                           fmt::print(stderr, "error: --repeat must be between 1 and {}, got: '{}'\n", kMaxRepeat, value);
+                                           return false;
+                                       }
+                                       opt.repeat_n = static_cast<std::size_t>(rep);
+                                       return true;
+                                   });
+            repeat_result != OptionParseResult::NoMatch) {
+            if (repeat_result == OptionParseResult::Error)
+                return false;
+            continue;
         }
         if (const OptionParseResult async_log_tail_result =
                 parse_value_option(i, s, "--async-log-tail",
@@ -535,7 +544,9 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             continue;
 
         if (const OptionParseResult kind_result =
-                parse_value_option(i, s, "--kind", [&](std::string_view value) { return parse_kind_option(value, opt.kind); });
+                parse_value_option(i, s, "--kind", [&](std::string_view value) {
+                    return reject_duplicate_option(seen_kind, "--kind") && parse_kind_option(value, opt.kind);
+                });
             kind_result != OptionParseResult::NoMatch) {
             if (kind_result == OptionParseResult::Error)
                 return false;
@@ -625,92 +636,82 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             return false;
         }
 
-        if (!seen_bench_min_epoch_time) {
-            if (const OptionParseResult min_epoch_result = parse_value_option(
-                    i, s, "--bench-min-epoch-time-s",
-                    [&](std::string_view value) {
-                        if (!parse_non_negative_double_option("--bench-min-epoch-time-s", value, opt.bench_cfg.min_epoch_time_s))
-                            return false;
-                        seen_bench_min_epoch_time = true;
-                        return true;
-                    });
-                min_epoch_result != OptionParseResult::NoMatch) {
-                if (min_epoch_result == OptionParseResult::Error)
-                    return false;
-                continue;
-            }
+        if (const OptionParseResult min_epoch_result = parse_value_option(
+                i, s, "--bench-min-epoch-time-s",
+                [&](std::string_view value) {
+                    return reject_duplicate_option(seen_bench_min_epoch_time, "--bench-min-epoch-time-s") &&
+                           parse_non_negative_double_option("--bench-min-epoch-time-s", value, opt.bench_cfg.min_epoch_time_s);
+                });
+            min_epoch_result != OptionParseResult::NoMatch) {
+            if (min_epoch_result == OptionParseResult::Error)
+                return false;
+            continue;
         }
-        if (!seen_bench_min_total_time) {
-            if (const OptionParseResult min_total_result = parse_value_option(
-                    i, s, "--bench-min-total-time-s",
-                    [&](std::string_view value) {
-                        if (!parse_non_negative_double_option("--bench-min-total-time-s", value, opt.bench_cfg.min_total_time_s))
-                            return false;
-                        seen_bench_min_total_time = true;
-                        return true;
-                    });
-                min_total_result != OptionParseResult::NoMatch) {
-                if (min_total_result == OptionParseResult::Error)
-                    return false;
-                continue;
-            }
+        if (const OptionParseResult min_total_result = parse_value_option(
+                i, s, "--bench-min-total-time-s",
+                [&](std::string_view value) {
+                    return reject_duplicate_option(seen_bench_min_total_time, "--bench-min-total-time-s") &&
+                           parse_non_negative_double_option("--bench-min-total-time-s", value, opt.bench_cfg.min_total_time_s);
+                });
+            min_total_result != OptionParseResult::NoMatch) {
+            if (min_total_result == OptionParseResult::Error)
+                return false;
+            continue;
         }
-        if (!seen_bench_max_total_time) {
-            if (const OptionParseResult max_total_result = parse_value_option(
-                    i, s, "--bench-max-total-time-s",
-                    [&](std::string_view value) {
-                        if (!parse_non_negative_double_option("--bench-max-total-time-s", value, opt.bench_cfg.max_total_time_s))
-                            return false;
-                        seen_bench_max_total_time = true;
-                        return true;
-                    });
-                max_total_result != OptionParseResult::NoMatch) {
-                if (max_total_result == OptionParseResult::Error)
-                    return false;
-                continue;
-            }
+        if (const OptionParseResult max_total_result = parse_value_option(
+                i, s, "--bench-max-total-time-s",
+                [&](std::string_view value) {
+                    return reject_duplicate_option(seen_bench_max_total_time, "--bench-max-total-time-s") &&
+                           parse_non_negative_double_option("--bench-max-total-time-s", value, opt.bench_cfg.max_total_time_s);
+                });
+            max_total_result != OptionParseResult::NoMatch) {
+            if (max_total_result == OptionParseResult::Error)
+                return false;
+            continue;
         }
-        if (!seen_bench_warmup) {
-            if (const OptionParseResult warmup_result =
-                    parse_value_option(i, s, "--bench-warmup",
-                                       [&](std::string_view value) {
-                                           std::uint64_t warmup = 0;
-                                           if (!parse_u64_option("--bench-warmup", value, warmup))
-                                               return false;
-                                           if (warmup > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
-                                               fmt::print(stderr, "error: --bench-warmup is out of range\n");
-                                               return false;
-                                           }
-                                           opt.bench_cfg.warmup_epochs = static_cast<std::size_t>(warmup);
-                                           seen_bench_warmup           = true;
-                                           return true;
-                                       });
-                warmup_result != OptionParseResult::NoMatch) {
-                if (warmup_result == OptionParseResult::Error)
-                    return false;
-                continue;
-            }
+        if (const OptionParseResult warmup_result =
+                parse_value_option(i, s, "--bench-warmup",
+                                   [&](std::string_view value) {
+                                       if (!reject_duplicate_option(seen_bench_warmup, "--bench-warmup"))
+                                           return false;
+                                       std::uint64_t warmup = 0;
+                                       if (!parse_u64_option("--bench-warmup", value, warmup))
+                                           return false;
+                                       if (warmup > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                                           fmt::print(stderr, "error: --bench-warmup is out of range\n");
+                                           return false;
+                                       }
+                                       opt.bench_cfg.warmup_epochs = static_cast<std::size_t>(warmup);
+                                       return true;
+                                   });
+            warmup_result != OptionParseResult::NoMatch) {
+            if (warmup_result == OptionParseResult::Error)
+                return false;
+            continue;
         }
-        if (!seen_bench_epochs) {
-            if (const OptionParseResult epochs_result =
-                    parse_value_option(i, s, "--bench-epochs",
-                                       [&](std::string_view value) {
-                                           std::uint64_t epochs = 0;
-                                           if (!parse_u64_option("--bench-epochs", value, epochs))
-                                               return false;
-                                           if (epochs > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
-                                               fmt::print(stderr, "error: --bench-epochs is out of range\n");
-                                               return false;
-                                           }
-                                           opt.bench_cfg.measure_epochs = static_cast<std::size_t>(epochs);
-                                           seen_bench_epochs            = true;
-                                           return true;
-                                       });
-                epochs_result != OptionParseResult::NoMatch) {
-                if (epochs_result == OptionParseResult::Error)
-                    return false;
-                continue;
-            }
+        if (const OptionParseResult epochs_result =
+                parse_value_option(i, s, "--bench-epochs",
+                                   [&](std::string_view value) {
+                                       if (!reject_duplicate_option(seen_bench_epochs, "--bench-epochs"))
+                                           return false;
+                                       std::uint64_t epochs = 0;
+                                       if (!parse_u64_option("--bench-epochs", value, epochs))
+                                           return false;
+                                       if (epochs == 0) {
+                                           fmt::print(stderr, "error: --bench-epochs must be at least 1\n");
+                                           return false;
+                                       }
+                                       if (epochs > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+                                           fmt::print(stderr, "error: --bench-epochs is out of range\n");
+                                           return false;
+                                       }
+                                       opt.bench_cfg.measure_epochs = static_cast<std::size_t>(epochs);
+                                       return true;
+                                   });
+            epochs_result != OptionParseResult::NoMatch) {
+            if (epochs_result == OptionParseResult::Error)
+                return false;
+            continue;
         }
 
         if (const OptionParseResult removed_run_jitter =
@@ -731,27 +732,26 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             removed_jitter_filter != OptionParseResult::NoMatch) {
             return false;
         }
-        if (!seen_jitter_bins) {
-            if (const OptionParseResult jitter_bins_result =
-                    parse_value_option(i, s, "--jitter-bins",
-                                       [&](std::string_view value) {
-                                           std::uint64_t bins = 0;
-                                           if (!parse_u64_option("--jitter-bins", value, bins))
-                                               return false;
-                                           if (bins == 0 || bins > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
-                                               fmt::print(stderr, "error: --jitter-bins must be a "
-                                                                  "positive integer\n");
-                                               return false;
-                                           }
-                                           opt.jitter_bins  = static_cast<int>(bins);
-                                           seen_jitter_bins = true;
-                                           return true;
-                                       });
-                jitter_bins_result != OptionParseResult::NoMatch) {
-                if (jitter_bins_result == OptionParseResult::Error)
-                    return false;
-                continue;
-            }
+        if (const OptionParseResult jitter_bins_result =
+                parse_value_option(i, s, "--jitter-bins",
+                                   [&](std::string_view value) {
+                                       if (!reject_duplicate_option(seen_jitter_bins, "--jitter-bins"))
+                                           return false;
+                                       std::uint64_t bins = 0;
+                                       if (!parse_u64_option("--jitter-bins", value, bins))
+                                           return false;
+                                       if (bins == 0 || bins > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
+                                           fmt::print(stderr, "error: --jitter-bins must be a "
+                                                              "positive integer\n");
+                                           return false;
+                                       }
+                                       opt.jitter_bins = static_cast<int>(bins);
+                                       return true;
+                                   });
+            jitter_bins_result != OptionParseResult::NoMatch) {
+            if (jitter_bins_result == OptionParseResult::Error)
+                return false;
+            continue;
         }
 
         if (s.starts_with('-')) {
@@ -774,8 +774,6 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         }
     }
 
-    if (opt.bench_cfg.measure_epochs == 0)
-        opt.bench_cfg.measure_epochs = 1;
     if (opt.bench_cfg.max_total_time_s > 0.0 && opt.bench_cfg.min_total_time_s > opt.bench_cfg.max_total_time_s) {
         fmt::print(stderr, "error: --bench-min-total-time-s must be <= --bench-max-total-time-s ({} > {})\n",
                    opt.bench_cfg.min_total_time_s, opt.bench_cfg.max_total_time_s);

@@ -44,6 +44,12 @@ Return codes match `run_all_tests` for the same cases and arguments: `0` means t
 `--run` case was not found. `--run` prefers a full name, then accepts a unique suffix among cases matching `--kind`;
 ambiguous suffixes are errors. Benchmark- or jitter-only filters that match nothing retain their existing failure semantics.
 
+Options that take one value (`--run`, `--filter`, `--kind`, `--seed`, `--repeat`, `--output`, `--log-output`, `--time-unit`,
+`--report-format`, `--junit`, `--allure-dir`, `--records`, `--skip-return-code`, `--async-log-tail`, the `--bench-*` settings and
+`--jitter-bins`) may appear once; a repeated one is rejected as a CLI error (exit `1`) instead of choosing a winner. Only
+`--tag`, `--exclude-tag` and `--exclude` accumulate. Out-of-range counts are rejected too, not adjusted: `--repeat` accepts
+1–1000000 and `--bench-epochs` requires at least 1.
+
 `--skip-return-code=N` (4–255) returns `N` when every selected case skips and the run has no failures. Expected failures (XFAIL)
 retain success status. Discovered ordinary CTest entries use `--skip-return-code=77` with `SKIP_RETURN_CODE=77`, so runtime and
 attribute skips appear as skipped. Fixture teardown and report-write errors return failure even when the case skips.

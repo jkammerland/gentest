@@ -626,14 +626,14 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --output=<mode>       Test output: full|compact|failures-only (default full)\n");
         fmt::print("  --log-output=<mode>   gentest logs: all|failures (default failures for compact/failures-only)\n");
         fmt::print("  --fail-on-empty       Fail when execution/preview selects no cases\n");
-        fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
+        fmt::print("  --repeat=N            Repeat selected tests N times (1..1000000, default 1)\n");
         fmt::print("  --async-log-tail=N    Live async log lines per case (default 5, 0 disables)\n");
         fmt::print("  --shuffle             Shuffle tests (respects fixture/grouping)\n");
         fmt::print("  --seed N              Base shuffle seed; each repeat prints its own replay seed\n");
         fmt::print("\nBenchmark options:\n");
         fmt::print("  --bench-table         Print a summary table per suite (runs benches)\n");
         fmt::print("  --bench-min-epoch-time-s=<sec>  Minimum epoch time\n");
-        fmt::print("  --bench-epochs=<N>    Measurement epochs (default 12)\n");
+        fmt::print("  --bench-epochs=<N>    Measurement epochs (at least 1, default 12)\n");
         fmt::print("  --bench-warmup=<N>    Warmup epochs (default 1)\n");
         fmt::print("  --bench-min-total-time-s=<sec>  Min total time per benchmark (may exceed --bench-epochs)\n");
         fmt::print("  --bench-max-total-time-s=<sec>  Max total time per benchmark\n");
