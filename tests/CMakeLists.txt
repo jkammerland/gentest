@@ -4949,7 +4949,8 @@ foreach(_gentest_cdr_scenario IN ITEMS
         numeric_axes
         string_literal_parameters
         template_fixture_bindings
-        display_name_uniqueness)
+        display_name_uniqueness
+        member_template_arguments)
     _gentest_add_cmake_helper_test(
         gentest_codegen_discovery_regression_${_gentest_cdr_scenario}
         ${PROJECT_SOURCE_DIR}
