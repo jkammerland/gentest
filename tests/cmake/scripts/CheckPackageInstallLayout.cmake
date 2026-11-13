@@ -59,7 +59,7 @@ if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
 endif()
 if(DEFINED CXX_COMPILER AND NOT "${CXX_COMPILER}" STREQUAL "")
-  gentest_append_windows_native_llvm_cache_args(_cmake_cache_args "${CXX_COMPILER}")
+  gentest_append_windows_native_llvm_cache_args(_cmake_cache_args "${CXX_COMPILER}" ${_cmake_cache_args})
 endif()
 
 message(STATUS "Configure a runtime-only producer with CMAKE_INSTALL_DATADIR=${_datadir}...")
