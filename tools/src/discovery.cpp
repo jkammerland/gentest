@@ -1887,8 +1887,13 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, std::vector<Fixture
                 }
             }
 
+            // An inferred fixture type with a known entity is spelled from its
+            // canonical type, so an unqualified name is a global-namespace
+            // type: never re-qualify it with the test's namespace and never
+            // bind it to a different declaration that shares its base name.
+            const bool canonical_spelling = parsed.qualified || !fixture_entity.empty();
             if (lookup) {
-                if (parsed.qualified) {
+                if (canonical_spelling) {
                     const auto qit = lookup->by_qualified.find(base_no_colons);
                     if (qit != lookup->by_qualified.end()) {
                         FixtureDeclInfo *decl = qit->second;
@@ -1914,6 +1919,10 @@ bool resolve_free_fixtures(std::vector<TestCaseInfo> &cases, std::vector<Fixture
                 }
             }
 
+            if (canonical_spelling) {
+                emit_local(parse_fixture_type(emit_type).full);
+                continue;
+            }
             emit_local(derive_local_fixture_type_name(parse_fixture_type(emit_type), test));
         }
 
