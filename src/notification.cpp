@@ -328,6 +328,12 @@ auto WatchdogModel::accept(const Notification &notification, TimePoint now) noex
             }
             impl_->producers.push_back({.identity = notification.producer, .sequence = notification.sequence});
         } else {
+            if (notification.producer.generation != producer->identity.generation) {
+                // Only subject_started reaches here with a newer generation. The
+                // previous incarnation can no longer report, so its unfinished
+                // subjects are retired instead of expiring against its successor.
+                std::erase_if(impl_->subjects, [&](const auto &entry) { return entry.producer.id == notification.producer.id; });
+            }
             producer->identity = notification.producer;
             producer->sequence = notification.sequence;
         }
