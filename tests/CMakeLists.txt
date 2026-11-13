@@ -5602,6 +5602,13 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
     set_property(TEST gentest_package_consumer_include_only APPEND PROPERTY LABELS "examples")
 
     _gentest_add_cmake_helper_test(
+        gentest_package_install_layout
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPackageInstallLayout.cmake
+        package
+        -DBUILD_CONFIG=${_gentest_package_test_config})
+
+    _gentest_add_cmake_helper_test(
         gentest_third_party_mock_package_consumers
         ${PROJECT_SOURCE_DIR}/tests/cmake/third_party_mock_consumers
         ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckThirdPartyMockConsumers.cmake

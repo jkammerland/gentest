@@ -168,6 +168,11 @@ elseif(GENTEST_BUILD_RING_EXAMPLE)
 endif()
 
 if(${PROJECT_NAME}_INSTALL)
+    # The package helper installs the config files, and with them
+    # GentestCodegen.cmake, under CMAKE_INSTALL_DATADIR. Everything installed
+    # next to them must use the same root.
+    include(GNUInstallDirs)
+
     # This vendored helper runs in CMake on the host, outside any target sysroot.
     set(_gentest_target_install_package_root "${PROJECT_SOURCE_DIR}/third_party/target_install_package")
     find_package(target_install_package 7.1.0 EXACT CONFIG REQUIRED
@@ -255,11 +260,11 @@ if(${PROJECT_NAME}_INSTALL)
     endif()
 
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/cmake/gentest/"
-        DESTINATION "share/cmake/gentest/gentest"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/cmake/gentest/gentest"
         COMPONENT Development
         FILES_MATCHING PATTERN "*.cmake")
     install(DIRECTORY "${PROJECT_SOURCE_DIR}/xmake/"
-        DESTINATION "share/gentest/xmake"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/gentest/xmake"
         COMPONENT Development)
     install(FILES
             "${PROJECT_SOURCE_DIR}/README.md"
@@ -280,7 +285,7 @@ if(${PROJECT_NAME}_INSTALL)
             "${PROJECT_BINARY_DIR}/gentest-release-artifact.json"
             @ONLY)
         install(FILES "${PROJECT_BINARY_DIR}/gentest-release-artifact.json"
-            DESTINATION "share/${PROJECT_NAME}"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}"
             COMPONENT Development)
         set(_gentest_cpack_file_name
             "${PROJECT_NAME}-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}-llvm${_gentest_release_llvm_major}-host-developer-kit")
