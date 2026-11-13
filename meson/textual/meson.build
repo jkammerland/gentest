@@ -14,7 +14,7 @@ gentest_public_include_path = gentest_sp.get_variable('gentest_public_include_pa
 gentest_third_party_include_path = gentest_sp.get_variable('gentest_third_party_include_path')
 gentest_textual_mock_anchor_template = gentest_sp.get_variable('gentest_textual_mock_anchor_template')
 gentest_fmt_pkgconfig_include_dirs = gentest_sp.get_variable('fmt_pkgconfig_include_dirs')
-gentest_fmt_fallback_include_dir = gentest_sp.get_variable('fmt_fallback_include_dir')
+gentest_fmt_fallback_include_path = gentest_sp.get_variable('fmt_fallback_include_path')
 
 if not is_variable('gentest_textual_mocks')
   gentest_textual_mocks = []
@@ -37,8 +37,8 @@ gentest_textual_base_clang_args = [
 foreach fmt_include_dir : gentest_fmt_pkgconfig_include_dirs
   gentest_textual_base_clang_args += ['-I@0@'.format(fmt_include_dir)]
 endforeach
-if gentest_fmt_fallback_include_dir != ''
-  gentest_textual_base_clang_args += ['-I@0@'.format(gentest_fmt_fallback_include_dir)]
+if gentest_fmt_fallback_include_path != ''
+  gentest_textual_base_clang_args += ['-I@0@'.format(gentest_fmt_fallback_include_path)]
 endif
 
 gentest_textual_base_cpp_args = [
