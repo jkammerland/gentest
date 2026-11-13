@@ -391,6 +391,55 @@ int check_allure_report(const std::filesystem::path &directory) {
     return g_failures == 0 ? 0 : 1;
 }
 
+// An invocation that fails before any case runs replaces an earlier JUnit report.
+int check_stale_junit(const std::filesystem::path &directory) {
+    const auto junit                  = fresh_directory(directory) / "report.xml";
+    Case       first                  = make_case("stale/first");
+    Case       second                 = make_case("stale/second");
+    Case       bad_bench              = make_case("stale/bad_bench");
+    bad_bench.is_benchmark            = true;
+    bad_bench.items_per_call          = 0;
+    Case                        death = make_case("stale/death");
+    static constexpr std::array kTags{std::string_view{"death"}};
+    death.tags = kTags;
+    const std::array  cases{first, second, bad_bench, death};
+    const std::string junit_argument = "--junit=" + junit.string();
+
+    const auto run = [&](std::vector<const char *> arguments) {
+        write_file(junit, "STALE REPORT");
+        arguments.insert(arguments.begin(), "runner_selection_reports");
+        arguments.push_back(junit_argument.c_str());
+        arguments.push_back("--no-color");
+        return gentest::run_cases(cases, arguments);
+    };
+    const auto expect_error_report = [&](std::string_view label, std::string_view message) {
+        const std::string xml = read_file(junit);
+        expect(!contains(xml, "STALE REPORT"), std::string(label) + ": the stale report is replaced");
+        expect(contains(xml, R"(tests="0" failures="0" skipped="0" errors="1">)"), std::string(label) + ": the report records one error");
+        expect(contains(xml, message), std::string(label) + ": the report carries the message");
+    };
+
+    expect(run({"--run=typo"}) == 3, "unknown --run exits 3");
+    expect_error_report("unknown --run", "Case not found: typo");
+    expect(run({"--filter=nomatch*", "--fail-on-empty"}) == 1, "--fail-on-empty exits 1");
+    expect_error_report("--fail-on-empty", "--fail-on-empty is enabled");
+    expect(run({"--run=stale/first", "--kind=bench"}) == 1, "kind mismatch exits 1");
+    expect_error_report("kind mismatch", "does not match --kind=bench");
+    expect(run({"--filter=nomatch*", "--kind=jitter"}) == 1, "empty jitter filter exits 1");
+    expect_error_report("empty jitter filter", "jitter filter matched 0 jitter benchmarks");
+    expect(run({"--run=stale/death"}) == 1, "excluded death case exits 1");
+    expect_error_report("excluded death case", "rerun with --include-death");
+    expect(run({"--run=stale/bad_bench"}) == 1, "invalid benchmark metadata exits 1");
+    expect_error_report("invalid benchmark metadata", "benchmark items_per_call must be positive");
+
+    // Previews and CLI errors never write reports; a normal run still writes its own.
+    expect(run({"--list-selected", "--filter=nomatch*", "--fail-on-empty"}) == 1, "empty preview with --fail-on-empty exits 1");
+    expect(read_file(junit) == "STALE REPORT", "a preview does not touch the report");
+    expect(run({"--run=stale/first"}) == 0, "a passing run exits 0");
+    expect(contains(read_file(junit), R"(tests="1" failures="0" skipped="0" errors="0">)"), "a passing run writes its own report");
+    return g_failures == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -409,6 +458,8 @@ int main(int argc, char **argv) {
         return check_junit_report(argv[2]);
     if (mode == "allure-report" && argc == 3)
         return check_allure_report(argv[2]);
+    if (mode == "stale-junit" && argc == 3)
+        return check_stale_junit(argv[2]);
     std::cerr << "usage: runner_selection_reports <mode> [args]\n";
     return 2;
 }
