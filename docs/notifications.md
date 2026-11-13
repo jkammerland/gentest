@@ -260,7 +260,10 @@ observer itself failed.
 `disarm()` stops inactivity enforcement while retaining transport drainage for
 owner-directed shutdown. After the owner has collected its process, `finish()`
 requests a final receive drain. `close()` completes enforcement and then drains
-callbacks. Process exit alone does not imply success: inspect both the process
+callbacks. Closing or destroying a started monitor without a preceding
+`finish()` is a stop request: the registered process owner is asked to stop and
+is killed through its pidfds if it outlives `shutdownGrace`. Call `finish()`
+first whenever the supervised process must survive the monitor. Process exit alone does not imply success: inspect both the process
 status and the monitor outcome.
 
 ## Bounded transport and failures

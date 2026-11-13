@@ -30,7 +30,12 @@ class continuation_handle {
     }
 
     [[nodiscard]] explicit operator bool() const noexcept { return token_ && token_->active(); }
-    void                   cancel() const noexcept {
+    // Retires the wait for every copy of this handle. A completion that an
+    // earlier successful try_invoke() queued but the runner has not delivered
+    // yet is dropped: its publisher does not run and the coroutine is not
+    // resumed by it. Cancel only when the awaiting coroutine is resumed or
+    // destroyed by other means.
+    void cancel() const noexcept {
         if (token_) {
             token_->cancel();
         }
