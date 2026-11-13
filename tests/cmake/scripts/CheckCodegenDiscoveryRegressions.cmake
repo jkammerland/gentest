@@ -281,7 +281,7 @@ struct Point {};
 [[using gentest: test("substring"), range(p, 0, 1, 2)]] inline void substring(Point p) { (void)p; }
 } // namespace axis
 ]=])
-  _gentest_cdr_expect_failure("non-numeric axis parameter" "parameters_range not supported for parameter 'p' of type 'axis::Point'")
+  _gentest_cdr_expect_failure("non-numeric axis parameter" "parameters_range not supported for parameter type 'axis::Point' (parameter 'p')")
 elseif(SCENARIO STREQUAL "string_literal_parameters")
   # String-literal parameter values reach the generated call verbatim.
   _gentest_cdr_scan(escapes CODEGEN_ARGS --quiet-clang CONTENT [=[
