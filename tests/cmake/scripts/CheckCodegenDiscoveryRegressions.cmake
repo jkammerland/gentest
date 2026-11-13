@@ -392,6 +392,27 @@ struct Fixture {
   _gentest_cdr_expect_registered("member template arguments"
     ".template typed<std::string>()" ".template typed<std::pair<std::string, int>>()" ".operator<(7)")
   _gentest_cdr_expect_not_registered("member template arguments" ".template string>" ".template pair<")
+elseif(SCENARIO STREQUAL "discarded_results")
+  # A discarded result is never bound to a local: that would copy a reference
+  # return (and "_" would be a reserved name at global scope).
+  _gentest_cdr_scan(returns CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+#include <vector>
+namespace ret {
+struct NonCopyable {
+    NonCopyable(const NonCopyable &) = delete;
+};
+[[using gentest: test("noncopyable")]] NonCopyable &noncopyable();
+[[using gentest: test("by_value")]] int by_value();
+[[using gentest: bench("table")]] const std::vector<int> &table();
+[[using gentest: bench("nothing")]] void nothing();
+} // namespace ret
+]=])
+  _gentest_cdr_expect_success("discarded results")
+  _gentest_cdr_expect_registered("discarded results"
+    "static_cast<void>(::ret::noncopyable())" "static_cast<void>(::ret::by_value())"
+    "\"ret/table\"" "\"ret/nothing\"")
+  _gentest_cdr_expect_not_registered("discarded results" "const auto _" "auto _ =")
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()
