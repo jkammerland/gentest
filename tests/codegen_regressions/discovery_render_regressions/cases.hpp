@@ -2,6 +2,7 @@
 
 #include "gentest/attributes.h"
 
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -57,7 +58,7 @@ template <typename T>
 [[using gentest: test("fixtures/bound"), template(T, LocalA, discovery_render_regressions::SuiteB, AliasA)]]
 void bound_fixture(T &fixture) {
     if (fixture.value != 1 && fixture.value != 2) {
-        throw std::string("unexpected fixture value");
+        throw std::runtime_error("unexpected fixture value");
     }
 }
 
