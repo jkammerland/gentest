@@ -749,6 +749,33 @@ int main() {
                  "expression splitting preserves ordinary and raw string literals");
     }
 
+    // Regression: every narrow-string escape is decoded for names; unknown
+    // escapes keep their backslash instead of losing it.
+    {
+        using gentest::codegen::decode_string_literal;
+        t.expect(decode_string_literal(R"("a\x41")") == "aA", "hex escape decodes to its byte");
+        t.expect(decode_string_literal(R"("nul\0x")") == std::string("nul\0x", 5), "NUL escape keeps the following text");
+        t.expect(decode_string_literal(R"("\101\7z")") == "A\az", "octal escapes decode up to three digits");
+        t.expect(decode_string_literal(R"("\a\b\f\v\?\'")") == "\a\b\f\v?'", "simple escapes decode");
+        t.expect(decode_string_literal(R"("é\U0001F600")") == "\xC3\xA9\xF0\x9F\x98\x80", "universal character names decode to UTF-8");
+        t.expect(decode_string_literal(R"("\q\x")") == R"(\q\x)", "unknown escapes keep their backslash");
+        t.expect(decode_string_literal(R"(  plain  )") == "plain", "non-literal tokens are only trimmed");
+
+        const auto attrs = parse_attribute_list(R"(test("esc\x41"), parameters(s, "a\x41", "nul\0x", 7))");
+        t.expect(attrs.size() == 2, "escape regression: two attributes");
+        std::vector<std::string> diags;
+        const auto               summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error, "escape regression: validates");
+        t.expect(summary.case_name == std::optional<std::string>{"escA"}, "escape regression: test name is decoded");
+        if (summary.parameter_sets.size() == 1 && summary.parameter_sets[0].values.size() == 3) {
+            t.expect(summary.parameter_sets[0].values[0] == R"("a\x41")", "escape regression: literal spelling is kept");
+            t.expect(summary.parameter_sets[0].values[1] == R"("nul\0x")", "escape regression: NUL literal spelling is kept");
+            t.expect(summary.parameter_sets[0].values[2] == "7", "escape regression: non-literal value unchanged");
+        } else {
+            t.expect(false, "escape regression: one parameter set with three values");
+        }
+    }
+
     // Regression: parameters_pack tuple splitting must also keep '<...>' intact.
     {
         auto attrs =

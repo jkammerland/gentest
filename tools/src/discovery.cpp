@@ -1636,8 +1636,14 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 report(fmt::format("missing value for function parameter '{}' in parameters(...) or parameters_pack(...)", param.name));
                 return;
             }
-            auto        kind = classify_type(param.type_spelling);
-            std::string expr = quote_for_type(kind, it->second, param.type_spelling);
+            auto kind = classify_type(param.type_spelling);
+            // String parameters receive "..." literals verbatim. For any other
+            // parameter type the quotes only protect an expression (or name a
+            // single character) and are removed.
+            const bool quoted_expression =
+                kind != TypeKind::String && it->second.size() >= 2 && it->second.front() == '"' && it->second.back() == '"';
+            std::string expr =
+                quote_for_type(kind, quoted_expression ? decode_string_literal(it->second) : it->second, param.type_spelling);
             if (module_importer_registration_ &&
                 !validate_importer_binding(*func, expr, "parameter expression", *result.Context, [&](const std::string &message) {
                     had_error_ = true;
