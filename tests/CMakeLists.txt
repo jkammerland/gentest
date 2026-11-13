@@ -5608,7 +5608,8 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         ${PROJECT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPackageInstallLayout.cmake
         package
-        -DBUILD_CONFIG=${_gentest_package_test_config})
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        ${_gentest_package_test_compiler_args})
 
     _gentest_add_cmake_helper_test(
         gentest_third_party_mock_package_consumers

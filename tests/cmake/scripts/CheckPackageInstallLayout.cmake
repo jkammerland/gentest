@@ -24,6 +24,14 @@ endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/CheckRunOrFail.cmake")
 
+# The package test registration passes the active compilers as PACKAGE_TEST_*.
+foreach(_lang IN ITEMS C CXX)
+  if((NOT DEFINED ${_lang}_COMPILER OR "${${_lang}_COMPILER}" STREQUAL "")
+     AND DEFINED PACKAGE_TEST_${_lang}_COMPILER AND NOT "${PACKAGE_TEST_${_lang}_COMPILER}" STREQUAL "")
+    set(${_lang}_COMPILER "${PACKAGE_TEST_${_lang}_COMPILER}")
+  endif()
+endforeach()
+
 set(_work_dir "${BUILD_ROOT}/package_install_layout")
 set(_producer_build_dir "${_work_dir}/p")
 set(_install_prefix "${_work_dir}/prefix")
