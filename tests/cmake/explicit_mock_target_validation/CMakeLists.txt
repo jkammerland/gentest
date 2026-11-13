@@ -79,7 +79,7 @@ elseif(TEST_CASE STREQUAL "generator_expression_output_dir")
         DEFS
             ${CMAKE_CURRENT_SOURCE_DIR}/defs_a.hpp
         OUTPUT_DIR "$<CONFIG>/generated")
-elseif(TEST_CASE STREQUAL "unsupported_include_root_genex")
+elseif(TEST_CASE STREQUAL "genex_include_root")
     add_library(explicit_validation_genex_include_root INTERFACE)
     target_include_directories(explicit_validation_genex_include_root INTERFACE
         "$<IF:$<BOOL:1>,${CMAKE_CURRENT_SOURCE_DIR},${CMAKE_CURRENT_BINARY_DIR}>")

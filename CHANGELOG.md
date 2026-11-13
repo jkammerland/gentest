@@ -13,6 +13,14 @@
   cleanup.
 - `when_any`, `wait_for`, and `wait_until` require exceptions. Builds without
   exceptions still support `awaitable` and `when_all`.
+- `gentest_add_mocks()` uses `DEFS` in place instead of copying them and the
+  headers they include into `OUTPUT_DIR/defs/`. The DEFS are public headers of
+  the mock target: their includes must be reachable by consumers, normally via
+  `LINK_LIBRARIES`. Textual DEFS publish a new `gentest_explicit_mock_defs` file
+  set; `install(TARGETS)` must name it. Installed packages whose DEFS include
+  headers that were neither installed nor exported now fail to compile; install
+  those headers or add them to that file set. Generated mock headers include
+  mocked types by the spelling consumers use, such as `"app/clock.hpp"`.
 
 ### Added
 
@@ -57,6 +65,9 @@
   any call to a `.times(0)` method, with `unexpected call to <method>` as in
   strict mode. Nice mode now ignores only methods without expectations, so tests
   that relied on the old silence fail (#261).
+- A test can include a production header and the generated mock header that
+  mocks it in the same translation unit, in either order, when that production
+  header uses `#pragma once` without an include guard (#239).
 
 ## 1.3.0 - 2026-10-18
 

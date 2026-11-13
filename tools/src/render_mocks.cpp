@@ -838,6 +838,47 @@ struct SourcePathAlias {
     return path;
 }
 
+// Returns the shortest spelling of `def_path` relative to a containing include
+// root, or an empty path when no root contains it.
+[[nodiscard]] std::filesystem::path spell_from_include_roots(const std::filesystem::path              &def_path,
+                                                             const std::vector<std::filesystem::path> &include_roots) {
+    namespace fs                = std::filesystem;
+    const fs::path  visible_def = normalize_absolute_lexical(def_path);
+    std::error_code ec;
+    fs::path        canonical_def = fs::weakly_canonical(visible_def, ec);
+    if (ec) {
+        canonical_def.clear();
+    }
+
+    fs::path    best;
+    std::size_t best_depth = 0;
+    const auto  consider   = [&](const fs::path &file, const fs::path &root) {
+        if (file.empty() || root.empty()) {
+            return;
+        }
+        const fs::path rel = file.lexically_relative(root);
+        if (rel.empty() || rel.is_absolute() || *rel.begin() == "..") {
+            return;
+        }
+        const auto depth = static_cast<std::size_t>(std::distance(rel.begin(), rel.end()));
+        if (best.empty() || depth < best_depth) {
+            best       = rel;
+            best_depth = depth;
+        }
+    };
+    for (const auto &root : include_roots) {
+        consider(visible_def, root);
+        if (!canonical_def.empty()) {
+            ec.clear();
+            const fs::path canonical_root = fs::weakly_canonical(root, ec);
+            if (!ec) {
+                consider(canonical_def.lexically_normal(), canonical_root.lexically_normal());
+            }
+        }
+    }
+    return best;
+}
+
 DefinitionIncludeBlock build_definition_include_block(const CollectorOptions &options, const std::vector<const MockClassInfo *> &classes,
                                                       const std::vector<SourcePathAlias> &source_aliases) {
     namespace fs = std::filesystem;
@@ -850,6 +891,12 @@ DefinitionIncludeBlock build_definition_include_block(const CollectorOptions &op
     }
     std::error_code ec;
     registry_dir = registry_dir.lexically_normal();
+
+    std::vector<fs::path> include_roots;
+    include_roots.reserve(options.mock_include_roots.size());
+    for (const auto &root : options.mock_include_roots) {
+        include_roots.push_back(normalize_absolute_lexical(root));
+    }
 
     for (const auto *cls : classes) {
         if (!cls) {
@@ -870,12 +917,15 @@ DefinitionIncludeBlock build_definition_include_block(const CollectorOptions &op
         def_path = def_path.lexically_normal();
         def_path = remap_to_visible_source_path(def_path, source_aliases);
 
-        fs::path include_path;
+        fs::path include_path = spell_from_include_roots(def_path, include_roots);
         // Avoid std::filesystem::proximate() here: it canonicalizes through the
         // host filesystem and can rewrite symlink-visible paths into real host
         // paths that are not usable from sandboxed or source-mounted builds.
         fs::path rel_path = def_path.lexically_relative(registry_dir);
-        if (!rel_path.empty() && !rel_path.is_absolute()) {
+        if (!include_path.empty()) {
+            // Spelled like a user include, e.g. "fixture/service.hpp": valid in
+            // the build tree and after installation of the mock target.
+        } else if (!rel_path.empty() && !rel_path.is_absolute()) {
             include_path = std::move(rel_path);
         } else {
             // Cross-root/drive paths can legitimately fail to relativize. In

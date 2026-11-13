@@ -123,27 +123,51 @@ foreach(_generated_header IN ITEMS
   endif()
 endforeach()
 
-file(GLOB _staged_regex_meta_headers "${_build_dir}/generated/header/defs/deps/*a+b.hpp")
-if(NOT _staged_regex_meta_headers)
-  message(FATAL_ERROR
-    "Expected staged explicit mock support header for regex-metachar include 'fixture/a+b.hpp', but none was written under "
-    "'${_build_dir}/generated/header/defs/deps'")
-endif()
-set(_saw_staged_regex_meta_header FALSE)
-foreach(_staged_regex_meta_header IN LISTS _staged_regex_meta_headers)
-  if(IS_DIRECTORY "${_staged_regex_meta_header}")
-    continue()
-  endif()
-  file(READ "${_staged_regex_meta_header}" _staged_regex_meta_header_content)
-  if(_staged_regex_meta_header_content MATCHES "kRegexMetaHeaderSentinel = 17")
-    set(_saw_staged_regex_meta_header TRUE)
-    break()
+# DEFS are used in place: nothing is copied into the generated tree, and the
+# public header reaches the authored DEFS through the DEFS file-set root.
+foreach(_copied_defs_dir IN ITEMS
+    "${_build_dir}/generated/header/defs"
+    "${_build_dir}/generated/header_extra/defs"
+    "${_build_dir}/generated/module/defs"
+    "${_build_dir}/generated/module/deps")
+  if(EXISTS "${_copied_defs_dir}")
+    message(FATAL_ERROR "Explicit mock DEFS must not be copied, but found '${_copied_defs_dir}'")
   endif()
 endforeach()
-if(NOT _saw_staged_regex_meta_header)
-  message(FATAL_ERROR
-    "Expected staged explicit mock support header for regex-metachar include 'fixture/a+b.hpp' to preserve its contents.")
+file(READ "${_build_dir}/generated/header/public/fixture_header_mocks.hpp" _public_header_content)
+foreach(_expected_include IN ITEMS "#include \"header_mocks.hpp\"" "#include \"aggregate_header_mocks.hpp\"")
+  string(FIND "${_public_header_content}" "${_expected_include}" _expected_include_pos)
+  if(_expected_include_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected the generated public header to include the authored DEFS via '${_expected_include}'.\n${_public_header_content}")
+  endif()
+endforeach()
+
+# #239: production headers that rely on #pragma once alone, included next to
+# the generated mock surface in both orders, with real expectations.
+foreach(_pragma_once_order IN ITEMS production_first mock_first)
+  gentest_check_run_or_fail(
+    COMMAND
+      "${_build_dir}/pragma_once_${_pragma_once_order}${CMAKE_EXECUTABLE_SUFFIX}"
+      "--run=explicit_mock_target/pragma_once_${_pragma_once_order}"
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE)
+endforeach()
+# Generated registries spell the mocked types' headers the way consumers reach
+# them, so the same spelling works in the build tree and after installation.
+file(GLOB _pragma_once_registries "${_build_dir}/generated/pragma_once/*_mock_registry__domain_0000_header.hpp")
+if(NOT _pragma_once_registries)
+  message(FATAL_ERROR "Expected a generated registry domain header under '${_build_dir}/generated/pragma_once'")
 endif()
+list(GET _pragma_once_registries 0 _pragma_once_registry)
+file(READ "${_pragma_once_registry}" _pragma_once_registry_content)
+foreach(_expected_include IN ITEMS "#include \"ledger.hpp\"" "#include \"app/account.hpp\"")
+  string(FIND "${_pragma_once_registry_content}" "${_expected_include}" _expected_include_pos)
+  if(_expected_include_pos EQUAL -1)
+    message(FATAL_ERROR
+      "Expected '${_expected_include}' in ${_pragma_once_registry}.\n${_pragma_once_registry_content}")
+  endif()
+endforeach()
 
 set(_generated_module_header "${_build_dir}/generated/module/public/fixture_module_mocks.hpp")
 if(EXISTS "${_generated_module_header}")
@@ -255,41 +279,17 @@ file(WRITE "${_src_dir}/fixture/a+b.hpp" "${_regex_meta_header_content}")
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}"
   WORKING_DIRECTORY "${_work_dir}"
-  STRIP_TRAILING_WHITESPACE)
-
-file(GLOB _staged_service_headers "${_build_dir}/generated/header/defs/deps/*")
-set(_saw_updated_staged_service_header FALSE)
-foreach(_staged_service_header IN LISTS _staged_service_headers)
-  if(IS_DIRECTORY "${_staged_service_header}")
-    continue()
-  endif()
-  file(READ "${_staged_service_header}" _staged_service_header_content)
-  if(_staged_service_header_content MATCHES "kServiceSentinel = 11")
-    set(_saw_updated_staged_service_header TRUE)
-    break()
-  endif()
-endforeach()
-if(NOT _saw_updated_staged_service_header)
+  STRIP_TRAILING_WHITESPACE
+  OUTPUT_VARIABLE _support_header_rebuild_output)
+# The consumer includes the authored support header directly, so editing it
+# rebuilds the consumer, and no reconfigure is needed: nothing is copied.
+if(NOT _support_header_rebuild_output MATCHES "header_consumer")
   message(FATAL_ERROR
-    "Rebuild after editing service.hpp did not refresh any staged explicit mock support header under "
-    "'${_build_dir}/generated/header/defs/deps'")
+    "Editing service.hpp did not rebuild explicit_header_consumer.\nBuild output:\n${_support_header_rebuild_output}")
 endif()
-
-set(_saw_updated_staged_regex_meta_header FALSE)
-foreach(_staged_regex_meta_header IN LISTS _staged_regex_meta_headers)
-  if(IS_DIRECTORY "${_staged_regex_meta_header}")
-    continue()
-  endif()
-  file(READ "${_staged_regex_meta_header}" _staged_regex_meta_header_content)
-  if(_staged_regex_meta_header_content MATCHES "kRegexMetaHeaderSentinel = 23")
-    set(_saw_updated_staged_regex_meta_header TRUE)
-    break()
-  endif()
-endforeach()
-if(NOT _saw_updated_staged_regex_meta_header)
+if(_support_header_rebuild_output MATCHES "Re-running CMake")
   message(FATAL_ERROR
-    "Rebuild after editing fixture/a+b.hpp did not refresh the staged explicit mock support header under "
-    "'${_build_dir}/generated/header/defs/deps'")
+    "Editing an explicit mock support header must not reconfigure.\nBuild output:\n${_support_header_rebuild_output}")
 endif()
 
 gentest_check_run_or_fail(

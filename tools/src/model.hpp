@@ -180,6 +180,10 @@ struct CollectorOptions {
     std::optional<std::filesystem::path>                                source_root;
     MockBackend                                                         mock_backend = MockBackend::Gentest;
     std::optional<std::filesystem::path>                                clang_scan_deps_executable;
+    // Public include roots of an explicit mock target. When set, generated
+    // mock headers spell each mocked type's definition header relative to the
+    // closest containing root, so the include stays valid after installation.
+    std::vector<std::filesystem::path> mock_include_roots;
     // Maximum parallelism used when parsing/emitting multiple inputs.
     // 0 selects std::thread::hardware_concurrency().
     std::size_t jobs                            = 0;

@@ -24,7 +24,6 @@ gentest_fixture_add_gentest(gentest)
 
 set(_fixture_support_include_dir "${CMAKE_CURRENT_BINARY_DIR}/fixture_support/include")
 file(MAKE_DIRECTORY "${_fixture_support_include_dir}/fixture")
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fixture_support/empty_install_root")
 file(WRITE "${_fixture_support_include_dir}/fixture/generated_support.hpp"
 "#pragma once\n\
 namespace fixture {\n\
@@ -86,13 +85,18 @@ install(TARGETS explicit_exported_mocks
     EXPORT explicit_exported_mocksTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     FILE_SET gentest_explicit_mock_headers DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    FILE_SET gentest_explicit_mock_defs DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
 install(TARGETS fixture_support
     EXPORT explicit_exported_mocksTargets
     INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fixture_support/empty_install_root/"
+# DEFS are installed as authored, so whatever they include must be installed
+# too: the support library's headers, and the production headers beside DEFS.
+install(DIRECTORY "${_fixture_support_include_dir}/"
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fixture_support")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/fixture/"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fixture")
 
 install(TARGETS explicit_module_exported_mocks
     EXPORT explicit_exported_mocksTargets
@@ -106,6 +110,7 @@ install(TARGETS explicit_third_party_exported_mocks
     EXPORT explicit_third_party_exported_mocksTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     FILE_SET gentest_explicit_mock_headers DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    FILE_SET gentest_explicit_mock_defs DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 install(TARGETS third_party_fixture_support fixture_fake_gmock
     EXPORT explicit_third_party_exported_mocksTargets

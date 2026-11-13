@@ -151,14 +151,31 @@ using AnyAlias = gentest::mock<app::Clock>;
 
 A global target becomes `mocks::TypeMock`.
 
+## DEFS are public headers
+
+`gentest_add_mocks()` uses `DEFS` files in place; it does not copy them or the headers they include. The generated
+public header includes your DEFS file, and the DEFS file includes the production headers it mocks, so a test can
+include the production header and the mock header together, in either order, with include guards or `#pragma once`.
+
+Treat a DEFS file like any public header of the mock target: what it includes must be reachable by consumers.
+Production headers normally come from a library passed in `LINK_LIBRARIES`. Textual DEFS are published in the
+`gentest_explicit_mock_defs` file set, whose base directory is the directory containing the DEFS. A header beside the
+DEFS can join that file set:
+
+```cmake
+target_sources(clock_gmock_mocks PUBLIC
+  FILE_SET gentest_explicit_mock_defs FILES ${CMAKE_CURRENT_SOURCE_DIR}/clock.hpp)
+```
+
 ## Install / Export
 
-Install the generated mock target like any CMake target:
+Install the generated mock target like any CMake target. Textual DEFS targets also install their DEFS file set:
 
 ```cmake
 install(TARGETS clock_gmock_mocks
   EXPORT clock_gmock_mocksTargets
-  FILE_SET gentest_explicit_mock_headers DESTINATION include)
+  FILE_SET gentest_explicit_mock_headers DESTINATION include
+  FILE_SET gentest_explicit_mock_defs DESTINATION include)
 
 install(EXPORT clock_gmock_mocksTargets
   NAMESPACE app::
