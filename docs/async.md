@@ -65,6 +65,11 @@ operations, and waits for all of them to finish. It then returns an owning
 exception. A void result contributes `std::monostate`. Losing operations never
 continue detached after the call returns.
 
+Both capture the caller's source location for blocked-case diagnostics and
+suspension events, as `wait_for()` and `wait_until()` do. They are class
+templates used through deduction, so call them as shown rather than naming
+their template arguments or taking their address.
+
 Both functions accept ordinary C++ awaitables, including member and free
 `operator co_await`. Lvalue inputs are borrowed; keep them alive through the
 await. Rvalue inputs are owned. Result references are copied into the owning
