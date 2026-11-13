@@ -262,7 +262,10 @@ Gentest-specific hook.
 
 `continuation_handle::cancel()` retires that handle and its copies. It does not
 cancel the backend or resume the coroutine. Backend cancellation still needs a
-completion path if an enclosing operation is waiting to join it.
+completion path if an enclosing operation is waiting to join it. Cancelling
+after a successful `try_invoke()` also drops that queued completion when the
+runner has not delivered it yet: its publisher does not run and it resumes
+nothing. Do not cancel a handle whose completion the coroutine still needs.
 
 Callback arguments are stored by value; reference parameters are copied into
 owned storage. Move-only arguments work. `std::reference_wrapper` explicitly

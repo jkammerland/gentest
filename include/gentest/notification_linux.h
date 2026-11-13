@@ -86,6 +86,11 @@ class WatchdogMonitor {
   public:
     WatchdogMonitor(NotificationDescriptors descriptors, ProducerIdentity producer, WatchdogConfig config,
                     std::shared_ptr<NotificationObserver> observer = {}, WatchdogMonitorOptions options = {});
+    // Destroying a started monitor calls close(). Without a preceding finish()
+    // that requests stop: the installed process owner is asked to stop (stop
+    // eventfd or SIGTERM) and is sent SIGKILL through the registered pidfds if
+    // it is still alive after shutdownGrace. Call finish() first when the
+    // supervised process must survive the monitor.
     ~WatchdogMonitor();
     WatchdogMonitor(const WatchdogMonitor &)            = delete;
     WatchdogMonitor &operator=(const WatchdogMonitor &) = delete;
@@ -110,6 +115,8 @@ class WatchdogMonitor {
     // a user callback to return; it cannot delay process termination. The owner
     // must serialize start(), close(), and destruction. Do not call close()
     // from an observer callback; control requests and queries remain concurrent.
+    // Unless finish() was requested or supervision already completed, close()
+    // requests stop and therefore signals the supervised process as on failure.
     void close();
 
   private:

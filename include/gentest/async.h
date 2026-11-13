@@ -82,6 +82,8 @@ class AsyncScheduler {
                                                  .publish    = AsyncCallback<>{std::forward<Publish>(publish)}});
         }
 
+        // Cancellation also revokes a completion that invoke/post already queued
+        // but the scheduler has not delivered yet: that completion is dropped.
         void cancel() noexcept {
             if (!canceled_->exchange(true, std::memory_order_acq_rel) && external()) {
                 notify_external_change();
