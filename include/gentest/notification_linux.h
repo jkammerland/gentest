@@ -9,7 +9,9 @@
 namespace gentest {
 
 // Both descriptors are owned by their holder. Passing them to attach or a monitor
-// consumes them, including when construction fails.
+// consumes them, including when construction fails. The socket must be an
+// AF_UNIX SOCK_SEQPACKET socket and the fault descriptor an eventfd; both are
+// checked before either is configured or written.
 struct NotificationDescriptors {
     int socket{-1};
     int fault{-1};
@@ -64,6 +66,9 @@ class LinuxNotificationSink final : public NotificationSink {
 
 // Missing environment disables notification; malformed configuration throws. The
 // first successful call adopts the inherited descriptors and sets FD_CLOEXEC.
+// Descriptor numbers from the environment are not trusted: unless they name a
+// SOCK_SEQPACKET socket and an eventfd the call throws and leaves both numbers
+// open and unmodified, because they may belong to unrelated files by then.
 [[nodiscard]] Notifier notifierFromEnvironment(std::uint64_t subject = 1);
 
 struct WatchdogMonitorOptions {

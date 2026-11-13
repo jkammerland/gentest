@@ -48,7 +48,11 @@ void handleRequest() {
 
 `notifierFromEnvironment()` attaches once to inherited Linux descriptors. With
 neither notification environment variable present, it returns a disabled
-notifier. Malformed or incomplete configuration throws. Retain and copy the
+notifier. Malformed or incomplete configuration throws. The descriptor numbers
+are validated before adoption: if they do not name an `AF_UNIX` `SOCK_SEQPACKET`
+socket and an eventfd, for example because a wrapper closed the inherited
+descriptors and the numbers were reused, the call throws and leaves those
+descriptors open and unmodified. Retain and copy the
 returned handle: successful attachment consumes the descriptors, marks them
 close-on-exec, and removes the environment variables. Do not reuse a live Linux
 sink after `fork`; attach fresh endpoints in the new process.

@@ -15,11 +15,14 @@
 #include <stdexcept>
 #include <string>
 #include <sys/eventfd.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -538,6 +541,58 @@ void environmentChecks(gentest::LinuxNotificationChannel &channel) {
                     "parse failure consumed producer endpoints");
         }
     }
+
+    // A wrapper can keep the environment but close the inherited descriptors;
+    // the numbers then name unrelated files. Those must stay open and untouched.
+    const int regular = ::memfd_create("gentest-unrelated-log", 0);
+    const int stream  = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    require(regular >= 0 && stream >= 0, "unrelated descriptor setup failed");
+    require(::write(regular, "log", 3) == 3, "unrelated file write failed");
+    const std::pair<int, int> unrelated[]{{producer.socket, regular},
+                                          {regular, producer.fault},
+                                          {stream, producer.fault},
+                                          {producer.socket, stream},
+                                          {regular, stream}};
+    for (const auto &[socketFd, faultFd] : unrelated) {
+        const auto numbers = std::to_string(socketFd) + "," + std::to_string(faultFd);
+        require(::setenv("GENTEST_NOTIFY_FDS", numbers.c_str(), 1) == 0 && ::setenv("GENTEST_NOTIFY_ID", "71,3", 1) == 0,
+                "set unrelated environment failed");
+        const int flags[]{::fcntl(socketFd, F_GETFD), ::fcntl(socketFd, F_GETFL), ::fcntl(faultFd, F_GETFD), ::fcntl(faultFd, F_GETFL)};
+        bool      rejected = false;
+        try {
+            const auto notifier = gentest::notifierFromEnvironment();
+            // Before validation this wrote an eight-byte fault counter into the file.
+            static_cast<void>(notifier.forSubject(0).progress());
+        } catch (const std::invalid_argument &) { rejected = true; }
+        require(rejected, "unrelated descriptors were adopted as notification endpoints");
+        require(::fcntl(socketFd, F_GETFD) == flags[0] && ::fcntl(socketFd, F_GETFL) == flags[1] && ::fcntl(faultFd, F_GETFD) == flags[2] &&
+                    ::fcntl(faultFd, F_GETFL) == flags[3],
+                "rejected environment descriptors were closed or reconfigured");
+        struct stat status{};
+        require(::fstat(regular, &status) == 0 && status.st_size == 3, "unrelated file was closed or written");
+        require(std::getenv("GENTEST_NOTIFY_FDS") != nullptr, "rejected environment was consumed");
+    }
+    // Explicit owners keep the consuming contract, but nothing is written first.
+    for (const bool monitor : {false, true}) {
+        auto       owned    = gentest::LinuxNotificationChannel::create();
+        const auto valid    = owned.releaseProducer();
+        const int  file     = ::dup(regular);
+        bool       rejected = false;
+        require(file >= 0 && ::close(valid.fault) == 0, "explicit unrelated descriptor setup failed");
+        try {
+            if (monitor) {
+                gentest::WatchdogMonitor invalid({.socket = valid.socket, .fault = file}, identity,
+                                                 {.inactivityTimeout = 1s, .maximumSilence = 1s, .maximumSubjects = 16});
+            } else {
+                static_cast<void>(gentest::LinuxNotificationSink::attach({.socket = valid.socket, .fault = file}, identity));
+            }
+        } catch (const std::invalid_argument &) { rejected = true; }
+        struct stat status{};
+        require(rejected && ::fstat(regular, &status) == 0 && status.st_size == 3, "explicit owner accepted or wrote a non-eventfd");
+        require(::fcntl(file, F_GETFD) == -1 && errno == EBADF, "failed explicit construction leaked its descriptors");
+    }
+    ::close(regular);
+    ::close(stream);
 
     // Simulate descriptors inherited through exec, then verify adoption and use.
     require(::fcntl(producer.socket, F_SETFD, 0) == 0 && ::fcntl(producer.fault, F_SETFD, 0) == 0, "clear close-on-exec failed");
