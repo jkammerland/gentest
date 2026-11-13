@@ -129,9 +129,11 @@ std::vector<PendingAllureFile> build_pending_allure_files(const RunAccumulator &
     std::set<std::string>          shared_record_files;
     for (const auto &it : acc.report_items) {
         boost::json::object obj;
-        obj["name"]   = it.name;
-        obj["status"] = it.failures.empty() ? (it.skipped ? "skipped" : "passed") : "failed";
-        obj["time"]   = it.time_s;
+        obj["name"] = it.name;
+        // A blocked case did not run and fails the run: Allure's "broken", never "skipped".
+        const bool blocked = it.outcome == Outcome::Blocked && it.failures.empty();
+        obj["status"]      = !it.failures.empty() ? "failed" : (blocked ? "broken" : (it.skipped ? "skipped" : "passed"));
+        obj["time"]        = it.time_s;
         boost::json::array labels;
         labels.push_back({{"name", "suite"}, {"value", it.suite}});
         if (it.outcome == Outcome::Blocked) {

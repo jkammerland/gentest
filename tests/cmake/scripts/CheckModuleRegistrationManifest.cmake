@@ -230,8 +230,8 @@ if(NOT EXISTS "${_blocked_junit}")
 endif()
 file(READ "${_blocked_junit}" _blocked_junit_text)
 foreach(_required IN ITEMS
-    "tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"1\""
-    "<skipped message=\"blocked: shared fixture unavailable for 'story034_module_registration::blocked_scope::NullSuiteFixture': fixture allocation returned null\"/>")
+    "tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"2\""
+    "<error type=\"blocked\" message=\"blocked: shared fixture unavailable for 'story034_module_registration::blocked_scope::NullSuiteFixture': fixture allocation returned null\"/>")
   string(FIND "${_blocked_junit_text}" "${_required}" _required_pos)
   if(_required_pos EQUAL -1)
     message(FATAL_ERROR "Expected blocked module JUnit to contain '${_required}'.\n${_blocked_junit_text}")
