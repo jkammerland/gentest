@@ -271,8 +271,16 @@ macro-free.
 
 Exceptions:
 - If a test throws a `std::exception`, the runner records a failure like `unexpected std::exception: ...` and continues.
-- Include-based consumers can use the gtest-like macros.
-- `import gentest;` consumers should use the matching function templates from `gentest::asserts`.
+- Include-based consumers can use the gtest-like macros. Their first argument is a *statement* that the macro executes
+  (`EXPECT_NO_THROW(risky())`, `EXPECT_NO_THROW(first(); second())`), not a callable.
+- `import gentest;` consumers should use the matching function templates from `gentest::asserts`, which take a *callable*
+  and invoke it. Macros are not exported by modules, so the two spellings never meet there.
+- In include-based code the macro shadows the function template of the same name. Passing a lambda-expression to the macro is
+  a compile-time error, because the lambda would only be created and never called. Either call it in the statement
+  (`EXPECT_NO_THROW(fn())`) or reach the function template by parenthesizing its name: `(EXPECT_NO_THROW)(fn)`.
+  `EXPECT_THROW<E>(fn)` and `ASSERT_THROW<E>(fn)` already select the function template. A named callable passed to the macro
+  (`EXPECT_NO_THROW(fn)`) is an expression statement that does nothing; the compiler's unused-value warning reports it.
+  Define `GENTEST_NO_THROW_MACROS` before including gentest to drop the macros and use only the function templates.
 
 ```cpp
 #include "gentest/attributes.h"
