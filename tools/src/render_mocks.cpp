@@ -856,6 +856,13 @@ struct SourcePathAlias {
             if (visible_cursor == canonical_cursor) {
                 break;
             }
+            // Above the symlink the two paths are unrelated directories that
+            // merely sit at the same distance from the source.
+            const fs::path resolved_cursor = fs::weakly_canonical(visible_cursor, ec).lexically_normal();
+            if (ec || resolved_cursor != canonical_cursor) {
+                ec.clear();
+                break;
+            }
             aliases.push_back(SourcePathAlias{
                 .canonical_prefix = canonical_cursor,
                 .visible_prefix   = visible_cursor,
@@ -881,12 +888,14 @@ struct SourcePathAlias {
 [[nodiscard]] std::filesystem::path remap_to_visible_source_path(const std::filesystem::path        &path,
                                                                  const std::vector<SourcePathAlias> &aliases) {
     for (const auto &alias : aliases) {
-        const auto rel = path.lexically_relative(alias.canonical_prefix);
-        if (!rel.empty() && !rel.is_absolute()) {
-            return (alias.visible_prefix / rel).lexically_normal();
-        }
         if (path == alias.canonical_prefix) {
             return alias.visible_prefix;
+        }
+        // Only paths below the aliased prefix are reached through it; a
+        // relative path that climbs out (`../x`) names something else.
+        const auto rel = path.lexically_relative(alias.canonical_prefix);
+        if (!rel.empty() && !rel.is_absolute() && *rel.begin() != ".." && rel != ".") {
+            return (alias.visible_prefix / rel).lexically_normal();
         }
     }
     return path;
