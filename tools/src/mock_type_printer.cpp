@@ -4,6 +4,7 @@
 #include <clang/AST/DeclCXX.h>
 #include <clang/AST/DeclTemplate.h>
 #include <clang/AST/Expr.h>
+#include <clang/AST/ExprCXX.h>
 #include <clang/AST/PrettyPrinter.h>
 #include <clang/AST/TemplateBase.h>
 #include <clang/AST/TemplateName.h>
@@ -249,7 +250,55 @@ class GlobalTypePrinter {
         return text;
     }
 
+    // Generated mocks live in namespace gentest, where a spelling such as
+    // `detail::kSlots` would find gentest::detail. Constant expressions are
+    // therefore printed by value, and a reference to a namespace-scope or
+    // static-member entity by its globally qualified name; anything else keeps
+    // Clang's spelling.
     [[nodiscard]] std::string print_expression(const clang::Expr &expr) const {
+        if (!expr.isValueDependent() && !expr.isInstantiationDependent() && expr.getType()->isIntegralType(ctx_)) {
+            clang::Expr::EvalResult result;
+            if (expr.EvaluateAsInt(result, ctx_) && result.Val.isInt()) {
+                if (expr.getType()->isBooleanType()) {
+                    return result.Val.getInt().getBoolValue() ? "true" : "false";
+                }
+                llvm::SmallString<32> digits;
+                result.Val.getInt().toString(digits, 10);
+                return std::string(digits);
+            }
+        }
+        if (const auto *ref = llvm::dyn_cast<clang::DeclRefExpr>(expr.IgnoreParenImpCasts())) {
+            const clang::NamedDecl *decl = ref->getDecl();
+            if (const auto *spec = llvm::dyn_cast<clang::VarTemplateSpecializationDecl>(decl)) {
+                decl = spec->getSpecializedTemplate();
+            }
+            if (!llvm::isa<clang::NonTypeTemplateParmDecl>(decl) && !decl->getDeclContext()->isFunctionOrMethod()) {
+                if (auto name = print_named_decl(*decl)) {
+                    if (ref->hasExplicitTemplateArgs()) {
+                        std::vector<std::string> printed;
+                        for (const auto &arg : ref->template_arguments()) {
+                            append_template_argument(printed, arg.getArgument(), /*include_type=*/true);
+                        }
+                        *name += join_template_arguments(printed);
+                    }
+                    return std::move(*name);
+                }
+            }
+        }
+        // A variable template named with dependent arguments (`ns::flag<T>`).
+        if (const auto *lookup = llvm::dyn_cast<clang::UnresolvedLookupExpr>(expr.IgnoreParenImpCasts());
+            lookup != nullptr && lookup->getNumDecls() == 1 && lookup->hasExplicitTemplateArgs()) {
+            const clang::NamedDecl *decl = (*lookup->decls_begin())->getUnderlyingDecl();
+            if (llvm::isa<clang::VarTemplateDecl>(decl) && !decl->getDeclContext()->isFunctionOrMethod()) {
+                if (auto name = print_named_decl(*decl)) {
+                    std::vector<std::string> printed;
+                    for (const auto &arg : lookup->template_arguments()) {
+                        append_template_argument(printed, arg.getArgument(), /*include_type=*/true);
+                    }
+                    return *name + join_template_arguments(printed);
+                }
+            }
+        }
         std::string              text;
         llvm::raw_string_ostream os(text);
         expr.printPretty(os, nullptr, policy_);
@@ -423,6 +472,12 @@ class GlobalTypePrinter {
         case clang::TemplateArgument::Declaration:
             if (auto name = print_declaration_argument(arg)) {
                 out.push_back(std::move(*name));
+                return;
+            }
+            break;
+        case clang::TemplateArgument::Expression:
+            if (const auto *expr = arg.getAsExpr(); expr != nullptr && !arg.isPackExpansion()) {
+                out.push_back(print_expression(*expr));
                 return;
             }
             break;

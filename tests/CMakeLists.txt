@@ -4073,6 +4073,29 @@ set_tests_properties(gentest_codegen_mock_template_template_ctor_traits_builds P
 
 # Native mock runtime and generated-mock shape regressions. The fixtures build
 # with the main test build; the checks run their cases.
+_gentest_add_codegen_regression(gentest_cgr_mock_method_identity mock_method_identity
+    TESTS
+    MOCK_HEADER mock_method_identity_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_counts(
+    NAME gentest_codegen_mock_method_identity_runs
+    PROG gentest_cgr_mock_method_identity
+    PASS 3 FAIL 0 SKIP 0)
+gentest_add_check_death(
+    NAME gentest_codegen_mock_method_identity_foreign_signature
+    PROG gentest_cgr_mock_method_identity
+    REQUIRED_SUBSTRING "was configured for a different method signature"
+    ARGS --include-death --run=fixture/mock_method_identity/foreign_signature_death)
+
+_gentest_add_codegen_regression(gentest_cgr_mock_generated_shapes mock_generated_shapes
+    TESTS
+    MOCK_HEADER mock_generated_shapes_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_counts(
+    NAME gentest_codegen_mock_generated_shapes_runs
+    PROG gentest_cgr_mock_generated_shapes
+    PASS 4 FAIL 0 SKIP 0)
+
 _gentest_add_codegen_regression(gentest_cgr_mock_argument_shapes mock_argument_shapes
     TESTS
     MOCK_HEADER mock_argument_shapes_mocks.hpp
@@ -4112,6 +4135,9 @@ gentest_add_check_death(
     REQUIRED_SUBSTRING "gentest: unexpected call to ::fixture::Factory::make_token, and no result can be produced: the method returns a type that is not default-constructible"
     ARGS --include-death --run=fixture/mock_actions_results/unexpected_value_call_death)
 set_property(TEST
+    gentest_codegen_mock_method_identity_runs
+    gentest_codegen_mock_method_identity_foreign_signature
+    gentest_codegen_mock_generated_shapes_runs
     gentest_codegen_mock_argument_shapes_runs
     gentest_codegen_mock_argument_shapes_text_mismatch
     gentest_codegen_mock_actions_results_runs
