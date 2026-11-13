@@ -2900,6 +2900,12 @@ gentest_add_check_exit_code(
     EXPECT_RC 0
     ARGS failure-path-trim)
 
+gentest_add_check_exit_code(
+    NAME regression_measured_death_marker_body_start
+    PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
+    EXPECT_RC 0
+    ARGS measured-death-marker ${CMAKE_CURRENT_BINARY_DIR}/regression_measured_death_marker)
+
 gentest_add_manual_regression(
     TARGET gentest_regression_async_status_renderer
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/async_status_renderer.cpp)
