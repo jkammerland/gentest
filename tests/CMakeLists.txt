@@ -4947,7 +4947,8 @@ foreach(_gentest_cdr_scenario IN ITEMS
         attribute_text_scan
         global_fixture_type
         numeric_axes
-        string_literal_parameters)
+        string_literal_parameters
+        template_fixture_bindings)
     _gentest_add_cmake_helper_test(
         gentest_codegen_discovery_regression_${_gentest_cdr_scenario}
         ${PROJECT_SOURCE_DIR}

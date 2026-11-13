@@ -302,6 +302,56 @@ namespace esc {
     [=[esc::wide(L"w\x41")]=] [=[esc::chr('\n')]=] [=[esc::chr('a')]=]
     [=[esc::expr(std::pair<int, int>{1, 2})]=] [=["esc/nameA\ttab"]=])
   _gentest_cdr_expect_not_registered("string literal parameters" [=["ax41"]=] [=["nul0x"]=])
+elseif(SCENARIO STREQUAL "template_fixture_bindings")
+  # A fixture parameter typed by a bound template parameter is instantiated
+  # with the bound type; unbound template parameters are diagnosed.
+  _gentest_cdr_scan(bound CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace tpl {
+struct FxA {};
+struct [[using gentest: fixture(suite)]] FxB {};
+namespace nested {
+struct FxC {};
+} // namespace nested
+using Alias = nested::FxC;
+template <typename T> [[using gentest: test("tfx"), template(T, FxA, tpl::FxB, Alias)]] void tfx(T &fx) { (void)fx; }
+template <typename T> [[using gentest: test("deduced"), parameters(value, 1)]] void deduced(T value) { (void)value; }
+template <typename T = int> [[using gentest: test("defaulted")]] void defaulted() {}
+} // namespace tpl
+]=])
+  _gentest_cdr_expect_success("template fixture bindings")
+  _gentest_cdr_expect_registered("template fixture bindings"
+    "auto fx0_ = ::gentest::detail::FixtureHandle<tpl::FxA>::empty()"
+    "auto fx0_ = ::gentest::detail::FixtureHandle<tpl::nested::FxC>::empty()"
+    "::gentest::detail::SharedFixtureScope::Suite, \"tpl\", \"tpl::FxB\""
+    "\"tpl/tfx<FxA>\"" "\"tpl/tfx<tpl::FxB>\"" "\"tpl/tfx<Alias>\"" "tpl::deduced<>(1)" "tpl::defaulted<>()")
+  _gentest_cdr_expect_not_registered("template fixture bindings" "type-parameter")
+
+  _gentest_cdr_scan(unbound CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace tpl {
+template <typename T> [[using gentest: test("unbound")]] void unbound();
+} // namespace tpl
+]=])
+  _gentest_cdr_expect_failure("unbound template parameter" "function template requires a 'template(T, ...)' attribute")
+
+  _gentest_cdr_scan(dependent CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace tpl {
+template <typename T> struct Box {};
+template <typename T> [[using gentest: test("dependent"), template(T, int)]] void dependent(Box<T> &fx) { (void)fx; }
+} // namespace tpl
+]=])
+  _gentest_cdr_expect_failure("dependent fixture parameter" "which depends on a template parameter")
+
+  _gentest_cdr_scan(unresolved CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace tpl {
+template <typename T> struct Box {};
+template <typename T> [[using gentest: test("unresolved"), template(T, Box<int>)]] void unresolved(T &fx) { (void)fx; }
+} // namespace tpl
+]=])
+  _gentest_cdr_expect_failure("unresolvable fixture binding" "cannot use template binding 'Box<int>' as the fixture type")
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()
