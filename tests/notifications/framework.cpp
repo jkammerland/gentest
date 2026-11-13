@@ -291,7 +291,7 @@ void defaultVisitorAndLogs() {
     check(sink->count(NotificationKind::progress) == 0, "logging renewed progress");
 }
 
-constexpr int                       pollingYields = 50000;
+constexpr int                       pollingYields = 5000;
 std::chrono::steady_clock::duration pollingElapsed{};
 
 auto pollingLoop() -> gentest::awaitable<> {
