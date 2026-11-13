@@ -1,0 +1,17 @@
+[PASS] discovery_render_regressions/fixtures/bound<AliasA>
+[PASS] discovery_render_regressions/fixtures/bound<LocalA>
+[PASS] discovery_render_regressions/fixtures/bound<discovery_render_regressions::SuiteB>
+[PASS] discovery_render_regressions/fixtures/global_type
+[PASS] discovery_render_regressions/members/inline_specifier
+[PASS] discovery_render_regressions/members/typed<std::pair<std::string, int>>
+[PASS] discovery_render_regressions/members/typed<std::string>
+[PASS] discovery_render_regressions/returns/abstract_ref
+[PASS] discovery_render_regressions/returns/noncopyable_ref
+[PASS] discovery_render_regressions/values/escapes("a\x41")
+[PASS] discovery_render_regressions/values/escapes("nul\0x")
+[PASS] discovery_render_regressions/values/hex_range(16)
+[PASS] discovery_render_regressions/values/hex_range(17)
+[PASS] discovery_render_regressions/values/hex_range(18)
+[PASS] discovery_render_regressions/values/long_double_range(0)
+[PASS] discovery_render_regressions/values/long_double_range(0.25)
+[PASS] discovery_render_regressions/values/long_double_range(0.5)

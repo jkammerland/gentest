@@ -508,9 +508,9 @@ std::string build_helper_definition(const WrapperSpec &spec, std::string_view he
 
 static std::string make_invoke_for_free(const WrapperSpec &spec, const std::string &fn, const std::string &args) {
     const std::string body_start = spec.is_death ? "::gentest::detail::CaseBodyScope gentest_body_scope; " : "";
-    if (spec.returns_value) {
-        return body_start + fmt::format("[[maybe_unused]] const auto _ = {}{};", fn, args);
-    }
+    // Discard the result in place. Binding it to a local ("const auto x = f();")
+    // copies a reference return: that does not compile for non-copyable or
+    // abstract types, and for a bench it deep-copies inside the timed loop.
     return body_start + fmt::format("static_cast<void>({}{});", fn, args);
 }
 
