@@ -450,6 +450,9 @@ inline void rows(int a, int b) {
 
 The generator also supports convenience axes like `range(...)`, `linspace(...)`, `geom(...)`, and `logspace(...)` (see
 `include/gentest/attributes.h`).
+These axes are expanded while generating code, so their bounds must be numeric literals (decimal, hex, binary, exponents,
+suffixes and digit separators are accepted) and the parameter must have an integer or floating-point type; a named constant or
+an expression is reported as an error.
 
 ### Templates (including template-template packs)
 
