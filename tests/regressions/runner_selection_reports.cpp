@@ -10,7 +10,10 @@
 
 #include <array>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
@@ -31,6 +34,11 @@ void expect(bool condition, std::string_view what) {
 }
 
 void noop_case(void *) {}
+
+std::string read_file(const std::filesystem::path &path) {
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
 
 Case make_case(std::string_view name) {
     return Case{
@@ -54,6 +62,7 @@ Case make_case(std::string_view name) {
 std::vector<std::string> selected_names(std::span<const Case> cases, const CliOptions &options) {
     std::vector<std::string> names;
     const auto               selection = gentest::runner::select_cases(cases, options);
+    names.reserve(selection.idxs.size());
     for (const auto index : selection.idxs)
         names.emplace_back(cases[index].name);
     return names;
@@ -95,7 +104,7 @@ int check_calibration_cap() {
     Case bench         = make_case("regressions/calibration_cap/bench");
     bench.fn           = &counting_bench;
     bench.is_benchmark = true;
-    const std::array cases{bench};
+    const std::array                 cases{bench};
     const std::array<std::size_t, 1> indices{0};
 
     CliOptions options;
@@ -105,10 +114,10 @@ int check_calibration_cap() {
     options.bench_cfg.measure_epochs             = 1;
     options.bench_cfg.max_calibration_iterations = 8;
 
-    std::size_t successes = 0;
-    std::size_t failures  = 0;
+    std::size_t                  successes = 0;
+    std::size_t                  failures  = 0;
     gentest::runner::BenchResult result;
-    const auto status = gentest::runner::run_selected_benches(
+    const auto                   status = gentest::runner::run_selected_benches(
         cases, indices, options, false,
         [&](const Case &, const gentest::runner::BenchResult &measured) {
             ++successes;
@@ -153,12 +162,12 @@ int check_replay_quoting() {
     expect(power("\xE2\x80") == "'\xE2\x80'", "PowerShell: truncated sequence is copied");
     expect(posix("it's") == "'it'\\''s'", "POSIX: apostrophe closes, escapes and reopens");
 
-    const std::string name    = "--run=suite/" + std::string(right) + "case";
-    const std::string command = gentest::runner::replay_command("C:\\t dir\\it" + std::string(left) + ".exe", {name, "--kind=test"},
-                                                                ReplayShell::PowerShell);
+    const std::string name = "--run=suite/" + std::string(right) + "case";
+    const std::string command =
+        gentest::runner::replay_command("C:\\t dir\\it" + std::string(left) + ".exe", {name, "--kind=test"}, ReplayShell::PowerShell);
     expect(command.find("-FilePath 'C:\\t dir\\it" + twice(left) + ".exe'") != std::string::npos,
            "PowerShell command doubles quotes in the executable path");
-    expect(command.find("-ArgumentList '\"--run=suite/" + twice(right) + "case\" \"--kind=test\"'") != std::string::npos,
+    expect(command.find(R"(-ArgumentList '"--run=suite/)" + twice(right) + R"(case" "--kind=test"')") != std::string::npos,
            "PowerShell command doubles quotes in the argument list");
     expect(gentest::runner::replay_command("./t", {"--run=a b"}, ReplayShell::Posix) == "'./t' '--run=a b'", "POSIX command shape");
     if (g_failures != 0)
@@ -183,6 +192,47 @@ int check_failure_path_trim() {
     return g_failures == 0 ? 0 : 1;
 }
 
+// A hand-written death-tagged benchmark reports body entry through the death-test
+// marker without leaving the runner: the marker names the case, and an unwritable
+// marker is a case failure.
+int check_measured_death_marker(const std::filesystem::path &directory) {
+    static constexpr std::string_view kName = "regressions/measured_death_marker/bench";
+    static constexpr std::array       kTags{std::string_view{"death"}};
+    Case                              bench = make_case(kName);
+    bench.is_benchmark                      = true;
+    bench.tags                              = kTags;
+    const std::array cases{bench};
+
+    std::error_code ec;
+    std::filesystem::remove_all(directory, ec);
+    std::filesystem::create_directories(directory);
+
+    const auto run = [&](const std::filesystem::path &marker) {
+        const std::string         marker_argument = "--gentest-death-marker=" + marker.string();
+        std::vector<const char *> arguments{"runner_selection_reports",
+                                            "--run=regressions/measured_death_marker/bench",
+                                            "--kind=bench",
+                                            "--include-death",
+                                            "--no-color",
+                                            "--bench-epochs=1",
+                                            "--bench-warmup=0",
+                                            "--bench-min-epoch-time-s=0",
+                                            "--bench-max-total-time-s=0.01",
+                                            marker_argument.c_str()};
+        return gentest::run_cases(cases, arguments);
+    };
+
+    const auto marker = directory / "marker.txt";
+    expect(run(marker) == 0, "the benchmark passes with a writable marker");
+    const std::string contents = read_file(marker);
+    expect(contents.starts_with(std::string(kName) + "\ncompleted"), "the marker names the case and records completion");
+
+    expect(run(directory / "missing" / "marker.txt") == 1, "an unwritable marker fails the case instead of terminating");
+    if (g_failures != 0)
+        std::cerr << "marker contents: '" << contents << "'\n";
+    return g_failures == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -195,6 +245,8 @@ int main(int argc, char **argv) {
         return check_replay_quoting();
     if (mode == "failure-path-trim")
         return check_failure_path_trim();
+    if (mode == "measured-death-marker" && argc == 3)
+        return check_measured_death_marker(argv[2]);
     std::cerr << "usage: runner_selection_reports <mode> [args]\n";
     return 2;
 }
