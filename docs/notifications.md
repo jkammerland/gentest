@@ -66,6 +66,13 @@ Progress from another active subject cannot extend this subject's deadline.
 Delayed or duplicate sequence numbers and older producer generations cannot
 renew current work. Use a fresh subject ID for each standalone work occurrence.
 
+A producer generation identifies one incarnation of a producer ID. When
+`WatchdogModel` accepts a `start()` from a newer generation, it retires every
+subject the older generation left unfinished: that incarnation can no longer
+report, so its subjects neither expire nor fail the new generation. Only a start
+record advances the generation. The Linux `WatchdogMonitor` supervises exactly
+one generation and treats any other identity as `invalid_record`.
+
 `NotifyResult::accepted` means admitted locally, not acknowledged by the monitor.
 A default-constructed notifier returns `disabled` without creating threads,
 queues, or per-call allocations. Notification views borrow their strings only
