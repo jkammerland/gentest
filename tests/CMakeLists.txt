@@ -174,7 +174,7 @@ set_property(TEST format_value APPEND PROPERTY LABELS "public-api")
 # Public assertion/formatting header regressions. Each program owns its case
 # table: the failing cases pin their source lines with #line, and the death
 # checks require the reported location to be the test's own file and line.
-foreach(_gentest_assertion_header_test IN ITEMS throw_forms fmt_location)
+foreach(_gentest_assertion_header_test IN ITEMS throw_forms fmt_location no_rtti)
     add_executable(gentest_assertion_headers_${_gentest_assertion_header_test}_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/${_gentest_assertion_header_test}.cpp)
     target_compile_features(gentest_assertion_headers_${_gentest_assertion_header_test}_tests PRIVATE cxx_std_20)
@@ -186,6 +186,8 @@ foreach(_gentest_assertion_header_test IN ITEMS throw_forms fmt_location)
     set_property(TEST assertion_headers_${_gentest_assertion_header_test}_pass APPEND PROPERTY LABELS "public-api;headers")
 endforeach()
 unset(_gentest_assertion_header_test)
+target_compile_options(gentest_assertion_headers_no_rtti_tests PRIVATE
+    $<IF:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>,/GR-,-fno-rtti>)
 
 gentest_add_check_death(
     NAME assertion_headers_throw_forms_fail
@@ -235,9 +237,19 @@ gentest_add_check_death(
         "upper ASSERT_NE 13"
         "fmt_location.cpp:1014"
         "runtime format 14")
+gentest_add_check_death(
+    NAME assertion_headers_no_rtti_fail
+    PROG gentest_assertion_headers_no_rtti_tests
+    ARGS --filter=no_rtti/failing/* --no-color
+    REQUIRED_SUBSTRINGS
+        "no_rtti.cpp:3001"
+        "but caught std::exception: expect mismatch"
+        "no_rtti.cpp:3002"
+        "but caught std::exception: assert mismatch")
 set_property(TEST
         assertion_headers_throw_forms_fail
         assertion_headers_fmt_location_fail
+        assertion_headers_no_rtti_fail
     APPEND PROPERTY LABELS "public-api;headers")
 
 # A lambda-expression handed to a statement macro would never be called, so the
