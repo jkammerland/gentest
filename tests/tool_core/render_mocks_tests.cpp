@@ -570,6 +570,17 @@ int main() {
         }
     }
 
+    {
+        MockClassInfo cls             = service_mock_without_ref_qualifier();
+        cls.methods[0].method_name    = "mock";
+        cls.methods[0].qualified_name = "fixture::Service::mock";
+        const MockRenderResult native = gentest::codegen::render::render_mocks(mock_options(), {cls});
+        t.contains(native.error, "gentest::mock<fixture::Service>: cannot mock a method named 'mock' (fixture::Service::mock)",
+                   "native backend rejects a method named mock");
+        const MockRenderResult gmock = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {cls});
+        t.expect(gmock.error.empty(), "gmock backend still accepts a method named mock");
+    }
+
     for (const MockBackend backend : {MockBackend::GMock, MockBackend::Trompeloeil}) {
         // Default-argument overloads forward owning and rvalue parameters.
         MockClassInfo cls                       = service_mock_without_ref_qualifier();

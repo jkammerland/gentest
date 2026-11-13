@@ -2208,6 +2208,32 @@ gentest_add_check_death(
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/local_class.cpp
         --
         ${_gentest_codegen_direct_clang_args})
+# The native mock class is named `mock`; a mocked method of that name cannot be generated.
+gentest_add_check_death(
+    NAME gentest_codegen_mock_method_named_mock_msg
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    REQUIRED_SUBSTRING "cannot mock a method named 'mock' (mockname::Framework::mock)"
+    ARGS
+        ${_gentest_codegen_discover_mocks_arg}
+        --tu-out-dir
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock
+        --tu-header-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock/mock_method_named_mock.gentest.h
+        --mock-registry
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock_mock_registry.hpp
+        --mock-impl
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock_mock_impl.hpp
+        --mock-domain-registry-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock_mock_registry__domain_0000_header.hpp
+        --mock-domain-impl-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock_mock_impl__domain_0000_header.hpp
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/method_named_mock.hpp
+        --
+        ${_gentest_codegen_direct_cxx_language_clang_args})
+set_property(TEST gentest_codegen_mock_method_named_mock_msg APPEND PROPERTY LABELS "codegen")
 unset(_gentest_codegen_discover_mocks_arg)
 
 # Generator negative tests for fixtures: disallow member tests on suite/global under strict mode
