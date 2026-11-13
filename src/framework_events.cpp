@@ -4,7 +4,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -14,7 +17,6 @@ void FrameworkEventVisitor::onFixtureStart(const FrameworkEvent &event) noexcept
 void FrameworkEventVisitor::onFixtureFinish(const FrameworkEvent &event) noexcept { (void)event.notifier.progress("fixture finish"); }
 void FrameworkEventVisitor::onPhaseStart(const FrameworkEvent &event) noexcept { (void)event.notifier.progress("phase start"); }
 void FrameworkEventVisitor::onPhaseFinish(const FrameworkEvent &event) noexcept { (void)event.notifier.progress("phase finish"); }
-void FrameworkEventVisitor::onSuspend(const FrameworkEvent &event) noexcept { (void)event.notifier.progress("suspend"); }
 
 namespace detail {
 struct FrameworkRunState {
@@ -22,6 +24,7 @@ struct FrameworkRunState {
     std::shared_ptr<FrameworkEventVisitor>       visitor;
     std::atomic<bool>                            failed{false};
     std::vector<std::weak_ptr<FrameworkSubject>> subjects;
+    std::chrono::nanoseconds                     suspend_progress_interval{};
     bool                                         finished = false;
 };
 
@@ -83,9 +86,31 @@ struct FrameworkSubject {
     std::string                        name;
     bool                               fixture  = false;
     bool                               finished = false;
+    // steady_clock nanoseconds of the last suspension progress record.
+    std::atomic<std::int64_t> last_suspend_progress{std::numeric_limits<std::int64_t>::min()};
 };
 
 namespace {
+// The subject whose suspension hook is running on this thread.
+thread_local FrameworkSubject *suspending_subject = nullptr;
+
+// A yield or timer polling loop reaches a suspension boundary far more often
+// than a watchdog needs to hear about. Adopted threads can race here; the worst
+// outcome is one extra record.
+auto suspend_progress_due(FrameworkSubject &subject) noexcept -> bool {
+    const auto interval = subject.run->suspend_progress_interval.count();
+    if (interval <= 0) {
+        return true;
+    }
+    const auto now  = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    const auto last = subject.last_suspend_progress.load(std::memory_order_relaxed);
+    if (last != std::numeric_limits<std::int64_t>::min() && now - last < interval) {
+        return false;
+    }
+    subject.last_suspend_progress.store(now, std::memory_order_relaxed);
+    return true;
+}
+
 using Hook = void (FrameworkEventVisitor::*)(const FrameworkEvent &) noexcept;
 
 void dispatch(const std::shared_ptr<FrameworkRunState> &run, Hook hook, const FrameworkEvent &event) noexcept {
@@ -154,9 +179,10 @@ void finish_subject(const std::shared_ptr<FrameworkSubject> &subject) noexcept {
 FrameworkRunScope::FrameworkRunScope(const RunConfiguration &configuration)
     : previous_(std::move(active_run)), previous_subject_(std::move(active_subject)) {
     if (configuration.notifier.active() || configuration.frameworkEvents) {
-        state_           = std::make_shared<FrameworkRunState>();
-        state_->notifier = configuration.notifier;
-        state_->visitor  = configuration.frameworkEvents;
+        state_                            = std::make_shared<FrameworkRunState>();
+        state_->notifier                  = configuration.notifier;
+        state_->visitor                   = configuration.frameworkEvents;
+        state_->suspend_progress_interval = configuration.suspendProgressInterval;
     }
     active_run = state_;
     dispatch(state_, &FrameworkEventVisitor::onRunStart, {});
@@ -224,12 +250,21 @@ void framework_suspend(const std::shared_ptr<TestContextInfo> &context, Suspensi
     if (!context || !context->framework_subject || context->framework_subject->finished) {
         return;
     }
-    const auto &subject = context->framework_subject;
+    const auto &subject  = context->framework_subject;
+    auto *const previous = std::exchange(suspending_subject, subject.get());
     dispatch(subject->run, &FrameworkEventVisitor::onSuspend,
              {.notifier = subject->notifier, .name = subject->name, .suspension = kind, .location = location});
+    suspending_subject = previous;
 }
 auto context_notifier(const std::shared_ptr<TestContextInfo> &context) noexcept -> Notifier {
     return context && context->framework_subject ? context->framework_subject->notifier : Notifier{};
 }
 } // namespace detail
+
+void FrameworkEventVisitor::onSuspend(const FrameworkEvent &event) noexcept {
+    if (auto *subject = detail::suspending_subject; subject != nullptr && !detail::suspend_progress_due(*subject)) {
+        return;
+    }
+    (void)event.notifier.progress("suspend");
+}
 } // namespace gentest

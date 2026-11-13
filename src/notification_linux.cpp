@@ -220,28 +220,41 @@ NotificationDescriptors LinuxNotificationChannel::releaseProducer() noexcept { r
 NotificationDescriptors LinuxNotificationChannel::releaseMonitor() noexcept { return std::exchange(monitor_, {}); }
 
 struct LinuxNotificationSink::State {
-    NotificationDescriptors descriptors;
-    ProducerIdentity        producer;
-    const pid_t             creator = ::getpid();
-    int                     wake{-1};
-    std::mutex              mutex;
-    std::condition_variable drained;
+    NotificationDescriptors      descriptors;
+    ProducerIdentity             producer;
+    const pid_t                  creator = ::getpid();
+    int                          wake{-1};
+    std::mutex                   mutex;
+    std::condition_variable      drained;
+    static constexpr std::size_t noCell = std::numeric_limits<std::size_t>::max();
     struct Slot {
         EncodedNotification record;
+        std::size_t         cell{noCell};
         std::atomic<bool>   ready{false};
     };
-    static constexpr std::uint64_t closedBit = std::uint64_t{1} << 63u;
-    std::unique_ptr<Slot[]>        queue;
-    const std::size_t              capacity;
-    std::atomic<std::size_t>       producerPosition{0};
-    std::atomic<std::size_t>       consumerPosition{0};
-    std::atomic<std::uint64_t>     admission{0};
-    bool                           complete{false};
-    std::atomic<NotifyResult>      status{NotifyResult::accepted};
-    std::unique_ptr<std::thread>   writer;
+    // One cell marks a progress record that is admitted but not yet taken by the
+    // writer. tag: 0 free, 1 being claimed, otherwise the payload/epoch hash.
+    struct ProgressCell {
+        std::atomic<std::uint64_t> subject{0};
+        std::atomic<std::uint64_t> tag{0};
+    };
+    static constexpr std::size_t    maximumProgressCells = 256;
+    static constexpr std::uint64_t  closedBit            = std::uint64_t{1} << 63u;
+    std::unique_ptr<Slot[]>         queue;
+    const std::size_t               capacity;
+    std::atomic<std::size_t>        producerPosition{0};
+    std::atomic<std::size_t>        consumerPosition{0};
+    std::atomic<std::uint64_t>      admission{0};
+    std::unique_ptr<ProgressCell[]> progressCells;
+    const std::size_t               progressCellCount;
+    std::atomic<std::uint64_t>      progressEpoch{0};
+    bool                            complete{false};
+    std::atomic<NotifyResult>       status{NotifyResult::accepted};
+    std::unique_ptr<std::thread>    writer;
 
     State(NotificationDescriptors &owned, ProducerIdentity identity, std::size_t queueCapacity)
-        : descriptors(std::exchange(owned, {})), producer(identity), capacity(queueCapacity) {
+        : descriptors(std::exchange(owned, {})), producer(identity), capacity(queueCapacity),
+          progressCellCount(std::min(queueCapacity, maximumProgressCells)) {
         try {
             if (capacity == 0 || identity.id == 0 || identity.generation == 0) {
                 throw std::invalid_argument("notification sink requires a valid identity and queue capacity");
@@ -253,7 +266,8 @@ struct LinuxNotificationSink::State {
             if (wake < 0) {
                 systemFailure("create notification writer wake eventfd");
             }
-            queue = std::make_unique<Slot[]>(capacity);
+            queue         = std::make_unique<Slot[]>(capacity);
+            progressCells = std::make_unique<ProgressCell[]>(progressCellCount);
         } catch (...) {
             closeDescriptors(descriptors);
             closeFd(wake);
@@ -269,6 +283,48 @@ struct LinuxNotificationSink::State {
         }
         closeDescriptors(descriptors);
         closeFd(wake);
+    }
+
+    // The epoch separates progress from a later lifecycle or allowance record of
+    // any subject, so coalescing never moves progress across one of those.
+    static std::uint64_t progressTag(std::string_view payload, std::uint64_t epoch) noexcept {
+        constexpr std::uint64_t prime = 1099511628211ULL;
+        std::uint64_t           hash  = (14695981039346656037ULL ^ epoch) * prime;
+        for (const char ch : payload) {
+            hash = (hash ^ static_cast<unsigned char>(ch)) * prime;
+        }
+        return hash | 2U;
+    }
+
+    // True while an identical progress record of this subject is still queued.
+    // The writer frees the cell before sending, so a record found here reaches
+    // the monitor after this call began and renews the deadline no earlier.
+    bool progressPending(std::uint64_t subject, std::uint64_t tag) const noexcept {
+        const auto first = static_cast<std::size_t>(subject % progressCellCount);
+        for (std::size_t probe = 0; probe != progressCellCount; ++probe) {
+            const auto &cell = progressCells[(first + probe) % progressCellCount];
+            // Re-reading the tag rejects a cell recycled between the two loads.
+            if (cell.tag.load(std::memory_order_acquire) == tag && cell.subject.load(std::memory_order_acquire) == subject &&
+                cell.tag.load(std::memory_order_acquire) == tag) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::size_t claimProgressCell(std::uint64_t subject, std::uint64_t tag) noexcept {
+        const auto first = static_cast<std::size_t>(subject % progressCellCount);
+        for (std::size_t probe = 0; probe != progressCellCount; ++probe) {
+            const auto    index    = (first + probe) % progressCellCount;
+            auto         &cell     = progressCells[index];
+            std::uint64_t expected = 0;
+            if (cell.tag.load(std::memory_order_relaxed) == 0 && cell.tag.compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
+                cell.subject.store(subject, std::memory_order_release);
+                cell.tag.store(tag, std::memory_order_release);
+                return index;
+            }
+        }
+        return noCell;
     }
 
     void fault(NotifyResult reason) noexcept {
@@ -291,6 +347,10 @@ struct LinuxNotificationSink::State {
             auto      &slot     = queue[position % capacity];
             if (slot.ready.load(std::memory_order_acquire)) {
                 record = slot.record;
+                if (slot.cell != noCell) {
+                    // From here on an identical progress submission queues anew.
+                    progressCells[slot.cell].tag.store(0, std::memory_order_release);
+                }
                 slot.ready.store(false, std::memory_order_release);
                 consumerPosition.store(position + 1, std::memory_order_release);
                 haveRecord = true;
@@ -376,6 +436,19 @@ NotifyResult LinuxNotificationSink::submit(const Notification &notification) noe
         return NotifyResult::invalid_record;
     }
 
+    // Progress only renews a deadline at receipt time. While an identical record
+    // of the same subject is still queued, another one adds nothing, so a tight
+    // suspension loop occupies one slot instead of overflowing the queue.
+    const bool    coalescible = notification.kind == NotificationKind::progress;
+    std::uint64_t progressTag = 0;
+    if (coalescible) {
+        progressTag = State::progressTag(notification.payload, state_->progressEpoch.load(std::memory_order_acquire));
+        if (state_->progressPending(notification.subject, progressTag)) {
+            return (state_->admission.load(std::memory_order_acquire) & State::closedBit) != 0 ? NotifyResult::closed
+                                                                                               : NotifyResult::accepted;
+        }
+    }
+
     // Encoding into stack storage bounds work and copies caller-owned payloads.
     Notification temporary = notification;
     temporary.sequence     = 1;
@@ -392,6 +465,12 @@ NotifyResult LinuxNotificationSink::submit(const Notification &notification) noe
         state_->admission.fetch_sub(1, std::memory_order_release);
         signalEvent(state_->wake);
         return NotifyResult::closed;
+    }
+    std::size_t cell = State::noCell;
+    if (coalescible) {
+        cell = state_->claimProgressCell(notification.subject, progressTag);
+    } else if (notification.kind != NotificationKind::custom) {
+        state_->progressEpoch.fetch_add(1, std::memory_order_acq_rel);
     }
     auto position = state_->producerPosition.load(std::memory_order_relaxed);
     for (;;) {
@@ -417,6 +496,7 @@ NotifyResult LinuxNotificationSink::submit(const Notification &notification) noe
     }
     auto &slot  = state_->queue[position % state_->capacity];
     slot.record = record;
+    slot.cell   = cell;
     slot.ready.store(true, std::memory_order_release);
     state_->admission.fetch_sub(1, std::memory_order_release);
     signalEvent(state_->wake);

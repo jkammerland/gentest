@@ -105,6 +105,7 @@ void readyByte(int fd) {
     require(::write(fd, &byte, 1) == 1, "child readiness write failed");
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) - A descriptor and the byte it must deliver.
 void waitReady(int fd, char expected = 'R') {
     char    byte{};
     ssize_t received;
@@ -342,6 +343,74 @@ void overloadCase() {
     require(outcome.failure && outcome.failure->code == gentest::WatchdogFailureCode::producer_overload,
             "out-of-band overload signal was lost");
     require(!sink->close(), "faulted producer reported successful drain");
+}
+
+// Identical progress for one subject occupies a single queue slot while it is
+// pending, so repetition alone cannot overflow. Nothing reads during the flood:
+// the socket fills, the writer stalls, and the result is independent of timing.
+void progressCoalescingCase() {
+    auto                    channel = gentest::LinuxNotificationChannel::create();
+    auto                    sink    = gentest::LinuxNotificationSink::attach(channel.releaseProducer(), identity, 64);
+    const gentest::Notifier first(sink, identity, 1);
+    const gentest::Notifier second(sink, identity, 2);
+    require(first.start("first") == gentest::NotifyResult::accepted && second.start("second") == gentest::NotifyResult::accepted,
+            "coalescing starts rejected");
+    for (int i = 0; i != 200000; ++i) {
+        require(first.progress("suspend") == gentest::NotifyResult::accepted, "repeated progress overflowed the queue");
+        require(second.progress("suspend") == gentest::NotifyResult::accepted, "interleaved subject overflowed the queue");
+    }
+    // A different label, an allowance, and the progress after it are distinct
+    // events and must all arrive, in submission order.
+    require(first.progress("phase") == gentest::NotifyResult::accepted, "label change rejected");
+    require(first.allowSilenceFor(1s, "quiet") == gentest::NotifyResult::accepted, "allowance rejected");
+    require(first.progress("suspend") == gentest::NotifyResult::accepted, "progress after allowance rejected");
+    require(first.finish() == gentest::NotifyResult::accepted && second.finish() == gentest::NotifyResult::accepted,
+            "coalescing finishes rejected");
+    require(sink->status() == gentest::NotifyResult::accepted, "coalesced progress faulted the sink");
+
+    std::vector<std::string> firstSubject;
+    std::size_t              secondProgress = 0;
+    bool                     ordered        = true;
+    const int                socket         = channel.monitor().socket;
+    std::thread              reader([&] {
+        std::uint64_t previous = 0;
+        for (;;) {
+            gentest::EncodedNotification record;
+            const auto                   size = ::recv(socket, record.bytes.data(), record.bytes.size(), 0);
+            if (size < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+                pollfd wait{.fd = socket, .events = POLLIN, .revents = 0};
+                static_cast<void>(::poll(&wait, 1, -1));
+                continue;
+            }
+            if (size <= 0) {
+                ordered = ordered && size == 0;
+                return;
+            }
+            record.size = static_cast<std::size_t>(size);
+            gentest::Notification notification;
+            if (gentest::decodeNotification(record.view(), notification) != gentest::NotifyResult::accepted ||
+                notification.sequence != ++previous) {
+                ordered = false;
+                return;
+            }
+            if (notification.subject == 2) {
+                secondProgress += notification.kind == gentest::NotificationKind::progress ? 1 : 0;
+                continue;
+            }
+            // Collapse runs so the expectation is independent of how many
+            // repeats the writer forwarded before the socket filled.
+            auto name = std::to_string(static_cast<int>(notification.kind)) + ":" + std::string(notification.payload);
+            if (firstSubject.empty() || firstSubject.back() != name) {
+                firstSubject.push_back(std::move(name));
+            }
+        }
+    });
+    const bool               closed = sink->close(5s);
+    reader.join();
+    require(closed && ordered, "coalescing sink did not drain in sequence");
+    const std::vector<std::string> expected{"1:first", "2:suspend", "2:phase", "4:quiet", "2:suspend", "5:"};
+    require(firstSubject == expected, "coalescing dropped or reordered a distinct record");
+    require(secondProgress >= 1, "coalescing dropped another subject's progress");
 }
 
 void sendRecord(int socket, gentest::NotificationKind kind, std::uint64_t sequence) {
@@ -738,6 +807,7 @@ int main() {
         malformedCase(true, false);
         malformedCase(false, true);
         overloadCase();
+        progressCoalescingCase();
         forkReuseCase(false);
         forkReuseCase(true);
         environmentCase();
