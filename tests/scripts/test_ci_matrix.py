@@ -166,6 +166,23 @@ class MatrixTests(unittest.TestCase):
             self.assertNotEqual(bad.returncode, 0)
             self.assertEqual(bad.stdout, "")
 
+    def test_every_ctest_invocation_fails_when_it_selects_no_tests(self):
+        # A renamed or unregistered test must not turn a `ctest -R` gate green.
+        for name in ("cmake.yml", "coverage.yml"):
+            workflow = (ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
+            invocations = []
+            for line in workflow.splitlines():
+                stripped = line.strip().removeprefix("run: ")
+                if stripped.startswith(("ctest ", "ctest_args=(", "$ctestArgs = @(")):
+                    invocations.append(stripped)
+            self.assertTrue(invocations, name)
+            for invocation in invocations:
+                # `ctest "${ctest_args[@]}"` and `ctest @ctestArgs` only expand an array checked above.
+                if invocation in ('ctest "${ctest_args[@]}"', "ctest @ctestArgs"):
+                    continue
+                with self.subTest(workflow=name, invocation=invocation):
+                    self.assertIn("--no-tests=error", invocation)
+
 
 if __name__ == "__main__":
     unittest.main()
