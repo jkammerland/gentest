@@ -131,7 +131,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND APPLE)
     get_filename_component(_llvm_prefix "${_compiler_dir}/.." ABSOLUTE)
     # Check if this is Homebrew LLVM by looking for the libc++ in the LLVM tree
     if(EXISTS "${_llvm_prefix}/lib/c++/libc++.dylib")
-        target_link_libraries(gentest_runtime PUBLIC "${_llvm_prefix}/lib/c++/libc++.dylib")
+        # Build tree only: an installed package must not export this machine's
+        # absolute Homebrew path in INTERFACE_LINK_LIBRARIES.
+        target_link_libraries(gentest_runtime PUBLIC "$<BUILD_INTERFACE:${_llvm_prefix}/lib/c++/libc++.dylib>")
         message(STATUS "gentest_runtime: linking LLVM libc++: ${_llvm_prefix}/lib/c++/libc++.dylib")
     endif()
 endif()
