@@ -16,13 +16,16 @@ void record_cbor(std::string_view name, const T &value, RecordOptions options = 
     if (!detail::record_ready(name, "application/cbor", options, loc))
         return;
     std::vector<std::byte> bytes;
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
     try {
+#endif
         auto       encoder = cbor::tags::make_encoder(bytes);
         const auto result  = encoder(value);
         if (!result) {
             detail::record_error("CBOR serialization failed (status " + std::to_string(static_cast<int>(result.error())) + ")", loc);
             return;
         }
+#if defined(__cpp_exceptions) || defined(_CPPUNWIND)
     } catch (const std::exception &e) {
         detail::record_error(std::string("CBOR serialization threw: ") + e.what(), loc);
         return;
@@ -30,6 +33,7 @@ void record_cbor(std::string_view name, const T &value, RecordOptions options = 
         detail::record_error("CBOR serialization threw an unknown exception", loc);
         return;
     }
+#endif
     record_data(name, bytes, "application/cbor", options, loc);
 }
 

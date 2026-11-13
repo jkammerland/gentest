@@ -252,6 +252,25 @@ set_property(TEST
         assertion_headers_no_rtti_fail
     APPEND PROPERTY LABELS "public-api;headers")
 
+# gentest/record_cbor.h must compile with exceptions disabled. The optional
+# cbor_tags dependency is replaced by a stand-in encoder header here; the real
+# adapter is covered by GENTEST_ENABLE_RECORDING_ADAPTER_TESTS.
+add_executable(gentest_assertion_headers_record_cbor_noexceptions
+    ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/record_cbor_noexceptions.cpp)
+target_compile_features(gentest_assertion_headers_record_cbor_noexceptions PRIVATE cxx_std_20)
+target_include_directories(gentest_assertion_headers_record_cbor_noexceptions BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/stubs)
+target_link_libraries(gentest_assertion_headers_record_cbor_noexceptions PRIVATE gentest::gentest)
+if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_options(gentest_assertion_headers_record_cbor_noexceptions PRIVATE /EHs-c-)
+    target_compile_definitions(gentest_assertion_headers_record_cbor_noexceptions PRIVATE _HAS_EXCEPTIONS=0)
+else()
+    target_compile_options(gentest_assertion_headers_record_cbor_noexceptions PRIVATE -fno-exceptions)
+endif()
+add_dependencies(gentest_test_suites gentest_assertion_headers_record_cbor_noexceptions)
+add_test(NAME assertion_headers_record_cbor_noexceptions COMMAND gentest_assertion_headers_record_cbor_noexceptions)
+set_property(TEST assertion_headers_record_cbor_noexceptions APPEND PROPERTY LABELS "public-api;headers;reporting")
+
 # A lambda-expression handed to a statement macro would never be called, so the
 # macros reject it at compile time. Drive the compiler directly to observe the
 # diagnostic; variant 4 is the control that must compile.
