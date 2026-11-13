@@ -115,6 +115,11 @@ if(WIN32 AND MSVC)
     # the tool compatible even in Debug builds.
     set_property(TARGET gentest_codegen PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
     target_compile_options(gentest_codegen PRIVATE /bigobj)
+elseif(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+    # Same for clang++ (GNU-style driver, MSVC ABI). A top-level gentest build
+    # selects this CRT for its whole tree; as a subproject only the tool is
+    # pinned, so the consumer's CRT is left alone.
+    set_property(TARGET gentest_codegen PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
 set(_gentest_use_libcxx FALSE)
@@ -176,6 +181,10 @@ target_link_libraries(gentest_codegen PRIVATE gentest_codegen_support)
 
 if(WIN32 AND MSVC)
     target_compile_options(gentest_codegen_support INTERFACE /wd4805 /wd4291)
+    target_compile_definitions(gentest_codegen_support INTERFACE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
+    target_compile_definitions(gentest_codegen_log_support INTERFACE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
+elseif(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # A top-level gentest build already defines these for its whole tree.
     target_compile_definitions(gentest_codegen_support INTERFACE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
     target_compile_definitions(gentest_codegen_log_support INTERFACE _ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
 endif()
