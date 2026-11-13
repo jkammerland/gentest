@@ -10,6 +10,7 @@ std::ostream &operator<<(std::ostream &stream, GlobalCallback);
 #include "gentest/mock.h"
 
 #include <cmath>
+#include <cstdint>
 #include <exception>
 #include <fmt/format.h>
 #include <iostream>
@@ -134,6 +135,27 @@ int main() try {
     failures += expect_equal(gentest::format_value('\n'), "'\\n'", "quoted character");
     failures += expect_equal(gentest::format_value(static_cast<const char *>(nullptr)), "nullptr", "null string pointer");
     failures += expect_equal(gentest::format_value(nullptr), "nullptr", "null pointer literal");
+
+    // Byte pointers address binary buffers, not C strings: print the address and
+    // never read through the pointer (the buffer below has no terminator).
+    const unsigned char bytes[]{0xff, 0xfe, 0x41};
+    const void         *bytes_address = bytes;
+    std::ostringstream  address_stream;
+    address_stream << bytes_address;
+    const std::string    address_text = address_stream.str();
+    const unsigned char *unsigned_ptr = bytes;
+    failures += expect_equal(gentest::format_value(unsigned_ptr), address_text, "unsigned byte pointer");
+    failures += expect_equal(gentest::format_value(static_cast<const std::uint8_t *>(bytes)), address_text, "uint8_t pointer");
+    failures += expect_equal(gentest::format_value(const_cast<unsigned char *>(bytes)), address_text, "mutable byte pointer");
+    failures +=
+        expect_equal(gentest::format_value(static_cast<const volatile unsigned char *>(bytes)), address_text, "volatile byte pointer");
+    failures += expect_equal(gentest::format_value(reinterpret_cast<const signed char *>(bytes)), address_text, "signed byte pointer");
+    failures += expect_equal(gentest::format_value(static_cast<const unsigned char *>(nullptr)), "nullptr", "null unsigned byte pointer");
+    failures += expect_equal(gentest::format_value(static_cast<std::uint8_t *>(nullptr)), "nullptr", "null uint8_t pointer");
+    failures += expect_equal(gentest::format_value(static_cast<const signed char *>(nullptr)), "nullptr", "null signed byte pointer");
+    failures += expect_equal(gentest::format_value(static_cast<volatile signed char *>(nullptr)), "nullptr", "null volatile byte pointer");
+    failures += expect_equal(gentest::detail::matching::format_match_value(unsigned_ptr), address_text, "matcher byte pointer");
+    failures += expect_equal(gentest::format_value(std::tuple{unsigned_ptr, 1}), "(" + address_text + ", 1)", "nested byte pointer");
     failures += expect_equal(gentest::format_value(gentest::approx::Approx(1).abs(0.25).rel(2)), "Approx(target=1, abs=0.25, rel=2%)",
                              "Approx configuration");
 
