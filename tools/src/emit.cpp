@@ -582,9 +582,14 @@ std::string additive_header_include(const CollectorOptions &opts, std::size_t sc
             const fs::path    context_source = context_id.substr(separator + 1);
             const std::string context_parent = context_source.parent_path().lexically_normal().generic_string();
             if (!context_parent.empty() && context_parent != "." && !context_source.is_absolute()) {
+                // Anchor the match on a path-component boundary: "src/" must
+                // not match inside "mysrc/".
                 const std::string context_marker = context_parent + "/";
-                if (const auto marker = normalized_header.rfind(context_marker); marker != std::string::npos) {
-                    return include_literal_for_path(normalized_header.substr(marker));
+                if (normalized_header.starts_with(context_marker)) {
+                    return include_literal_for_path(normalized_header);
+                }
+                if (const auto marker = normalized_header.rfind("/" + context_marker); marker != std::string::npos) {
+                    return include_literal_for_path(normalized_header.substr(marker + 1));
                 }
             }
         }

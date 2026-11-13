@@ -413,6 +413,25 @@ struct NonCopyable {
     "static_cast<void>(::ret::noncopyable())" "static_cast<void>(::ret::by_value())"
     "\"ret/table\"" "\"ret/nothing\"")
   _gentest_cdr_expect_not_registered("discarded results" "const auto _" "auto _ =")
+elseif(SCENARIO STREQUAL "additive_include_boundary")
+  # The include for a declaring header is derived from the compile-context
+  # source directory only on a path-component boundary.
+  set(_content [=[
+#pragma once
+namespace inc {
+[[using gentest: test("included")]] inline void included() {}
+} // namespace inc
+]=])
+  _gentest_cdr_scan(partial_component HEADER "mysrc/cases.hpp" CONTENT "${_content}"
+    CODEGEN_ARGS --quiet-clang --compile-context-id "demo_target:src/cases.hpp")
+  _gentest_cdr_expect_success("partial path component")
+  _gentest_cdr_expect_registered("partial path component" "\"inc/included\"" "mysrc/cases.hpp\"")
+  _gentest_cdr_expect_not_registered("partial path component" "#include \"src/cases.hpp\"")
+
+  _gentest_cdr_scan(whole_component HEADER "pkg/src/cases.hpp" CONTENT "${_content}"
+    CODEGEN_ARGS --quiet-clang --compile-context-id "demo_target:src/cases.hpp")
+  _gentest_cdr_expect_success("whole path component")
+  _gentest_cdr_expect_registered("whole path component" "#include \"src/cases.hpp\"")
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()
