@@ -1,0 +1,16 @@
+#pragma once
+
+#include "gentest/mock_fwd.h"
+
+namespace layout_built {
+
+struct Built {
+    virtual ~Built()    = default;
+    virtual int value() = 0;
+};
+
+namespace mocks {
+using BuiltMock = gentest::mock<layout_built::Built>;
+} // namespace mocks
+
+} // namespace layout_built

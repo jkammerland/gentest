@@ -56,6 +56,46 @@ install(TARGETS split_mocks
     FILE_SET gentest_explicit_mock_headers DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILE_SET gentest_explicit_mock_defs DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
+# DEFS that include a header written by a custom command of a linked library.
+# Mock codegen must be ordered after that library; slow_copy.cmake makes a
+# missing order fail a clean parallel build. BASE_DIRS names the include root.
+set(_layout_api_gen "${CMAKE_CURRENT_BINARY_DIR}/gen_dep_include/api_gen.hpp")
+add_custom_command(
+    OUTPUT "${_layout_api_gen}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/gen_dep/api_gen.hpp.in"
+        "-DOUTPUT=${_layout_api_gen}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/slow_copy.cmake"
+    DEPENDS gen_dep/api_gen.hpp.in slow_copy.cmake
+    VERBATIM)
+add_library(gen_dep_api INTERFACE "${_layout_api_gen}")
+target_include_directories(gen_dep_api INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/gen_dep_include")
+add_library(gen_dep_api_alias ALIAS gen_dep_api)
+add_library(gen_dep_imported INTERFACE IMPORTED)
+gentest_add_mocks(gen_dep_mocks
+    DEFS gen_dep/include/gen_dep/mocks.hpp
+    BASE_DIRS gen_dep/include
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/gen_dep"
+    HEADER_NAME public/gen_dep_mocks.hpp
+    LINK_LIBRARIES gen_dep_api_alias gen_dep_imported)
+layout_add_consumer(gen_dep_consumer gen_dep.cpp gen_dep_mocks)
+
+# A DEFS file that is itself written at build time.
+set(_layout_built_defs "${CMAKE_CURRENT_BINARY_DIR}/built/built_mocks.hpp")
+add_custom_command(
+    OUTPUT "${_layout_built_defs}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/built/built_mocks.hpp.in"
+        "-DOUTPUT=${_layout_built_defs}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/slow_copy.cmake"
+    DEPENDS built/built_mocks.hpp.in slow_copy.cmake
+    VERBATIM)
+gentest_add_mocks(built_mocks
+    DEFS "${_layout_built_defs}"
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/built"
+    HEADER_NAME public/built_mocks.hpp)
+layout_add_consumer(built_consumer built.cpp built_mocks)
+
 # BASE_DIRS can also make two targets spell different DEFS files alike. A
 # consumer that links them without gentest_attach_codegen() or
 # gentest_link_mocks() is not seen at configure time; the generated public

@@ -125,6 +125,37 @@ gentest_check_run_or_fail(
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
+# Mock codegen reads headers that the build writes: one from a custom command of
+# a linked library, one that is the DEFS file itself. The codegen step must be
+# ordered after both. Ask Ninja what each generated registry waits for...
+_gentest_make_codegen_target_id("gen_dep_mocks" _gen_dep_mocks_id)
+_gentest_make_codegen_target_id("built_mocks" _built_mocks_id)
+foreach(_ordering IN ITEMS
+    "generated/gen_dep/${_gen_dep_mocks_id}_mock_registry.hpp|gen_dep_api"
+    "generated/built/${_built_mocks_id}_mock_registry.hpp|built/built_mocks.hpp")
+  string(REPLACE "|" ";" _ordering "${_ordering}")
+  list(GET _ordering 0 _codegen_output)
+  list(GET _ordering 1 _expected_input)
+  gentest_check_run_or_fail(
+    COMMAND "${_supported_ninja}" -C "${_build_dir}" -t query "${_codegen_output}"
+    WORKING_DIRECTORY "${_work_dir}"
+    STRIP_TRAILING_WHITESPACE
+    OUTPUT_VARIABLE _codegen_edge)
+  string(FIND "${_codegen_edge}" "outputs:" _codegen_edge_outputs_pos)
+  string(SUBSTRING "${_codegen_edge}" 0 ${_codegen_edge_outputs_pos} _codegen_edge_inputs)
+  _gentest_expect_contains(
+    "The codegen step writing '${_codegen_output}' must wait for '${_expected_input}'"
+    "${_codegen_edge_inputs}" "${_expected_input}")
+endforeach()
+
+# ...and build only the consumers, from clean and in parallel. The generating
+# commands sleep, so codegen that is not ordered after them finds no header.
+message(STATUS "Build the consumers of generated mock inputs from clean...")
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --parallel 4 --target gen_dep_consumer built_consumer
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
 message(STATUS "Build explicit mock DEFS layout fixture...")
 gentest_check_run_or_fail(
   COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}"
@@ -133,7 +164,9 @@ gentest_check_run_or_fail(
 
 foreach(_consumer IN ITEMS
     "same_name_consumer|same_name"
-    "split_consumer|split")
+    "split_consumer|split"
+    "gen_dep_consumer|generated_dependency"
+    "built_consumer|built_defs")
   string(REPLACE "|" ";" _consumer "${_consumer}")
   list(GET _consumer 0 _consumer_exe)
   list(GET _consumer 1 _consumer_case)
@@ -149,6 +182,10 @@ file(READ "${_build_dir}/generated/a/public/a_mocks.hpp" _a_public_header)
 file(READ "${_build_dir}/generated/b/public/b_mocks.hpp" _b_public_header)
 _gentest_expect_contains("a_mocks public header" "${_a_public_header}" "#include <a/mocks.hpp>")
 _gentest_expect_contains("b_mocks public header" "${_b_public_header}" "#include <b/mocks.hpp>")
+
+# BASE_DIRS names the include root explicitly.
+file(READ "${_build_dir}/generated/gen_dep/public/gen_dep_mocks.hpp" _gen_dep_public_header)
+_gentest_expect_contains("gen_dep_mocks public header" "${_gen_dep_public_header}" "#include <gen_dep/mocks.hpp>")
 
 # DEFS in the source and build trees: each is spelled from its own tree. The
 # directory holding both trees, and the build directory's name, stay out of the

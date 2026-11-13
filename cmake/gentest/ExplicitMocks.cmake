@@ -639,13 +639,35 @@ namespace {\n\
         OUTPUT_DIR "${_gentest_output_root}"
         SOURCES ${_gentest_codegen_sources}
         CLANG_ARGS ${GENTEST_CLANG_ARGS}
-        DEPENDS ${GENTEST_DEPENDS}
+        # Textual DEFS reach codegen through the scan wrapper's #include. Name
+        # them, so a DEFS file written by a custom command exists before the
+        # first scan; later scans also track them through the depfile.
+        DEPENDS ${GENTEST_DEPENDS} ${_gentest_textual_defs}
         MOCK_BACKEND "${_gentest_mock_backend}"
         MOCK_AGGREGATE_MODULE_NAME "${GENTEST_MODULE_NAME}"
         MOCK_AGGREGATE_MODULE_OUTPUT "${_gentest_aggregate_module}"
         MOCK_INCLUDE_ROOTS
             ${_gentest_defs_base_dirs}
             "$<TARGET_PROPERTY:${target},INTERFACE_INCLUDE_DIRECTORIES>")
+
+    # DEFS may include headers that a LINK_LIBRARIES target generates when it
+    # builds. The codegen command belongs to both the mock library and its
+    # codegen target, and CMake orders such a command only after dependencies
+    # those targets have in common; the library alone linking LINK_LIBRARIES is
+    # not enough. This adds build order only, not a rerun on every relink.
+    get_target_property(_gentest_mock_codegen_dep_target ${target} GENTEST_CODEGEN_DEP_TARGET)
+    if(_gentest_mock_codegen_dep_target)
+        foreach(_gentest_link_library IN LISTS GENTEST_LINK_LIBRARIES)
+            if("${_gentest_link_library}" MATCHES "\\$<" OR NOT TARGET "${_gentest_link_library}")
+                continue()
+            endif()
+            get_target_property(_gentest_link_library_aliased "${_gentest_link_library}" ALIASED_TARGET)
+            if(_gentest_link_library_aliased)
+                set(_gentest_link_library "${_gentest_link_library_aliased}")
+            endif()
+            add_dependencies(${_gentest_mock_codegen_dep_target} "${_gentest_link_library}")
+        endforeach()
+    endif()
 
     set(_gentest_mock_registry "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
     set(_gentest_mock_impl "${_gentest_output_dir}/${_gentest_target_id}_mock_impl.hpp")
