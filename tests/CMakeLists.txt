@@ -4071,6 +4071,55 @@ add_test(NAME gentest_codegen_mock_template_template_ctor_traits_builds
     COMMAND ${CMAKE_COMMAND} -E sha256sum $<TARGET_FILE:gentest_cgr_mock_template_template_ctor_traits>)
 set_tests_properties(gentest_codegen_mock_template_template_ctor_traits_builds PROPERTIES LABELS "cmake;codegen")
 
+# Native mock runtime and generated-mock shape regressions. The fixtures build
+# with the main test build; the checks run their cases.
+_gentest_add_codegen_regression(gentest_cgr_mock_argument_shapes mock_argument_shapes
+    TESTS
+    MOCK_HEADER mock_argument_shapes_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_counts(
+    NAME gentest_codegen_mock_argument_shapes_runs
+    PROG gentest_cgr_mock_argument_shapes
+    PASS 3 FAIL 0 SKIP 0)
+gentest_add_check_death(
+    NAME gentest_codegen_mock_argument_shapes_text_mismatch
+    PROG gentest_cgr_mock_argument_shapes
+    REQUIRED_SUBSTRING "argument[0] mismatch for ::fixture::Text::label: expected \"expected\", got \"actual\""
+    ARGS --include-death --run=fixture/mock_argument_shapes/text_mismatch_death)
+
+_gentest_add_codegen_regression(gentest_cgr_mock_actions_results mock_actions_results
+    TESTS
+    MOCK_HEADER mock_actions_results_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_counts(
+    NAME gentest_codegen_mock_actions_results_runs
+    PROG gentest_cgr_mock_actions_results
+    PASS 5 FAIL 0 SKIP 0)
+# A call that cannot produce a result terminates; the reason must be printed first.
+gentest_add_check_death(
+    NAME gentest_codegen_mock_actions_results_reference_without_action
+    PROG gentest_cgr_mock_actions_results
+    REQUIRED_SUBSTRING "gentest: no action is configured for ::fixture::Factory::slot, and no result can be produced: the method returns a reference"
+    ARGS --include-death --run=fixture/mock_actions_results/reference_without_action_death)
+gentest_add_check_death(
+    NAME gentest_codegen_mock_actions_results_unexpected_reference_call
+    PROG gentest_cgr_mock_actions_results
+    REQUIRED_SUBSTRING "gentest: unexpected call to ::fixture::Factory::slot, and no result can be produced: the method returns a reference"
+    ARGS --include-death --run=fixture/mock_actions_results/unexpected_reference_call_death)
+gentest_add_check_death(
+    NAME gentest_codegen_mock_actions_results_unexpected_value_call
+    PROG gentest_cgr_mock_actions_results
+    REQUIRED_SUBSTRING "gentest: unexpected call to ::fixture::Factory::make_token, and no result can be produced: the method returns a type that is not default-constructible"
+    ARGS --include-death --run=fixture/mock_actions_results/unexpected_value_call_death)
+set_property(TEST
+    gentest_codegen_mock_argument_shapes_runs
+    gentest_codegen_mock_argument_shapes_text_mismatch
+    gentest_codegen_mock_actions_results_runs
+    gentest_codegen_mock_actions_results_reference_without_action
+    gentest_codegen_mock_actions_results_unexpected_reference_call
+    gentest_codegen_mock_actions_results_unexpected_value_call
+    APPEND PROPERTY LABELS "codegen")
+
 # The deleted declaration must not be registered.
 _gentest_add_codegen_regression(gentest_cgr_deleted_annotated_case deleted_annotated_case
     TESTS
