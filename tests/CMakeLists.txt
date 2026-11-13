@@ -5252,6 +5252,14 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_consumer_compile_commands
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenConsumerCompileCommands.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_consumer_compile_commands APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_subproject_consumer_defaults
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckSubprojectConsumerDefaults.cmake

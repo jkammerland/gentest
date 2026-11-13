@@ -1416,6 +1416,12 @@ function(gentest_attach_codegen target)
 
     set(_gentest_codegen_compdb_dir "")
     set(_gentest_config_compdb "")
+    if(CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
+        # Codegen reads this target's flags from compile_commands.json, which
+        # these generators only write for targets that export their commands.
+        # Do not rely on the consumer setting CMAKE_EXPORT_COMPILE_COMMANDS.
+        set_property(TARGET ${target} PROPERTY EXPORT_COMPILE_COMMANDS ON)
+    endif()
     if(CMAKE_GENERATOR STREQUAL "Ninja Multi-Config")
         _gentest_write_multi_config_compdb_filter_script("${_gentest_target_id}" _gentest_compdb_filter_script)
         set(_gentest_config_compdb "${_gentest_output_dir}/compdb/compile_commands.json")
