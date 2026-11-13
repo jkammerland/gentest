@@ -1,3 +1,5 @@
+#include "../../src/notification_linux_test_hooks.h"
+
 #include <atomic>
 #include <barrier>
 #include <cerrno>
@@ -103,13 +105,13 @@ void readyByte(int fd) {
     require(::write(fd, &byte, 1) == 1, "child readiness write failed");
 }
 
-void waitReady(int fd) {
+void waitReady(int fd, char expected = 'R') {
     char    byte{};
     ssize_t received;
     do {
         received = ::read(fd, &byte, 1);
     } while (received < 0 && errno == EINTR);
-    require(received == 1 && byte == 'R', "child readiness failed");
+    require(received == 1 && byte == expected, "child readiness failed");
 }
 
 enum class ChildMode { spin, normal, flood, silent };
@@ -210,6 +212,83 @@ void processCase(ChildMode mode, bool freeze, bool slowObserver, bool throwingOb
         }
         require(result.killSent && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL, "stuck child was not killed through pidfd");
     }
+}
+
+// The enforcement thread sees an empty socket, then the child sends its last
+// records and exits before the monitor looks at the pidfd. The seam makes that
+// microsecond window deterministic instead of relying on repetition.
+struct ExitRace {
+    static inline int               release{-1};
+    static inline pid_t             child{-1};
+    static inline std::atomic<bool> fired{false};
+
+    static void afterReceiveDrained() noexcept {
+        if (fired.exchange(true)) {
+            return;
+        }
+        const char byte = 'G';
+        static_cast<void>(::write(release, &byte, 1));
+        siginfo_t exited{};
+        // WNOWAIT leaves the zombie for the test's own waitpid.
+        while (::waitid(P_PID, static_cast<id_t>(child), &exited, WEXITED | WNOWAIT) < 0 && errno == EINTR) {}
+    }
+};
+
+void exitAfterFinalRecordsCase() {
+    auto channel = gentest::LinuxNotificationChannel::create();
+    int  ready[2];
+    int  release[2];
+    require(::pipe2(ready, O_CLOEXEC) == 0 && ::pipe2(release, O_CLOEXEC) == 0, "exit race pipes failed");
+    Child child;
+    child.pid = ::fork();
+    require(child.pid >= 0, "exit race fork failed");
+    if (child.pid == 0) {
+        ::close(ready[0]);
+        ::close(release[1]);
+        try {
+            closeDescriptors(channel.releaseMonitor());
+            auto              sink = gentest::LinuxNotificationSink::attach(channel.releaseProducer(), identity);
+            gentest::Notifier notifier(sink, identity, 1);
+            require(notifier.start("late finish") == gentest::NotifyResult::accepted, "exit race start rejected");
+            readyByte(ready[1]);
+            waitReady(release[0], 'G');
+            require(notifier.finish() == gentest::NotifyResult::accepted, "exit race finish rejected");
+            require(sink->close(3s), "exit race sink drain failed");
+            ::_exit(0);
+        } catch (const std::exception &error) {
+            std::cerr << "exit race child failed: " << error.what() << '\n';
+            ::_exit(90);
+        }
+    }
+    ::close(ready[1]);
+    ::close(release[0]);
+    closeDescriptors(channel.releaseProducer());
+    child.pidfd = static_cast<int>(::syscall(SYS_pidfd_open, child.pid, 0));
+    require(child.pidfd >= 0, "exit race pidfd_open failed");
+    waitReady(ready[0]);
+    ::close(ready[0]);
+
+    ExitRace::release = release[1];
+    ExitRace::child   = child.pid;
+    ExitRace::fired.store(false);
+    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity,
+                                     {.inactivityTimeout = 3s, .maximumSilence = 2s, .maximumSubjects = 16});
+    monitor.setProcessOwner(child.pidfd);
+    gentest::detail::watchdogReceiveDrainedHook.store(&ExitRace::afterReceiveDrained);
+    monitor.start();
+    const bool completed = monitor.waitFor(5s);
+    gentest::detail::watchdogReceiveDrainedHook.store(nullptr);
+    monitor.close();
+    ::close(release[1]);
+    const auto result = monitor.outcome();
+    const int  status = child.reap();
+    require(completed && ExitRace::fired.load(), "exit race seam did not run");
+    require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "exit race child failed");
+    if (result.failure) {
+        throw std::runtime_error("records sent just before exit were not drained: code=" +
+                                 std::to_string(static_cast<int>(result.failure->code)) + " detail=" + result.failure->detail);
+    }
+    require(result.processExited && !result.stopRequested && !result.killSent, "clean exit was treated as a failure");
 }
 
 void malformedCase(bool wrongIdentity, bool eof) {
@@ -654,6 +733,7 @@ int main() {
         processCase(ChildMode::silent, false, false, false);
         processCase(ChildMode::flood, false, true, false);
         processCase(ChildMode::spin, false, false, true);
+        exitAfterFinalRecordsCase();
         malformedCase(false, false);
         malformedCase(true, false);
         malformedCase(false, true);
