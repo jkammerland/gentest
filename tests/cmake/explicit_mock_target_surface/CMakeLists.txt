@@ -70,3 +70,25 @@ gentest_attach_codegen(explicit_late_link_module_consumer
     FILE_SET explicit_late_link_module_cases
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/late_link_module")
 gentest_link_mocks(explicit_late_link_module_consumer PRIVATE explicit_module_mocks)
+
+# #239: DEFS and the production headers they mock are used in place, so a
+# consumer can include both, in either order, with #pragma once alone. One
+# mocked type sits beside the DEFS; the other comes from a linked library.
+add_library(pragma_once_account_api INTERFACE)
+target_include_directories(pragma_once_account_api INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/pragma_once/api")
+
+gentest_add_mocks(pragma_once_mocks
+    DEFS
+        ${CMAKE_CURRENT_SOURCE_DIR}/pragma_once/ledger_mocks.hpp
+    OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/pragma_once"
+    HEADER_NAME public/pragma_once_mocks.hpp
+    LINK_LIBRARIES pragma_once_account_api)
+
+foreach(_pragma_once_order IN ITEMS production_first mock_first)
+    add_executable(pragma_once_${_pragma_once_order} pragma_once/${_pragma_once_order}.cpp)
+    target_compile_features(pragma_once_${_pragma_once_order} PRIVATE cxx_std_20)
+    target_link_libraries(pragma_once_${_pragma_once_order} PRIVATE gentest::gentest_main)
+    gentest_link_mocks(pragma_once_${_pragma_once_order} PRIVATE pragma_once_mocks)
+    gentest_attach_codegen(pragma_once_${_pragma_once_order}
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/pragma_once_${_pragma_once_order}")
+endforeach()

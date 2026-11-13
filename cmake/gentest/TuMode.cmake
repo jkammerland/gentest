@@ -1003,7 +1003,7 @@ function(gentest_attach_codegen target)
 
     set(options STRICT_FIXTURE QUIET_CLANG MODULE_REGISTRATION)
     set(one_value_args OUTPUT_DIR ENTRY FILE_SET MOCK_BACKEND MOCK_AGGREGATE_MODULE_NAME MOCK_AGGREGATE_MODULE_OUTPUT)
-    set(multi_value_args SOURCES CLANG_ARGS DEPENDS)
+    set(multi_value_args SOURCES CLANG_ARGS DEPENDS MOCK_INCLUDE_ROOTS)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     if(NOT GENTEST_ENTRY)
@@ -1508,6 +1508,11 @@ function(gentest_attach_codegen target)
         list(APPEND _command --compdb ${_gentest_codegen_compdb_dir})
     endif()
     list(APPEND _command --mock-backend ${_gentest_mock_backend})
+    foreach(_gentest_mock_include_root IN LISTS GENTEST_MOCK_INCLUDE_ROOTS)
+        # Roots may be generator expressions that expand to include-directory lists.
+        list(APPEND _command
+            "$<$<BOOL:${_gentest_mock_include_root}>:$<LIST:TRANSFORM,${_gentest_mock_include_root},PREPEND,--mock-include-root=>>")
+    endforeach()
     if(_gentest_mock_registry AND _gentest_mock_impl)
         list(APPEND _command
             --mock-registry ${_gentest_mock_registry}

@@ -115,6 +115,36 @@ int main() {
     }
 
     {
+        // Explicit mock targets pass their public include roots; the closest
+        // containing root wins, and files outside every root keep the
+        // registry-relative spelling.
+        CollectorOptions options      = mock_options();
+        options.mock_include_roots    = {"vendor", "fixture/..", "fixture"};
+        const MockRenderResult result = gentest::codegen::render::render_mocks(options, {service_mock()});
+        t.expect(result.error.empty(), "include-root spelling renders without an error");
+        const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
+        t.expect(registry != nullptr, "include-root spelling emits a registry file");
+        if (registry != nullptr) {
+            t.contains(registry->content, "#include \"service.hpp\"", "closest include root spells the definition header");
+            t.excludes(registry->content, "#include \"../fixture/service.hpp\"", "include root replaces registry-relative spelling");
+        }
+    }
+
+    {
+        CollectorOptions options      = mock_options();
+        options.mock_include_roots    = {"vendor", "fixture"};
+        MockClassInfo outside         = service_mock();
+        outside.definition_file       = "other/service.hpp";
+        const MockRenderResult result = gentest::codegen::render::render_mocks(options, {outside});
+        t.expect(result.error.empty(), "uncovered definition renders without an error");
+        const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
+        t.expect(registry != nullptr, "uncovered definition emits a registry file");
+        if (registry != nullptr) {
+            t.contains(registry->content, "#include \"../other/service.hpp\"", "uncovered definition keeps registry-relative spelling");
+        }
+    }
+
+    {
         MockClassInfo cls                       = service_mock();
         cls.methods[0].return_type              = "void";
         cls.methods[0].parameters               = {MockParamInfo{.type = "int &&", .name = "value"}};

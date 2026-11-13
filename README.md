@@ -49,8 +49,7 @@ Features currently include:
 
 >[!NOTE]
 > Start at [`docs/index.md`](docs/index.md) for the rest of the docs. See
-> [`CHANGELOG.md`](CHANGELOG.md) for user-facing changes and
-> [`DEPRECATIONS.md`](DEPRECATIONS.md) for scheduled removals.
+> [`CHANGELOG.md`](CHANGELOG.md) for user-facing changes.
 
 ## Requirements
 

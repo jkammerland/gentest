@@ -198,7 +198,7 @@ _gentest_make_codegen_target_id("explicit_exported_mocks" _explicit_exported_moc
 _gentest_make_codegen_target_id("explicit_module_exported_mocks" _explicit_module_exported_mocks_id)
 _gentest_make_codegen_target_id("explicit_third_party_exported_mocks" _explicit_third_party_exported_mocks_id)
 set(_installed_internal_header_regex
-  "^(${_explicit_exported_mocks_id}|${_explicit_module_exported_mocks_id}|${_explicit_third_party_exported_mocks_id})_mock_(impl|registry)(|__domain_.*)\\.hpp$")
+  "^((${_explicit_exported_mocks_id}|${_explicit_module_exported_mocks_id}|${_explicit_third_party_exported_mocks_id})_mock_(impl|registry)(|__domain_.*)|header_mocks|third_party_header_mocks)\\.hpp$")
 foreach(_installed_root_header IN LISTS _installed_root_headers)
   get_filename_component(_installed_root_name "${_installed_root_header}" NAME)
   if(NOT _installed_root_name MATCHES "${_installed_internal_header_regex}")
@@ -223,81 +223,46 @@ if(NOT _third_party_gentest_dependency_pos EQUAL -1)
   message(FATAL_ERROR "Third-party explicit mock package config should not require gentest")
 endif()
 
-file(GLOB _installed_staged_defs "${_install_prefix}/include/defs/*")
-if(NOT _installed_staged_defs)
-  message(FATAL_ERROR "Expected installed staged defs under '${_install_prefix}/include/defs', but none were found")
-endif()
-
-file(GLOB _installed_staged_support "${_install_prefix}/include/defs/deps/*")
-if(NOT _installed_staged_support)
-  message(FATAL_ERROR "Expected installed staged support headers under '${_install_prefix}/include/defs/deps', but none were found")
-endif()
-
-set(_installed_textual_staged_defs)
-foreach(_installed_staged_def IN LISTS _installed_staged_defs)
-  if(_installed_staged_def MATCHES "_header_mocks\\.hpp$")
-    list(APPEND _installed_textual_staged_defs "${_installed_staged_def}")
+# DEFS are installed as authored: no copies, no include rewriting.
+foreach(_copied_dir IN ITEMS "${_install_prefix}/include/defs" "${_install_prefix}/include/deps")
+  if(EXISTS "${_copied_dir}")
+    message(FATAL_ERROR "Explicit mock DEFS must not be copied into '${_copied_dir}'")
   endif()
 endforeach()
-if(NOT _installed_textual_staged_defs)
-  message(FATAL_ERROR
-    "Expected an installed staged explicit mock defs header under '${_install_prefix}/include/defs', but none matched '*_header_mocks.hpp'.")
-endif()
-list(GET _installed_textual_staged_defs 0 _installed_textual_staged_defs_file)
-
-file(READ "${_installed_textual_staged_defs_file}" _installed_textual_defs_content)
-foreach(_forbidden IN ITEMS
-    "<fixture/a+b.hpp>"
-    "<fixture/generated_support.hpp>"
-    "<fixture/service.hpp>")
-  string(FIND "${_installed_textual_defs_content}" "${_forbidden}" _forbidden_pos)
-  if(NOT _forbidden_pos EQUAL -1)
-    message(FATAL_ERROR
-      "Installed staged explicit mock defs should not retain original fixture includes.\n"
-      "Found '${_forbidden}' in ${_installed_textual_staged_defs_file}.")
+foreach(_defs_name IN ITEMS header_mocks.hpp third_party_header_mocks.hpp)
+  set(_installed_defs "${_install_prefix}/include/${_defs_name}")
+  if(NOT EXISTS "${_installed_defs}")
+    message(FATAL_ERROR "Expected installed explicit mock DEFS '${_installed_defs}'")
   endif()
-endforeach()
-foreach(_expected_regex IN ITEMS
-    "#include \"deps/[^\"]+_a\\+b\\.hpp\""
-    "#include \"deps/[^\"]+_generated_support\\.hpp\""
-    "#include \"deps/[^\"]+_service\\.hpp\"")
-  string(REGEX MATCH "${_expected_regex}" _expected_match "${_installed_textual_defs_content}")
-  if(_expected_match STREQUAL "")
-    message(FATAL_ERROR
-      "Installed staged explicit mock defs must rewrite support includes into deps/ copies.\n"
-      "Missing regex '${_expected_regex}' in ${_installed_textual_staged_defs_file}.")
+  file(READ "${_installed_defs}" _installed_defs_content)
+  file(READ "${_src_dir}/producer/${_defs_name}" _authored_defs_content)
+  if(NOT _installed_defs_content STREQUAL _authored_defs_content)
+    message(FATAL_ERROR "Installed explicit mock DEFS '${_installed_defs}' differ from the authored file")
   endif()
 endforeach()
 
 file(GLOB _installed_module_wrappers "${_install_prefix}/include/tu_*.module.gentest.cppm")
 if(NOT _installed_module_wrappers)
-  message(FATAL_ERROR "Expected installed staged module wrappers under '${_install_prefix}/include', but none were found")
+  message(FATAL_ERROR "Expected installed module wrappers under '${_install_prefix}/include', but none were found")
 endif()
 set(_installed_module_wrapper_content "")
 foreach(_installed_module_wrapper IN LISTS _installed_module_wrappers)
   file(READ "${_installed_module_wrapper}" _module_wrapper_fragment)
   string(APPEND _installed_module_wrapper_content "\n" "${_module_wrapper_fragment}")
 endforeach()
-foreach(_forbidden IN ITEMS
+foreach(_expected IN ITEMS
     "<fixture/a+b.hpp>"
     "<fixture/module_support.hpp>")
-  string(FIND "${_installed_module_wrapper_content}" "${_forbidden}" _forbidden_pos)
-  if(NOT _forbidden_pos EQUAL -1)
+  string(FIND "${_installed_module_wrapper_content}" "${_expected}" _expected_pos)
+  if(_expected_pos EQUAL -1)
     message(FATAL_ERROR
-      "Installed staged module wrappers should not retain original fixture includes.\n"
-      "Found '${_forbidden}' under '${_install_prefix}/include/tu_*.module.gentest.cppm'.")
+      "Installed module wrappers should keep the authored include '${_expected}'.\n"
+      "Searched '${_install_prefix}/include/tu_*.module.gentest.cppm'.")
   endif()
 endforeach()
-foreach(_expected_regex IN ITEMS
-    "#include \"deps/[^\"]+_a\\+b\\.hpp\""
-    "#include \"deps/[^\"]+_module_support\\.hpp\"")
-  string(REGEX MATCH "${_expected_regex}" _expected_match "${_installed_module_wrapper_content}")
-  if(_expected_match STREQUAL "")
-    message(FATAL_ERROR
-      "Installed staged module wrappers must rewrite support includes into deps/ copies.\n"
-      "Missing regex '${_expected_regex}' under '${_install_prefix}/include/tu_*.module.gentest.cppm'.")
-  endif()
-endforeach()
+if(_installed_module_wrapper_content MATCHES "deps/")
+  message(FATAL_ERROR "Installed module wrappers must not reference copied deps/ headers")
+endif()
 
 message(STATUS "Configure explicit mock target downstream consumer...")
 gentest_check_run_or_fail(

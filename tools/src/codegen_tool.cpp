@@ -4272,6 +4272,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
         "mock-domain-registry-output",
         llvm::cl::desc("Explicit output path for a generated mock registry domain header (repeat in domain order)"), llvm::cl::ZeroOrMore,
         llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> mock_include_root_option{
+        "mock-include-root",
+        llvm::cl::desc("Public include root used to spell mocked type definition headers (repeatable; closest root wins)"),
+        llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
     static llvm::cl::list<std::string> mock_domain_impl_output_option{
         "mock-domain-impl-output",
         llvm::cl::desc("Explicit output path for a generated mock implementation domain header (repeat in domain order)"),
@@ -4415,6 +4419,11 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     }
     opts.mock_domain_registry_outputs.assign(mock_domain_registry_output_option.begin(), mock_domain_registry_output_option.end());
     opts.mock_domain_impl_outputs.assign(mock_domain_impl_output_option.begin(), mock_domain_impl_output_option.end());
+    for (const auto &root : mock_include_root_option) {
+        if (!root.empty()) {
+            opts.mock_include_roots.emplace_back(root);
+        }
+    }
     if (!depfile_option.getValue().empty()) {
         opts.depfile_path = std::filesystem::path{depfile_option.getValue()};
     }

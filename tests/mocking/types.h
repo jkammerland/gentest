@@ -123,20 +123,21 @@ struct RefWrapConsumer {
 };
 
 struct Stringer {
-    void put(std::string s) { (void)s; }
+    void put(std::string s) { (void)s; } // NOLINT(performance-unnecessary-value-param): mocked by-value shape
 };
 
 struct Floater {
     void feed(double v) { (void)v; }
 };
 
+// NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility): mocked CRTP base shape
 template <typename Derived> struct Runner {
     void run(int value) { static_cast<Derived *>(this)->handle(value); }
     void handle(int) {}
 };
 
 struct DerivedRunner : Runner<DerivedRunner> {
-    void handle(int) {}
+    void handle(int) {} // NOLINT(bugprone-derived-method-shadowing-base-method): CRTP dispatch target
 };
 
 } // namespace mocking
