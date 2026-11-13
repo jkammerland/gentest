@@ -4535,6 +4535,14 @@ gentest_add_fixture_prefix_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_explicit_mock_target_install_export APPEND PROPERTY LABELS "modules")
 
+gentest_add_fixture_prefix_test(
+    MODULES
+    gentest_explicit_mock_defs_layout
+    ${PROJECT_SOURCE_DIR}/tests/cmake/explicit_mock_defs_layout
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckExplicitMockDefsLayout.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+
 _gentest_add_cmake_helper_test(
     gentest_third_party_mock_consumers
     ${PROJECT_SOURCE_DIR}/tests/cmake/third_party_mock_consumers

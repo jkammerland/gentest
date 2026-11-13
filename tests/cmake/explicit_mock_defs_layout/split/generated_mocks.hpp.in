@@ -1,0 +1,16 @@
+#pragma once
+
+#include "gentest/mock_fwd.h"
+
+namespace layout_split {
+
+struct Generated {
+    virtual ~Generated() = default;
+    virtual int value()  = 0;
+};
+
+namespace mocks {
+using GeneratedMock = gentest::mock<layout_split::Generated>;
+} // namespace mocks
+
+} // namespace layout_split

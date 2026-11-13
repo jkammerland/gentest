@@ -138,6 +138,7 @@ function(_gentest_expect_configure_failure test_case expected_substring)
       -B "${_build_dir}"
       ${_cmake_cache_args}
       "-DTEST_CASE=${test_case}"
+      ${ARGN}
     RESULT_VARIABLE _rc
     OUTPUT_VARIABLE _out
     ERROR_VARIABLE _err
@@ -150,7 +151,8 @@ function(_gentest_expect_configure_failure test_case expected_substring)
       "--- stdout ---\n${_out}\n--- stderr ---\n${_err}")
   endif()
 
-  set(_all "${_out}\n${_err}")
+  # CMake wraps long diagnostics, so compare with whitespace runs collapsed.
+  string(REGEX REPLACE "[ \t\r\n]+" " " _all "${_out}\n${_err}")
   string(FIND "${_all}" "${expected_substring}" _match_pos)
   if(_match_pos EQUAL -1)
     message(FATAL_ERROR
@@ -339,6 +341,17 @@ _gentest_expect_configure_failure("absolute_header_name" "Absolute HEADER_NAME v
 _gentest_expect_configure_failure("escaped_header_name" "stay within OUTPUT_DIR")
 _gentest_expect_configure_failure("reserved_header_name" "reserved generated output")
 _gentest_expect_configure_failure("defs_named_header_name" "has the same include path as DEFS file")
+# DEFS include paths: two targets of one consumer must not spell different
+# files alike, and a base directory is named or derived, never guessed.
+_gentest_expect_configure_failure("defs_include_collision" "which both include a DEFS file as <defs.hpp>")
+_gentest_expect_configure_failure("defs_include_collision" "which both include a DEFS file as <defs.hpp>"
+  "-DTEST_COLLISION_LINK=attach_codegen")
+_gentest_expect_configure_failure("defs_same_include_in_target" "would both be included as <defs.hpp>")
+_gentest_expect_configure_failure("defs_outside_default_base_dirs" "Pass BASE_DIRS")
+_gentest_expect_configure_failure("defs_outside_base_dirs" "is not inside any BASE_DIRS entry")
+_gentest_expect_configure_failure("nested_base_dirs" "Base directories must not contain each other")
+_gentest_expect_configure_failure("filesystem_root_base_dir" "is a filesystem root")
+_gentest_expect_configure_failure("defs_in_nested_source_and_binary_dirs" "naming separate directories")
 _gentest_expect_configure_failure("generator_expression_defs" "generator-expression")
 _gentest_expect_configure_failure("generator_expression_output_dir" "OUTPUT_DIR")
 # DEFS are not copied, so link-library include roots are never walked at
