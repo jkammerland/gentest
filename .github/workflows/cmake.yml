@@ -746,6 +746,10 @@ jobs:
           cmake --workflow --preset=package
 
   libassert:
+    env:
+      GENTEST_TEST_COMPILER_CACHE: "ON"
+      CCACHE_DIR: ${{ github.workspace }}/build/compiler-cache
+      CCACHE_COMPILERCHECK: content
     name: LLVM 23 • libassert without exceptions
     runs-on: ubuntu-24.04
     container: ubuntu:24.04
@@ -757,7 +761,7 @@ jobs:
         run: |
           set -euxo pipefail
           apt-get update
-          apt-get install -y --no-install-recommends git curl ca-certificates build-essential \
+          apt-get install -y --no-install-recommends git curl ca-certificates build-essential ccache \
             ninja-build python3 python3-pip pkg-config zip unzip tar libfmt-dev libffi-dev \
             libxml2-dev zlib1g-dev libzstd-dev libunwind-dev
           python3 -m pip install --break-system-packages --upgrade cmake
