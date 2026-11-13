@@ -352,6 +352,26 @@ template <typename T> [[using gentest: test("unresolved"), template(T, Box<int>)
 } // namespace tpl
 ]=])
   _gentest_cdr_expect_failure("unresolvable fixture binding" "cannot use template binding 'Box<int>' as the fixture type")
+elseif(SCENARIO STREQUAL "display_name_uniqueness")
+  # Registered names must be unique even when the base names differ.
+  _gentest_cdr_scan(collision CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace dup {
+[[using gentest: test("p"), parameters(i, 1, 2)]] inline void with_axis(int i) { (void)i; }
+[[using gentest: test("p(1)")]] inline void spelled_out() {}
+} // namespace dup
+]=])
+  _gentest_cdr_expect_failure("display name collision" "duplicate test name 'dup/p(1)'")
+
+  _gentest_cdr_scan(distinct CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace dup {
+[[using gentest: test("p"), parameters(i, 1, 2)]] inline void with_axis(int i) { (void)i; }
+[[using gentest: test("p(3)")]] inline void spelled_out() {}
+} // namespace dup
+]=])
+  _gentest_cdr_expect_success("distinct display names")
+  _gentest_cdr_expect_registered("distinct display names" "\"dup/p(1)\"" "\"dup/p(2)\"" "\"dup/p(3)\"")
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()
