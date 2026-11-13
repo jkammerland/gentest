@@ -37,4 +37,14 @@ if(TARGET gentest_notifications_linux)
         # other tests compete for the CPUs. Keep it alone, as in a serial run.
         set_tests_properties(notification_linux_contract PROPERTIES RUN_SERIAL TRUE)
     endif()
+
+    add_executable(gentest_notification_framework_linux_tests framework_linux.cpp)
+    target_link_libraries(gentest_notification_framework_linux_tests PRIVATE
+        gentest::gentest_runtime gentest::gentest gentest::notifications_linux)
+    add_test(NAME notification_framework_linux_contract COMMAND gentest_notification_framework_linux_tests)
+    set_tests_properties(notification_framework_linux_contract PROPERTIES TIMEOUT 120 LABELS notifications)
+    if(CMAKE_CROSSCOMPILING_EMULATOR)
+        # Its watchdog verdicts compare real time against a 500 ms deadline.
+        set_tests_properties(notification_framework_linux_contract PROPERTIES RUN_SERIAL TRUE)
+    endif()
 endif()

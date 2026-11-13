@@ -231,8 +231,12 @@ auto makeCase(std::string_view name, void (*body)(void *) = nullptr) -> gentest:
 
 auto run(std::span<const gentest::Case> cases, const std::shared_ptr<CaptureSink> &sink, const std::shared_ptr<Visitor> &hooks = {},
          std::span<const char *> arguments = {}) -> int {
-    const char               *defaults[] = {"framework-events", "--no-color"};
-    gentest::RunConfiguration configuration{.notifier = gentest::Notifier(sink, {.id = 71, .generation = 3}, 0), .frameworkEvents = hooks};
+    const char *defaults[] = {"framework-events", "--no-color"};
+    // These contracts count one record per suspension boundary, so the default
+    // rate limit is disabled here; suspensionProgressIsRateLimited covers it.
+    gentest::RunConfiguration configuration{.notifier                = gentest::Notifier(sink, {.id = 71, .generation = 3}, 0),
+                                            .frameworkEvents         = hooks,
+                                            .suspendProgressInterval = 0ns};
     visitor = hooks.get();
     return gentest::run_cases(cases, arguments.empty() ? std::span<const char *>(defaults) : arguments, configuration);
 }
@@ -285,6 +289,72 @@ void defaultVisitorAndLogs() {
     test = makeCase("notifications/log", +[](void *) { gentest::log("ordinary log is not progress"); });
     check(run({&test, 1}, sink) == 0, "log case failed");
     check(sink->count(NotificationKind::progress) == 0, "logging renewed progress");
+}
+
+constexpr int                       pollingYields = 50000;
+std::chrono::steady_clock::duration pollingElapsed{};
+
+auto pollingLoop() -> gentest::awaitable<> {
+    const auto begin = std::chrono::steady_clock::now();
+    for (int i = 0; i != pollingYields; ++i) {
+        co_await gentest::async::yield();
+    }
+    pollingElapsed = std::chrono::steady_clock::now() - begin;
+}
+
+auto pollingAdapter(void *) -> gentest::detail::AsyncTaskPtr { return gentest::detail::make_async_task(pollingLoop()); }
+
+struct CountingSink final : gentest::NotificationSink {
+    std::atomic<std::size_t> progress{0};
+
+    auto submit(const gentest::Notification &notification) noexcept -> NotifyResult override {
+        if (notification.kind == NotificationKind::progress) {
+            progress.fetch_add(1, std::memory_order_relaxed);
+        }
+        return NotifyResult::accepted;
+    }
+};
+
+// A polling loop reaches a suspension boundary on every iteration. The default
+// visitor must not turn each one into a record for the transport.
+void suspensionProgressIsRateLimited() {
+    auto test     = makeCase("notifications/polling");
+    test.async_fn = &pollingAdapter;
+    test.is_async = true;
+    for (const bool customVisitor : {false, true}) {
+        auto                            sink        = std::make_shared<CountingSink>();
+        auto                            hooks       = customVisitor ? std::make_shared<Visitor>() : std::shared_ptr<Visitor>{};
+        const char                     *arguments[] = {"framework-events", "--no-color"};
+        const gentest::RunConfiguration configuration{.notifier        = gentest::Notifier(sink, {.id = 71, .generation = 3}, 0),
+                                                      .frameworkEvents = hooks};
+        visitor = hooks.get();
+        if (hooks) {
+            hooks->suspensionSubjects.reserve(pollingYields);
+        }
+        check(gentest::run_cases({&test, 1}, arguments, configuration) == 0, "polling loop failed the notification infrastructure");
+        // Every boundary still reaches a custom visitor; only publication is limited.
+        check(!hooks || hooks->suspensions[static_cast<std::size_t>(SuspensionKind::yield)] == pollingYields,
+              "rate limiting hid suspension events from the visitor");
+        const auto progress = sink->progress.load();
+        const auto budget   = static_cast<std::size_t>(std::chrono::duration_cast<std::chrono::milliseconds>(pollingElapsed).count()) + 2;
+        check(progress >= 1, "a progressing case published no progress");
+        check(progress <= budget, "suspension progress exceeded one record per interval");
+    }
+
+    // A slower cadence than the interval still renews on every suspension.
+    auto sink     = std::make_shared<CaptureSink>();
+    test.async_fn = +[](void *) -> gentest::detail::AsyncTaskPtr {
+        return gentest::detail::make_async_task([]() -> gentest::awaitable<> {
+            for (int i = 0; i != 5; ++i) {
+                co_await gentest::async::sleep_for(3ms);
+            }
+        }());
+    };
+    const char                     *arguments[] = {"framework-events", "--no-color"};
+    const gentest::RunConfiguration configuration{.notifier = gentest::Notifier(sink, {.id = 71, .generation = 3}, 0)};
+    visitor = nullptr;
+    check(gentest::run_cases({&test, 1}, arguments, configuration) == 0, "slow cadence case failed");
+    check(sink->count(NotificationKind::progress) == 5, "progress at a slower cadence than the interval was dropped");
 }
 
 gentest::async::event<int> siblingEvent;
@@ -519,6 +589,7 @@ int main() {
         suspensionBoundariesAndFiltering();
         disabledAndVisitorOnlyObservation();
         defaultVisitorAndLogs();
+        suspensionProgressIsRateLimited();
         concurrentSubjectsAndFrameOwnership();
         adoptedAndRepeatedSubjects();
         physicalRetirementPrecedesTerminal();

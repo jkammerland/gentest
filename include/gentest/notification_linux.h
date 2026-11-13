@@ -44,6 +44,9 @@ class LinuxNotificationChannel {
 // A dedicated writer preserves the order of locally admitted records. Accepted
 // means queued locally, not acknowledged by the parent. After fork, attach a new
 // sink to fresh descriptors; inherited live sinks reject use.
+// A progress record is accepted without taking another slot while an identical
+// one (same subject and label, no lifecycle or allowance record in between) is
+// still queued: the queued record renews the deadline when it is received.
 class LinuxNotificationSink final : public NotificationSink {
   public:
     static std::shared_ptr<LinuxNotificationSink> attach(NotificationDescriptors descriptors, ProducerIdentity producer,

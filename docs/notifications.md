@@ -169,7 +169,19 @@ to the configured watchdog policy.
 
 `FrameworkEventVisitor` receives synchronous source hooks. Its default
 `onSuspend` publishes progress on the event's context-bound notifier. Default
-fixture and measurement phase hooks also publish progress. Case subject
+fixture and measurement phase hooks also publish progress.
+
+The hook runs at every suspension boundary, but a polling loop such as
+`while (!ready) co_await yield();` reaches one on each iteration. The default
+`onSuspend` therefore publishes at most one progress record per subject within
+`RunConfiguration::suspendProgressInterval` (1 ms by default). A subject that
+keeps suspending still renews its deadline at least that often, and a subject
+that stops suspending still expires; a renewal can be up to one interval older
+than the latest suspension, so keep the interval far below the watchdog's
+inactivity timeout. Set it to zero to publish every suspension. A custom
+visitor gets the same limit by delegating to `FrameworkEventVisitor::onSuspend`;
+one that calls the notifier itself on every event is responsible for its own
+rate. Case subject
 start/finish records remain runner-owned even when a custom visitor filters
 source hooks.
 
@@ -289,7 +301,17 @@ allows a sink to latch validation failures that occur before `submit`.
 The Linux producer queue and observer queue default to 256 records each; the
 watchdog defaults to at most 256 tracked subjects. Size these independently for
 the expected workload. Overflow does not switch to unbounded buffering or drop
-liveness records while claiming success. `LinuxNotificationSink::close(timeout)`
+liveness records while claiming success.
+
+Repeated progress is the one case the Linux producer coalesces. While a
+progress record is still waiting in the queue, another `progress()` for the same
+subject with the same label is accepted without taking a second slot. Nothing is
+lost: the monitor renews a deadline at receipt time, and the queued record is
+received after the coalesced call. A different label, another subject, or any
+start, finish, or allowance record in between always queues separately, and
+ordinary `notify()` records are never coalesced. Repeating the same progress
+call therefore cannot overflow the queue by itself; many distinct pending
+records still can. `LinuxNotificationSink::close(timeout)`
 performs a bounded drain; keep the receiver running while it drains.
 
 ## Standalone Linux example
