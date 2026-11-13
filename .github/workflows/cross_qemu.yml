@@ -26,6 +26,9 @@ concurrency:
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
+  # CTest schedules four tests at once; nested fixture builds stay single-job
+  # so the 4-vCPU worker is not oversubscribed (same policy as cmake.yml).
+  GENTEST_HELPER_BUILD_PARALLEL_LEVEL: 1
 
   # Match the versions used by the native backend workflow.
   BAZELISK_VERSION: "v1.29.0"
@@ -209,7 +212,7 @@ jobs:
       - name: Test (QEMU full suite)
         run: |
           set -euxo pipefail
-          ctest --preset=aarch64-qemu-full --output-on-failure --no-tests=error
+          ctest --preset=aarch64-qemu-full --output-on-failure --no-tests=error --parallel 4
 
   linux-riscv64-qemu:
     name: Linux • riscv64 (QEMU)
@@ -374,4 +377,4 @@ jobs:
       - name: Test (QEMU full suite)
         run: |
           set -euxo pipefail
-          ctest --preset=riscv64-qemu-full --output-on-failure --no-tests=error
+          ctest --preset=riscv64-qemu-full --output-on-failure --no-tests=error --parallel 4

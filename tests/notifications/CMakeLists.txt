@@ -32,4 +32,9 @@ if(TARGET gentest_notifications_linux)
     target_link_libraries(gentest_notification_linux_tests PRIVATE gentest::notifications_linux)
     add_test(NAME notification_linux_contract COMMAND gentest_notification_linux_tests)
     set_tests_properties(notification_linux_contract PROPERTIES TIMEOUT 45 LABELS notifications)
+    if(CMAKE_CROSSCOMPILING_EMULATOR)
+        # Under user-mode emulation this process-control test stalls whenever
+        # other tests compete for the CPUs. Keep it alone, as in a serial run.
+        set_tests_properties(notification_linux_contract PROPERTIES RUN_SERIAL TRUE)
+    endif()
 endif()
