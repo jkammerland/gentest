@@ -372,6 +372,26 @@ namespace dup {
 ]=])
   _gentest_cdr_expect_success("distinct display names")
   _gentest_cdr_expect_registered("distinct display names" "\"dup/p(1)\"" "\"dup/p(2)\"" "\"dup/p(3)\"")
+elseif(SCENARIO STREQUAL "member_template_arguments")
+  # Template arguments containing "::" are not part of the member name.
+  _gentest_cdr_scan(member CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+#include <string>
+#include <utility>
+namespace memtpl {
+struct Fixture {
+    template <typename T>
+    [[using gentest: test("typed"), template(T, std::string, std::pair<std::string, int>)]]
+    void typed() {}
+    [[using gentest: test("less"), parameters(rhs, 7)]]
+    bool operator<(int rhs) { return rhs == 7; }
+};
+} // namespace memtpl
+]=])
+  _gentest_cdr_expect_success("member template arguments")
+  _gentest_cdr_expect_registered("member template arguments"
+    ".template typed<std::string>()" ".template typed<std::pair<std::string, int>>()" ".operator<(7)")
+  _gentest_cdr_expect_not_registered("member template arguments" ".template string>" ".template pair<")
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()

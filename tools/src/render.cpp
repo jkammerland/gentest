@@ -351,10 +351,25 @@ std::string build_fixture_bench_inits(const std::vector<FreeFixtureUse> &types) 
     return inits;
 }
 
+// The qualified name may carry template arguments ("ns::S::m<std::string>"),
+// so the method starts after the last "::" outside angle brackets.
 std::string extract_method_name(std::string qualified) {
-    if (auto pos = qualified.rfind("::"); pos != std::string::npos)
-        return qualified.substr(pos + 2);
-    return qualified;
+    std::size_t depth = 0;
+    std::size_t start = 0;
+    for (std::size_t i = 0; i < qualified.size(); ++i) {
+        const char ch = qualified[i];
+        if (ch == '<') {
+            ++depth;
+        } else if (ch == '>') {
+            if (depth > 0) {
+                --depth;
+            }
+        } else if (ch == ':' && depth == 0 && i + 1 < qualified.size() && qualified[i + 1] == ':') {
+            start = i + 2;
+            ++i;
+        }
+    }
+    return qualified.substr(start);
 }
 
 std::string format_call_args(const std::string &value_args) {
