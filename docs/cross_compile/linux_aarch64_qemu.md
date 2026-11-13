@@ -48,6 +48,7 @@ cmake --build build/host-codegen --target gentest_codegen
 cmake -S . -B build/aarch64-qemu -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/aarch64-linux-gnu.cmake \
+  -Dgentest_BUILD_TESTING=ON \
   -DGENTEST_BUILD_CODEGEN=OFF \
   -DGENTEST_CODEGEN_EXECUTABLE="$PWD/build/host-codegen/tools/gentest_codegen" \
   -DGENTEST_ENABLE_PACKAGE_TESTS=OFF

@@ -104,6 +104,19 @@ jobs:
           project_version="$(sed -nE 's/^[[:space:]]*VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt | head -n 1)"
           test "${RELEASE_TAG}" = "v${project_version}"
           release_commit="$(git rev-parse HEAD)"
+          # Everything that can reject this commit runs before a tag exists:
+          # a pushed tag cannot be taken back.
+          changelog_heading="^## ${project_version//./\\.} - [0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]*\$"
+          if ! grep -Eq "${changelog_heading}" CHANGELOG.md; then
+            echo "CHANGELOG.md has no dated '## ${project_version} - YYYY-MM-DD' heading for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          # Unsigned dry run of the source packaging; signing was probed above.
+          dry_run_dir="${RUNNER_TEMP}/gentest-release-dry-run"
+          rm -rf "${dry_run_dir}"
+          env -u GPG_SIGNING_KEY -u GPG_PASSPHRASE_FILE GENTEST_REQUIRE_PACKAGE_SIGNING=OFF \
+            python3 scripts/package_source_release.py "${dry_run_dir}" --ref "${release_commit}"
+          rm -rf "${dry_run_dir}"
           remote_tag="$(git ls-remote origin "refs/tags/${RELEASE_TAG}" | awk -v ref="refs/tags/${RELEASE_TAG}" '$2 == ref { print $1; exit }')"
           if [[ -n "${remote_tag}" ]]; then
             git fetch origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"

@@ -186,6 +186,7 @@ target("my_tests")
     gentest_attach_codegen({
         name = "my_tests",
         kind = "modules",
+        module_name = "demo.cases",
         source = "tests/cases.cppm",
         main = "tests/main.cpp",
         output_dir = "build/gen/tests",

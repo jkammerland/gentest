@@ -21,8 +21,21 @@ fi
 if [[ "$mode" == "valid" ]]; then
   "$gen" --check tests/unit/cases.cpp -- -std=c++20 -Iinclude -Itests
 elif [[ "$mode" == "invalid" ]]; then
-  if "$gen" --check tests/smoke/invalid_attrs.cpp -- -std=c++20 -Iinclude -Itests; then
-    echo "expected non-zero exit for invalid attributes" >&2
+  # A crash or a missing libclang also exits non-zero. Only the validation
+  # failure itself counts: exit code 1 together with the attribute diagnostic.
+  expected_status=1
+  expected_diagnostic="unknown gentest attribute 'unknown'"
+  stderr_file="$(mktemp "${TEST_TMPDIR:-${TMPDIR:-/tmp}}/gentest_codegen_check_invalid.XXXXXX")"
+  trap 'rm -f "${stderr_file}"' EXIT
+  status=0
+  "$gen" --check tests/smoke/invalid_attrs.cpp -- -std=c++20 -Iinclude -Itests 2> "${stderr_file}" || status=$?
+  cat "${stderr_file}" >&2
+  if [[ ${status} -ne ${expected_status} ]]; then
+    echo "expected exit code ${expected_status} for invalid attributes, got ${status}" >&2
+    exit 1
+  fi
+  if ! grep -F -q -- "${expected_diagnostic}" "${stderr_file}"; then
+    echo "gentest_codegen failed for invalid attributes without the diagnostic: ${expected_diagnostic}" >&2
     exit 1
   fi
 else

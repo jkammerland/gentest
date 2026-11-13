@@ -85,14 +85,10 @@ file(CREATE_LINK "${_fmt_include_root}/fmt" "${_fake_fmt_include}/fmt" SYMBOLIC)
 
 set(_out_dir "${_scratch_root}/meson-fmt-fallback")
 
-# Meson spells an adjacent fallback inside the source tree relative to that
-# tree. Require that exact include root in either build-directory layout.
-set(_fallback_include_path "${_fake_fmt_include}")
-cmake_path(IS_PREFIX SOURCE_DIR "${_fake_fmt_include}" NORMALIZE _fallback_inside_source)
-if(_fallback_inside_source)
-  file(RELATIVE_PATH _fallback_include_path "${SOURCE_DIR}" "${_fake_fmt_include}")
-endif()
-set(_fallback_include_flag "-I${_fallback_include_path}")
+# Codegen runs from the Meson build directory, so the fallback must reach it as
+# an absolute include root even when Meson itself needs the source-relative
+# spelling for a directory inside the source tree.
+set(_fallback_include_flag "-I${_fake_fmt_include}")
 
 execute_process(
   COMMAND "${CMAKE_COMMAND}" -E env

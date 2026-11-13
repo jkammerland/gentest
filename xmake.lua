@@ -1,4 +1,7 @@
 set_project("gentest")
+-- Keep in sync with CMakeLists.txt (checked by gentest_vcpkg_manifest_metadata).
+local gentest_version = "2.0.0"
+set_version(gentest_version)
 set_languages("cxx20")
 set_policy("build.ccache", false)
 
@@ -90,6 +93,7 @@ target("gentest_runtime")
     add_files("src/runner_test_plan.cpp")
     add_includedirs(incdirs)
     add_defines(gentest_common_defines)
+    add_defines("GENTEST_VERSION_STR=\"" .. gentest_version .. "\"")
     add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
 
     -- Source flags follow target flags, so the escape stays opaque under LTO.

@@ -61,6 +61,7 @@ cmake --build build/host-codegen --target gentest_codegen
 cmake -S . -B build/riscv64-qemu -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/riscv64-linux-gnu.cmake \
+  -Dgentest_BUILD_TESTING=ON \
   -DGENTEST_BUILD_CODEGEN=OFF \
   -DGENTEST_CODEGEN_EXECUTABLE="$PWD/build/host-codegen/tools/gentest_codegen" \
   -DGENTEST_ENABLE_PACKAGE_TESTS=OFF
@@ -77,6 +78,7 @@ cmake -S . -B build/riscv64-qemu -G Ninja \
   -DCMAKE_C_COMPILER_TARGET=riscv64-unknown-linux-gnu \
   -DCMAKE_CXX_COMPILER_TARGET=riscv64-unknown-linux-gnu \
   -DCMAKE_SYSROOT="$HOME/.local/toolchains/riscv-gnu-toolchain-2026.01.23/riscv/sysroot" \
+  -Dgentest_BUILD_TESTING=ON \
   -DGENTEST_BUILD_CODEGEN=OFF \
   -DGENTEST_CODEGEN_EXECUTABLE="$PWD/build/host-codegen/tools/gentest_codegen" \
   -DGENTEST_ENABLE_PACKAGE_TESTS=OFF

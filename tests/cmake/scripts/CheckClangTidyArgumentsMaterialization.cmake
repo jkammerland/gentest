@@ -127,3 +127,45 @@ string(FIND "${_tidy_log_text}" "${_generated_source}" _generated_source_pos)
 if(NOT _generated_source_pos EQUAL -1)
   message(FATAL_ERROR "check_clang_tidy.sh passed a generated registration source to clang-tidy.\n${_tidy_log_text}")
 endif()
+
+# The gate must not report success when it could not determine what to lint.
+function(_gentest_expect_tidy_gate_failure label compdb_text expected_stderr)
+  set(_gate_build_dir "${_work_dir}/${label}")
+  file(MAKE_DIRECTORY "${_gate_build_dir}")
+  file(WRITE "${_gate_build_dir}/compile_commands.json" "${compdb_text}")
+  file(REMOVE "${_tidy_log}")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env
+      "PATH=${_fake_bin_dir}:$ENV{PATH}"
+      "CLANG_TIDY_BIN=${_fake_tidy}"
+      "CLANG_TIDY_JOBS=1"
+      "${_bash_program}" "${SOURCE_DIR}/scripts/check_clang_tidy.sh" "${_gate_build_dir}" check
+    WORKING_DIRECTORY "${SOURCE_DIR}"
+    RESULT_VARIABLE _gate_rc
+    OUTPUT_VARIABLE _gate_out
+    ERROR_VARIABLE _gate_err)
+  if(_gate_rc EQUAL 0)
+    message(FATAL_ERROR
+      "check_clang_tidy.sh must fail for ${label}, but it exited 0.\n"
+      "stdout:\n${_gate_out}\n"
+      "stderr:\n${_gate_err}")
+  endif()
+  string(FIND "${_gate_err}" "${expected_stderr}" _gate_message_pos)
+  if(_gate_message_pos EQUAL -1)
+    message(FATAL_ERROR
+      "check_clang_tidy.sh failed for ${label} without the expected diagnostic '${expected_stderr}'.\n"
+      "stdout:\n${_gate_out}\n"
+      "stderr:\n${_gate_err}")
+  endif()
+  if(EXISTS "${_tidy_log}")
+    message(FATAL_ERROR "check_clang_tidy.sh ran clang-tidy for ${label}.")
+  endif()
+  file(GLOB _gate_leftovers "${_gate_build_dir}/clang-tidy.*")
+  if(_gate_leftovers)
+    message(FATAL_ERROR "check_clang_tidy.sh left temporary files behind for ${label}: ${_gate_leftovers}")
+  endif()
+endfunction()
+
+_gentest_expect_tidy_gate_failure(empty_compile_database "[]\n" "No clang-tidy translation units found")
+# Python fails while reading this one; its exit status must reach the gate.
+_gentest_expect_tidy_gate_failure(unreadable_compile_database "{ not json\n" "JSONDecodeError")

@@ -275,10 +275,14 @@ Include-based consumers can use gtest-like macros. Module consumers should use t
 | `require_ne` | `ASSERT_NE` |
 
 ```cpp
+module;
+#include <stdexcept>
+export module my.exception_tests;
+
 import gentest;
 using namespace gentest::asserts;
 
-[[gentest::test("exceptions/module_functions")]]
+export [[gentest::test("exceptions/module_functions")]]
 void module_functions() {
     EXPECT_THROW<std::runtime_error>([] { throw std::runtime_error("boom"); });
     EXPECT_NO_THROW([] {});

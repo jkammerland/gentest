@@ -2684,9 +2684,11 @@ if(GENTEST_WITH_LIBASSERT AND GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS)
             $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:AppleClang>>:-fno-exceptions>
             $<$<CXX_COMPILER_ID:MSVC>:/EHs-c->)
 
-    # Disable library throws where supported (fmt/MSVC STL); clang-cl uses Clang ID but MSVC STL
+    # Disable library throws where supported (fmt/MSVC STL); clang-cl uses Clang ID but MSVC STL.
+    # fmt 11+ reads FMT_USE_EXCEPTIONS; a system fmt 10 or older reads FMT_EXCEPTIONS.
     target_compile_definitions(${target_name_noexc}
         PRIVATE
+            FMT_USE_EXCEPTIONS=0
             FMT_EXCEPTIONS=0
             _HAS_EXCEPTIONS=0)
 
@@ -2952,6 +2954,7 @@ gentest_add_check_exit_code(
 
 # CLI checks for VSCode integration
 gentest_add_check_contains(NAME unit_help PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING gentest ARGS --help)
+gentest_add_check_contains(NAME unit_help_version PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "gentest v${PROJECT_VERSION}" ARGS --help)
 gentest_add_check_contains(NAME unit_help_time_unit PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--time-unit=<mode>" ARGS --help)
 gentest_add_check_contains(NAME unit_help_report_format PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--report-format=<mode>" ARGS --help)
 gentest_add_check_contains(NAME unit_help_async_log_tail PROG $<TARGET_FILE:gentest_unit_tests> REQUIRED_SUBSTRING "--async-log-tail=N" ARGS --help)
@@ -5251,6 +5254,14 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 
 _gentest_add_cmake_helper_test(
+    gentest_codegen_consumer_compile_commands
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenConsumerCompileCommands.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_codegen_consumer_compile_commands APPEND PROPERTY LABELS "codegen")
+
+_gentest_add_cmake_helper_test(
     gentest_subproject_consumer_defaults
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckSubprojectConsumerDefaults.cmake
@@ -5591,6 +5602,14 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         -DPACKAGE_TEST_BUILD_EXAMPLES=ON
         ${_gentest_package_test_compiler_args})
     set_property(TEST gentest_package_consumer_include_only APPEND PROPERTY LABELS "examples")
+
+    _gentest_add_cmake_helper_test(
+        gentest_package_install_layout
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckPackageInstallLayout.cmake
+        package
+        -DBUILD_CONFIG=${_gentest_package_test_config}
+        ${_gentest_package_test_compiler_args})
 
     _gentest_add_cmake_helper_test(
         gentest_third_party_mock_package_consumers

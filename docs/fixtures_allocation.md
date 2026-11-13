@@ -6,20 +6,20 @@ or shared ownership. Fixture lifetime is selected separately by the local,
 suite, or global lifetime policy.
 
 This document describes the allocation hook, supported return types, and how
-fixture arguments are wired for free-function fixtures (recommended) and legacy
-member fixtures.
+fixture arguments are wired for free-function fixtures (recommended) and
+deprecated member fixtures.
 
 ## Parameter-based fixture inference
 
-- Prefer free-function tests/benches/jitters in new code. Member tests are a
-  legacy path and should be avoided.
+- Prefer free-function tests/benches/jitters in new code. Member tests are
+  deprecated and should be avoided.
 - Fixture arguments are inferred from test/bench/jitter function signatures.
 - Any parameter not listed by `parameters(...)`, `parameters_pack(...)`,
   `range(...)`, `linspace(...)`, `geom(...)`, or `logspace(...)` is treated as
   a fixture argument.
 - Trailing C++ default-argument parameters are treated as normal defaulted
   values (not fixture-inferred).
-- This rule applies to free-function cases and legacy member test methods.
+- This rule applies to free-function cases and deprecated member test methods.
 - Legacy `[[using gentest: fixtures(...)]]` is removed and rejected by
   `gentest_codegen`.
 
@@ -67,7 +67,7 @@ When the test wrapper is invoked:
 
 This behavior is uniform across:
 - free-function fixture arguments
-- legacy member test method fixture arguments
+- deprecated member test method fixture arguments
 - suite fixtures (`[[gentest::fixture(suite)]]`)
 - global fixtures (`[[gentest::fixture(global)]]`)
 
