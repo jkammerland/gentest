@@ -1498,8 +1498,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     };
     const auto axis_unsupported = [&](std::string_view origin, const std::string &name) {
         had_error_ = true;
-        report(fmt::format("{} not supported for parameter '{}' of type '{}'; expected an integer or floating-point type", origin, name,
-                           param_types.at(name)));
+        report(fmt::format("{} not supported for parameter type '{}' (parameter '{}'); expected an integer or floating-point type", origin,
+                           param_types.at(name), name));
     };
     const auto axis_too_large = [&](std::string_view origin, const std::string &name) {
         had_error_ = true;
