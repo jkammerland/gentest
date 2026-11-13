@@ -113,7 +113,20 @@ if(_producer_fmt_dir_line)
   string(REGEX REPLACE "^fmt_DIR:PATH=" "" _producer_fmt_dir "${_producer_fmt_dir_line}")
 endif()
 
-file(WRITE "${_consumer_source_dir}/CMakeLists.txt" [=[
+# The producer is runtime-only, so stand in for its tool: the lookup only needs
+# an existing file. A second prefix holds a decoy that must never be selected.
+if(CMAKE_HOST_WIN32)
+  set(_exe_ext ".exe")
+else()
+  set(_exe_ext "")
+endif()
+set(_installed_tool "${_install_prefix}/bin/gentest_codegen${_exe_ext}")
+set(_decoy_prefix "${_work_dir}/decoy")
+set(_decoy_tool "${_decoy_prefix}/bin/gentest_codegen${_exe_ext}")
+file(WRITE "${_installed_tool}" "stand-in for the installed tool\n")
+file(WRITE "${_decoy_tool}" "decoy from another prefix\n")
+
+file(CONFIGURE OUTPUT "${_consumer_source_dir}/CMakeLists.txt" CONTENT [=[
 cmake_minimum_required(VERSION 3.31)
 project(gentest_install_layout_consumer LANGUAGES CXX)
 
@@ -124,9 +137,23 @@ endif()
 if(NOT TARGET gentest::gentest_main)
   message(FATAL_ERROR "find_package(gentest) did not provide gentest::gentest_main")
 endif()
-]=])
 
-set(_consumer_cache_args ${_cmake_cache_args} "-DCMAKE_PREFIX_PATH=${_install_prefix}" "-Dgentest_DIR=${_config_dir}")
+# PACKAGE_PREFIX_DIR names the prefix of whichever package config is being
+# loaded, e.g. when another package's config attaches codegen. It and the
+# consumer's own install layout say nothing about where gentest is installed.
+set(PACKAGE_PREFIX_DIR "@_decoy_prefix@")
+set(CMAKE_INSTALL_BINDIR "not-the-producer-bindir")
+
+add_executable(layout_cases cases.cpp)
+gentest_attach_codegen(layout_cases OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+_gentest_find_installed_codegen_executable(resolved_tool)
+file(WRITE "${CMAKE_BINARY_DIR}/resolved_tool.txt" "${resolved_tool}")
+]=] @ONLY)
+file(WRITE "${_consumer_source_dir}/cases.cpp" "int layout_cases_marker = 0;\n")
+
+set(_consumer_cache_args ${_cmake_cache_args}
+  "-DCMAKE_PREFIX_PATH=${_install_prefix}"
+  "-Dgentest_DIR=${_config_dir}")
 if(NOT "${_producer_fmt_dir}" STREQUAL "" AND IS_DIRECTORY "${_producer_fmt_dir}")
   list(APPEND _consumer_cache_args "-Dfmt_DIR=${_producer_fmt_dir}")
 endif()
@@ -139,6 +166,34 @@ gentest_check_run_or_fail(
     -S "${_consumer_source_dir}"
     -B "${_consumer_build_dir}"
     ${_consumer_cache_args}
+  WORKING_DIRECTORY "${_work_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+file(READ "${_consumer_build_dir}/resolved_tool.txt" _resolved_tool)
+cmake_path(SET _resolved_tool NORMALIZE "${_resolved_tool}")
+cmake_path(SET _expected_tool NORMALIZE "${_installed_tool}")
+if(NOT _resolved_tool STREQUAL _expected_tool)
+  message(FATAL_ERROR
+    "The installed helper must resolve gentest_codegen from its own installation, not from "
+    "PACKAGE_PREFIX_DIR or a guessed prefix.\n"
+    "Expected: '${_expected_tool}'\n"
+    "Resolved: '${_resolved_tool}'")
+endif()
+
+# A source-tree helper has no installation and must not probe around the repository.
+set(_source_probe "${_work_dir}/source_probe.cmake")
+file(TO_CMAKE_PATH "${GENTEST_SOURCE_DIR}" _gentest_source_dir)
+file(CONFIGURE OUTPUT "${_source_probe}" CONTENT [=[
+set(CMAKE_CROSSCOMPILING FALSE)
+set(PACKAGE_PREFIX_DIR "@_decoy_prefix@")
+include("@_gentest_source_dir@/cmake/gentest/CodegenToolchain.cmake")
+_gentest_find_installed_codegen_executable(resolved_tool)
+if(NOT "${resolved_tool}" STREQUAL "")
+  message(FATAL_ERROR "The source-tree helper resolved an installed gentest_codegen: '${resolved_tool}'")
+endif()
+]=] @ONLY)
+gentest_check_run_or_fail(
+  COMMAND "${CMAKE_COMMAND}" -P "${_source_probe}"
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
