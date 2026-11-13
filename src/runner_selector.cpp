@@ -23,14 +23,16 @@ bool case_matches_kind(const gentest::Case &c, KindFilter kind) {
 bool wildcard_match(std::string_view text, std::string_view pattern) {
     std::size_t ti = 0, pi = 0, star = std::string_view::npos, mark = 0;
     while (ti < text.size()) {
-        if (pi < pattern.size() && (pattern[pi] == '?' || pattern[pi] == text[ti])) {
-            ++ti;
-            ++pi;
-            continue;
-        }
+        // Test '*' before the literal comparison: a pattern star facing a literal '*' in the
+        // name must still become a backtrack point instead of being consumed as a literal.
         if (pi < pattern.size() && pattern[pi] == '*') {
             star = pi++;
             mark = ti;
+            continue;
+        }
+        if (pi < pattern.size() && (pattern[pi] == '?' || pattern[pi] == text[ti])) {
+            ++ti;
+            ++pi;
             continue;
         }
         if (star != std::string_view::npos) {
