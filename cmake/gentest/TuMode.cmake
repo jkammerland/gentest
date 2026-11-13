@@ -935,6 +935,12 @@ function(gentest_link_mocks target)
 
     target_link_libraries(${target} ${_gentest_scope} ${_gentest_mock_targets})
 
+    _gentest_collect_codegen_dep_targets_from_link_graph(
+        ${target}
+        _gentest_unused_codegen_dep_targets
+        _gentest_all_linked_explicit_mock_targets)
+    _gentest_check_explicit_mock_defs_includes(${target} ${_gentest_all_linked_explicit_mock_targets})
+
     get_target_property(_gentest_consumer_codegen_dep "${target}" GENTEST_CODEGEN_DEP_TARGET)
     if(NOT _gentest_consumer_codegen_dep OR _gentest_consumer_codegen_dep MATCHES "-NOTFOUND$")
         return()
@@ -1485,6 +1491,7 @@ function(gentest_attach_codegen target)
     if(_gentest_linked_codegen_dep_targets)
         list(APPEND _gentest_codegen_deps ${_gentest_linked_codegen_dep_targets})
     endif()
+    _gentest_check_explicit_mock_defs_includes(${target} ${target} ${_gentest_linked_explicit_mock_targets})
     _gentest_collect_external_module_source_mappings(_gentest_external_module_source_mappings ${_gentest_linked_codegen_dep_targets})
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS "")
     _gentest_append_external_module_source_args_property(${target} ${_gentest_external_module_source_mappings})

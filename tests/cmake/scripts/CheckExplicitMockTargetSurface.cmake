@@ -155,13 +155,21 @@ foreach(_pragma_once_order IN ITEMS production_first mock_first)
 endforeach()
 # Generated registries spell the mocked types' headers the way consumers reach
 # them, so the same spelling works in the build tree and after installation.
+# DEFS in a subdirectory keep it in their include path.
+file(READ "${_build_dir}/generated/pragma_once/public/pragma_once_mocks.hpp" _pragma_once_public_header)
+string(FIND "${_pragma_once_public_header}" "#include <pragma_once/ledger_mocks.hpp>" _expected_include_pos)
+if(_expected_include_pos EQUAL -1)
+  message(FATAL_ERROR
+    "Expected the pragma_once public header to include its DEFS as <pragma_once/ledger_mocks.hpp>.\n"
+    "${_pragma_once_public_header}")
+endif()
 file(GLOB _pragma_once_registries "${_build_dir}/generated/pragma_once/*_mock_registry__domain_0000_header.hpp")
 if(NOT _pragma_once_registries)
   message(FATAL_ERROR "Expected a generated registry domain header under '${_build_dir}/generated/pragma_once'")
 endif()
 list(GET _pragma_once_registries 0 _pragma_once_registry)
 file(READ "${_pragma_once_registry}" _pragma_once_registry_content)
-foreach(_expected_include IN ITEMS "#include \"ledger.hpp\"" "#include \"app/account.hpp\"")
+foreach(_expected_include IN ITEMS "#include \"pragma_once/ledger.hpp\"" "#include \"app/account.hpp\"")
   string(FIND "${_pragma_once_registry_content}" "${_expected_include}" _expected_include_pos)
   if(_expected_include_pos EQUAL -1)
     message(FATAL_ERROR

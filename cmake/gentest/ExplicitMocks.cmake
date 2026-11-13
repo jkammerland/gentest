@@ -54,33 +54,179 @@ function(_gentest_expand_explicit_mock_search_root raw_root out_roots)
     set(${out_roots} "${_gentest_roots}" PARENT_SCOPE)
 endfunction()
 
-# Deepest directory containing every given file. DEFS are installed relative to
-# it, and generated headers spell their includes relative to it.
-function(_gentest_explicit_mock_defs_base_dir out_var)
-    set(_gentest_base "")
-    foreach(_gentest_file IN LISTS ARGN)
-        get_filename_component(_gentest_dir "${_gentest_file}" DIRECTORY)
-        if(_gentest_base STREQUAL "")
-            set(_gentest_base "${_gentest_dir}")
+# Decides how consumers spell each DEFS file. A DEFS file is spelled relative
+# to a base directory, and each base directory becomes a public include
+# directory of the mock target and a base of the file set that installs DEFS.
+#
+# BASE_DIRS names the base directories explicitly. Without it, a DEFS file under
+# CMAKE_CURRENT_BINARY_DIR is spelled relative to that directory and any other
+# DEFS file relative to CMAKE_CURRENT_SOURCE_DIR, so 'a/mocks.hpp' keeps its
+# directory and stays distinct from 'b/mocks.hpp' of another target. A base is
+# never derived from the DEFS' common parent: for files in the source and build
+# trees that would be the project root, the home directory or a filesystem root.
+function(_gentest_resolve_explicit_mock_defs_layout target out_base_dirs out_includes)
+    set(multi_value_args BASE_DIRS DEFS)
+    cmake_parse_arguments(GENTEST_LAYOUT "" "" "${multi_value_args}" ${ARGN})
+
+    set(_gentest_candidates "")
+    set(_gentest_candidate_keys "")
+    if(GENTEST_LAYOUT_BASE_DIRS)
+        set(_gentest_explicit_bases TRUE)
+        set(_gentest_candidate_inputs ${GENTEST_LAYOUT_BASE_DIRS})
+    else()
+        set(_gentest_explicit_bases FALSE)
+        set(_gentest_candidate_inputs "${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+    endif()
+    foreach(_gentest_candidate_input IN LISTS _gentest_candidate_inputs)
+        if("${_gentest_candidate_input}" MATCHES "\\$<")
+            message(FATAL_ERROR
+                "gentest_add_mocks(${target}): generator-expression BASE_DIRS entries are not supported. "
+                "Pass concrete directories instead: '${_gentest_candidate_input}'")
+        endif()
+        _gentest_normalize_path_and_key(
+            "${_gentest_candidate_input}" "${CMAKE_CURRENT_SOURCE_DIR}" _gentest_candidate _gentest_candidate_key)
+        cmake_path(GET _gentest_candidate ROOT_PATH _gentest_candidate_root)
+        if(_gentest_candidate STREQUAL _gentest_candidate_root)
+            message(FATAL_ERROR
+                "gentest_add_mocks(${target}): base directory '${_gentest_candidate_input}' is a filesystem root. "
+                "A base directory becomes a public include directory; pass BASE_DIRS <dir>... naming the directory "
+                "DEFS are included from.")
+        endif()
+        string(REGEX REPLACE "/+$" "" _gentest_candidate "${_gentest_candidate}")
+        string(REGEX REPLACE "/+$" "" _gentest_candidate_key "${_gentest_candidate_key}")
+        if(NOT _gentest_candidate_key IN_LIST _gentest_candidate_keys)
+            list(APPEND _gentest_candidates "${_gentest_candidate}")
+            list(APPEND _gentest_candidate_keys "${_gentest_candidate_key}")
+        endif()
+    endforeach()
+
+    set(_gentest_used_bases "")
+    set(_gentest_used_keys "")
+    set(_gentest_includes "")
+    set(_gentest_include_keys "")
+    set(_gentest_include_files "")
+    foreach(_gentest_def IN LISTS GENTEST_LAYOUT_DEFS)
+        _gentest_normalize_path_and_key("${_gentest_def}" "${CMAKE_CURRENT_SOURCE_DIR}" _gentest_def_abs _gentest_def_key)
+        # The deepest base containing the file wins, so a build directory
+        # inside the source directory still claims its own files.
+        set(_gentest_best "")
+        set(_gentest_best_key "")
+        set(_gentest_best_length -1)
+        foreach(_gentest_candidate _gentest_candidate_key IN ZIP_LISTS _gentest_candidates _gentest_candidate_keys)
+            cmake_path(IS_PREFIX _gentest_candidate_key "${_gentest_def_key}" _gentest_is_prefix)
+            string(LENGTH "${_gentest_candidate_key}" _gentest_candidate_length)
+            if(_gentest_is_prefix AND _gentest_candidate_length GREATER _gentest_best_length)
+                set(_gentest_best "${_gentest_candidate}")
+                set(_gentest_best_key "${_gentest_candidate_key}")
+                set(_gentest_best_length "${_gentest_candidate_length}")
+            endif()
+        endforeach()
+        if(_gentest_best STREQUAL "")
+            if(_gentest_explicit_bases)
+                message(FATAL_ERROR
+                    "gentest_add_mocks(${target}): DEFS file '${_gentest_def_abs}' is not inside any BASE_DIRS entry "
+                    "(${_gentest_candidates}). Add the directory it is included from to BASE_DIRS.")
+            endif()
+            message(FATAL_ERROR
+                "gentest_add_mocks(${target}): DEFS file '${_gentest_def_abs}' is outside CMAKE_CURRENT_SOURCE_DIR "
+                "'${CMAKE_CURRENT_SOURCE_DIR}' and CMAKE_CURRENT_BINARY_DIR '${CMAKE_CURRENT_BINARY_DIR}', so its include "
+                "path cannot be derived. Pass BASE_DIRS <dir>... naming the directory it is included from, for example "
+                "the include root that already exposes it; that directory becomes a public include directory of "
+                "'${target}'.")
+        endif()
+        file(RELATIVE_PATH _gentest_include "${_gentest_best}" "${_gentest_def_abs}")
+        string(TOLOWER "${_gentest_include}" _gentest_include_key)
+        list(FIND _gentest_include_keys "${_gentest_include_key}" _gentest_same_include_index)
+        if(NOT _gentest_same_include_index EQUAL -1)
+            list(GET _gentest_include_files ${_gentest_same_include_index} _gentest_same_include_file)
+            if(NOT _gentest_same_include_file STREQUAL _gentest_def_abs)
+                message(FATAL_ERROR
+                    "gentest_add_mocks(${target}): DEFS files '${_gentest_same_include_file}' and '${_gentest_def_abs}' "
+                    "would both be included as <${_gentest_include}>. Rename one, or pass BASE_DIRS that give them "
+                    "different relative paths.")
+            endif()
+        endif()
+        list(APPEND _gentest_includes "${_gentest_include}")
+        list(APPEND _gentest_include_keys "${_gentest_include_key}")
+        list(APPEND _gentest_include_files "${_gentest_def_abs}")
+        if(NOT _gentest_best_key IN_LIST _gentest_used_keys)
+            list(APPEND _gentest_used_bases "${_gentest_best}")
+            list(APPEND _gentest_used_keys "${_gentest_best_key}")
+        endif()
+    endforeach()
+
+    if(_gentest_explicit_bases)
+        set(_gentest_used_bases "${_gentest_candidates}")
+        set(_gentest_used_keys "${_gentest_candidate_keys}")
+    endif()
+    # CMake rejects nested base directories within a file set, and nested
+    # include roots make '<x/y.hpp>' ambiguous.
+    foreach(_gentest_outer _gentest_outer_key IN ZIP_LISTS _gentest_used_bases _gentest_used_keys)
+        foreach(_gentest_inner _gentest_inner_key IN ZIP_LISTS _gentest_used_bases _gentest_used_keys)
+            if(_gentest_outer_key STREQUAL _gentest_inner_key)
+                continue()
+            endif()
+            cmake_path(IS_PREFIX _gentest_outer_key "${_gentest_inner_key}" _gentest_is_nested)
+            if(NOT _gentest_is_nested)
+                continue()
+            endif()
+            if(_gentest_explicit_bases)
+                message(FATAL_ERROR
+                    "gentest_add_mocks(${target}): BASE_DIRS entry '${_gentest_inner}' is inside '${_gentest_outer}'. "
+                    "Base directories must not contain each other.")
+            endif()
+            message(FATAL_ERROR
+                "gentest_add_mocks(${target}): DEFS come from both CMAKE_CURRENT_SOURCE_DIR and "
+                "CMAKE_CURRENT_BINARY_DIR, and '${_gentest_inner}' is inside '${_gentest_outer}'. Pass BASE_DIRS "
+                "<dir>... naming separate directories for the authored and the generated DEFS.")
+        endforeach()
+    endforeach()
+
+    set(${out_base_dirs} "${_gentest_used_bases}" PARENT_SCOPE)
+    set(${out_includes} "${_gentest_includes}" PARENT_SCOPE)
+endfunction()
+
+# Fails when two explicit mock targets reachable from one consumer include
+# different DEFS files by the same spelling: the compiler would resolve both
+# includes to whichever base directory comes first and silently drop the other
+# target's declarations.
+function(_gentest_check_explicit_mock_defs_includes consumer)
+    set(_gentest_seen_keys "")
+    set(_gentest_seen_files "")
+    set(_gentest_seen_owners "")
+    set(_gentest_mock_targets ${ARGN})
+    list(REMOVE_DUPLICATES _gentest_mock_targets)
+    foreach(_gentest_mock_target IN LISTS _gentest_mock_targets)
+        if(NOT TARGET "${_gentest_mock_target}")
             continue()
         endif()
-        while(NOT _gentest_base STREQUAL "")
-            cmake_path(IS_PREFIX _gentest_base "${_gentest_dir}" NORMALIZE _gentest_is_prefix)
-            if(_gentest_is_prefix)
-                break()
+        get_target_property(_gentest_mock_includes "${_gentest_mock_target}" GENTEST_EXPLICIT_MOCK_DEFS_INCLUDES)
+        get_target_property(_gentest_mock_files "${_gentest_mock_target}" GENTEST_EXPLICIT_MOCK_DEFS_FILES)
+        if(NOT _gentest_mock_includes OR NOT _gentest_mock_files)
+            continue()
+        endif()
+        foreach(_gentest_include _gentest_file IN ZIP_LISTS _gentest_mock_includes _gentest_mock_files)
+            string(TOLOWER "${_gentest_include}" _gentest_include_key)
+            list(FIND _gentest_seen_keys "${_gentest_include_key}" _gentest_seen_index)
+            if(_gentest_seen_index EQUAL -1)
+                list(APPEND _gentest_seen_keys "${_gentest_include_key}")
+                list(APPEND _gentest_seen_files "${_gentest_file}")
+                list(APPEND _gentest_seen_owners "${_gentest_mock_target}")
+                continue()
             endif()
-            cmake_path(GET _gentest_base PARENT_PATH _gentest_parent)
-            if(_gentest_parent STREQUAL _gentest_base)
-                set(_gentest_base "")
-                break()
+            list(GET _gentest_seen_files ${_gentest_seen_index} _gentest_seen_file)
+            list(GET _gentest_seen_owners ${_gentest_seen_index} _gentest_seen_owner)
+            if(NOT _gentest_seen_file STREQUAL _gentest_file)
+                message(FATAL_ERROR
+                    "gentest: '${consumer}' uses explicit mock targets '${_gentest_seen_owner}' and "
+                    "'${_gentest_mock_target}', which both include a DEFS file as <${_gentest_include}>:\n"
+                    "  ${_gentest_seen_file}\n"
+                    "  ${_gentest_file}\n"
+                    "Only one of them would be found. Give the targets different DEFS include paths with the BASE_DIRS "
+                    "argument of gentest_add_mocks(), or rename one of the files.")
             endif()
-            set(_gentest_base "${_gentest_parent}")
-        endwhile()
+        endforeach()
     endforeach()
-    if(_gentest_base STREQUAL "")
-        message(FATAL_ERROR "gentest_add_mocks(): DEFS do not share a common parent directory: ${ARGN}")
-    endif()
-    set(${out_var} "${_gentest_base}" PARENT_SCOPE)
 endfunction()
 
 function(_gentest_append_target_list_property target property)
@@ -187,7 +333,7 @@ endfunction()
 function(gentest_add_mocks target)
     set(options)
     set(one_value_args OUTPUT_DIR MODULE_NAME HEADER_NAME BACKEND)
-    set(multi_value_args DEFS CLANG_ARGS DEPENDS LINK_LIBRARIES)
+    set(multi_value_args DEFS BASE_DIRS CLANG_ARGS DEPENDS LINK_LIBRARIES)
     cmake_parse_arguments(GENTEST "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
     if(TARGET ${target})
@@ -320,7 +466,9 @@ function(gentest_add_mocks target)
     # #pragma once both hold. Whatever DEFS include must be reachable by
     # consumers, like any public header: through LINK_LIBRARIES or by adding the
     # header to this target's DEFS file set.
-    _gentest_explicit_mock_defs_base_dir(_gentest_defs_base_dir ${_gentest_textual_defs} ${_gentest_module_defs})
+    _gentest_resolve_explicit_mock_defs_layout(${target} _gentest_defs_base_dirs _gentest_defs_includes
+        BASE_DIRS ${GENTEST_BASE_DIRS}
+        DEFS ${_gentest_textual_defs} ${_gentest_module_defs})
     set(_gentest_materialized_module_defs "${_gentest_module_defs}")
 
     set(_gentest_codegen_sources "${_gentest_materialized_module_defs}")
@@ -341,11 +489,10 @@ function(gentest_add_mocks target)
         if(NOT _gentest_uses_third_party_mock_backend)
             string(APPEND _gentest_public_header_content "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n")
             string(APPEND _gentest_public_header_content "#include \"${_gentest_mock_api_header}\"\n")
-            foreach(_gentest_def IN LISTS _gentest_textual_defs)
-                # Resolved through the DEFS file set's include root, in the build
-                # tree and after installation. Angle brackets skip this header's
-                # own directory, so a DEFS file sharing its name is still found.
-                file(RELATIVE_PATH _gentest_public_def_include "${_gentest_defs_base_dir}" "${_gentest_def}")
+            foreach(_gentest_def _gentest_public_def_include IN ZIP_LISTS _gentest_textual_defs _gentest_defs_includes)
+                # Resolved through a DEFS base directory, in the build tree and
+                # after installation. Angle brackets skip this header's own
+                # directory, so a DEFS file sharing its name is still found.
                 string(TOLOWER "${_gentest_public_def_include}" _gentest_public_def_include_key)
                 string(TOLOWER "${_gentest_public_header_rel_from_output}" _gentest_public_header_include_key)
                 if(_gentest_public_def_include_key STREQUAL _gentest_public_header_include_key)
@@ -353,7 +500,22 @@ function(gentest_add_mocks target)
                         "gentest_add_mocks(${target}): HEADER_NAME '${_gentest_public_header_rel_from_output}' has the same "
                         "include path as DEFS file '${_gentest_def}'. Choose a different HEADER_NAME.")
                 endif()
-                string(APPEND _gentest_public_header_content "#include <${_gentest_public_def_include}>\n")
+                # Two mock targets that spell different DEFS files alike would
+                # both resolve to the first one on the include path, which
+                # #pragma once then hides. Configure-time checks cover consumers
+                # that use gentest_attach_codegen() or gentest_link_mocks();
+                # this covers every other consumer, and installed packages.
+                string(MD5 _gentest_public_def_include_md5 "${_gentest_public_def_include_key}")
+                string(TOUPPER "${_gentest_public_def_include_md5}" _gentest_public_def_include_md5)
+                set(_gentest_public_def_include_macro "GENTEST_EXPLICIT_MOCK_DEFS_${_gentest_public_def_include_md5}")
+                string(APPEND _gentest_public_header_content
+                    "#ifdef ${_gentest_public_def_include_macro}\n"
+                    "#error \"gentest: another explicit mock target already includes a different DEFS file as "
+                    "<${_gentest_public_def_include}>; give '${target}' a distinct DEFS include path with "
+                    "gentest_add_mocks(BASE_DIRS ...)\"\n"
+                    "#endif\n"
+                    "#define ${_gentest_public_def_include_macro} 1\n"
+                    "#include <${_gentest_public_def_include}>\n")
             endforeach()
             string(APPEND _gentest_public_header_content "#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n")
         endif()
@@ -439,6 +601,12 @@ namespace {\n\
     if(GENTEST_LINK_LIBRARIES)
         target_link_libraries(${target} PUBLIC ${GENTEST_LINK_LIBRARIES})
     endif()
+    if(_gentest_textual_defs AND NOT _gentest_uses_third_party_mock_backend)
+        # Read by _gentest_check_explicit_mock_defs_includes().
+        set_target_properties(${target} PROPERTIES
+            GENTEST_EXPLICIT_MOCK_DEFS_INCLUDES "${_gentest_defs_includes}"
+            GENTEST_EXPLICIT_MOCK_DEFS_FILES "${_gentest_textual_defs}")
+    endif()
     target_sources(${target} PRIVATE "${_gentest_anchor_cpp}")
     if(_gentest_textual_defs)
         target_sources(${target} PRIVATE "${_gentest_textual_wrapper}")
@@ -448,11 +616,13 @@ namespace {\n\
             PUBLIC
                 FILE_SET gentest_explicit_mock_modules_private
                     TYPE CXX_MODULES
-                    BASE_DIRS "${_gentest_defs_base_dir}"
+                    BASE_DIRS ${_gentest_defs_base_dirs}
                     FILES ${_gentest_materialized_module_defs})
         # Module units can include headers beside them in their global module
         # fragment; keep those reachable like a textual DEFS root.
-        target_include_directories(${target} PUBLIC "$<BUILD_INTERFACE:${_gentest_defs_base_dir}>")
+        foreach(_gentest_defs_base_dir IN LISTS _gentest_defs_base_dirs)
+            target_include_directories(${target} PUBLIC "$<BUILD_INTERFACE:${_gentest_defs_base_dir}>")
+        endforeach()
     endif()
 
     set(_gentest_aggregate_module "")
@@ -474,7 +644,7 @@ namespace {\n\
         MOCK_AGGREGATE_MODULE_NAME "${GENTEST_MODULE_NAME}"
         MOCK_AGGREGATE_MODULE_OUTPUT "${_gentest_aggregate_module}"
         MOCK_INCLUDE_ROOTS
-            "${_gentest_defs_base_dir}"
+            ${_gentest_defs_base_dirs}
             "$<TARGET_PROPERTY:${target},INTERFACE_INCLUDE_DIRECTORIES>")
 
     set(_gentest_mock_registry "${_gentest_output_dir}/${_gentest_target_id}_mock_registry.hpp")
@@ -503,13 +673,13 @@ namespace {\n\
                         "${_gentest_mock_impl}"
                         "${_gentest_mock_registry_header_domain}"
                         "${_gentest_mock_impl_header_domain}")
-        # A separate file set: its base directory is the DEFS' own source
-        # directory, which may contain or sit inside OUTPUT_DIR.
+        # A separate file set: its base directories are where DEFS are
+        # authored or generated, which may contain or sit inside OUTPUT_DIR.
         target_sources(${target}
             PUBLIC
                 FILE_SET gentest_explicit_mock_defs
                     TYPE HEADERS
-                    BASE_DIRS "${_gentest_defs_base_dir}"
+                    BASE_DIRS ${_gentest_defs_base_dirs}
                     FILES ${_gentest_textual_defs})
     endif()
 
