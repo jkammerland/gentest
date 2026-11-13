@@ -638,7 +638,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --bench-min-total-time-s=<sec>  Min total time per benchmark (may exceed --bench-epochs)\n");
         fmt::print("  --bench-max-total-time-s=<sec>  Max total time per benchmark\n");
         fmt::print("\nJitter options:\n");
-        fmt::print("  --jitter-bins=<N>     Histogram bins (default 10)\n");
+        fmt::print("  --jitter-bins=<N>     Histogram bins (1..10000, default 10)\n");
         return 0;
     case Mode::ListTags: {
         std::vector<std::string> tags;
