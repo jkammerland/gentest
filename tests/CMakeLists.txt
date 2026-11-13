@@ -4966,7 +4966,8 @@ foreach(_gentest_cdr_scenario IN ITEMS
         member_template_arguments
         discarded_results
         additive_include_boundary
-        placeholder_like_text)
+        placeholder_like_text
+        fallback_header_extensions)
     _gentest_add_cmake_helper_test(
         gentest_codegen_discovery_regression_${_gentest_cdr_scenario}
         ${PROJECT_SOURCE_DIR}

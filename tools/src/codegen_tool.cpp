@@ -2054,6 +2054,35 @@ bool prefers_msvc_style_standard_flag(std::span<const std::string> args) {
     return false;
 }
 
+// Extensions the clang driver itself maps to a C or C++ header.
+bool has_driver_known_header_extension(std::string_view path) {
+    std::string extension = std::filesystem::path{std::string(path)}.extension().string();
+    std::ranges::transform(extension, extension.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return extension == ".h" || extension == ".hh" || extension == ".hpp" || extension == ".hxx";
+}
+
+// Selects the C++ header language for every input of a scan command unless
+// the command already names a language.
+void force_header_language(clang::tooling::CommandLineArguments &command_line) {
+    if (command_line.empty()) {
+        return;
+    }
+    for (const auto &arg : command_line) {
+        if (arg == "--") {
+            break;
+        }
+        if (arg.starts_with("-x") || arg == "/TP" || arg == "-TP" || arg == "/TC" || arg == "-TC" || arg.starts_with("/Tp") ||
+            arg.starts_with("-Tp") || arg.starts_with("/Tc") || arg.starts_with("-Tc")) {
+            return;
+        }
+    }
+    if (prefers_msvc_style_standard_flag(command_line)) {
+        command_line.insert(command_line.begin() + 1, "/TP");
+        return;
+    }
+    command_line.insert(command_line.begin() + 1, {"-x", "c++-header"});
+}
+
 std::string_view default_cxx_standard_arg(std::span<const std::string> args) {
     return prefers_msvc_style_standard_flag(args) ? "/std:c++20" : "-std=c++20";
 }
@@ -6099,8 +6128,18 @@ int run_codegen_tool(int argc, const char **argv) {
     const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
         const std::string compdb_dir =
             options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
+        // Listed-header slots whose extension the clang driver does not know
+        // (.inl, .ipp, .tpp, ...) would be classified as linker input and
+        // produce no compiler job. Name their language explicitly.
+        std::unordered_set<std::string> header_language_sources;
+        for (std::size_t idx = 0; idx < options.sources.size() && idx < options.scan_slot_kinds.size(); ++idx) {
+            if (options.scan_slot_kinds[idx] == "fallback-header" && !has_driver_known_header_extension(options.sources[idx])) {
+                header_language_sources.insert(normalize_compdb_lookup_path(options.sources[idx]));
+            }
+        }
         return [resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args, compdb_dir, explicit_host_clang_path,
-                extra_module_args_by_source](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
+                extra_module_args_by_source,
+                header_language_sources](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
             const auto                         extra_module_it = extra_module_args_by_source.find(normalize_compdb_lookup_path(file.str()));
             const std::span<const std::string> extra_module_args =
                 extra_module_it != extra_module_args_by_source.end()
@@ -6109,6 +6148,9 @@ int run_codegen_tool(int argc, const char **argv) {
             auto adjusted =
                 build_adjusted_command_line(command_line, file, resource_dir_for_compiler, default_compiler_path, default_sysroot,
                                             extra_args, compdb_dir, extra_module_args, explicit_host_clang_path);
+            if (header_language_sources.contains(normalize_compdb_lookup_path(file.str()))) {
+                force_header_language(adjusted);
+            }
             if (const auto log_parse = get_env_value("GENTEST_CODEGEN_LOG_PARSE_COMMANDS"); log_parse && *log_parse != "0") {
                 gentest::codegen::log_err("gentest_codegen: parse command for '{}':\n", file.str());
                 for (const auto &arg : adjusted) {
