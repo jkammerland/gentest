@@ -68,10 +68,12 @@ CalibratedEpoch calibrate_epoch_iterations(const gentest::Case &c, void *ctx, co
         if (calibration.had_assert || calibration.elapsed_s >= cfg.min_epoch_time_s) {
             return calibration;
         }
-        calibration.iterations *= 2;
-        if (calibration.iterations == 0 || calibration.iterations > (static_cast<std::size_t>(1) << 30U)) {
+        // Check the cap before doubling: the returned count must be one that was executed
+        // and timed, never the next untried doubling.
+        if (calibration.iterations > cfg.max_calibration_iterations / 2) {
             return calibration;
         }
+        calibration.iterations *= 2;
     }
 }
 
