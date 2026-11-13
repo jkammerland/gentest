@@ -11,6 +11,7 @@
 #include "templates.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -23,6 +24,7 @@
 #include <map>
 #include <ranges>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
