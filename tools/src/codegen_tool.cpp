@@ -127,6 +127,39 @@ scan_include_search_paths_from_compile_commands(const std::vector<clang::tooling
 
 template <typename T> void ignore_cleanup_result([[maybe_unused]] T &&result) {}
 
+// --quiet-clang consumer: drops warnings and remarks, but still counts and
+// prints errors (with their notes). An ignoring consumer never counts errors,
+// so a translation unit that failed to parse would be reported as success and
+// silently produce an empty registration.
+class ErrorOnlyDiagnosticConsumer final : public clang::DiagnosticConsumer {
+  public:
+    explicit ErrorOnlyDiagnosticConsumer(std::unique_ptr<clang::DiagnosticConsumer> printer) : printer_(std::move(printer)) {}
+
+    void BeginSourceFile(const clang::LangOptions &lang_options, const clang::Preprocessor *preprocessor) override {
+        printer_->BeginSourceFile(lang_options, preprocessor);
+    }
+
+    void EndSourceFile() override { printer_->EndSourceFile(); }
+
+    void HandleDiagnostic(clang::DiagnosticsEngine::Level level, const clang::Diagnostic &info) override {
+        if (level >= clang::DiagnosticsEngine::Error) {
+            clang::DiagnosticConsumer::HandleDiagnostic(level, info);
+            printer_->HandleDiagnostic(level, info);
+            forward_notes_ = true;
+            return;
+        }
+        if (level == clang::DiagnosticsEngine::Note && forward_notes_) {
+            printer_->HandleDiagnostic(level, info);
+            return;
+        }
+        forward_notes_ = false;
+    }
+
+  private:
+    std::unique_ptr<clang::DiagnosticConsumer> printer_;
+    bool                                       forward_notes_ = false;
+};
+
 bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
     if (cases.empty()) {
         return true;
@@ -168,6 +201,37 @@ bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
         const std::string report_key = fmt::format("{}\n{}", c.base_name, here);
         if (reported.insert(report_key).second) {
             gentest::codegen::log_err("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", c.base_name, here,
+                                      it->second);
+        }
+    }
+
+    // Base names can differ while the registered names collide: test("p")
+    // with parameters(i, 1) and a separate test("p(1)") both register "p(1)".
+    // Uniqueness is a property of the final display name.
+    std::unordered_map<std::string, std::string> first_display_location;
+    for (const auto idx : order) {
+        if (!keep[idx]) {
+            continue;
+        }
+        const auto &c = cases[idx];
+        if (c.display_name.empty()) {
+            continue;
+        }
+        const std::string here = fmt::format("{}:{}", c.filename, c.line);
+        auto              it   = first_display_location.find(c.display_name);
+        if (it == first_display_location.end()) {
+            first_display_location.emplace(c.display_name, here);
+            continue;
+        }
+        if (it->second == here) {
+            continue; // the same declaration seen through more than one scan slot
+        }
+        ok        = false;
+        keep[idx] = false;
+
+        const std::string report_key = fmt::format("display\n{}\n{}", c.display_name, here);
+        if (reported.insert(report_key).second) {
+            gentest::codegen::log_err("gentest_codegen: duplicate test name '{}' at {} (previously declared at {})\n", c.display_name, here,
                                       it->second);
         }
     }
@@ -1990,6 +2054,35 @@ bool prefers_msvc_style_standard_flag(std::span<const std::string> args) {
     return false;
 }
 
+// Extensions the clang driver itself maps to a C or C++ header.
+bool has_driver_known_header_extension(std::string_view path) {
+    std::string extension = std::filesystem::path{std::string(path)}.extension().string();
+    std::ranges::transform(extension, extension.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return extension == ".h" || extension == ".hh" || extension == ".hpp" || extension == ".hxx";
+}
+
+// Selects the C++ header language for every input of a scan command unless
+// the command already names a language.
+void force_header_language(clang::tooling::CommandLineArguments &command_line) {
+    if (command_line.empty()) {
+        return;
+    }
+    for (const auto &arg : command_line) {
+        if (arg == "--") {
+            break;
+        }
+        if (arg.starts_with("-x") || arg == "/TP" || arg == "-TP" || arg == "/TC" || arg == "-TC" || arg.starts_with("/Tp") ||
+            arg.starts_with("-Tp") || arg.starts_with("/Tc") || arg.starts_with("-Tc")) {
+            return;
+        }
+    }
+    if (prefers_msvc_style_standard_flag(command_line)) {
+        command_line.insert(command_line.begin() + 1, "/TP");
+        return;
+    }
+    command_line.insert(command_line.begin() + 1, {"-x", "c++-header"});
+}
+
 std::string_view default_cxx_standard_arg(std::span<const std::string> args) {
     return prefers_msvc_style_standard_flag(args) ? "/std:c++20" : "-std=c++20";
 }
@@ -2021,29 +2114,34 @@ std::string normalize_compdb_lookup_path(std::string_view path, std::string_view
 
 bool is_shell_control_token(std::string_view arg) { return arg == "&&" || arg == "||" || arg == ";" || arg == "|"; }
 
-std::optional<std::string> trim_embedded_shell_control_tail(std::string_view arg) {
-    static constexpr std::array<std::string_view, 4> kEmbeddedPatterns = {" && ", " || ", " ; ", " | "};
-    for (const auto pattern : kEmbeddedPatterns) {
-        if (const auto pos = arg.find(pattern); pos != std::string_view::npos) {
-            return trim_ascii_copy(arg.substr(0, pos));
-        }
+// CMake appends "&& <cmake> -E cmake_transform_depfile ..." to Ninja custom
+// commands that declare a DEPFILE. When that outer command line is re-split by
+// something other than a shell, the tail can end up glued onto the last real
+// argument. This is the only embedded form recognised: an argument is
+// otherwise opaque, because shell operators are ordinary text inside macro
+// definitions such as -DEXPR=(1 || 0) or -DGREETING="a && b".
+std::optional<std::string> trim_embedded_depfile_transform_tail(std::string_view arg) {
+    static constexpr std::string_view kOperator = " && ";
+    static constexpr std::string_view kMarker   = " -E cmake_transform_depfile ";
+    const auto                        marker    = arg.find(kMarker);
+    if (marker == std::string_view::npos) {
+        return std::nullopt;
     }
-    static constexpr std::array<std::string_view, 4> kLeadingPatterns = {"&& ", "|| ", "; ", "| "};
-    for (const auto pattern : kLeadingPatterns) {
-        if (arg.starts_with(pattern)) {
-            return std::string{};
-        }
+    const auto pos = arg.rfind(kOperator, marker);
+    if (pos == std::string_view::npos) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return trim_ascii_copy(arg.substr(0, pos));
 }
 
+// Only a whole-token shell operator ends the compile command.
 void strip_shell_control_tail(clang::tooling::CommandLineArguments &command_line) {
     for (auto it = command_line.begin(); it != command_line.end(); ++it) {
         if (is_shell_control_token(*it)) {
             command_line.erase(it, command_line.end());
             return;
         }
-        if (const auto trimmed = trim_embedded_shell_control_tail(*it); trimmed.has_value()) {
+        if (const auto trimmed = trim_embedded_depfile_transform_tail(*it); trimmed.has_value()) {
             if (trimmed->empty()) {
                 command_line.erase(it, command_line.end());
             } else {
@@ -4821,15 +4919,14 @@ int run_codegen_tool(int argc, const char **argv) {
     clang::DiagnosticOptions diag_options;
 #endif
     std::unique_ptr<clang::DiagnosticConsumer> diag_consumer;
-    if (options.quiet_clang) {
-        diag_consumer = std::make_unique<clang::IgnoringDiagConsumer>();
-    } else {
 #if CLANG_VERSION_MAJOR >= 21
-        diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options, /*OwnsOutputStream=*/false);
+    diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options, /*OwnsOutputStream=*/false);
 #else
-        diag_options  = new clang::DiagnosticOptions();
-        diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false);
+    diag_options  = new clang::DiagnosticOptions();
+    diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false);
 #endif
+    if (options.quiet_clang) {
+        diag_consumer = std::make_unique<ErrorOnlyDiagnosticConsumer>(std::move(diag_consumer));
     }
 
     const auto        extra_args           = options.clang_args;
@@ -6031,8 +6128,18 @@ int run_codegen_tool(int argc, const char **argv) {
     const auto args_adjuster = [&]() -> clang::tooling::ArgumentsAdjuster {
         const std::string compdb_dir =
             options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
+        // Listed-header slots whose extension the clang driver does not know
+        // (.inl, .ipp, .tpp, ...) would be classified as linker input and
+        // produce no compiler job. Name their language explicitly.
+        std::unordered_set<std::string> header_language_sources;
+        for (std::size_t idx = 0; idx < options.sources.size() && idx < options.scan_slot_kinds.size(); ++idx) {
+            if (options.scan_slot_kinds[idx] == "fallback-header" && !has_driver_known_header_extension(options.sources[idx])) {
+                header_language_sources.insert(normalize_compdb_lookup_path(options.sources[idx]));
+            }
+        }
         return [resource_dir_for_compiler, default_compiler_path, default_sysroot, extra_args, compdb_dir, explicit_host_clang_path,
-                extra_module_args_by_source](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
+                extra_module_args_by_source,
+                header_language_sources](const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file) {
             const auto                         extra_module_it = extra_module_args_by_source.find(normalize_compdb_lookup_path(file.str()));
             const std::span<const std::string> extra_module_args =
                 extra_module_it != extra_module_args_by_source.end()
@@ -6041,6 +6148,9 @@ int run_codegen_tool(int argc, const char **argv) {
             auto adjusted =
                 build_adjusted_command_line(command_line, file, resource_dir_for_compiler, default_compiler_path, default_sysroot,
                                             extra_args, compdb_dir, extra_module_args, explicit_host_clang_path);
+            if (header_language_sources.contains(normalize_compdb_lookup_path(file.str()))) {
+                force_header_language(adjusted);
+            }
             if (const auto log_parse = get_env_value("GENTEST_CODEGEN_LOG_PARSE_COMMANDS"); log_parse && *log_parse != "0") {
                 gentest::codegen::log_err("gentest_codegen: parse command for '{}':\n", file.str());
                 for (const auto &arg : adjusted) {
@@ -6127,16 +6237,15 @@ int run_codegen_tool(int argc, const char **argv) {
             std::string                                diag_buffer;
             llvm::raw_string_ostream                   diag_stream(diag_buffer);
             std::unique_ptr<clang::DiagnosticConsumer> tu_diag_consumer;
-            if (options.quiet_clang) {
-                tu_diag_consumer = std::make_unique<clang::IgnoringDiagConsumer>();
-            } else {
 #if CLANG_VERSION_MAJOR >= 21
-                tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options, /*OwnsOutputStream=*/false);
+            tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options, /*OwnsOutputStream=*/false);
 #else
-                tu_diag_options  = new clang::DiagnosticOptions();
-                tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options.get(),
-                                                                                  /*OwnsOutputStream=*/false);
+            tu_diag_options  = new clang::DiagnosticOptions();
+            tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options.get(),
+                                                                              /*OwnsOutputStream=*/false);
 #endif
+            if (options.quiet_clang) {
+                tu_diag_consumer = std::make_unique<ErrorOnlyDiagnosticConsumer>(std::move(tu_diag_consumer));
             }
 
             std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> file_commands;

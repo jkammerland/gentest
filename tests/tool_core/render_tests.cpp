@@ -44,6 +44,10 @@ int main() {
     Run t;
 
     t.expect(escape_string("\\\"\n\r\t") == R"(\\\"\n\r\t)", "escape_string escapes control characters");
+    t.expect(escape_string(std::string_view("a\0"
+                                            "1\x1b\x7f",
+                                            5)) == R"(a\0001\033\177)",
+             "escape_string writes other control characters as three-digit octal escapes");
     t.expect(render_forward_decls({}, "ignored", "ignored").empty(), "render_forward_decls stays empty");
     t.contains(gentest::codegen::tpl::registration_preamble_light, "GENTEST_CASE_API_VERSION",
                "generated light preamble checks the Case API version");
@@ -254,7 +258,7 @@ int main() {
         const std::string rendered = render_wrappers(cases, templates);
         t.contains(rendered, "FREE_TEST kCaseInvoke_0\nstatic_cast<void>(::alpha::beta::plain_free());",
                    "render_wrappers emits direct free test wrappers");
-        t.contains(rendered, "[[maybe_unused]] const auto _ = ::gentest_lookup_helper_1();",
+        t.contains(rendered, "static_cast<void>(::gentest_lookup_helper_1());",
                    "render_wrappers preserves return values for parameterized free cases");
         t.contains(rendered, "return math::sum(1, 2);", "render_wrappers forwards plain call arguments inside helpers");
         t.contains(rendered, "if (!gentest_init_fixture(fx0_, \"fx::LocalFx\")) return;",
@@ -273,7 +277,7 @@ int main() {
                    "render_wrappers forwards fixture-bound helper arguments");
         t.contains(rendered, "EPHEMERAL kCaseInvoke_3\nfixture::EphemeralFx\nstatic_cast<void>(::gentest_lookup_helper_3(fx_.ref()));",
                    "render_wrappers emits plain ephemeral member wrapper content");
-        t.contains(rendered, "[[maybe_unused]] const auto _ = ::gentest_lookup_helper_4(*fx_);",
+        t.contains(rendered, "static_cast<void>(::gentest_lookup_helper_4(*fx_));",
                    "render_wrappers preserves return values for shared members");
         t.excludes(rendered, "__gentest", "render_wrappers emits no reserved double-underscore identifiers");
         t.contains(rendered, "static_cast<decltype(self)&&>(self).template go(static_cast<decltype(fx0)&&>(fx0), 42)",

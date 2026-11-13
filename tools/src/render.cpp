@@ -22,7 +22,18 @@ std::string escape_string(std::string_view value) {
         case '\n': escaped += "\\n"; break;
         case '\r': escaped += "\\r"; break;
         case '\t': escaped += "\\t"; break;
-        default: escaped.push_back(ch); break;
+        default:
+            // Remaining control characters (including NUL) as three-digit
+            // octal escapes, which a following digit cannot extend.
+            if (const unsigned byte = static_cast<unsigned char>(ch); byte < 0x20U || byte == 0x7FU) {
+                escaped.push_back('\\');
+                escaped.push_back(static_cast<char>('0' + ((byte >> 6U) & 0x7U)));
+                escaped.push_back(static_cast<char>('0' + ((byte >> 3U) & 0x7U)));
+                escaped.push_back(static_cast<char>('0' + (byte & 0x7U)));
+            } else {
+                escaped.push_back(ch);
+            }
+            break;
         }
     }
     return escaped;
@@ -340,10 +351,25 @@ std::string build_fixture_bench_inits(const std::vector<FreeFixtureUse> &types) 
     return inits;
 }
 
+// The qualified name may carry template arguments ("ns::S::m<std::string>"),
+// so the method starts after the last "::" outside angle brackets.
 std::string extract_method_name(std::string qualified) {
-    if (auto pos = qualified.rfind("::"); pos != std::string::npos)
-        return qualified.substr(pos + 2);
-    return qualified;
+    std::size_t depth = 0;
+    std::size_t start = 0;
+    for (std::size_t i = 0; i < qualified.size(); ++i) {
+        const char ch = qualified[i];
+        if (ch == '<') {
+            ++depth;
+        } else if (ch == '>') {
+            if (depth > 0) {
+                --depth;
+            }
+        } else if (ch == ':' && depth == 0 && i + 1 < qualified.size() && qualified[i + 1] == ':') {
+            start = i + 2;
+            ++i;
+        }
+    }
+    return qualified.substr(start);
 }
 
 std::string format_call_args(const std::string &value_args) {
@@ -482,9 +508,9 @@ std::string build_helper_definition(const WrapperSpec &spec, std::string_view he
 
 static std::string make_invoke_for_free(const WrapperSpec &spec, const std::string &fn, const std::string &args) {
     const std::string body_start = spec.is_death ? "::gentest::detail::CaseBodyScope gentest_body_scope; " : "";
-    if (spec.returns_value) {
-        return body_start + fmt::format("[[maybe_unused]] const auto _ = {}{};", fn, args);
-    }
+    // Discard the result in place. Binding it to a local ("const auto x = f();")
+    // copies a reference return: that does not compile for non-copyable or
+    // abstract types, and for a bench it deep-copies inside the timed loop.
     return body_start + fmt::format("static_cast<void>({}{});", fn, args);
 }
 
