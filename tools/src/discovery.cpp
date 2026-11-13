@@ -1513,7 +1513,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         if (*count < 1) {
             count = 1;
         }
-        if (static_cast<unsigned long long>(*count) > kMaxAxisValues) {
+        if (std::cmp_greater(*count, kMaxAxisValues)) {
             axis_too_large(origin, name);
             return std::nullopt;
         }

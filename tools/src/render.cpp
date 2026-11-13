@@ -25,7 +25,7 @@ std::string escape_string(std::string_view value) {
         default:
             // Remaining control characters (including NUL) as three-digit
             // octal escapes, which a following digit cannot extend.
-            if (const auto byte = static_cast<unsigned char>(ch); byte < 0x20U || byte == 0x7FU) {
+            if (const unsigned byte = static_cast<unsigned char>(ch); byte < 0x20U || byte == 0x7FU) {
                 escaped.push_back('\\');
                 escaped.push_back(static_cast<char>('0' + ((byte >> 6U) & 0x7U)));
                 escaped.push_back(static_cast<char>('0' + ((byte >> 3U) & 0x7U)));
