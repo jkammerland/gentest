@@ -2684,9 +2684,11 @@ if(GENTEST_WITH_LIBASSERT AND GENTEST_WITH_LIBASSERT_NOEXCEPT_TESTS)
             $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>,$<CXX_COMPILER_ID:AppleClang>>:-fno-exceptions>
             $<$<CXX_COMPILER_ID:MSVC>:/EHs-c->)
 
-    # Disable library throws where supported (fmt/MSVC STL); clang-cl uses Clang ID but MSVC STL
+    # Disable library throws where supported (fmt/MSVC STL); clang-cl uses Clang ID but MSVC STL.
+    # fmt 11+ reads FMT_USE_EXCEPTIONS; a system fmt 10 or older reads FMT_EXCEPTIONS.
     target_compile_definitions(${target_name_noexc}
         PRIVATE
+            FMT_USE_EXCEPTIONS=0
             FMT_EXCEPTIONS=0
             _HAS_EXCEPTIONS=0)
 
