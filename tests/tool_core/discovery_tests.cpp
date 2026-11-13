@@ -238,6 +238,30 @@ int main() {
     }
 
     {
+        // A type with a known entity is spelled canonically: unqualified means
+        // the global namespace, whatever the test's namespace declares.
+        auto same_name           = make_fixture("outer::GFx", {"outer"}, FixtureScope::Suite, "tu_global.cpp", "outer");
+        same_name.entity_key     = "fixture:outer::GFx";
+        auto global_shared       = make_fixture("SharedGlobalFx", {}, FixtureScope::Global, "tu_global.cpp");
+        global_shared.entity_key = "fixture:SharedGlobalFx@other-context";
+
+        std::vector<TestCaseInfo> cases;
+        auto                      global_local = make_test("global-local", {"outer", "leaf"}, "tu_global.cpp");
+        global_local.free_fixture_types        = {"GFx", "SharedGlobalFx"};
+        global_local.free_fixture_entity_keys  = {"fixture:GFx", "fixture:SharedGlobalFx"};
+        cases.push_back(std::move(global_local));
+
+        t.expect(resolve_free_fixtures(cases, {same_name, global_shared}), "global fixture types resolve from a namespace");
+        t.expect(cases[0].free_fixtures.size() == 2, "global fixture types resolve two uses");
+        if (cases[0].free_fixtures.size() == 2) {
+            t.expect(cases[0].free_fixtures[0].type_name == "GFx", "global local fixture is not qualified with the test namespace");
+            t.expect(cases[0].free_fixtures[0].scope == FixtureScope::Local, "global local fixture ignores a same-named declaration");
+            t.expect(cases[0].free_fixtures[1].type_name == "SharedGlobalFx", "global shared fixture resolves by its qualified name");
+            t.expect(cases[0].free_fixtures[1].scope == FixtureScope::Global, "global shared fixture keeps its declared scope");
+        }
+    }
+
+    {
         const std::vector<FixtureDeclInfo> fixtures = {
             make_fixture("outer::SharedFx", {"outer"}, FixtureScope::Suite, "tu_err.cpp", "outer"),
             make_fixture("outer::inner::NestedFx", {"outer", "inner"}, FixtureScope::Suite, "tu_err.cpp", "outer/inner"),
