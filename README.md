@@ -342,7 +342,8 @@ Build hint (GCC/Clang):
 
 ```cmake
 target_compile_options(my_tests PRIVATE -fno-exceptions)
-target_compile_definitions(my_tests PRIVATE FMT_EXCEPTIONS=0) # and on MSVC STL: _HAS_EXCEPTIONS=0
+# fmt 11 and newer read FMT_USE_EXCEPTIONS; fmt 10 and older read FMT_EXCEPTIONS.
+target_compile_definitions(my_tests PRIVATE FMT_USE_EXCEPTIONS=0) # and on MSVC STL: _HAS_EXCEPTIONS=0
 ```
 
 To test these “death” paths, tag them and run them in their own process:
