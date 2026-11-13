@@ -4939,6 +4939,20 @@ endforeach()
 unset(_gentest_driver_suffix)
 unset(_gentest_driver_mode)
 
+# Direct-invocation regressions for attribute discovery, axis expansion and
+# registration rendering; one scenario per defect.
+foreach(_gentest_cdr_scenario IN ITEMS
+        quiet_clang_parse_error)
+    _gentest_add_cmake_helper_test(
+        gentest_codegen_discovery_regression_${_gentest_cdr_scenario}
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenDiscoveryRegressions.cmake
+        cmake
+        -DSCENARIO=${_gentest_cdr_scenario})
+    set_property(TEST gentest_codegen_discovery_regression_${_gentest_cdr_scenario} APPEND PROPERTY LABELS "codegen")
+endforeach()
+unset(_gentest_cdr_scenario)
+
 gentest_add_fixture_prefix_test(
     CLANG
     gentest_codegen_header_shared_fixture_visibility
