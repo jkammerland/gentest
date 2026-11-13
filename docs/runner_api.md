@@ -48,7 +48,7 @@ Options that take one value (`--run`, `--filter`, `--kind`, `--seed`, `--repeat`
 `--report-format`, `--junit`, `--allure-dir`, `--records`, `--skip-return-code`, `--async-log-tail`, the `--bench-*` settings and
 `--jitter-bins`) may appear once; a repeated one is rejected as a CLI error (exit `1`) instead of choosing a winner. Only
 `--tag`, `--exclude-tag` and `--exclude` accumulate. Out-of-range counts are rejected too, not adjusted: `--repeat` accepts
-1–1000000 and `--bench-epochs` requires at least 1.
+1–1000000, `--bench-epochs` requires at least 1, and `--jitter-bins` accepts 1–10000.
 
 `--skip-return-code=N` (4–255) returns `N` when every selected case skips and the run has no failures. Expected failures (XFAIL)
 retain success status. Discovered ordinary CTest entries use `--skip-return-code=77` with `SKIP_RETURN_CODE=77`, so runtime and

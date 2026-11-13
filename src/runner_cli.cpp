@@ -99,6 +99,10 @@ static ParseU64DecimalResult parse_u64_decimal_strict(std::string_view s) {
 // Largest in-process repeat count; larger requests are rejected, not clamped.
 constexpr std::uint64_t kMaxRepeat = 1000000;
 
+// The histogram is allocated only after the measurement, so an absurd bin count must
+// fail here instead of running everything first and then dying in the allocation.
+constexpr std::uint64_t kMaxJitterBins = 10000;
+
 static std::uint64_t make_random_seed() {
     std::random_device rd;
     const auto         hi = static_cast<std::uint64_t>(rd()) << 32U;
@@ -543,10 +547,9 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
         if (selector_consumed)
             continue;
 
-        if (const OptionParseResult kind_result =
-                parse_value_option(i, s, "--kind", [&](std::string_view value) {
-                    return reject_duplicate_option(seen_kind, "--kind") && parse_kind_option(value, opt.kind);
-                });
+        if (const OptionParseResult kind_result = parse_value_option(
+                i, s, "--kind",
+                [&](std::string_view value) { return reject_duplicate_option(seen_kind, "--kind") && parse_kind_option(value, opt.kind); });
             kind_result != OptionParseResult::NoMatch) {
             if (kind_result == OptionParseResult::Error)
                 return false;
@@ -732,22 +735,21 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             removed_jitter_filter != OptionParseResult::NoMatch) {
             return false;
         }
-        if (const OptionParseResult jitter_bins_result =
-                parse_value_option(i, s, "--jitter-bins",
-                                   [&](std::string_view value) {
-                                       if (!reject_duplicate_option(seen_jitter_bins, "--jitter-bins"))
-                                           return false;
-                                       std::uint64_t bins = 0;
-                                       if (!parse_u64_option("--jitter-bins", value, bins))
-                                           return false;
-                                       if (bins == 0 || bins > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
-                                           fmt::print(stderr, "error: --jitter-bins must be a "
-                                                              "positive integer\n");
-                                           return false;
-                                       }
-                                       opt.jitter_bins = static_cast<int>(bins);
-                                       return true;
-                                   });
+        if (const OptionParseResult jitter_bins_result = parse_value_option(
+                i, s, "--jitter-bins",
+                [&](std::string_view value) {
+                    if (!reject_duplicate_option(seen_jitter_bins, "--jitter-bins"))
+                        return false;
+                    std::uint64_t bins = 0;
+                    if (!parse_u64_option("--jitter-bins", value, bins))
+                        return false;
+                    if (bins == 0 || bins > kMaxJitterBins) {
+                        fmt::print(stderr, "error: --jitter-bins must be between 1 and {}, got: '{}'\n", kMaxJitterBins, value);
+                        return false;
+                    }
+                    opt.jitter_bins = static_cast<int>(bins);
+                    return true;
+                });
             jitter_bins_result != OptionParseResult::NoMatch) {
             if (jitter_bins_result == OptionParseResult::Error)
                 return false;

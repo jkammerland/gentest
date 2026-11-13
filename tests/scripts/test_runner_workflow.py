@@ -193,6 +193,10 @@ def check_invalid_options(binary):
         (("--repeat=0",), "--repeat must be between 1 and 1000000"),
         (("--repeat=1000001",), "--repeat must be between 1 and 1000000"),
         (("--bench-epochs=0",), "--bench-epochs must be at least 1"),
+        # A huge histogram must fail at parse time, before anything is measured.
+        (("--jitter-bins=0",), "--jitter-bins must be between 1 and 10000"),
+        (("--jitter-bins=10001",), "--jitter-bins must be between 1 and 10000"),
+        (("--jitter-bins=2147483647",), "--jitter-bins must be between 1 and 10000"),
     ):
         result = run(binary, *arguments, expected=1)
         assert message in result.stderr and not result.stdout, result
