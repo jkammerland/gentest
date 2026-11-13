@@ -749,6 +749,31 @@ int main() {
                  "expression splitting preserves ordinary and raw string literals");
     }
 
+    // Regression: comment markers inside string, character and raw-string
+    // literals are text and must not hide later directives.
+    {
+        using gentest::codegen::scan::strip_comments_for_line_scan;
+        bool        in_block_comment = false;
+        const auto  strip            = [&](std::string_view line) { return strip_comments_for_line_scan(line, in_block_comment); };
+        std::string out              = strip(R"(#define GLOB_PATTERN "src/*.cpp")");
+        t.expect(out == R"(#define GLOB_PATTERN "src/*.cpp")", "block-comment opener inside a string literal is kept");
+        t.expect(!in_block_comment, "string literal does not open a block comment");
+        t.expect(strip("export module demo.cases;") == "export module demo.cases;", "module declaration after a glob literal is visible");
+        t.expect(strip(R"(const char *url = "http://example.com"; // trailing)") == R"(const char *url = "http://example.com"; )",
+                 "line-comment marker inside a string literal is kept");
+        t.expect(strip(R"(char slash = '/'; char star = '*'; /* gone */ int x;)") == "char slash = '/'; char star = '*';  int x;",
+                 "character literals are skipped");
+        t.expect(strip(R"(auto quoted = "a \" /* b"; int y; /* open)") == R"(auto quoted = "a \" /* b"; int y; )",
+                 "escaped quotes do not end a string literal");
+        t.expect(in_block_comment, "a real block comment still opens");
+        t.expect(strip("still comment */ import demo.dep;") == " import demo.dep;", "a real block comment still closes");
+        t.expect(strip(R"(auto raw = R"x(// not /* a comment)x"; int z; // gone)") == R"(auto raw = R"x(// not /* a comment)x"; int z; )",
+                 "raw string literals are skipped");
+        t.expect(strip("int big = 1'000'000; /* gone */ int w;") == "int big = 1'000'000;  int w;",
+                 "digit separators do not open a character literal");
+        t.expect(!in_block_comment, "no block comment remains open");
+    }
+
     // Regression: every narrow-string escape is decoded for names; unknown
     // escapes keep their backslash instead of losing it.
     {
