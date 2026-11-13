@@ -343,9 +343,17 @@ function(gentest_add_mocks target)
             string(APPEND _gentest_public_header_content "#include \"${_gentest_mock_api_header}\"\n")
             foreach(_gentest_def IN LISTS _gentest_textual_defs)
                 # Resolved through the DEFS file set's include root, in the build
-                # tree and after installation.
+                # tree and after installation. Angle brackets skip this header's
+                # own directory, so a DEFS file sharing its name is still found.
                 file(RELATIVE_PATH _gentest_public_def_include "${_gentest_defs_base_dir}" "${_gentest_def}")
-                string(APPEND _gentest_public_header_content "#include \"${_gentest_public_def_include}\"\n")
+                string(TOLOWER "${_gentest_public_def_include}" _gentest_public_def_include_key)
+                string(TOLOWER "${_gentest_public_header_rel_from_output}" _gentest_public_header_include_key)
+                if(_gentest_public_def_include_key STREQUAL _gentest_public_header_include_key)
+                    message(FATAL_ERROR
+                        "gentest_add_mocks(${target}): HEADER_NAME '${_gentest_public_header_rel_from_output}' has the same "
+                        "include path as DEFS file '${_gentest_def}'. Choose a different HEADER_NAME.")
+                endif()
+                string(APPEND _gentest_public_header_content "#include <${_gentest_public_def_include}>\n")
             endforeach()
             string(APPEND _gentest_public_header_content "#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n")
         endif()
@@ -372,6 +380,7 @@ function(gentest_add_mocks target)
         if(_gentest_uses_third_party_mock_backend)
             string(APPEND _gentest_textual_wrapper_content "#define GENTEST_NO_AUTO_MOCK_INCLUDE 1\n")
             string(APPEND _gentest_textual_wrapper_content "#define GENTEST_NO_EXPECT_CALL_MACROS 1\n")
+            string(APPEND _gentest_textual_wrapper_content "#define GENTEST_MOCK_FORWARD_ONLY 1\n")
         endif()
         foreach(_gentest_def IN LISTS _gentest_textual_defs)
             # This scan-only wrapper is never installed; include the DEFS file
@@ -379,6 +388,7 @@ function(gentest_add_mocks target)
             string(APPEND _gentest_textual_wrapper_content "#include \"${_gentest_def}\"\n")
         endforeach()
         if(_gentest_uses_third_party_mock_backend)
+            string(APPEND _gentest_textual_wrapper_content "#undef GENTEST_MOCK_FORWARD_ONLY\n")
             string(APPEND _gentest_textual_wrapper_content "#undef GENTEST_NO_EXPECT_CALL_MACROS\n")
             string(APPEND _gentest_textual_wrapper_content "#undef GENTEST_NO_AUTO_MOCK_INCLUDE\n")
         endif()

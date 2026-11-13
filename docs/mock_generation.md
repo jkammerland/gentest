@@ -156,6 +156,8 @@ A global target becomes `mocks::TypeMock`.
 `gentest_add_mocks()` uses `DEFS` files in place; it does not copy them or the headers they include. The generated
 public header includes your DEFS file, and the DEFS file includes the production headers it mocks, so a test can
 include the production header and the mock header together, in either order, with include guards or `#pragma once`.
+The public header includes each DEFS file with angle brackets by its path relative to the DEFS base directory, so
+`HEADER_NAME` may share a DEFS file's name in another directory but not its full relative path.
 
 Treat a DEFS file like any public header of the mock target: what it includes must be reachable by consumers.
 Production headers normally come from a library passed in `LINK_LIBRARIES`. Textual DEFS are published in the

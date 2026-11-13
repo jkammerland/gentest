@@ -338,6 +338,7 @@ _gentest_expect_configure_failure("mixed_surface_defs" "mixed textual and module
 _gentest_expect_configure_failure("absolute_header_name" "Absolute HEADER_NAME values")
 _gentest_expect_configure_failure("escaped_header_name" "stay within OUTPUT_DIR")
 _gentest_expect_configure_failure("reserved_header_name" "reserved generated output")
+_gentest_expect_configure_failure("defs_named_header_name" "has the same include path as DEFS file")
 _gentest_expect_configure_failure("generator_expression_defs" "generator-expression")
 _gentest_expect_configure_failure("generator_expression_output_dir" "OUTPUT_DIR")
 # DEFS are not copied, so link-library include roots are never walked at
@@ -381,6 +382,16 @@ _gentest_expect_build_success("${_third_party_defs_include_mock_h_build_dir}" "e
 if(EXISTS "${_third_party_defs_include_mock_h_build_dir}/generated/defs")
   message(FATAL_ERROR "Third-party explicit mock DEFS must not be copied")
 endif()
+# gentest/mock.h needs fmt and the gentest runtime, which third-party mock
+# targets do not link; the DEFS wrapper reduces it to the forward header.
+file(GLOB _third_party_defs_include_mock_h_wrappers "${_third_party_defs_include_mock_h_build_dir}/generated/*_defs.cpp")
+if(NOT _third_party_defs_include_mock_h_wrappers)
+  message(FATAL_ERROR "Missing third-party explicit mock DEFS wrapper")
+endif()
+foreach(_wrapper IN LISTS _third_party_defs_include_mock_h_wrappers)
+  _gentest_expect_file_contains("${_wrapper}" "#define GENTEST_MOCK_FORWARD_ONLY 1")
+  _gentest_expect_file_contains("${_wrapper}" "#undef GENTEST_MOCK_FORWARD_ONLY")
+endforeach()
 endif()
 
 _gentest_test_group_enabled(_run_third_party_negative third_party_negative)

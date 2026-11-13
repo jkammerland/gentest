@@ -135,7 +135,7 @@ foreach(_copied_defs_dir IN ITEMS
   endif()
 endforeach()
 file(READ "${_build_dir}/generated/header/public/fixture_header_mocks.hpp" _public_header_content)
-foreach(_expected_include IN ITEMS "#include \"header_mocks.hpp\"" "#include \"aggregate_header_mocks.hpp\"")
+foreach(_expected_include IN ITEMS "#include <header_mocks.hpp>" "#include <aggregate_header_mocks.hpp>")
   string(FIND "${_public_header_content}" "${_expected_include}" _expected_include_pos)
   if(_expected_include_pos EQUAL -1)
     message(FATAL_ERROR

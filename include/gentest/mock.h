@@ -1,5 +1,11 @@
 #pragma once
 
+// GMock/Trompeloeil mock targets compile their DEFS without the gentest runtime.
+// There, this header only declares the gentest::mock<T> marker.
+#ifdef GENTEST_MOCK_FORWARD_ONLY
+#include "gentest/mock_fwd.h"
+#else
+
 #include "gentest/format_value.h"
 #include "gentest/matchers.h"
 #include "gentest/mock_fwd.h"
@@ -669,3 +675,5 @@ template <class Mock> void make_strict(Mock &instance, const std::source_locatio
 #ifndef GENTEST_NO_AUTO_MOCK_INCLUDE
 #include "gentest/mock_codegen.h"
 #endif
+
+#endif // GENTEST_MOCK_FORWARD_ONLY
