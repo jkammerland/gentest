@@ -171,6 +171,146 @@ add_dependencies(gentest_test_suites gentest_format_value_tests)
 add_test(NAME format_value COMMAND gentest_format_value_tests)
 set_property(TEST format_value APPEND PROPERTY LABELS "public-api")
 
+# Public assertion/formatting header regressions. Each program owns its case
+# table: the failing cases pin their source lines with #line, and the death
+# checks require the reported location to be the test's own file and line.
+foreach(_gentest_assertion_header_test IN ITEMS throw_forms fmt_location no_rtti)
+    add_executable(gentest_assertion_headers_${_gentest_assertion_header_test}_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/${_gentest_assertion_header_test}.cpp)
+    target_compile_features(gentest_assertion_headers_${_gentest_assertion_header_test}_tests PRIVATE cxx_std_20)
+    target_link_libraries(gentest_assertion_headers_${_gentest_assertion_header_test}_tests PRIVATE gentest::gentest)
+    add_dependencies(gentest_test_suites gentest_assertion_headers_${_gentest_assertion_header_test}_tests)
+    add_test(NAME assertion_headers_${_gentest_assertion_header_test}_pass
+        COMMAND gentest_assertion_headers_${_gentest_assertion_header_test}_tests
+            --filter=${_gentest_assertion_header_test}/passing/* --no-color)
+    set_property(TEST assertion_headers_${_gentest_assertion_header_test}_pass APPEND PROPERTY LABELS "public-api;headers")
+endforeach()
+unset(_gentest_assertion_header_test)
+target_compile_options(gentest_assertion_headers_no_rtti_tests PRIVATE
+    $<IF:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>,/GR-,-fno-rtti>)
+
+gentest_add_check_death(
+    NAME assertion_headers_throw_forms_fail
+    PROG gentest_assertion_headers_throw_forms_tests
+    ARGS --filter=throw_forms/failing/* --no-color
+    REQUIRED_SUBSTRINGS
+        "throw_forms.cpp:2001"
+        "caught std::exception: callable expect boom"
+        "throw_forms.cpp:2002"
+        "caught std::exception: callable assert boom"
+        "throw_forms.cpp:2003"
+        "caught std::exception: invoked lambda boom"
+        "throw_forms.cpp:2004"
+        "but no exception was thrown"
+        "throw_forms.cpp:2005"
+        "throw_forms.cpp:2006")
+gentest_add_check_death(
+    NAME assertion_headers_fmt_location_fail
+    PROG gentest_assertion_headers_fmt_location_tests
+    ARGS --filter=fmt_location/failing/* --no-color
+    REQUIRED_SUBSTRINGS
+        "fmt_location.cpp:1001"
+        "lower expect 1"
+        "fmt_location.cpp:1002"
+        "lower expect_true 2"
+        "fmt_location.cpp:1003"
+        "lower expect_eq 3"
+        "fmt_location.cpp:1004"
+        "lower expect_ne 4"
+        "fmt_location.cpp:1005"
+        "lower require 5"
+        "fmt_location.cpp:1006"
+        "lower require_eq 6"
+        "fmt_location.cpp:1007"
+        "lower require_ne 7"
+        "fmt_location.cpp:1008"
+        "upper EXPECT_TRUE 8"
+        "fmt_location.cpp:1009"
+        "upper EXPECT_EQ 9"
+        "fmt_location.cpp:1010"
+        "upper EXPECT_NE 10"
+        "fmt_location.cpp:1011"
+        "upper ASSERT_TRUE 11"
+        "fmt_location.cpp:1012"
+        "upper ASSERT_EQ 12"
+        "fmt_location.cpp:1013"
+        "upper ASSERT_NE 13"
+        "fmt_location.cpp:1014"
+        "runtime format 14")
+gentest_add_check_death(
+    NAME assertion_headers_no_rtti_fail
+    PROG gentest_assertion_headers_no_rtti_tests
+    ARGS --filter=no_rtti/failing/* --no-color
+    REQUIRED_SUBSTRINGS
+        "no_rtti.cpp:3001"
+        "but caught std::exception: expect mismatch"
+        "no_rtti.cpp:3002"
+        "but caught std::exception: assert mismatch")
+set_property(TEST
+        assertion_headers_throw_forms_fail
+        assertion_headers_fmt_location_fail
+        assertion_headers_no_rtti_fail
+    APPEND PROPERTY LABELS "public-api;headers")
+
+# gentest/record_cbor.h must compile with exceptions disabled. The optional
+# cbor_tags dependency is replaced by a stand-in encoder header here; the real
+# adapter is covered by GENTEST_ENABLE_RECORDING_ADAPTER_TESTS.
+add_executable(gentest_assertion_headers_record_cbor_noexceptions
+    ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/record_cbor_noexceptions.cpp)
+target_compile_features(gentest_assertion_headers_record_cbor_noexceptions PRIVATE cxx_std_20)
+target_include_directories(gentest_assertion_headers_record_cbor_noexceptions BEFORE PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/stubs)
+target_link_libraries(gentest_assertion_headers_record_cbor_noexceptions PRIVATE gentest::gentest)
+if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_options(gentest_assertion_headers_record_cbor_noexceptions PRIVATE /EHs-c-)
+    target_compile_definitions(gentest_assertion_headers_record_cbor_noexceptions PRIVATE _HAS_EXCEPTIONS=0)
+else()
+    target_compile_options(gentest_assertion_headers_record_cbor_noexceptions PRIVATE -fno-exceptions)
+endif()
+add_dependencies(gentest_test_suites gentest_assertion_headers_record_cbor_noexceptions)
+add_test(NAME assertion_headers_record_cbor_noexceptions COMMAND gentest_assertion_headers_record_cbor_noexceptions)
+set_property(TEST assertion_headers_record_cbor_noexceptions APPEND PROPERTY LABELS "public-api;headers;reporting")
+
+# A lambda-expression handed to a statement macro would never be called, so the
+# macros reject it at compile time. Drive the compiler directly to observe the
+# diagnostic; variant 4 is the control that must compile.
+if(NOT CMAKE_CROSSCOMPILING AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
+    set(_gentest_probe_includes
+        "$<LIST:FILTER,$<TARGET_PROPERTY:gentest_assertion_headers_throw_forms_tests,INCLUDE_DIRECTORIES>,EXCLUDE,^$>")
+    separate_arguments(_gentest_probe_flags NATIVE_COMMAND "${CMAKE_CXX_FLAGS}")
+    if(CMAKE_OSX_SYSROOT)
+        list(APPEND _gentest_probe_flags -isysroot "${CMAKE_OSX_SYSROOT}")
+    endif()
+    set(_gentest_probe_args
+        ${_gentest_probe_flags}
+        -std=c++20
+        -fsyntax-only
+        "$<LIST:TRANSFORM,${_gentest_probe_includes},PREPEND,-I>"
+        ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/uncalled_lambda_rejected.cpp)
+    set(_gentest_probe_macros EXPECT_NO_THROW ASSERT_NO_THROW EXPECT_THROW ASSERT_THROW)
+    foreach(_gentest_probe_variant RANGE 0 3)
+        list(GET _gentest_probe_macros ${_gentest_probe_variant} _gentest_probe_macro)
+        gentest_add_check_death(
+            NAME assertion_headers_uncalled_lambda_rejected_${_gentest_probe_macro}
+            PROG ${CMAKE_CXX_COMPILER}
+            NO_EMULATOR
+            ARGS ${_gentest_probe_args} -DGENTEST_PROBE_VARIANT=${_gentest_probe_variant}
+            REQUIRED_SUBSTRING "${_gentest_probe_macro} executes its argument as a statement, so this lambda-expression would never be called")
+        set_property(TEST assertion_headers_uncalled_lambda_rejected_${_gentest_probe_macro}
+            APPEND PROPERTY LABELS "public-api;headers")
+    endforeach()
+    add_test(NAME assertion_headers_uncalled_lambda_control
+        COMMAND ${CMAKE_CXX_COMPILER} ${_gentest_probe_args} -DGENTEST_PROBE_VARIANT=4
+        COMMAND_EXPAND_LISTS)
+    set_property(TEST assertion_headers_uncalled_lambda_control APPEND PROPERTY LABELS "public-api;headers")
+    unset(_gentest_probe_args)
+    unset(_gentest_probe_flags)
+    unset(_gentest_probe_includes)
+    unset(_gentest_probe_macro)
+    unset(_gentest_probe_macros)
+    unset(_gentest_probe_variant)
+endif()
+
 add_executable(gentest_narrow_sync_surface_api_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/narrow_sync_surface_api.cpp)
 target_compile_features(gentest_narrow_sync_surface_api_tests PRIVATE cxx_std_20)
