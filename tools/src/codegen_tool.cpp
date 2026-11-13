@@ -127,6 +127,39 @@ scan_include_search_paths_from_compile_commands(const std::vector<clang::tooling
 
 template <typename T> void ignore_cleanup_result([[maybe_unused]] T &&result) {}
 
+// --quiet-clang consumer: drops warnings and remarks, but still counts and
+// prints errors (with their notes). An ignoring consumer never counts errors,
+// so a translation unit that failed to parse would be reported as success and
+// silently produce an empty registration.
+class ErrorOnlyDiagnosticConsumer final : public clang::DiagnosticConsumer {
+  public:
+    explicit ErrorOnlyDiagnosticConsumer(std::unique_ptr<clang::DiagnosticConsumer> printer) : printer_(std::move(printer)) {}
+
+    void BeginSourceFile(const clang::LangOptions &lang_options, const clang::Preprocessor *preprocessor) override {
+        printer_->BeginSourceFile(lang_options, preprocessor);
+    }
+
+    void EndSourceFile() override { printer_->EndSourceFile(); }
+
+    void HandleDiagnostic(clang::DiagnosticsEngine::Level level, const clang::Diagnostic &info) override {
+        if (level >= clang::DiagnosticsEngine::Error) {
+            clang::DiagnosticConsumer::HandleDiagnostic(level, info);
+            printer_->HandleDiagnostic(level, info);
+            forward_notes_ = true;
+            return;
+        }
+        if (level == clang::DiagnosticsEngine::Note && forward_notes_) {
+            printer_->HandleDiagnostic(level, info);
+            return;
+        }
+        forward_notes_ = false;
+    }
+
+  private:
+    std::unique_ptr<clang::DiagnosticConsumer> printer_;
+    bool                                       forward_notes_ = false;
+};
+
 bool enforce_unique_base_names(std::vector<TestCaseInfo> &cases) {
     if (cases.empty()) {
         return true;
@@ -4821,15 +4854,14 @@ int run_codegen_tool(int argc, const char **argv) {
     clang::DiagnosticOptions diag_options;
 #endif
     std::unique_ptr<clang::DiagnosticConsumer> diag_consumer;
-    if (options.quiet_clang) {
-        diag_consumer = std::make_unique<clang::IgnoringDiagConsumer>();
-    } else {
 #if CLANG_VERSION_MAJOR >= 21
-        diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options, /*OwnsOutputStream=*/false);
+    diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options, /*OwnsOutputStream=*/false);
 #else
-        diag_options  = new clang::DiagnosticOptions();
-        diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false);
+    diag_options  = new clang::DiagnosticOptions();
+    diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(llvm::errs(), diag_options.get(), /*OwnsOutputStream=*/false);
 #endif
+    if (options.quiet_clang) {
+        diag_consumer = std::make_unique<ErrorOnlyDiagnosticConsumer>(std::move(diag_consumer));
     }
 
     const auto        extra_args           = options.clang_args;
@@ -6127,16 +6159,15 @@ int run_codegen_tool(int argc, const char **argv) {
             std::string                                diag_buffer;
             llvm::raw_string_ostream                   diag_stream(diag_buffer);
             std::unique_ptr<clang::DiagnosticConsumer> tu_diag_consumer;
-            if (options.quiet_clang) {
-                tu_diag_consumer = std::make_unique<clang::IgnoringDiagConsumer>();
-            } else {
 #if CLANG_VERSION_MAJOR >= 21
-                tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options, /*OwnsOutputStream=*/false);
+            tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options, /*OwnsOutputStream=*/false);
 #else
-                tu_diag_options  = new clang::DiagnosticOptions();
-                tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options.get(),
-                                                                                  /*OwnsOutputStream=*/false);
+            tu_diag_options  = new clang::DiagnosticOptions();
+            tu_diag_consumer = std::make_unique<clang::TextDiagnosticPrinter>(diag_stream, tu_diag_options.get(),
+                                                                              /*OwnsOutputStream=*/false);
 #endif
+            if (options.quiet_clang) {
+                tu_diag_consumer = std::make_unique<ErrorOnlyDiagnosticConsumer>(std::move(tu_diag_consumer));
             }
 
             std::unordered_map<std::string, std::vector<clang::tooling::CompileCommand>> file_commands;
