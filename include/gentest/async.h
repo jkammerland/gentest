@@ -82,6 +82,8 @@ class AsyncScheduler {
                                                  .publish    = AsyncCallback<>{std::forward<Publish>(publish)}});
         }
 
+        // Cancellation also revokes a completion that invoke/post already queued
+        // but the scheduler has not delivered yet: that completion is dropped.
         void cancel() noexcept {
             if (!canceled_->exchange(true, std::memory_order_acq_rel) && external()) {
                 notify_external_change();
@@ -425,8 +427,10 @@ class yield_awaitable {
     return yield_awaitable{loc};
 }
 
-[[nodiscard]] inline auto yield(std::stop_token stop, const std::source_location &loc = std::source_location::current())
-    -> yield_awaitable {
+// A template so exception-disabled builds reject it only when it is called.
+template <std::same_as<std::stop_token> Token>
+[[nodiscard]] auto yield(Token stop, const std::source_location &loc = std::source_location::current()) -> yield_awaitable {
+    detail::require_async_explicit_stop_support<Token>();
     return yield_awaitable{loc, stop};
 }
 
@@ -546,6 +550,7 @@ template <typename Rep, typename Period>
 template <typename Rep, typename Period>
 [[nodiscard]] inline auto sleep_for(std::chrono::duration<Rep, Period> duration, std::stop_token stop,
                                     const std::source_location &loc = std::source_location::current()) -> sleep_awaitable {
+    detail::require_async_explicit_stop_support<Rep>();
     return sleep_awaitable{deadline_detail::deadline_after(duration), loc, stop};
 }
 
@@ -558,6 +563,7 @@ template <typename Duration>
 template <typename Duration>
 [[nodiscard]] inline auto sleep_until(std::chrono::time_point<std::chrono::steady_clock, Duration> deadline, std::stop_token stop,
                                       const std::source_location &loc = std::source_location::current()) -> sleep_awaitable {
+    detail::require_async_explicit_stop_support<Duration>();
     return sleep_awaitable{deadline_detail::deadline_at(deadline), loc, stop};
 }
 
@@ -722,6 +728,7 @@ template <typename T = std::any> class event {
 
     [[nodiscard]] auto wait(std::string key, std::stop_token stop, const std::source_location &loc = std::source_location::current())
         -> awaitable {
+        detail::require_async_explicit_stop_support<T>();
         return awaitable{*this, std::move(key), loc, stop};
     }
 

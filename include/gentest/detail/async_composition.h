@@ -574,23 +574,46 @@ class timeout_awaitable
 
 } // namespace timeout_detail
 
-template <typename... Input> [[nodiscard]] auto when_all(Input &&...input) {
-    return detail::AsyncCompositionAwaitable<detail::AsyncCompositionKind::All, std::chrono::steady_clock,
-                                             detail::AsyncStoredInput<Input>...>{{},
-                                                                                 std::source_location::current(),
-                                                                                 std::forward<Input>(input)...};
-}
+// when_all and when_any are class templates used through deduction so that a
+// call such as when_all(a(), b()) can also default a trailing source location
+// to its caller; a variadic function template has no room for that parameter.
+// The call syntax is unchanged and the result is awaited or stored as before.
+template <typename... Input>
+class when_all : public detail::AsyncCompositionAwaitable<detail::AsyncCompositionKind::All, std::chrono::steady_clock,
+                                                          detail::AsyncStoredInput<Input>...> {
+    using Base =
+        detail::AsyncCompositionAwaitable<detail::AsyncCompositionKind::All, std::chrono::steady_clock, detail::AsyncStoredInput<Input>...>;
+
+  public:
+    // NOLINTNEXTLINE(google-explicit-constructor) - A one-input join keeps the function-call syntax.
+    [[nodiscard]] when_all(Input &&...input, const std::source_location &loc = std::source_location::current())
+        : Base(detail::AsyncTimePoint{}, loc, std::forward<Input>(input)...) {}
+};
+
+template <typename... Input> when_all(Input &&...) -> when_all<Input...>;
+// A composition passed as the only input is joined, not copied or moved.
+template <typename... Input> when_all(when_all<Input...> &&) -> when_all<when_all<Input...>>;
+template <typename... Input> when_all(when_all<Input...> &) -> when_all<when_all<Input...> &>;
 
 template <typename... Input>
     requires(sizeof...(Input) != 0)
-[[nodiscard]] auto when_any(Input &&...input) {
-    static_assert(GENTEST_EXCEPTIONS_ENABLED || sizeof...(Input) == 0,
-                  "gentest::async::when_any requires exception support for cancellation and joining");
-    return detail::AsyncCompositionAwaitable<detail::AsyncCompositionKind::Any, std::chrono::steady_clock,
-                                             detail::AsyncStoredInput<Input>...>{{},
-                                                                                 std::source_location::current(),
-                                                                                 std::forward<Input>(input)...};
-}
+class when_any : public detail::AsyncCompositionAwaitable<detail::AsyncCompositionKind::Any, std::chrono::steady_clock,
+                                                          detail::AsyncStoredInput<Input>...> {
+    using Base =
+        detail::AsyncCompositionAwaitable<detail::AsyncCompositionKind::Any, std::chrono::steady_clock, detail::AsyncStoredInput<Input>...>;
+
+  public:
+    // NOLINTNEXTLINE(google-explicit-constructor) - A one-input race keeps the function-call syntax.
+    [[nodiscard]] when_any(Input &&...input, const std::source_location &loc = std::source_location::current())
+        : Base(detail::AsyncTimePoint{}, loc, std::forward<Input>(input)...) {
+        static_assert(GENTEST_EXCEPTIONS_ENABLED || sizeof...(Input) == 0,
+                      "gentest::async::when_any requires exception support for cancellation and joining");
+    }
+};
+
+template <typename... Input> when_any(Input &&...) -> when_any<Input...>;
+template <typename... Input> when_any(when_any<Input...> &&) -> when_any<when_any<Input...>>;
+template <typename... Input> when_any(when_any<Input...> &) -> when_any<when_any<Input...> &>;
 
 template <typename Awaitable, typename Duration>
 [[nodiscard]] auto wait_until(Awaitable &&awaitable, std::chrono::time_point<std::chrono::steady_clock, Duration> deadline,

@@ -1,3 +1,5 @@
+#include "notification_linux_test_hooks.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -14,8 +16,10 @@
 #include <poll.h>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <sys/eventfd.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <system_error>
 #include <thread>
@@ -70,16 +74,55 @@ void configureFd(int fd) {
     }
 }
 
+// Validation only inspects. A descriptor number can name a file this process
+// does not own, so nothing may be configured, written, or closed before both
+// descriptors are known to be notification endpoints.
 void validateSocket(int fd) {
     int       type{};
     int       domain{};
     socklen_t size = sizeof(type);
     if (::getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) < 0 || ::getsockopt(fd, SOL_SOCKET, SO_DOMAIN, &domain, &size) < 0) {
+        if (errno == ENOTSOCK) {
+            throw std::invalid_argument("notification transport requires an AF_UNIX SOCK_SEQPACKET socket");
+        }
         systemFailure("inspect notification socket");
     }
     if (type != SOCK_SEQPACKET || domain != AF_UNIX) {
         throw std::invalid_argument("notification transport requires an AF_UNIX SOCK_SEQPACKET socket");
     }
+}
+
+void validateFaultEvent(int fd) {
+    struct stat status{};
+    const int   statusFlags = ::fcntl(fd, F_GETFL);
+    if (statusFlags < 0 || ::fstat(fd, &status) < 0) {
+        systemFailure("inspect notification fault descriptor");
+    }
+    // An eventfd is a read-write anonymous inode: never one of the named file
+    // types. /proc identifies it exactly wherever procfs is mounted.
+    const auto type     = static_cast<unsigned>(status.st_mode) & static_cast<unsigned>(S_IFMT);
+    bool       accepted = (static_cast<unsigned>(statusFlags) & static_cast<unsigned>(O_ACCMODE)) == static_cast<unsigned>(O_RDWR) &&
+                          type != S_IFREG && type != S_IFDIR && type != S_IFCHR && type != S_IFBLK && type != S_IFIFO && type != S_IFSOCK &&
+                          type != S_IFLNK;
+    if (accepted) {
+        char       target[64]{};
+        const auto path   = "/proc/self/fd/" + std::to_string(fd);
+        const auto length = ::readlink(path.c_str(), target, sizeof(target) - 1);
+        if (length >= 0) {
+            accepted = std::string_view(target, static_cast<std::size_t>(length)) == "anon_inode:[eventfd]";
+        }
+    }
+    if (!accepted) {
+        throw std::invalid_argument("notification fault descriptor must be an eventfd");
+    }
+}
+
+void validateDescriptors(const NotificationDescriptors &descriptors) {
+    if (descriptors.socket < 0 || descriptors.fault < 0 || descriptors.socket == descriptors.fault) {
+        throw std::invalid_argument("notification transport requires two distinct valid descriptors");
+    }
+    validateSocket(descriptors.socket);
+    validateFaultEvent(descriptors.fault);
 }
 
 void signalEvent(int fd, std::uint64_t value = 1) noexcept {
@@ -124,6 +167,10 @@ WatchdogFailure failureFor(ProducerIdentity producer, WatchdogFailureCode code, 
     return failure;
 }
 } // namespace
+
+namespace detail {
+std::atomic<WatchdogReceiveDrainedHook> watchdogReceiveDrainedHook{nullptr};
+} // namespace detail
 
 LinuxNotificationChannel::LinuxNotificationChannel(Endpoints endpoints) noexcept
     : producer_(endpoints.producer), monitor_(endpoints.monitor) {}
@@ -173,41 +220,54 @@ NotificationDescriptors LinuxNotificationChannel::releaseProducer() noexcept { r
 NotificationDescriptors LinuxNotificationChannel::releaseMonitor() noexcept { return std::exchange(monitor_, {}); }
 
 struct LinuxNotificationSink::State {
-    NotificationDescriptors descriptors;
-    ProducerIdentity        producer;
-    const pid_t             creator = ::getpid();
-    int                     wake{-1};
-    std::mutex              mutex;
-    std::condition_variable drained;
+    NotificationDescriptors      descriptors;
+    ProducerIdentity             producer;
+    const pid_t                  creator = ::getpid();
+    int                          wake{-1};
+    std::mutex                   mutex;
+    std::condition_variable      drained;
+    static constexpr std::size_t noCell = std::numeric_limits<std::size_t>::max();
     struct Slot {
         EncodedNotification record;
+        std::size_t         cell{noCell};
         std::atomic<bool>   ready{false};
     };
-    static constexpr std::uint64_t closedBit = std::uint64_t{1} << 63u;
-    std::unique_ptr<Slot[]>        queue;
-    const std::size_t              capacity;
-    std::atomic<std::size_t>       producerPosition{0};
-    std::atomic<std::size_t>       consumerPosition{0};
-    std::atomic<std::uint64_t>     admission{0};
-    bool                           complete{false};
-    std::atomic<NotifyResult>      status{NotifyResult::accepted};
-    std::unique_ptr<std::thread>   writer;
+    // One cell marks a progress record that is admitted but not yet taken by the
+    // writer. tag: 0 free, 1 being claimed, otherwise the payload/epoch hash.
+    struct ProgressCell {
+        std::atomic<std::uint64_t> subject{0};
+        std::atomic<std::uint64_t> tag{0};
+    };
+    static constexpr std::size_t    maximumProgressCells = 256;
+    static constexpr std::uint64_t  closedBit            = std::uint64_t{1} << 63u;
+    std::unique_ptr<Slot[]>         queue;
+    const std::size_t               capacity;
+    std::atomic<std::size_t>        producerPosition{0};
+    std::atomic<std::size_t>        consumerPosition{0};
+    std::atomic<std::uint64_t>      admission{0};
+    std::unique_ptr<ProgressCell[]> progressCells;
+    const std::size_t               progressCellCount;
+    std::atomic<std::uint64_t>      progressEpoch{0};
+    bool                            complete{false};
+    std::atomic<NotifyResult>       status{NotifyResult::accepted};
+    std::unique_ptr<std::thread>    writer;
 
     State(NotificationDescriptors &owned, ProducerIdentity identity, std::size_t queueCapacity)
-        : descriptors(std::exchange(owned, {})), producer(identity), capacity(queueCapacity) {
+        : descriptors(std::exchange(owned, {})), producer(identity), capacity(queueCapacity),
+          progressCellCount(std::min(queueCapacity, maximumProgressCells)) {
         try {
-            if (capacity == 0 || identity.id == 0 || identity.generation == 0 || descriptors.socket < 0 || descriptors.fault < 0 ||
-                descriptors.socket == descriptors.fault) {
-                throw std::invalid_argument("notification sink requires valid descriptors, identity, and queue capacity");
+            if (capacity == 0 || identity.id == 0 || identity.generation == 0) {
+                throw std::invalid_argument("notification sink requires a valid identity and queue capacity");
             }
-            validateSocket(descriptors.socket);
+            validateDescriptors(descriptors);
             configureFd(descriptors.socket);
             configureFd(descriptors.fault);
             wake = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
             if (wake < 0) {
                 systemFailure("create notification writer wake eventfd");
             }
-            queue = std::make_unique<Slot[]>(capacity);
+            queue         = std::make_unique<Slot[]>(capacity);
+            progressCells = std::make_unique<ProgressCell[]>(progressCellCount);
         } catch (...) {
             closeDescriptors(descriptors);
             closeFd(wake);
@@ -223,6 +283,48 @@ struct LinuxNotificationSink::State {
         }
         closeDescriptors(descriptors);
         closeFd(wake);
+    }
+
+    // The epoch separates progress from a later lifecycle or allowance record of
+    // any subject, so coalescing never moves progress across one of those.
+    static std::uint64_t progressTag(std::string_view payload, std::uint64_t epoch) noexcept {
+        constexpr std::uint64_t prime = 1099511628211ULL;
+        std::uint64_t           hash  = (14695981039346656037ULL ^ epoch) * prime;
+        for (const char ch : payload) {
+            hash = (hash ^ static_cast<unsigned char>(ch)) * prime;
+        }
+        return hash | 2U;
+    }
+
+    // True while an identical progress record of this subject is still queued.
+    // The writer frees the cell before sending, so a record found here reaches
+    // the monitor after this call began and renews the deadline no earlier.
+    bool progressPending(std::uint64_t subject, std::uint64_t tag) const noexcept {
+        const auto first = static_cast<std::size_t>(subject % progressCellCount);
+        for (std::size_t probe = 0; probe != progressCellCount; ++probe) {
+            const auto &cell = progressCells[(first + probe) % progressCellCount];
+            // Re-reading the tag rejects a cell recycled between the two loads.
+            if (cell.tag.load(std::memory_order_acquire) == tag && cell.subject.load(std::memory_order_acquire) == subject &&
+                cell.tag.load(std::memory_order_acquire) == tag) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    std::size_t claimProgressCell(std::uint64_t subject, std::uint64_t tag) noexcept {
+        const auto first = static_cast<std::size_t>(subject % progressCellCount);
+        for (std::size_t probe = 0; probe != progressCellCount; ++probe) {
+            const auto    index    = (first + probe) % progressCellCount;
+            auto         &cell     = progressCells[index];
+            std::uint64_t expected = 0;
+            if (cell.tag.load(std::memory_order_relaxed) == 0 && cell.tag.compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
+                cell.subject.store(subject, std::memory_order_release);
+                cell.tag.store(tag, std::memory_order_release);
+                return index;
+            }
+        }
+        return noCell;
     }
 
     void fault(NotifyResult reason) noexcept {
@@ -245,6 +347,10 @@ struct LinuxNotificationSink::State {
             auto      &slot     = queue[position % capacity];
             if (slot.ready.load(std::memory_order_acquire)) {
                 record = slot.record;
+                if (slot.cell != noCell) {
+                    // From here on an identical progress submission queues anew.
+                    progressCells[slot.cell].tag.store(0, std::memory_order_release);
+                }
                 slot.ready.store(false, std::memory_order_release);
                 consumerPosition.store(position + 1, std::memory_order_release);
                 haveRecord = true;
@@ -330,6 +436,19 @@ NotifyResult LinuxNotificationSink::submit(const Notification &notification) noe
         return NotifyResult::invalid_record;
     }
 
+    // Progress only renews a deadline at receipt time. While an identical record
+    // of the same subject is still queued, another one adds nothing, so a tight
+    // suspension loop occupies one slot instead of overflowing the queue.
+    const bool    coalescible = notification.kind == NotificationKind::progress;
+    std::uint64_t progressTag = 0;
+    if (coalescible) {
+        progressTag = State::progressTag(notification.payload, state_->progressEpoch.load(std::memory_order_acquire));
+        if (state_->progressPending(notification.subject, progressTag)) {
+            return (state_->admission.load(std::memory_order_acquire) & State::closedBit) != 0 ? NotifyResult::closed
+                                                                                               : NotifyResult::accepted;
+        }
+    }
+
     // Encoding into stack storage bounds work and copies caller-owned payloads.
     Notification temporary = notification;
     temporary.sequence     = 1;
@@ -346,6 +465,12 @@ NotifyResult LinuxNotificationSink::submit(const Notification &notification) noe
         state_->admission.fetch_sub(1, std::memory_order_release);
         signalEvent(state_->wake);
         return NotifyResult::closed;
+    }
+    std::size_t cell = State::noCell;
+    if (coalescible) {
+        cell = state_->claimProgressCell(notification.subject, progressTag);
+    } else if (notification.kind != NotificationKind::custom) {
+        state_->progressEpoch.fetch_add(1, std::memory_order_acq_rel);
     }
     auto position = state_->producerPosition.load(std::memory_order_relaxed);
     for (;;) {
@@ -371,6 +496,7 @@ NotifyResult LinuxNotificationSink::submit(const Notification &notification) noe
     }
     auto &slot  = state_->queue[position % state_->capacity];
     slot.record = record;
+    slot.cell   = cell;
     slot.ready.store(true, std::memory_order_release);
     state_->admission.fetch_sub(1, std::memory_order_release);
     signalEvent(state_->wake);
@@ -435,6 +561,14 @@ Notifier notifierFromEnvironment(std::uint64_t subject) {
     ProducerIdentity        producer;
     parsePair(fds, descriptors.socket, descriptors.fault);
     parsePair(identity, producer.id, producer.generation);
+    // The numbers come from the environment, not from an owner. A wrapper may
+    // have closed the inherited descriptors and reused the numbers for a log
+    // file or socket, so nothing is adopted, reconfigured, or closed unless
+    // both name notification endpoints.
+    if (producer.id == 0 || producer.generation == 0) {
+        throw std::invalid_argument("invalid notification descriptor or producer identity");
+    }
+    validateDescriptors(descriptors);
     auto sink = LinuxNotificationSink::attach(descriptors, producer);
     ::unsetenv("GENTEST_NOTIFY_FDS");
     ::unsetenv("GENTEST_NOTIFY_ID");
@@ -481,16 +615,15 @@ struct WatchdogMonitor::State {
         : descriptors(std::exchange(owned, {})), producer(identity), config(policy), options(limits), model(policy),
           observer(std::move(callback)) {
         try {
-            if (descriptors.socket < 0 || descriptors.fault < 0 || descriptors.socket == descriptors.fault || identity.id == 0 ||
-                identity.generation == 0 || options.observerCapacity == 0 || options.shutdownGrace <= std::chrono::milliseconds::zero() ||
-                options.shutdownCutoff <= options.shutdownGrace ||
+            if (identity.id == 0 || identity.generation == 0 || options.observerCapacity == 0 ||
+                options.shutdownGrace <= std::chrono::milliseconds::zero() || options.shutdownCutoff <= options.shutdownGrace ||
                 options.shutdownCutoff > std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::nanoseconds::max())) {
-                throw std::invalid_argument("watchdog requires valid descriptors, identity, positive grace and a later shutdown cutoff");
+                throw std::invalid_argument("watchdog requires a valid identity, positive grace and a later shutdown cutoff");
             }
             if (model.failure()) {
                 throw std::invalid_argument("invalid watchdog configuration");
             }
-            validateSocket(descriptors.socket);
+            validateDescriptors(descriptors);
             configureFd(descriptors.socket);
             configureFd(descriptors.fault);
             wake = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
@@ -704,63 +837,83 @@ struct WatchdogMonitor::State {
 
             bool receiveDrained = eof;
 
-            // Bound each receive batch so a busy producer cannot starve deadlines.
-            for (std::size_t batch = 0; batch < 64 && !eof && !model.failure(); ++batch) {
-                EncodedNotification record;
-                const auto received = ::recv(descriptors.socket, record.bytes.data(), record.bytes.size(), MSG_DONTWAIT | MSG_TRUNC);
-                if (received < 0 && errno == EINTR) {
-                    continue;
-                }
-                if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                    receiveDrained = true;
-                    break;
-                }
-                if (received == 0) {
-                    eof            = true;
-                    receiveDrained = true;
-                    if (!disarmed.load() && (model.activeSubjects() != 0 || !sawSubject)) {
-                        recordFailure(failureFor(producer, WatchdogFailureCode::transport_error,
-                                                 "notification channel closed before subjects finished"));
+            const auto receiveBatch = [&] {
+                receiveDrained = eof;
+                // Bound each receive batch so a busy producer cannot starve deadlines.
+                for (std::size_t batch = 0; batch < 64 && !eof && !model.failure(); ++batch) {
+                    EncodedNotification record;
+                    const auto received = ::recv(descriptors.socket, record.bytes.data(), record.bytes.size(), MSG_DONTWAIT | MSG_TRUNC);
+                    if (received < 0 && errno == EINTR) {
+                        continue;
                     }
-                    break;
+                    if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                        receiveDrained = true;
+                        break;
+                    }
+                    if (received == 0) {
+                        eof            = true;
+                        receiveDrained = true;
+                        if (!disarmed.load() && (model.activeSubjects() != 0 || !sawSubject)) {
+                            recordFailure(failureFor(producer, WatchdogFailureCode::transport_error,
+                                                     "notification channel closed before subjects finished"));
+                        }
+                        break;
+                    }
+                    if (received < 0 || std::cmp_greater(received, record.bytes.size())) {
+                        recordFailure(
+                            failureFor(producer, WatchdogFailureCode::invalid_record, "invalid or truncated notification packet"));
+                        break;
+                    }
+                    record.size = static_cast<std::size_t>(received);
+                    Notification notification;
+                    if (decodeNotification(record.view(), notification) != NotifyResult::accepted || notification.producer != producer) {
+                        recordFailure(failureFor(producer, WatchdogFailureCode::invalid_record,
+                                                 "malformed notification or unregistered producer identity"));
+                        break;
+                    }
+                    const auto now = Clock::now();
+                    if (!disarmed.load() && !finishing && !stopping && model.activeSubjects() == 0 && now >= idleDeadline) {
+                        recordFailure(
+                            failureFor(producer, WatchdogFailureCode::inactivity, "service was inactive before a subject started"));
+                        break;
+                    }
+                    const auto     previousSubjects = model.activeSubjects();
+                    WatchdogResult accepted;
+                    {
+                        // Serialize disarm against expiry inside model admission.
+                        std::lock_guard lock(mutex);
+                        accepted = disarmed.load() ? WatchdogResult::ignored : model.accept(notification, now);
+                    }
+                    if (accepted == WatchdogResult::failed) {
+                        break;
+                    }
+                    if (notification.kind == NotificationKind::subject_started && accepted == WatchdogResult::accepted) {
+                        sawSubject = true;
+                    }
+                    if (previousSubjects != 0 && model.activeSubjects() == 0) {
+                        idleDeadline = deadlineAfter(now, config.inactivityTimeout);
+                    }
+                    if (!enqueue(record)) {
+                        reportObserverFailure();
+                        recordFailure(failureFor(producer, WatchdogFailureCode::observation_failure, "bounded observer queue overflowed"));
+                        break;
+                    }
                 }
-                if (received < 0 || std::cmp_greater(received, record.bytes.size())) {
-                    recordFailure(failureFor(producer, WatchdogFailureCode::invalid_record, "invalid or truncated notification packet"));
-                    break;
+            };
+            receiveBatch();
+            if (receiveDrained) {
+                if (const auto hook = detail::watchdogReceiveDrainedHook.load(std::memory_order_acquire)) {
+                    hook();
                 }
-                record.size = static_cast<std::size_t>(received);
-                Notification notification;
-                if (decodeNotification(record.view(), notification) != NotifyResult::accepted || notification.producer != producer) {
-                    recordFailure(failureFor(producer, WatchdogFailureCode::invalid_record,
-                                             "malformed notification or unregistered producer identity"));
-                    break;
-                }
-                const auto now = Clock::now();
-                if (!disarmed.load() && !finishing && !stopping && model.activeSubjects() == 0 && now >= idleDeadline) {
-                    recordFailure(failureFor(producer, WatchdogFailureCode::inactivity, "service was inactive before a subject started"));
-                    break;
-                }
-                const auto     previousSubjects = model.activeSubjects();
-                WatchdogResult accepted;
-                {
-                    // Serialize disarm against expiry inside model admission.
-                    std::lock_guard lock(mutex);
-                    accepted = disarmed.load() ? WatchdogResult::ignored : model.accept(notification, now);
-                }
-                if (accepted == WatchdogResult::failed) {
-                    break;
-                }
-                if (notification.kind == NotificationKind::subject_started && accepted == WatchdogResult::accepted) {
-                    sawSubject = true;
-                }
-                if (previousSubjects != 0 && model.activeSubjects() == 0) {
-                    idleDeadline = deadlineAfter(now, config.inactivityTimeout);
-                }
-                if (!enqueue(record)) {
-                    reportObserverFailure();
-                    recordFailure(failureFor(producer, WatchdogFailureCode::observation_failure, "bounded observer queue overflowed"));
-                    break;
-                }
+            }
+
+            // The batch above can report an empty socket just before the process
+            // sends its last records and exits. Exit ends that producer, so one
+            // more drain after observing it sees everything the process sent;
+            // only then may its remaining active subjects count against it.
+            const bool processExited = ownedProcess >= 0 && readable(ownedProcess);
+            if (processExited && receiveDrained && !eof && !model.failure()) {
+                receiveBatch();
             }
 
             const auto now = Clock::now();
@@ -783,7 +936,7 @@ struct WatchdogMonitor::State {
             if (finishing && !stopping && receiveDrained) {
                 return;
             }
-            if (ownedProcess >= 0 && readable(ownedProcess) && (receiveDrained || stopping)) {
+            if (processExited && (receiveDrained || stopping)) {
                 {
                     std::lock_guard lock(mutex);
                     result.processExited = true;

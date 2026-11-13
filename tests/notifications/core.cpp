@@ -236,6 +236,33 @@ void staleSequencesAndGenerations() {
     CHECK(failureOf(independent).producer == (gentest::ProducerIdentity{1, 1}));
 }
 
+void generationAdvanceRetiresOlderSubjects() {
+    // The restarted producer replaces both unfinished subjects, also at capacity.
+    WatchdogModel restarted({.inactivityTimeout = 10ms, .maximumSilence = 100ms, .maximumSubjects = 2});
+    CHECK(restarted.accept(event(NotificationKind::subject_started, 1, 1, {1, 1}), at(0ms)) == WatchdogResult::accepted);
+    CHECK(restarted.accept(event(NotificationKind::subject_started, 2, 2, {1, 1}), at(0ms)) == WatchdogResult::accepted);
+    CHECK(restarted.accept(event(NotificationKind::subject_started, 1, 7, {1, 2}), at(5ms)) == WatchdogResult::accepted);
+    CHECK(restarted.activeSubjects() == 1);
+    CHECK(restarted.nextDeadline() == at(15ms));
+    // Late records from the old generation neither renew nor resurrect anything.
+    CHECK(restarted.accept(event(NotificationKind::progress, 3, 1, {1, 1}), at(6ms)) == WatchdogResult::ignored);
+    CHECK(restarted.accept(event(NotificationKind::subject_finished, 4, 2, {1, 1}), at(6ms)) == WatchdogResult::ignored);
+    // The old subjects' deadline passes without condemning the new generation.
+    CHECK(restarted.advance(at(12ms)) == WatchdogResult::accepted);
+    CHECK(restarted.accept(event(NotificationKind::progress, 2, 7, {1, 2}), at(14ms)) == WatchdogResult::accepted);
+    CHECK(restarted.accept(event(NotificationKind::subject_finished, 3, 7, {1, 2}), at(20ms)) == WatchdogResult::accepted);
+    CHECK(restarted.activeSubjects() == 0 && !restarted.failure());
+
+    // Another producer's subjects are unaffected and still expire normally.
+    WatchdogModel mixed({.inactivityTimeout = 10ms, .maximumSilence = 100ms, .maximumSubjects = 4});
+    CHECK(mixed.accept(event(NotificationKind::subject_started, 1, 1, {1, 1}), at(0ms)) == WatchdogResult::accepted);
+    CHECK(mixed.accept(event(NotificationKind::subject_started, 1, 1, {2, 1}), at(0ms)) == WatchdogResult::accepted);
+    CHECK(mixed.accept(event(NotificationKind::subject_started, 1, 1, {1, 2}), at(5ms)) == WatchdogResult::accepted);
+    CHECK(mixed.activeSubjects() == 2);
+    CHECK(mixed.advance(at(10ms)) == WatchdogResult::failed);
+    CHECK(failureOf(mixed).producer == (gentest::ProducerIdentity{2, 1}));
+}
+
 void quietAllowanceAndProgressReset() {
     WatchdogModel model({.inactivityTimeout = 10ms, .maximumSilence = 50ms, .maximumSubjects = 2});
     CHECK(model.accept(event(NotificationKind::subject_started, 1), at(0ms)) == WatchdogResult::accepted);
@@ -413,6 +440,7 @@ int main() {
         TestCase{.name = "independent subjects", .run = independentSubjectsAndOrdinaryNotifications},
         TestCase{.name = "same-time order", .run = sameTimeOrderAndDeadlineEquality},
         TestCase{.name = "stale identity", .run = staleSequencesAndGenerations},
+        TestCase{.name = "generation advance", .run = generationAdvanceRetiresOlderSubjects},
         TestCase{.name = "quiet allowance", .run = quietAllowanceAndProgressReset},
         TestCase{.name = "configuration and failure", .run = boundsConfigurationAndExternalFailures},
         TestCase{.name = "notifier ownership", .run = notifierOwnershipConcurrencyAndDisabled},

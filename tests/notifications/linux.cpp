@@ -1,3 +1,5 @@
+#include "../../src/notification_linux_test_hooks.h"
+
 #include <atomic>
 #include <barrier>
 #include <cerrno>
@@ -15,11 +17,14 @@
 #include <stdexcept>
 #include <string>
 #include <sys/eventfd.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -100,13 +105,14 @@ void readyByte(int fd) {
     require(::write(fd, &byte, 1) == 1, "child readiness write failed");
 }
 
-void waitReady(int fd) {
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters) - A descriptor and the byte it must deliver.
+void waitReady(int fd, char expected = 'R') {
     char    byte{};
     ssize_t received;
     do {
         received = ::read(fd, &byte, 1);
     } while (received < 0 && errno == EINTR);
-    require(received == 1 && byte == 'R', "child readiness failed");
+    require(received == 1 && byte == expected, "child readiness failed");
 }
 
 enum class ChildMode { spin, normal, flood, silent };
@@ -209,6 +215,83 @@ void processCase(ChildMode mode, bool freeze, bool slowObserver, bool throwingOb
     }
 }
 
+// The enforcement thread sees an empty socket, then the child sends its last
+// records and exits before the monitor looks at the pidfd. The seam makes that
+// microsecond window deterministic instead of relying on repetition.
+struct ExitRace {
+    static inline int               release{-1};
+    static inline pid_t             child{-1};
+    static inline std::atomic<bool> fired{false};
+
+    static void afterReceiveDrained() noexcept {
+        if (fired.exchange(true)) {
+            return;
+        }
+        const char byte = 'G';
+        static_cast<void>(::write(release, &byte, 1));
+        siginfo_t exited{};
+        // WNOWAIT leaves the zombie for the test's own waitpid.
+        while (::waitid(P_PID, static_cast<id_t>(child), &exited, WEXITED | WNOWAIT) < 0 && errno == EINTR) {}
+    }
+};
+
+void exitAfterFinalRecordsCase() {
+    auto channel = gentest::LinuxNotificationChannel::create();
+    int  ready[2];
+    int  release[2];
+    require(::pipe2(ready, O_CLOEXEC) == 0 && ::pipe2(release, O_CLOEXEC) == 0, "exit race pipes failed");
+    Child child;
+    child.pid = ::fork();
+    require(child.pid >= 0, "exit race fork failed");
+    if (child.pid == 0) {
+        ::close(ready[0]);
+        ::close(release[1]);
+        try {
+            closeDescriptors(channel.releaseMonitor());
+            auto              sink = gentest::LinuxNotificationSink::attach(channel.releaseProducer(), identity);
+            gentest::Notifier notifier(sink, identity, 1);
+            require(notifier.start("late finish") == gentest::NotifyResult::accepted, "exit race start rejected");
+            readyByte(ready[1]);
+            waitReady(release[0], 'G');
+            require(notifier.finish() == gentest::NotifyResult::accepted, "exit race finish rejected");
+            require(sink->close(3s), "exit race sink drain failed");
+            ::_exit(0);
+        } catch (const std::exception &error) {
+            std::cerr << "exit race child failed: " << error.what() << '\n';
+            ::_exit(90);
+        }
+    }
+    ::close(ready[1]);
+    ::close(release[0]);
+    closeDescriptors(channel.releaseProducer());
+    child.pidfd = static_cast<int>(::syscall(SYS_pidfd_open, child.pid, 0));
+    require(child.pidfd >= 0, "exit race pidfd_open failed");
+    waitReady(ready[0]);
+    ::close(ready[0]);
+
+    ExitRace::release = release[1];
+    ExitRace::child   = child.pid;
+    ExitRace::fired.store(false);
+    gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity,
+                                     {.inactivityTimeout = 3s, .maximumSilence = 2s, .maximumSubjects = 16});
+    monitor.setProcessOwner(child.pidfd);
+    gentest::detail::watchdogReceiveDrainedHook.store(&ExitRace::afterReceiveDrained);
+    monitor.start();
+    const bool completed = monitor.waitFor(5s);
+    gentest::detail::watchdogReceiveDrainedHook.store(nullptr);
+    monitor.close();
+    ::close(release[1]);
+    const auto result = monitor.outcome();
+    const int  status = child.reap();
+    require(completed && ExitRace::fired.load(), "exit race seam did not run");
+    require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "exit race child failed");
+    if (result.failure) {
+        throw std::runtime_error("records sent just before exit were not drained: code=" +
+                                 std::to_string(static_cast<int>(result.failure->code)) + " detail=" + result.failure->detail);
+    }
+    require(result.processExited && !result.stopRequested && !result.killSent, "clean exit was treated as a failure");
+}
+
 void malformedCase(bool wrongIdentity, bool eof) {
     auto       channel  = gentest::LinuxNotificationChannel::create();
     const auto producer = channel.producer();
@@ -260,6 +343,74 @@ void overloadCase() {
     require(outcome.failure && outcome.failure->code == gentest::WatchdogFailureCode::producer_overload,
             "out-of-band overload signal was lost");
     require(!sink->close(), "faulted producer reported successful drain");
+}
+
+// Identical progress for one subject occupies a single queue slot while it is
+// pending, so repetition alone cannot overflow. Nothing reads during the flood:
+// the socket fills, the writer stalls, and the result is independent of timing.
+void progressCoalescingCase() {
+    auto                    channel = gentest::LinuxNotificationChannel::create();
+    auto                    sink    = gentest::LinuxNotificationSink::attach(channel.releaseProducer(), identity, 64);
+    const gentest::Notifier first(sink, identity, 1);
+    const gentest::Notifier second(sink, identity, 2);
+    require(first.start("first") == gentest::NotifyResult::accepted && second.start("second") == gentest::NotifyResult::accepted,
+            "coalescing starts rejected");
+    for (int i = 0; i != 200000; ++i) {
+        require(first.progress("suspend") == gentest::NotifyResult::accepted, "repeated progress overflowed the queue");
+        require(second.progress("suspend") == gentest::NotifyResult::accepted, "interleaved subject overflowed the queue");
+    }
+    // A different label, an allowance, and the progress after it are distinct
+    // events and must all arrive, in submission order.
+    require(first.progress("phase") == gentest::NotifyResult::accepted, "label change rejected");
+    require(first.allowSilenceFor(1s, "quiet") == gentest::NotifyResult::accepted, "allowance rejected");
+    require(first.progress("suspend") == gentest::NotifyResult::accepted, "progress after allowance rejected");
+    require(first.finish() == gentest::NotifyResult::accepted && second.finish() == gentest::NotifyResult::accepted,
+            "coalescing finishes rejected");
+    require(sink->status() == gentest::NotifyResult::accepted, "coalesced progress faulted the sink");
+
+    std::vector<std::string> firstSubject;
+    std::size_t              secondProgress = 0;
+    bool                     ordered        = true;
+    const int                socket         = channel.monitor().socket;
+    std::thread              reader([&] {
+        std::uint64_t previous = 0;
+        for (;;) {
+            gentest::EncodedNotification record;
+            const auto                   size = ::recv(socket, record.bytes.data(), record.bytes.size(), 0);
+            if (size < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
+                pollfd wait{.fd = socket, .events = POLLIN, .revents = 0};
+                static_cast<void>(::poll(&wait, 1, -1));
+                continue;
+            }
+            if (size <= 0) {
+                ordered = ordered && size == 0;
+                return;
+            }
+            record.size = static_cast<std::size_t>(size);
+            gentest::Notification notification;
+            if (gentest::decodeNotification(record.view(), notification) != gentest::NotifyResult::accepted ||
+                notification.sequence != ++previous) {
+                ordered = false;
+                return;
+            }
+            if (notification.subject == 2) {
+                secondProgress += notification.kind == gentest::NotificationKind::progress ? 1 : 0;
+                continue;
+            }
+            // Collapse runs so the expectation is independent of how many
+            // repeats the writer forwarded before the socket filled.
+            auto name = std::to_string(static_cast<int>(notification.kind)) + ":" + std::string(notification.payload);
+            if (firstSubject.empty() || firstSubject.back() != name) {
+                firstSubject.push_back(std::move(name));
+            }
+        }
+    });
+    const bool               closed = sink->close(5s);
+    reader.join();
+    require(closed && ordered, "coalescing sink did not drain in sequence");
+    const std::vector<std::string> expected{"1:first", "2:suspend", "2:phase", "4:quiet", "2:suspend", "5:"};
+    require(firstSubject == expected, "coalescing dropped or reordered a distinct record");
+    require(secondProgress >= 1, "coalescing dropped another subject's progress");
 }
 
 void sendRecord(int socket, gentest::NotificationKind kind, std::uint64_t sequence) {
@@ -539,6 +690,58 @@ void environmentChecks(gentest::LinuxNotificationChannel &channel) {
         }
     }
 
+    // A wrapper can keep the environment but close the inherited descriptors;
+    // the numbers then name unrelated files. Those must stay open and untouched.
+    const int regular = ::memfd_create("gentest-unrelated-log", 0);
+    const int stream  = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    require(regular >= 0 && stream >= 0, "unrelated descriptor setup failed");
+    require(::write(regular, "log", 3) == 3, "unrelated file write failed");
+    const std::pair<int, int> unrelated[]{{producer.socket, regular},
+                                          {regular, producer.fault},
+                                          {stream, producer.fault},
+                                          {producer.socket, stream},
+                                          {regular, stream}};
+    for (const auto &[socketFd, faultFd] : unrelated) {
+        const auto numbers = std::to_string(socketFd) + "," + std::to_string(faultFd);
+        require(::setenv("GENTEST_NOTIFY_FDS", numbers.c_str(), 1) == 0 && ::setenv("GENTEST_NOTIFY_ID", "71,3", 1) == 0,
+                "set unrelated environment failed");
+        const int flags[]{::fcntl(socketFd, F_GETFD), ::fcntl(socketFd, F_GETFL), ::fcntl(faultFd, F_GETFD), ::fcntl(faultFd, F_GETFL)};
+        bool      rejected = false;
+        try {
+            const auto notifier = gentest::notifierFromEnvironment();
+            // Before validation this wrote an eight-byte fault counter into the file.
+            static_cast<void>(notifier.forSubject(0).progress());
+        } catch (const std::invalid_argument &) { rejected = true; }
+        require(rejected, "unrelated descriptors were adopted as notification endpoints");
+        require(::fcntl(socketFd, F_GETFD) == flags[0] && ::fcntl(socketFd, F_GETFL) == flags[1] && ::fcntl(faultFd, F_GETFD) == flags[2] &&
+                    ::fcntl(faultFd, F_GETFL) == flags[3],
+                "rejected environment descriptors were closed or reconfigured");
+        struct stat status{};
+        require(::fstat(regular, &status) == 0 && status.st_size == 3, "unrelated file was closed or written");
+        require(std::getenv("GENTEST_NOTIFY_FDS") != nullptr, "rejected environment was consumed");
+    }
+    // Explicit owners keep the consuming contract, but nothing is written first.
+    for (const bool monitor : {false, true}) {
+        auto       owned    = gentest::LinuxNotificationChannel::create();
+        const auto valid    = owned.releaseProducer();
+        const int  file     = ::dup(regular);
+        bool       rejected = false;
+        require(file >= 0 && ::close(valid.fault) == 0, "explicit unrelated descriptor setup failed");
+        try {
+            if (monitor) {
+                gentest::WatchdogMonitor invalid({.socket = valid.socket, .fault = file}, identity,
+                                                 {.inactivityTimeout = 1s, .maximumSilence = 1s, .maximumSubjects = 16});
+            } else {
+                static_cast<void>(gentest::LinuxNotificationSink::attach({.socket = valid.socket, .fault = file}, identity));
+            }
+        } catch (const std::invalid_argument &) { rejected = true; }
+        struct stat status{};
+        require(rejected && ::fstat(regular, &status) == 0 && status.st_size == 3, "explicit owner accepted or wrote a non-eventfd");
+        require(::fcntl(file, F_GETFD) == -1 && errno == EBADF, "failed explicit construction leaked its descriptors");
+    }
+    ::close(regular);
+    ::close(stream);
+
     // Simulate descriptors inherited through exec, then verify adoption and use.
     require(::fcntl(producer.socket, F_SETFD, 0) == 0 && ::fcntl(producer.fault, F_SETFD, 0) == 0, "clear close-on-exec failed");
     require(::setenv("GENTEST_NOTIFY_FDS", fds.c_str(), 1) == 0 && ::setenv("GENTEST_NOTIFY_ID", "71,3", 1) == 0,
@@ -599,10 +802,12 @@ int main() {
         processCase(ChildMode::silent, false, false, false);
         processCase(ChildMode::flood, false, true, false);
         processCase(ChildMode::spin, false, false, true);
+        exitAfterFinalRecordsCase();
         malformedCase(false, false);
         malformedCase(true, false);
         malformedCase(false, true);
         overloadCase();
+        progressCoalescingCase();
         forkReuseCase(false);
         forkReuseCase(true);
         environmentCase();

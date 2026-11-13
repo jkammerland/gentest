@@ -65,6 +65,11 @@ operations, and waits for all of them to finish. It then returns an owning
 exception. A void result contributes `std::monostate`. Losing operations never
 continue detached after the call returns.
 
+Both capture the caller's source location for blocked-case diagnostics and
+suspension events, as `wait_for()` and `wait_until()` do. They are class
+templates used through deduction, so call them as shown rather than naming
+their template arguments or taking their address.
+
 Both functions accept ordinary C++ awaitables, including member and free
 `operator co_await`. Lvalue inputs are borrowed; keep them alive through the
 await. Rvalue inputs are owned. Result references are copied into the owning
@@ -127,8 +132,11 @@ use it only for work that must complete. A timeout or cancellation retires that
 wait, leaving a shared event, future, or executor available to other operations.
 
 `when_any()`, `wait_for()`, and `wait_until()` require exceptions for cooperative
-cancellation and joining. Exception-disabled builds can still use `awaitable<T>` and
-`when_all()`; no additional cancellation-status API is provided.
+cancellation and joining. The explicit stop-token overloads require them too,
+because a cancelled wait reports through `operation_cancelled`. Using any of
+these in an exception-disabled build is a compile-time error. Such builds can
+still use `awaitable<T>`, `when_all()`, and the waits without a token; no
+additional cancellation-status API is provided.
 
 ## 4. Fixtures own shared infrastructure
 
@@ -254,7 +262,10 @@ Gentest-specific hook.
 
 `continuation_handle::cancel()` retires that handle and its copies. It does not
 cancel the backend or resume the coroutine. Backend cancellation still needs a
-completion path if an enclosing operation is waiting to join it.
+completion path if an enclosing operation is waiting to join it. Cancelling
+after a successful `try_invoke()` also drops that queued completion when the
+runner has not delivered it yet: its publisher does not run and it resumes
+nothing. Do not cancel a handle whose completion the coroutine still needs.
 
 Callback arguments are stored by value; reference parameters are copied into
 owned storage. Move-only arguments work. `std::reference_wrapper` explicitly

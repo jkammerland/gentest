@@ -9,7 +9,9 @@
 namespace gentest {
 
 // Both descriptors are owned by their holder. Passing them to attach or a monitor
-// consumes them, including when construction fails.
+// consumes them, including when construction fails. The socket must be an
+// AF_UNIX SOCK_SEQPACKET socket and the fault descriptor an eventfd; both are
+// checked before either is configured or written.
 struct NotificationDescriptors {
     int socket{-1};
     int fault{-1};
@@ -42,6 +44,9 @@ class LinuxNotificationChannel {
 // A dedicated writer preserves the order of locally admitted records. Accepted
 // means queued locally, not acknowledged by the parent. After fork, attach a new
 // sink to fresh descriptors; inherited live sinks reject use.
+// A progress record is accepted without taking another slot while an identical
+// one (same subject and label, no lifecycle or allowance record in between) is
+// still queued: the queued record renews the deadline when it is received.
 class LinuxNotificationSink final : public NotificationSink {
   public:
     static std::shared_ptr<LinuxNotificationSink> attach(NotificationDescriptors descriptors, ProducerIdentity producer,
@@ -64,6 +69,9 @@ class LinuxNotificationSink final : public NotificationSink {
 
 // Missing environment disables notification; malformed configuration throws. The
 // first successful call adopts the inherited descriptors and sets FD_CLOEXEC.
+// Descriptor numbers from the environment are not trusted: unless they name a
+// SOCK_SEQPACKET socket and an eventfd the call throws and leaves both numbers
+// open and unmodified, because they may belong to unrelated files by then.
 [[nodiscard]] Notifier notifierFromEnvironment(std::uint64_t subject = 1);
 
 struct WatchdogMonitorOptions {
@@ -86,6 +94,11 @@ class WatchdogMonitor {
   public:
     WatchdogMonitor(NotificationDescriptors descriptors, ProducerIdentity producer, WatchdogConfig config,
                     std::shared_ptr<NotificationObserver> observer = {}, WatchdogMonitorOptions options = {});
+    // Destroying a started monitor calls close(). Without a preceding finish()
+    // that requests stop: the installed process owner is asked to stop (stop
+    // eventfd or SIGTERM) and is sent SIGKILL through the registered pidfds if
+    // it is still alive after shutdownGrace. Call finish() first when the
+    // supervised process must survive the monitor.
     ~WatchdogMonitor();
     WatchdogMonitor(const WatchdogMonitor &)            = delete;
     WatchdogMonitor &operator=(const WatchdogMonitor &) = delete;
@@ -110,6 +123,8 @@ class WatchdogMonitor {
     // a user callback to return; it cannot delay process termination. The owner
     // must serialize start(), close(), and destruction. Do not call close()
     // from an observer callback; control requests and queries remain concurrent.
+    // Unless finish() was requested or supervision already completed, close()
+    // requests stop and therefore signals the supervised process as on failure.
     void close();
 
   private:
