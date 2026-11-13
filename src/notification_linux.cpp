@@ -14,8 +14,10 @@
 #include <poll.h>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <sys/eventfd.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <system_error>
 #include <thread>
@@ -70,16 +72,55 @@ void configureFd(int fd) {
     }
 }
 
+// Validation only inspects. A descriptor number can name a file this process
+// does not own, so nothing may be configured, written, or closed before both
+// descriptors are known to be notification endpoints.
 void validateSocket(int fd) {
     int       type{};
     int       domain{};
     socklen_t size = sizeof(type);
     if (::getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) < 0 || ::getsockopt(fd, SOL_SOCKET, SO_DOMAIN, &domain, &size) < 0) {
+        if (errno == ENOTSOCK) {
+            throw std::invalid_argument("notification transport requires an AF_UNIX SOCK_SEQPACKET socket");
+        }
         systemFailure("inspect notification socket");
     }
     if (type != SOCK_SEQPACKET || domain != AF_UNIX) {
         throw std::invalid_argument("notification transport requires an AF_UNIX SOCK_SEQPACKET socket");
     }
+}
+
+void validateFaultEvent(int fd) {
+    struct stat status{};
+    const int   statusFlags = ::fcntl(fd, F_GETFL);
+    if (statusFlags < 0 || ::fstat(fd, &status) < 0) {
+        systemFailure("inspect notification fault descriptor");
+    }
+    // An eventfd is a read-write anonymous inode: never one of the named file
+    // types. /proc identifies it exactly wherever procfs is mounted.
+    const auto type     = static_cast<unsigned>(status.st_mode) & static_cast<unsigned>(S_IFMT);
+    bool       accepted = (static_cast<unsigned>(statusFlags) & static_cast<unsigned>(O_ACCMODE)) == static_cast<unsigned>(O_RDWR) &&
+                          type != S_IFREG && type != S_IFDIR && type != S_IFCHR && type != S_IFBLK && type != S_IFIFO && type != S_IFSOCK &&
+                          type != S_IFLNK;
+    if (accepted) {
+        char       target[64]{};
+        const auto path   = "/proc/self/fd/" + std::to_string(fd);
+        const auto length = ::readlink(path.c_str(), target, sizeof(target) - 1);
+        if (length >= 0) {
+            accepted = std::string_view(target, static_cast<std::size_t>(length)) == "anon_inode:[eventfd]";
+        }
+    }
+    if (!accepted) {
+        throw std::invalid_argument("notification fault descriptor must be an eventfd");
+    }
+}
+
+void validateDescriptors(const NotificationDescriptors &descriptors) {
+    if (descriptors.socket < 0 || descriptors.fault < 0 || descriptors.socket == descriptors.fault) {
+        throw std::invalid_argument("notification transport requires two distinct valid descriptors");
+    }
+    validateSocket(descriptors.socket);
+    validateFaultEvent(descriptors.fault);
 }
 
 void signalEvent(int fd, std::uint64_t value = 1) noexcept {
@@ -196,11 +237,10 @@ struct LinuxNotificationSink::State {
     State(NotificationDescriptors &owned, ProducerIdentity identity, std::size_t queueCapacity)
         : descriptors(std::exchange(owned, {})), producer(identity), capacity(queueCapacity) {
         try {
-            if (capacity == 0 || identity.id == 0 || identity.generation == 0 || descriptors.socket < 0 || descriptors.fault < 0 ||
-                descriptors.socket == descriptors.fault) {
-                throw std::invalid_argument("notification sink requires valid descriptors, identity, and queue capacity");
+            if (capacity == 0 || identity.id == 0 || identity.generation == 0) {
+                throw std::invalid_argument("notification sink requires a valid identity and queue capacity");
             }
-            validateSocket(descriptors.socket);
+            validateDescriptors(descriptors);
             configureFd(descriptors.socket);
             configureFd(descriptors.fault);
             wake = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
@@ -435,6 +475,14 @@ Notifier notifierFromEnvironment(std::uint64_t subject) {
     ProducerIdentity        producer;
     parsePair(fds, descriptors.socket, descriptors.fault);
     parsePair(identity, producer.id, producer.generation);
+    // The numbers come from the environment, not from an owner. A wrapper may
+    // have closed the inherited descriptors and reused the numbers for a log
+    // file or socket, so nothing is adopted, reconfigured, or closed unless
+    // both name notification endpoints.
+    if (producer.id == 0 || producer.generation == 0) {
+        throw std::invalid_argument("invalid notification descriptor or producer identity");
+    }
+    validateDescriptors(descriptors);
     auto sink = LinuxNotificationSink::attach(descriptors, producer);
     ::unsetenv("GENTEST_NOTIFY_FDS");
     ::unsetenv("GENTEST_NOTIFY_ID");
@@ -481,16 +529,15 @@ struct WatchdogMonitor::State {
         : descriptors(std::exchange(owned, {})), producer(identity), config(policy), options(limits), model(policy),
           observer(std::move(callback)) {
         try {
-            if (descriptors.socket < 0 || descriptors.fault < 0 || descriptors.socket == descriptors.fault || identity.id == 0 ||
-                identity.generation == 0 || options.observerCapacity == 0 || options.shutdownGrace <= std::chrono::milliseconds::zero() ||
-                options.shutdownCutoff <= options.shutdownGrace ||
+            if (identity.id == 0 || identity.generation == 0 || options.observerCapacity == 0 ||
+                options.shutdownGrace <= std::chrono::milliseconds::zero() || options.shutdownCutoff <= options.shutdownGrace ||
                 options.shutdownCutoff > std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::nanoseconds::max())) {
-                throw std::invalid_argument("watchdog requires valid descriptors, identity, positive grace and a later shutdown cutoff");
+                throw std::invalid_argument("watchdog requires a valid identity, positive grace and a later shutdown cutoff");
             }
             if (model.failure()) {
                 throw std::invalid_argument("invalid watchdog configuration");
             }
-            validateSocket(descriptors.socket);
+            validateDescriptors(descriptors);
             configureFd(descriptors.socket);
             configureFd(descriptors.fault);
             wake = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
