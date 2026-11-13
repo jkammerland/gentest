@@ -25,10 +25,24 @@ concept ValueStreamInsertable = requires(std::ostream &stream, const T &value) {
 template <typename T>
 concept ValueFormattable = ValueStreamInsertable<T> || fmt::is_formattable<T, char>::value;
 
+// Pointers to signed/unsigned bytes (`unsigned char *`, `std::uint8_t *`,
+// `signed char *`, any cv-qualification). The standard stream inserters read
+// them as NUL-terminated strings, but they usually address binary buffers.
+template <typename T>
+inline constexpr bool byte_pointer = std::is_pointer_v<T> && (std::is_same_v<std::remove_cv_t<std::remove_pointer_t<T>>, unsigned char> ||
+                                                              std::is_same_v<std::remove_cv_t<std::remove_pointer_t<T>>, signed char>);
+
 template <typename T>
     requires ValueFormattable<T>
 inline std::string format_printable_value(const T &value, bool use_boolalpha) {
-    if constexpr (ValueStreamInsertable<T>) {
+    if constexpr (byte_pointer<T>) {
+        // Print the address, like any other object pointer; never read through it.
+        if (value == nullptr)
+            return "nullptr";
+        std::ostringstream stream;
+        stream << static_cast<const void *>(const_cast<const std::remove_cv_t<std::remove_pointer_t<T>> *>(value));
+        return stream.str();
+    } else if constexpr (ValueStreamInsertable<T>) {
         std::ostringstream stream;
         if (use_boolalpha) {
             stream << std::boolalpha;
