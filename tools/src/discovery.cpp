@@ -20,6 +20,7 @@
 #include <clang/Basic/Module.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Basic/Version.h>
+#include <clang/Sema/Sema.h>
 #if __has_include(<clang/UnifiedSymbolResolution/USRGeneration.h>)
 #include <clang/UnifiedSymbolResolution/USRGeneration.h>
 #else
@@ -31,6 +32,7 @@
 #include <fmt/format.h>
 #include <iterator>
 #include <limits>
+#include <llvm/ADT/SmallBitVector.h>
 #include <llvm/ADT/SmallString.h>
 #include <map>
 #include <mutex>
@@ -813,7 +815,73 @@ struct FunctionParamInfo {
     bool                        is_fixture      = false;
     std::size_t                 fixture_index   = 0;
     std::optional<FixtureScope> required_scope;
+    // Position in a template argument combination when the fixture type is
+    // exactly a bound template type parameter (template <typename T> f(T &)).
+    std::optional<std::size_t> template_binding_index;
 };
+
+// A template binding resolved to the fixture type it names.
+struct BoundFixtureType {
+    std::string      type_name;
+    const NamedDecl *declaration = nullptr;
+};
+
+bool is_simple_type_name(std::string_view text) {
+    return !text.empty() && std::ranges::all_of(text, [](char ch) {
+        return is_identifier_continue(ch) || ch == ':' || std::isspace(static_cast<unsigned char>(ch)) != 0;
+    });
+}
+
+// Resolves a template binding such as "FxA" or "ns::FxA", written in the
+// scope of `function`, to the fully qualified type it names. Fundamental type
+// names are returned unchanged. Anything that is not a plain (qualified) name
+// of a class, enum or alias yields nullopt.
+std::optional<BoundFixtureType> resolve_bound_fixture_type(std::string_view binding, const FunctionDecl &function, ASTContext &context,
+                                                           const PrintingPolicy &policy) {
+    while (!binding.empty() && std::isspace(static_cast<unsigned char>(binding.front())) != 0) {
+        binding.remove_prefix(1);
+    }
+    while (!binding.empty() && std::isspace(static_cast<unsigned char>(binding.back())) != 0) {
+        binding.remove_suffix(1);
+    }
+    if (!is_simple_type_name(binding)) {
+        return std::nullopt;
+    }
+    const auto names = binding_names(binding);
+    if (names.empty()) {
+        // Only keywords: a fundamental type such as "int" or "unsigned long".
+        return BoundFixtureType{.type_name = std::string(binding)};
+    }
+    if (names.size() != 1) {
+        return std::nullopt;
+    }
+    std::optional<BoundFixtureType> resolved;
+    for (const NamedDecl *candidate : lookup_binding_name(names.front(), *function.getDeclContext(), context)) {
+        BoundFixtureType bound;
+        if (const auto *alias = llvm::dyn_cast<TypedefNameDecl>(candidate)) {
+            const QualType underlying = alias->getUnderlyingType().getCanonicalType().getUnqualifiedType();
+            if (underlying.isNull() || underlying->isDependentType()) {
+                return std::nullopt;
+            }
+            bound.type_name   = print_type(underlying, policy);
+            bound.declaration = adapter_type_declaration(underlying);
+        } else if (const auto *tag = llvm::dyn_cast<TagDecl>(candidate)) {
+            if (const auto *record = llvm::dyn_cast<CXXRecordDecl>(tag);
+                record != nullptr && record->getDescribedClassTemplate() != nullptr) {
+                return std::nullopt;
+            }
+            bound.type_name   = tag->getQualifiedNameAsString();
+            bound.declaration = tag->getCanonicalDecl();
+        } else {
+            continue;
+        }
+        if (resolved.has_value() && resolved->type_name != bound.type_name) {
+            return std::nullopt;
+        }
+        resolved = std::move(bound);
+    }
+    return resolved;
+}
 } // namespace
 
 TestCaseCollector::TestCaseCollector(std::vector<TestCaseInfo> &out, bool strict_fixture, bool allow_includes,
@@ -955,6 +1023,36 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             }
         }
 #endif
+    }
+
+    const FunctionTemplateDecl *function_template = func->getDescribedFunctionTemplate();
+    if (summary.template_sets.empty() && function_template != nullptr) {
+        // Without template(...) the case is emitted as name<>(...), which only
+        // compiles when every parameter is defaulted, a pack, or deduced from
+        // the generated call arguments.
+        llvm::SmallBitVector deduced;
+        Sema::MarkDeducedTemplateParameters(*result.Context, function_template, deduced);
+        const TemplateParameterList &template_params = *function_template->getTemplateParameters();
+        for (unsigned index = 0; index < template_params.size(); ++index) {
+            const NamedDecl *template_param = template_params.getParam(index);
+            bool             has_default    = false;
+            if (const auto *type_param = llvm::dyn_cast<TemplateTypeParmDecl>(template_param)) {
+                has_default = type_param->hasDefaultArgument();
+            } else if (const auto *value_param = llvm::dyn_cast<NonTypeTemplateParmDecl>(template_param)) {
+                has_default = value_param->hasDefaultArgument();
+            } else if (const auto *template_template_param = llvm::dyn_cast<TemplateTemplateParmDecl>(template_param)) {
+                has_default = template_template_param->hasDefaultArgument();
+            }
+            const bool is_deduced = index < deduced.size() && deduced.test(index);
+            if (has_default || template_param->isParameterPack() || is_deduced) {
+                continue;
+            }
+            had_error_ = true;
+            report(fmt::format("function template requires a 'template({0}, ...)' attribute: template parameter '{0}' has no default "
+                               "argument and cannot be deduced from the generated call",
+                               template_param->getNameAsString()));
+            return;
+        }
     }
 
     // Build combined template argument combinations
@@ -1285,6 +1383,37 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         const QualType fixture_qual_type = infer_fixture_qual_type_from_param(*param.decl);
         std::string    fixture_type      = infer_fixture_type_from_param(*param.decl, policy);
         std::string    fixture_emit_type = fixture_type;
+        if (fixture_qual_type->isDependentType()) {
+            // The printed type would be "type-parameter-0-0". Substitute the
+            // bound template argument per combination when the fixture type
+            // is exactly a template type parameter; reject everything else.
+            const std::string param_name       = param.name.empty() ? std::string("<unnamed>") : param.name;
+            const auto       *template_type    = fixture_qual_type.getCanonicalType()->getAs<TemplateTypeParmType>();
+            const auto       *template_params  = function_template != nullptr ? function_template->getTemplateParameters() : nullptr;
+            bool              binding_resolved = false;
+            if (template_type != nullptr && template_params != nullptr && template_type->getDepth() == 0 &&
+                template_type->getIndex() < template_params->size() && !template_type->isParameterPack() &&
+                !summary.template_sets.empty()) {
+                binding_resolved = true;
+                for (unsigned index = 0; index < template_type->getIndex(); ++index) {
+                    binding_resolved = binding_resolved && !template_params->getParam(index)->isParameterPack();
+                }
+            }
+            if (!binding_resolved) {
+                had_error_ = true;
+                report(fmt::format("fixture parameter '{}' has type '{}', which depends on a template parameter; a fixture parameter type "
+                                   "may only be a template type parameter bound by 'template(...)' (not a pack and not after a pack), "
+                                   "or a non-dependent type",
+                                   param_name, param.type_spelling));
+                return;
+            }
+            param.template_binding_index = template_type->getIndex();
+            inferred_fixture_types.push_back(std::move(fixture_type));
+            inferred_fixture_entity_keys.emplace_back();
+            inferred_fixture_emit_types.push_back(std::move(fixture_emit_type));
+            inferred_fixture_required_scopes.push_back(param.required_scope);
+            continue;
+        }
         if (fixture_type.empty()) {
             had_error_                      = true;
             const std::string fallback_name = param.name.empty() ? std::string("<unnamed>") : param.name;
@@ -1611,8 +1740,35 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         std::vector<std::string> value_exprs_for_call;
         std::vector<FreeCallArg> free_call_args;
         free_call_args.reserve(function_params.size());
+        auto case_fixture_types       = inferred_fixture_types;
+        auto case_fixture_emit_types  = inferred_fixture_emit_types;
+        auto case_fixture_entity_keys = inferred_fixture_entity_keys;
 
         for (const auto &param : function_params) {
+            if (param.is_fixture && param.template_binding_index.has_value()) {
+                const std::size_t binding_index = *param.template_binding_index;
+                const std::string binding       = binding_index < tpl_combo.size() ? tpl_combo[binding_index] : std::string{};
+                const auto        bound         = resolve_bound_fixture_type(binding, *func, *result.Context, policy);
+                if (!bound.has_value()) {
+                    had_error_ = true;
+                    report(fmt::format("cannot use template binding '{}' as the fixture type of parameter '{}': it must be the plain "
+                                       "(optionally qualified) name of a class, enum or type alias",
+                                       binding, param.name.empty() ? std::string("<unnamed>") : param.name));
+                    return;
+                }
+                if (module_importer_registration_ && bound->declaration != nullptr &&
+                    !is_reachable_from_importer(*bound->declaration, *func, *result.Context)) {
+                    had_error_ = true;
+                    report(fmt::format("fixture type '{}' is not reachable after importing named module '{}'; the generated registration "
+                                       "importer must name and instantiate this type",
+                                       bound->type_name, owning_module_identity(*func)));
+                    return;
+                }
+                case_fixture_types[param.fixture_index]      = bound->type_name;
+                case_fixture_emit_types[param.fixture_index] = bound->type_name;
+                case_fixture_entity_keys[param.fixture_index] =
+                    bound->declaration != nullptr ? stable_entity_identity(*bound->declaration) : std::string{};
+            }
             if (param.is_fixture) {
                 FreeCallArg arg{};
                 arg.kind          = FreeCallArgKind::Fixture;
@@ -1661,7 +1817,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
 
         const std::string display_args = join_csv(value_exprs_for_display);
         const std::string call_args    = join_csv(value_exprs_for_call);
-        add_case(tpl_combo, display_args, call_args, inferred_fixture_types, inferred_fixture_emit_types, inferred_fixture_entity_keys,
+        add_case(tpl_combo, display_args, call_args, case_fixture_types, case_fixture_emit_types, case_fixture_entity_keys,
                  inferred_fixture_required_scopes, free_call_args);
     };
 
