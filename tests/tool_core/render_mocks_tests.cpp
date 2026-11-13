@@ -603,5 +603,47 @@ int main() {
         }
     }
 
+#ifndef _WIN32
+    {
+        // A source reached through a symlink that sits deeper than its real
+        // path must only remap definitions inside the linked tree.
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path  root = fs::weakly_canonical(fs::temp_directory_path(), ec) / "gentest_render_mocks_symlink_depth";
+        fs::remove_all(root, ec);
+        fs::create_directories(root / "real" / "src", ec);
+        fs::create_directories(root / "view" / "nested", ec);
+        fs::create_directories(root / "outside", ec);
+        fs::create_directory_symlink(root / "real", root / "view" / "nested" / "link", ec);
+        if (!ec) {
+            CollectorOptions options             = mock_options();
+            options.sources                      = {(root / "view" / "nested" / "link" / "src" / "input.cpp").string()};
+            options.mock_registry_path           = root / "generated" / "public_mocks.hpp";
+            options.mock_impl_path               = root / "generated" / "public_mocks_impl.hpp";
+            options.mock_domain_registry_outputs = {root / "generated" / "public_mocks_registry.hpp"};
+            options.mock_domain_impl_outputs     = {root / "generated" / "public_mocks_inline.hpp"};
+            MockClassInfo outside                = service_mock();
+            outside.definition_file              = (root / "outside" / "service.hpp").string();
+            MockClassInfo inside                 = service_mock();
+            inside.qualified_name                = "fixture::Inside";
+            inside.display_name                  = "fixture::Inside";
+            inside.definition_file               = (root / "real" / "include" / "inside.hpp").string();
+            for (auto &method : inside.methods) {
+                method.qualified_name = "fixture::Inside::compute";
+            }
+            const MockRenderResult result = gentest::codegen::render::render_mocks(options, {outside, inside});
+            t.expect(result.error.empty(), "symlinked source at another depth renders without an error");
+            const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
+            t.expect(registry != nullptr, "symlinked source at another depth emits a registry file");
+            if (registry != nullptr) {
+                t.contains(registry->content, "#include \"../outside/service.hpp\"", "definition outside the linked tree keeps its path");
+                t.contains(registry->content, "#include \"../view/nested/link/include/inside.hpp\"",
+                           "definition inside the linked tree keeps the symlink-visible path");
+            }
+        }
+        fs::remove_all(root, ec);
+    }
+#endif
+
     return t.failures == 0 ? 0 : 1;
 }
