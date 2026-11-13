@@ -282,6 +282,26 @@ struct Point {};
 } // namespace axis
 ]=])
   _gentest_cdr_expect_failure("non-numeric axis parameter" "parameters_range not supported for parameter 'p' of type 'axis::Point'")
+elseif(SCENARIO STREQUAL "string_literal_parameters")
+  # String-literal parameter values reach the generated call verbatim.
+  _gentest_cdr_scan(escapes CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+#include <string_view>
+#include <utility>
+namespace esc {
+[[using gentest: test("str"), parameters(s, "a\x41", "nul\0x", "q\"uote\\")]] inline void str(std::string_view s) { (void)s; }
+[[using gentest: test("wide"), parameters(s, "w\x41")]] inline void wide(std::wstring_view s) { (void)s; }
+[[using gentest: test("chr"), parameters(c, "\n", "a")]] inline void chr(char c) { (void)c; }
+[[using gentest: test("expr"), parameters(p, "std::pair<int, int>{1, 2}")]] inline void expr(std::pair<int, int> p) { (void)p; }
+[[using gentest: test("name\x41\ttab")]] inline void named() {}
+} // namespace esc
+]=])
+  _gentest_cdr_expect_success("string literal parameters")
+  _gentest_cdr_expect_registered("string literal parameters"
+    [=[esc::str("a\x41")]=] [=[esc::str("nul\0x")]=] [=[esc::str("q\"uote\\")]=]
+    [=[esc::wide(L"w\x41")]=] [=[esc::chr('\n')]=] [=[esc::chr('a')]=]
+    [=[esc::expr(std::pair<int, int>{1, 2})]=] [=["esc/nameA\ttab"]=])
+  _gentest_cdr_expect_not_registered("string literal parameters" [=["ax41"]=] [=["nul0x"]=])
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()

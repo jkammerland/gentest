@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -24,37 +26,137 @@ std::string trim_copy(std::string_view text) {
     return std::string(text);
 }
 
-std::string unquote(std::string_view value) {
+void append_utf8(std::string &out, std::uint32_t code_point) {
+    if (code_point < 0x80U) {
+        out.push_back(static_cast<char>(code_point));
+    } else if (code_point < 0x800U) {
+        out.push_back(static_cast<char>(0xC0U | (code_point >> 6U)));
+        out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
+    } else if (code_point < 0x10000U) {
+        out.push_back(static_cast<char>(0xE0U | (code_point >> 12U)));
+        out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
+        out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
+    } else {
+        out.push_back(static_cast<char>(0xF0U | (code_point >> 18U)));
+        out.push_back(static_cast<char>(0x80U | ((code_point >> 12U) & 0x3FU)));
+        out.push_back(static_cast<char>(0x80U | ((code_point >> 6U) & 0x3FU)));
+        out.push_back(static_cast<char>(0x80U | (code_point & 0x3FU)));
+    }
+}
+
+int hex_digit_value(char ch) {
+    if (ch >= '0' && ch <= '9') {
+        return ch - '0';
+    }
+    if (ch >= 'a' && ch <= 'f') {
+        return ch - 'a' + 10;
+    }
+    if (ch >= 'A' && ch <= 'F') {
+        return ch - 'A' + 10;
+    }
+    return -1;
+}
+
+// Decodes one escape sequence starting at body[index] (the character after
+// the backslash). Returns the number of characters consumed, or 0 when the
+// sequence is not a valid narrow-string escape; the caller then keeps the
+// backslash so nothing is lost.
+std::size_t decode_escape(std::string_view body, std::size_t index, std::string &decoded) {
+    const char ch = body[index];
+    switch (ch) {
+    case '\\':
+    case '"':
+    case '\'':
+    case '?': decoded.push_back(ch); return 1;
+    case 'a': decoded.push_back('\a'); return 1;
+    case 'b': decoded.push_back('\b'); return 1;
+    case 'f': decoded.push_back('\f'); return 1;
+    case 'n': decoded.push_back('\n'); return 1;
+    case 'r': decoded.push_back('\r'); return 1;
+    case 't': decoded.push_back('\t'); return 1;
+    case 'v': decoded.push_back('\v'); return 1;
+    default: break;
+    }
+    if (ch >= '0' && ch <= '7') {
+        unsigned    value  = 0;
+        std::size_t length = 0;
+        while (length < 3 && index + length < body.size() && body[index + length] >= '0' && body[index + length] <= '7') {
+            value = value * 8U + static_cast<unsigned>(body[index + length] - '0');
+            ++length;
+        }
+        if (value > 0xFFU) {
+            return 0;
+        }
+        decoded.push_back(static_cast<char>(value));
+        return length;
+    }
+    if (ch == 'x') {
+        unsigned    value  = 0;
+        std::size_t length = 1;
+        while (index + length < body.size() && hex_digit_value(body[index + length]) >= 0) {
+            value = value * 16U + static_cast<unsigned>(hex_digit_value(body[index + length]));
+            if (value > 0xFFU) {
+                return 0;
+            }
+            ++length;
+        }
+        if (length == 1) {
+            return 0;
+        }
+        decoded.push_back(static_cast<char>(value));
+        return length;
+    }
+    if (ch == 'u' || ch == 'U') {
+        const std::size_t digits = ch == 'u' ? 4 : 8;
+        if (index + digits >= body.size()) {
+            return 0;
+        }
+        std::uint32_t code_point = 0;
+        for (std::size_t i = 1; i <= digits; ++i) {
+            const int digit = hex_digit_value(body[index + i]);
+            if (digit < 0) {
+                return 0;
+            }
+            code_point = code_point * 16U + static_cast<std::uint32_t>(digit);
+        }
+        if (code_point > 0x10FFFFU || (code_point >= 0xD800U && code_point <= 0xDFFFU)) {
+            return 0;
+        }
+        append_utf8(decoded, code_point);
+        return digits + 1;
+    }
+    return 0;
+}
+
+} // namespace
+
+std::string decode_string_literal(std::string_view value) {
     std::string trimmed = trim_copy(value);
     if (trimmed.size() >= 2 && trimmed.front() == '"' && trimmed.back() == '"') {
-        std::string decoded;
-        decoded.reserve(trimmed.size() - 2);
-        bool escape = false;
-        for (std::size_t idx = 1; idx + 1 < trimmed.size(); ++idx) {
-            const char ch = trimmed[idx];
-            if (escape) {
-                switch (ch) {
-                case '\\': decoded.push_back('\\'); break;
-                case '"': decoded.push_back('"'); break;
-                case 'n': decoded.push_back('\n'); break;
-                case 'r': decoded.push_back('\r'); break;
-                case 't': decoded.push_back('\t'); break;
-                default: decoded.push_back(ch); break;
-                }
-                escape = false;
-            } else if (ch == '\\') {
-                escape = true;
-            } else {
+        const std::string_view body{trimmed.data() + 1, trimmed.size() - 2};
+        std::string            decoded;
+        decoded.reserve(body.size());
+        for (std::size_t idx = 0; idx < body.size();) {
+            const char ch = body[idx];
+            if (ch != '\\' || idx + 1 >= body.size()) {
                 decoded.push_back(ch);
+                ++idx;
+                continue;
             }
-        }
-        if (escape) {
-            decoded.push_back('\\');
+            const std::size_t consumed = decode_escape(body, idx + 1, decoded);
+            if (consumed == 0) {
+                decoded.push_back('\\');
+                ++idx;
+                continue;
+            }
+            idx += 1 + consumed;
         }
         return decoded;
     }
     return trimmed;
 }
+
+namespace {
 
 char previous_non_space(std::string_view text) {
     for (std::size_t idx = text.size(); idx > 0; --idx) {
@@ -552,7 +654,7 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
 
         auto argument_tokens = args;
         for (auto &arg : args) {
-            arg = unquote(arg);
+            arg = decode_string_literal(arg);
         }
         attributes.push_back(
             ParsedAttribute{.name = std::move(name), .arguments = std::move(args), .argument_tokens = std::move(argument_tokens)});

@@ -259,8 +259,13 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
             saw_case = true;
             AttributeSummary::ParamSet set;
             set.param_name = attr.arguments.front();
-            for (std::size_t i = 1; i < attr.arguments.size(); ++i)
-                set.values.push_back(attr.arguments[i]);
+            // Keep the spelling of string literals: the generated call passes
+            // them through verbatim, so every escape sequence survives.
+            for (std::size_t i = 1; i < attr.arguments.size(); ++i) {
+                const bool literal_token = i < attr.argument_tokens.size() && attr.argument_tokens[i].size() >= 2 &&
+                                           attr.argument_tokens[i].front() == '"' && attr.argument_tokens[i].back() == '"';
+                set.values.push_back(literal_token ? attr.argument_tokens[i] : attr.arguments[i]);
+            }
             summary.parameter_sets.push_back(std::move(set));
         } else if (lowered == "range") {
             // Accept forms: (name, start, step, end) or (name, "start:step:end")

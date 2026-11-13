@@ -68,6 +68,25 @@ bool is_string_literal(std::string_view token) {
     return false;
 }
 
+// A literal that already fixes its own encoding or is a raw string: L"..",
+// u8"..", u"..", U".." and every R"delim(...)delim" form.
+bool is_prefixed_or_raw_string_literal(std::string_view token) {
+    token = trim_view(token);
+    if (token.size() < 3 || token.back() != '"' || token.front() == '"') {
+        return false;
+    }
+    std::size_t prefix = 0;
+    if (token.starts_with("u8")) {
+        prefix = 2;
+    } else if (token[0] == 'L' || token[0] == 'u' || token[0] == 'U') {
+        prefix = 1;
+    }
+    if (prefix < token.size() && token[prefix] == 'R') {
+        ++prefix;
+    }
+    return prefix > 0 && prefix + 1 < token.size() && token[prefix] == '"';
+}
+
 bool is_char_literal(std::string_view token) {
     token = trim_view(token);
     if (token.size() >= 3 && token.front() == '\'' && token.back() == '\'')
@@ -118,7 +137,7 @@ TypeKind classify_type(std::string_view type_name) {
 std::string quote_for_type(TypeKind kind, std::string_view token, std::string_view type_name) {
     switch (kind) {
     case TypeKind::String: {
-        if (is_string_literal(token))
+        if (is_prefixed_or_raw_string_literal(token))
             return std::string(token);
         auto        n      = normalize(type_name);
         auto        np     = normalize_keep_ptr(type_name);
@@ -135,6 +154,13 @@ std::string quote_for_type(TypeKind kind, std::string_view token, std::string_vi
         else if (n.find("u32string") != std::string::npos || n.find("u32string_view") != std::string::npos ||
                  np.find("char32_t*") != std::string::npos)
             prefix = "U";
+        if (is_string_literal(token)) {
+            // An unprefixed literal is passed through verbatim; it only gains
+            // the encoding prefix the parameter type needs.
+            if (*prefix == '\0')
+                return std::string(token);
+            return prefix + std::string(trim_view(token));
+        }
         std::string out;
         out += prefix;
         out.push_back('"');

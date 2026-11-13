@@ -10,6 +10,7 @@
 
 #include "model.hpp"
 
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -17,6 +18,12 @@ namespace gentest::codegen {
 
 // Split C++ expressions at top-level commas, retaining literal spelling and nested expressions.
 auto split_expression_list(std::string_view expressions) -> std::vector<std::string>;
+
+// Decode an unprefixed "..." literal token to the bytes it denotes: simple,
+// octal, hexadecimal and universal-character escapes. An escape that is not
+// valid in a narrow literal keeps its backslash. Other tokens are returned
+// trimmed and otherwise unchanged.
+auto decode_string_literal(std::string_view value) -> std::string;
 
 // Parse comma-separated attribute list into parsed attributes.
 auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>;
