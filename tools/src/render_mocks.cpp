@@ -1655,8 +1655,28 @@ std::string generate_dispatcher_header(const std::filesystem::path &included_fil
 
 } // namespace
 
+// The native mock is the class `gentest::mock<T>`: a member function named
+// `mock` would declare a constructor there.
+std::string gentest_unsupported_reason(const MockClassInfo &cls) {
+    for (const auto &method : cls.methods) {
+        if (method.method_name == "mock") {
+            return fmt::format(
+                "gentest::mock<{0}>: cannot mock a method named 'mock' ({1}): the generated class is itself named 'mock', so "
+                "the method would be read as a constructor. Rename the method or use the gmock or trompeloeil backend",
+                cls.qualified_name, method.qualified_name);
+        }
+    }
+    return {};
+}
+
 MockRenderResult render_gentest_mocks(const CollectorOptions &options, const std::vector<MockClassInfo> &mocks) {
     MockRenderResult result;
+    for (const auto &cls : mocks) {
+        if (std::string reason = gentest_unsupported_reason(cls); !reason.empty()) {
+            result.error = std::move(reason);
+            return result;
+        }
+    }
     const auto domains = gentest::codegen::build_mock_output_domains(options);
 
     std::vector<const MockClassInfo *> classes;
