@@ -127,8 +127,11 @@ use it only for work that must complete. A timeout or cancellation retires that
 wait, leaving a shared event, future, or executor available to other operations.
 
 `when_any()`, `wait_for()`, and `wait_until()` require exceptions for cooperative
-cancellation and joining. Exception-disabled builds can still use `awaitable<T>` and
-`when_all()`; no additional cancellation-status API is provided.
+cancellation and joining. The explicit stop-token overloads require them too,
+because a cancelled wait reports through `operation_cancelled`. Using any of
+these in an exception-disabled build is a compile-time error. Such builds can
+still use `awaitable<T>`, `when_all()`, and the waits without a token; no
+additional cancellation-status API is provided.
 
 ## 4. Fixtures own shared infrastructure
 
