@@ -450,6 +450,19 @@ inline void param(std::string_view text) { (void)text; }
     "namespace gentest::generated::register_tu_0000 {" "std::array<gentest::Case, 3> kCases")
   _gentest_cdr_expect_count("placeholder-like user text" "{{" 8)
   _gentest_cdr_expect_not_registered("placeholder-like user text" "{{FORWARD_DECLS}}" "{{TRAIT_DECLS}}" "{{WRAPPER_IMPLS}}")
+elseif(SCENARIO STREQUAL "fallback_header_extensions")
+  # Listed headers with an extension the clang driver does not know are still
+  # compiled as C++ headers.
+  foreach(_extension IN ITEMS inl ipp tpp)
+    _gentest_cdr_scan(${_extension} HEADER "cases.${_extension}" CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace ext {
+[[using gentest: test("listed")]] inline void listed() {}
+} // namespace ext
+]=])
+    _gentest_cdr_expect_success("listed .${_extension} header")
+    _gentest_cdr_expect_registered("listed .${_extension} header" "\"ext/listed\"" "cases.${_extension}\"")
+  endforeach()
 else()
   message(FATAL_ERROR "Unknown SCENARIO '${SCENARIO}'")
 endif()
