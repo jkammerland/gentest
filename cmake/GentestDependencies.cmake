@@ -56,12 +56,6 @@ endfunction()
 
 function(gentest_ensure_fmt)
     if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        # Align CRT selection with the prebuilt LLVM/Clang libraries (this
-        # Windows machine's LLVM ships with /MT Release).
-        if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
-            set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" CACHE STRING "MSVC runtime library" FORCE)
-        endif()
-
         # Work around a clang-on-Windows constant-evaluation issue in fmt's
         # compile-time format string checks (observed with LLVM 21). Disable
         # only fmt's consteval path instead of redefining fmt's internal
@@ -72,10 +66,24 @@ function(gentest_ensure_fmt)
         # breaks compilation under clang.
         add_compile_definitions(FMT_USE_CONSTEVAL=0)
 
-        # Prebuilt LLVM/Clang distributions typically ship release-mode STL
-        # settings. Keep our build compatible when linking against those libs
-        # by matching the iterator debug level across the whole build.
-        add_compile_definitions(_ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
+        # Prebuilt LLVM/Clang distributions typically ship with /MT and
+        # release-mode STL settings. gentest's own build links its tool, tests
+        # and runtime against those libraries, so it aligns the CRT selection
+        # and the iterator debug level across its whole tree.
+        #
+        # Both are ABI choices of the top-level project. As a subproject,
+        # gentest's libraries follow the consumer's choice and only the host
+        # tool is pinned to the LLVM ABI (see tools/CMakeLists.txt). Never
+        # write the cache: that would change the CRT of unrelated targets.
+        if(PROJECT_IS_TOP_LEVEL)
+            if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+                # Seen by fmt fetched below and, through the caller's scope,
+                # by every gentest directory.
+                set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
+                set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded" PARENT_SCOPE)
+            endif()
+            add_compile_definitions(_ITERATOR_DEBUG_LEVEL=0 _HAS_ITERATOR_DEBUGGING=0)
+        endif()
     endif()
 
     if(NOT TARGET fmt::fmt)
