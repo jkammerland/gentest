@@ -86,7 +86,7 @@ For non-death tests, use CTest properties (e.g., `PASS_REGULAR_EXPRESSION`) if y
 ### Compiled-out death tests
 
 If a death test is compiled out in a given configuration (e.g., wrapped in `#ifndef NDEBUG`), it will not appear
-in `--list`, so no CTest entry is created for that configuration.
+in the `--list-json` inventory that `gentest_discover_tests(...)` reads, so no CTest entry is created for that configuration.
 
 ## Troubleshooting
 

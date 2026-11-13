@@ -212,7 +212,7 @@ contents; non-template free-function definitions are therefore `inline`.
 Naming:
 - Any gentest function-level attribute marks the declaration as a case.
 - `test("...")` is optional; if omitted, the base name defaults to the C++ function name.
-- Member tests are experimental and support may be removed.
+- Member tests are deprecated and support may be removed (see [`DEPRECATIONS.md`](DEPRECATIONS.md)); prefer free functions with fixture parameters.
 
 Runtime evidence: [properties, structured records, scopes, and exporters](docs/recording.md).
 
