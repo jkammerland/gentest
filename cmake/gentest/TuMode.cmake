@@ -402,9 +402,9 @@ function(_gentest_prepare_tu_mode)
 #include \"gentest/async.h\"
 #include \"gentest/detail/generated_runtime.h\"
 
-#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 3 || \\
+#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 6 || \\
     !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
-#error \"gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime\"
+#error \"gentest_codegen output requires gentest headers with Case::measured_fn; use matching gentest headers/runtime\"
 #endif
 #if !defined(GENTEST_BENCHMARK_API_VERSION) || GENTEST_BENCHMARK_API_VERSION < 1
 #error \"gentest_codegen output requires benchmark API version 1; use matching gentest headers/runtime\"

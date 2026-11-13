@@ -21,7 +21,7 @@
 //   wrapper_stateful: {w}, {fixture}, {method}
 //   case_entry:       {name}, {wrapper}, {file}, {line}, {tags}, {reqs},
 //                     {skip_reason}, {should_skip}, {fixture}, {lifetime}, {suite},
-//                     {async_wrapper}, {is_async}, {items_per_call}, {owner}
+//                     {async_wrapper}, {is_async}, {items_per_call}, {owner}, {measured_wrapper}
 //   array_decl_*:     {name}; or {count}, {name}, {body}
 //   forward_decl_*:   {name}; or {scope}, {lines}
 //
@@ -41,9 +41,9 @@ inline constexpr std::string_view registration_preamble_light = R"CPP(#include <
 
 #include "gentest/detail/registration_runtime.h"
 
-#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 5 || \
+#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 6 || \
     !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
-#error "gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime"
+#error "gentest_codegen output requires gentest headers with Case::measured_fn; use matching gentest headers/runtime"
 #endif
 #if !defined(GENTEST_BENCHMARK_API_VERSION) || GENTEST_BENCHMARK_API_VERSION < 1
 #error "gentest_codegen output requires benchmark API version 1; use matching gentest headers/runtime"
@@ -63,9 +63,9 @@ inline constexpr std::string_view registration_preamble_full = R"CPP(#include <a
 #include "gentest/async.h"
 #include "gentest/detail/generated_runtime.h"
 
-#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 5 || \
+#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 6 || \
     !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
-#error "gentest_codegen output requires gentest headers with Case::owner; use matching gentest headers/runtime"
+#error "gentest_codegen output requires gentest headers with Case::measured_fn; use matching gentest headers/runtime"
 #endif
 #if !defined(GENTEST_BENCHMARK_API_VERSION) || GENTEST_BENCHMARK_API_VERSION < 1
 #error "gentest_codegen output requires benchmark API version 1; use matching gentest headers/runtime"
@@ -338,22 +338,27 @@ inline constexpr std::string_view wrapper_free = R"FMT(static void {w}(void* ctx
 
 )FMT";
 
-inline constexpr std::string_view wrapper_free_fixtures = R"FMT(static void {w}(void* ctx_) {{
+inline constexpr std::string_view wrapper_free_fixtures = R"FMT(static auto& {w}_bench_state() {{
+    struct BenchState {{
+{bench_decls}{bench_setup_flags}        bool ready = false;
+    }};
+    static thread_local BenchState state{{}};
+    return state;
+}}
+
+static void {w}(void* ctx_) {{
     (void)ctx_;
     const auto phase = ::gentest::detail::bench_phase();
     if (phase != ::gentest::detail::BenchPhase::None) {{
-        struct BenchState {{
-{bench_decls}{bench_setup_flags}        bool ready = false;
-        }};
-        static thread_local BenchState bench_state{{}};
+        auto& bench_state = {w}_bench_state();
         if (phase == ::gentest::detail::BenchPhase::Setup) {{
-            bench_state = BenchState{{}};
+            bench_state = {{}};
 {bench_inits}{bench_setup}            bench_state.ready = true;
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Teardown) {{
 {bench_teardown}
-            bench_state = BenchState{{}};
+            bench_state = {{}};
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Call) {{
@@ -468,7 +473,8 @@ inline constexpr std::string_view case_entry = R"FMT(    gentest::Case{{
             .time_source = {benchmark_time_source},
             .warmup_epochs = {benchmark_warmup}
         }},
-        .reports_body_start = true
+        .reports_body_start = true,
+        .measured_fn = {measured_wrapper}
     }},
 
 )FMT";

@@ -513,6 +513,11 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += build_helper_definition(spec, helper_name);
         const auto invoke = make_invoke_for_free(spec, qualified_helper, "()");
         append_format_runtime(out, templates.free, fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
+        // The runner selects the timed entrypoint once per epoch; fixture-free
+        // calls need no phase lookup inside each iteration.
+        if (spec.is_measured) {
+            append_format_runtime(out, templates.free_test, fmt::arg("w", spec.wrapper_name + "_measured"), fmt::arg("invoke", invoke));
+        }
         return;
     }
     case WrapperKind::FreeWithFixtures: {
@@ -538,6 +543,14 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
                               fmt::arg("bench_setup_flags", bench_setup_flags), fmt::arg("bench_inits", bench_inits),
                               fmt::arg("bench_setup", bench_setup), fmt::arg("bench_teardown", bench_teardown),
                               fmt::arg("bench_invoke", bench_invoke));
+        if (spec.is_measured) {
+            const auto measured_invoke = "auto& bench_state = " + spec.wrapper_name +
+                                         "_bench_state();\n"
+                                         "    if (!bench_state.ready) return;\n    " +
+                                         bench_invoke;
+            append_format_runtime(out, templates.free_test, fmt::arg("w", spec.wrapper_name + "_measured"),
+                                  fmt::arg("invoke", measured_invoke));
+        }
         return;
     }
     case WrapperKind::MemberEphemeral: {
@@ -921,6 +934,8 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
         const auto  grouping_fixture = case_grouping_fixture(test);
         const auto &fixture_name     = grouping_fixture.first;
         const auto  fixture_lifetime = grouping_fixture.second;
+        const bool  has_measured_entrypoint =
+            (test.is_benchmark || test.is_jitter) && !test.returns_async && test.fixture_qualified_name.empty();
         append_format_runtime(
             out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name)),
             fmt::arg("wrapper", std::string("::kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),
@@ -943,7 +958,8 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
             fmt::arg("benchmark_time_source",
                      test.benchmark.supplied_time ? "gentest::BenchmarkTimeSource::Supplied" : "gentest::BenchmarkTimeSource::Runner"),
             fmt::arg("benchmark_warmup",
-                     test.benchmark.warmup_epochs ? fmt::format("std::size_t{{{}ULL}}", *test.benchmark.warmup_epochs) : "std::nullopt"));
+                     test.benchmark.warmup_epochs ? fmt::format("std::size_t{{{}ULL}}", *test.benchmark.warmup_epochs) : "std::nullopt"),
+            fmt::arg("measured_wrapper", has_measured_entrypoint ? "&::kCaseInvoke_" + std::to_string(idx) + "_measured" : "nullptr"));
     }
     return out;
 }

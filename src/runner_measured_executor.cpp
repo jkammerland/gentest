@@ -46,12 +46,13 @@ struct CalibratedEpoch {
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double run_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail,
                        MeasurementCaseFailure &failure) {
-    iterations_done = 0;
+    iterations_done   = 0;
+    const auto invoke = c.measured_fn ? c.measured_fn : c.fn;
     return detail::run_call_phase_with_context(
         c, "skip requested during benchmark call phase",
         [&] {
             for (std::size_t i = 0; i < iters; ++i) {
-                c.fn(ctx);
+                invoke(ctx);
                 iterations_done = i + 1;
             }
         },
@@ -93,14 +94,15 @@ double run_warmup_epochs(const gentest::Case &c, void *ctx, std::size_t iters, s
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std::size_t &iterations_done, bool &had_assert_fail,
                               std::vector<double> &samples_ns, MeasurementCaseFailure &failure) {
-    using clock     = std::chrono::steady_clock;
-    iterations_done = 0;
+    using clock       = std::chrono::steady_clock;
+    iterations_done   = 0;
+    const auto invoke = c.measured_fn ? c.measured_fn : c.fn;
     return detail::run_call_phase_with_context(
         c, "skip requested during jitter call phase",
         [&] {
             for (std::size_t i = 0; i < iters; ++i) {
                 auto start = clock::now();
-                c.fn(ctx);
+                invoke(ctx);
                 auto end = clock::now();
                 samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - start).count()));
                 iterations_done = i + 1;
@@ -118,6 +120,7 @@ double run_jitter_batch_epoch_calls(const gentest::Case &c, void *ctx, std::size
     std::size_t local_done  = 0;
     auto        batch_start = clock::now();
     bool        in_batch    = false;
+    const auto  invoke      = c.measured_fn ? c.measured_fn : c.fn;
     return detail::run_call_phase_with_context(
         c, "skip requested during jitter call phase",
         [&] {
@@ -126,7 +129,7 @@ double run_jitter_batch_epoch_calls(const gentest::Case &c, void *ctx, std::size
                 local_done  = 0;
                 in_batch    = true;
                 for (std::size_t i = 0; i < batch_iters; ++i) {
-                    c.fn(ctx);
+                    invoke(ctx);
                     ++local_done;
                 }
                 auto end = clock::now();

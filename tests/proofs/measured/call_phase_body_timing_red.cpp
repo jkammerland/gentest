@@ -1,3 +1,4 @@
+#include "benchmark_internal.h"
 #include "gentest/context.h"
 #include "gentest/detail/runtime_context.h"
 #include "gentest/runner.h"
@@ -10,7 +11,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <future>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -63,6 +66,19 @@ enum class Exit {
     UnknownException,
 };
 
+void finish_body(Exit exit) {
+    switch (exit) {
+    case Exit::Return: return;
+    case Exit::Skip: gentest::skip("proof skip");
+    // NOLINTNEXTLINE(bugprone-std-exception-baseclass) - Exercise Gentest's dedicated assertion catch path.
+    case Exit::Assertion: throw gentest::assertion("proof assertion");
+    case Exit::Failure: throw gentest::failure("proof failure");
+    case Exit::StdException: throw std::runtime_error("proof std exception");
+    // NOLINTNEXTLINE(bugprone-std-exception-baseclass) - Exercise the catch-all path with a nonstandard exception.
+    case Exit::UnknownException: throw 7;
+    }
+}
+
 void perform_body(Retirement &retirement, Exit exit) {
     retirement.context         = gentest::detail::current_test();
     auto               context = gentest::get_current_context();
@@ -82,16 +98,7 @@ void perform_body(Retirement &retirement, Exit exit) {
     adopted_ready.wait();
 
     ManualClock::advance(kBodyWork);
-    switch (exit) {
-    case Exit::Return: return;
-    case Exit::Skip: gentest::skip("proof skip");
-    // NOLINTNEXTLINE(bugprone-std-exception-baseclass) - Exercise Gentest's dedicated assertion catch path.
-    case Exit::Assertion: throw gentest::assertion("proof assertion");
-    case Exit::Failure: throw gentest::failure("proof failure");
-    case Exit::StdException: throw std::runtime_error("proof std exception");
-    // NOLINTNEXTLINE(bugprone-std-exception-baseclass) - Exercise the catch-all path with a nonstandard exception.
-    case Exit::UnknownException: throw 7;
-    }
+    finish_body(exit);
 }
 
 bool prove_call_timing(const gentest::Case &test, Exit exit) {
@@ -181,6 +188,78 @@ bool prove_report_accounting(const gentest::Case &test) {
     return true;
 }
 
+struct PartialEpochProbe {
+    Exit                                       exit;
+    unsigned                                   fail_on_call;
+    unsigned                                   attempted      = 0;
+    unsigned                                   fallback_calls = 0;
+    unsigned                                   wrong_phase    = 0;
+    unsigned                                   teardowns      = 0;
+    std::optional<gentest::PrimaryMeasurement> primary;
+};
+
+PartialEpochProbe *partial_epoch_probe = nullptr;
+
+void partial_epoch_body(void *) {
+    auto &probe = *partial_epoch_probe;
+    probe.wrong_phase += gentest::detail::bench_phase() != gentest::detail::BenchPhase::Call;
+    if (++probe.attempted == probe.fail_on_call) {
+        finish_body(probe.exit);
+    }
+}
+
+void partial_epoch_call(void *) {
+    auto &probe = *partial_epoch_probe;
+    if (gentest::detail::bench_phase() == gentest::detail::BenchPhase::Call) {
+        ++probe.fallback_calls;
+        partial_epoch_body(nullptr);
+    } else if (gentest::detail::bench_phase() == gentest::detail::BenchPhase::Teardown) {
+        ++probe.teardowns;
+        // Failed calibration has no public result, but its occurrence still owns
+        // the completed-call accounting delivered to local teardown.
+        if (const auto *state = gentest::detail::measurement_state()) {
+            probe.primary = state->snapshot.primary;
+        }
+    }
+}
+
+bool prove_partial_epoch_accounting(gentest::Case test, Exit exit, unsigned fail_on_call, bool direct_call) {
+    PartialEpochProbe probe{.exit = exit, .fail_on_call = fail_on_call};
+    partial_epoch_probe = &probe;
+    test.fn             = &partial_epoch_call;
+    test.measured_fn    = direct_call ? &partial_epoch_body : nullptr;
+
+    gentest::runner::CliOptions opt{};
+    opt.color_output               = false;
+    opt.bench_cfg.min_epoch_time_s = std::numeric_limits<double>::max();
+    opt.bench_cfg.min_total_time_s = 0;
+    opt.bench_cfg.max_total_time_s = 0;
+    opt.bench_cfg.warmup_epochs    = 0;
+    opt.bench_cfg.measure_epochs   = 1;
+
+    // The unreachable calibration time forces successive epochs of 1, 2, 4,
+    // ... calls. The injected failure stops them without depending on host speed.
+    const std::size_t idxs[]    = {0};
+    unsigned          successes = 0;
+    unsigned          failures  = 0;
+    const auto        status    = gentest::runner::run_selected_benches(
+        std::span<const gentest::Case>(&test, 1), std::span<const std::size_t>(idxs, 1), opt, false,
+        [&](const gentest::Case &, const gentest::runner::BenchResult &) { ++successes; },
+        [&](const gentest::Case &, const gentest::runner::MeasurementCaseFailure &, std::string_view) { ++failures; });
+    partial_epoch_probe = nullptr;
+
+    // Count successful callbacks independently: the throwing call never completes.
+    if (status.ok || status.failed != 1 || successes != 0 || failures != 1 || probe.attempted != fail_on_call ||
+        probe.fallback_calls != (direct_call ? 0U : fail_on_call) || probe.wrong_phase != 0 || probe.teardowns != 1 || !probe.primary ||
+        probe.primary->calibration_calls != fail_on_call - 1 || probe.primary->measured_calls != 0 ||
+        probe.primary->statistics.count != 0) {
+        (void)std::fprintf(stderr, "partial epoch accounting failed: exit=%d failure_call=%u attempted=%u\n", static_cast<int>(exit),
+                           fail_on_call, probe.attempted);
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main() {
@@ -205,6 +284,15 @@ int main() {
     for (const auto exit : {Exit::Return, Exit::Skip, Exit::Assertion, Exit::Failure, Exit::StdException, Exit::UnknownException}) {
         if (!prove_call_timing(test, exit)) {
             return 1;
+        }
+        if (exit != Exit::Return) {
+            for (const unsigned fail_on_call : {1U, 2U, 5U}) {
+                for (const bool direct_call : {false, true}) {
+                    if (!prove_partial_epoch_accounting(test, exit, fail_on_call, direct_call)) {
+                        return 1;
+                    }
+                }
+            }
         }
     }
     return prove_report_accounting(test) ? 0 : 1;
