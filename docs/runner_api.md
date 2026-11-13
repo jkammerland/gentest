@@ -57,6 +57,12 @@ attribute skips appear as skipped. Fixture teardown and report-write errors retu
 A successful execution with `--junit=<path>` writes a report for that invocation, including zero-test selections and empty case
 tables. Use `--fail-on-empty` when CI requires a nonempty selection. Listing and preview operations do not write reports.
 
+An execution that fails before any case runs (an unknown, ambiguous, kind-mismatched or death-excluded `--run` name, a
+bench/jitter filter that matches nothing, `--fail-on-empty`, a machine report format with an unmeasured selection, or invalid
+manual benchmark metadata) also replaces the requested JUnit and Allure reports. The replacement has no test cases and records
+the diagnostic as one runner error, so a report left by an earlier run is never mistaken for the current one. Invalid command
+lines are rejected before any report path is used and leave existing files alone.
+
 Report outcome mapping:
 
 | Outcome | JUnit | Allure `status` |
