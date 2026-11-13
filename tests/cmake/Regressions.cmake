@@ -1480,6 +1480,23 @@ gentest_add_cmake_script_test(
     SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoTimeout.cmake"
     DEFINES TIMEOUT_SEC=5 EXPECT_RC=0)
 
+if(NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    gentest_add_cmake_script_test(
+        NAME regression_async_stop_token_overloads_require_exceptions
+        NO_EMULATOR
+        PROG ${CMAKE_COMMAND}
+        SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAsyncStopTokenNoExceptions.cmake"
+        DEFINES
+            "BUILD_ROOT=${CMAKE_CURRENT_BINARY_DIR}/async_stop_token_no_exceptions"
+            "SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+            "CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "CXX_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
+            "CXX_COMPILER_ARG1=${CMAKE_CXX_COMPILER_ARG1}"
+            "CXX_COMPILER_TARGET=${CMAKE_CXX_COMPILER_TARGET}"
+            "CXX_SYSROOT=${CMAKE_SYSROOT}"
+            "CXX_FLAGS=${CMAKE_CXX_FLAGS}")
+endif()
+
 gentest_add_cmake_script_test(
     NAME regression_async_adopted_ready_queue_completion_no_deadlock
     PROG $<TARGET_FILE:gentest_regression_async_adopted_ready_queue>

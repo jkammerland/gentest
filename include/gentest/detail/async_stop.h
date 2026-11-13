@@ -12,6 +12,16 @@ class operation_cancelled : public std::exception {
 
 namespace gentest::detail {
 
+// A cancelled wait reports through operation_cancelled, so an explicit stop
+// token cannot be honoured without exceptions. The condition is dependent to
+// reject only the overloads a translation unit actually uses.
+template <typename> inline constexpr bool async_explicit_stop_supported = GENTEST_EXCEPTIONS_ENABLED != 0;
+
+template <typename Tag> constexpr void require_async_explicit_stop_support() noexcept {
+    static_assert(async_explicit_stop_supported<Tag>,
+                  "gentest::async stop-token overloads require exception support: a cancelled wait throws operation_cancelled");
+}
+
 class AsyncWaitCancellation {
   public:
     explicit AsyncWaitCancellation(std::optional<std::stop_token> override_token = {}) : override_(std::move(override_token)) {}
