@@ -2,9 +2,20 @@
 
 #include "parse.hpp"
 
+#include <algorithm>
 #include <cctype>
+#include <clang/Basic/LangOptions.h>
+#include <clang/Basic/LangStandard.h>
+#include <clang/Basic/TokenKinds.h>
+#include <clang/Lex/Lexer.h>
+#include <clang/Lex/Token.h>
+#include <cstddef>
+#include <functional>
+#include <llvm/TargetParser/Triple.h>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <vector>
 
 using namespace clang;
 
@@ -394,248 +405,144 @@ bool try_start_raw_string(std::string_view text, std::size_t index, std::string 
     return true;
 }
 
-std::size_t find_attribute_open_for_close(llvm::StringRef buffer, std::size_t close_marker) {
-    if (close_marker + 1 >= static_cast<std::size_t>(buffer.size())) {
-        return llvm::StringRef::npos;
+struct RawToken {
+    std::size_t        begin = 0;
+    std::size_t        end   = 0;
+    tok::TokenKind     kind  = tok::unknown;
+    [[nodiscard]] bool is(tok::TokenKind expected) const { return kind == expected; }
+};
+
+struct RawTokenCacheEntry {
+    std::size_t           size = 0;
+    std::size_t           hash = 0;
+    std::vector<RawToken> tokens;
+};
+
+std::vector<RawToken> lex_raw_tokens(llvm::StringRef buffer) {
+    LangOptions              lang_options;
+    std::vector<std::string> includes;
+    LangOptions::setLangDefaults(lang_options, Language::CXX, llvm::Triple{}, includes, LangStandard::lang_cxx20);
+
+    // A raw lexer needs no preprocessor: it never diagnoses, and it ends an
+    // unterminated string or character literal at the end of its line, so
+    // prose inside comments or preprocessor-skipped text cannot swallow the
+    // rest of the file. Offsets are recovered from the raw location encoding.
+    std::vector<RawToken> tokens;
+    Lexer                 lexer(SourceLocation{}, lang_options, buffer.begin(), buffer.begin(), buffer.end());
+    Token                 token;
+    for (;;) {
+        lexer.LexFromRawLexer(token);
+        if (token.is(tok::eof)) {
+            break;
+        }
+        const std::size_t begin = token.getLocation().getRawEncoding();
+        tokens.push_back(RawToken{.begin = begin, .end = begin + token.getLength(), .kind = token.getKind()});
     }
-
-    const std::string_view text(buffer.data(), buffer.size());
-
-    bool        in_string        = false;
-    bool        in_char          = false;
-    bool        in_line_comment  = false;
-    bool        in_block_comment = false;
-    bool        in_raw_string    = false;
-    bool        escape           = false;
-    std::string raw_delimiter;
-
-    std::size_t open_marker = llvm::StringRef::npos;
-    for (std::size_t i = 0; i <= close_marker && i < text.size(); ++i) {
-        const char ch   = text[i];
-        const char next = (i + 1 < text.size()) ? text[i + 1] : '\0';
-
-        if (in_line_comment) {
-            if (ch == '\n' || ch == '\r') {
-                in_line_comment = false;
-            }
-            continue;
-        }
-        if (in_block_comment) {
-            if (ch == '*' && next == '/') {
-                in_block_comment = false;
-                ++i;
-            }
-            continue;
-        }
-        if (in_raw_string) {
-            if (ch == ')') {
-                const std::size_t quote_index = i + raw_delimiter.size() + 1;
-                if (quote_index < text.size()) {
-                    bool delimiter_matches = true;
-                    for (std::size_t j = 0; j < raw_delimiter.size(); ++j) {
-                        if (text[i + 1 + j] != raw_delimiter[j]) {
-                            delimiter_matches = false;
-                            break;
-                        }
-                    }
-                    if (delimiter_matches && text[quote_index] == '"') {
-                        in_raw_string = false;
-                        i             = quote_index;
-                    }
-                }
-            }
-            continue;
-        }
-        if (in_string) {
-            if (escape) {
-                escape = false;
-            } else if (ch == '\\') {
-                escape = true;
-            } else if (ch == '"') {
-                in_string = false;
-            }
-            continue;
-        }
-        if (in_char) {
-            if (escape) {
-                escape = false;
-            } else if (ch == '\\') {
-                escape = true;
-            } else if (ch == '\'') {
-                in_char = false;
-            }
-            continue;
-        }
-
-        if (ch == '/' && next == '/') {
-            in_line_comment = true;
-            ++i;
-            continue;
-        }
-        if (ch == '/' && next == '*') {
-            in_block_comment = true;
-            ++i;
-            continue;
-        }
-        std::size_t raw_open_paren = 0;
-        if (try_start_raw_string(text, i, raw_delimiter, raw_open_paren)) {
-            in_raw_string = true;
-            i             = raw_open_paren;
-            continue;
-        }
-        if (ch == '"') {
-            in_string = true;
-            continue;
-        }
-        if (ch == '\'' && should_enter_char_literal(text, i)) {
-            in_char = true;
-            continue;
-        }
-        if (ch == '[' && next == '[') {
-            open_marker = i;
-            ++i;
-            continue;
-        }
-        if (ch == ']' && next == ']') {
-            if (i == close_marker) {
-                return open_marker;
-            }
-            open_marker = llvm::StringRef::npos;
-            ++i;
-        }
-    }
-
-    return llvm::StringRef::npos;
+    return tokens;
 }
 
-void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buffer, std::size_t start_offset) {
-    auto find_line_comment = [](std::string_view line) -> std::size_t {
-        bool        in_string     = false;
-        bool        in_char       = false;
-        bool        in_raw_string = false;
-        bool        escape        = false;
-        std::string raw_delimiter;
-        for (std::size_t i = 0; i < line.size(); ++i) {
-            const char ch   = line[i];
-            const char next = (i + 1 < line.size()) ? line[i + 1] : '\0';
+// Every declaration in a header asks for the tokens of the same buffer, so
+// keep them per thread. Entries are verified by content hash because a buffer
+// address can be reused by a later translation unit.
+const std::vector<RawToken> &raw_tokens_for(llvm::StringRef buffer) {
+    static constexpr std::size_t                                      kMaxCachedBuffers = 64;
+    thread_local std::unordered_map<const char *, RawTokenCacheEntry> cache;
 
-            if (in_raw_string) {
-                if (ch == ')') {
-                    const std::size_t quote_index = i + raw_delimiter.size() + 1;
-                    if (quote_index < line.size()) {
-                        bool delimiter_matches = true;
-                        for (std::size_t j = 0; j < raw_delimiter.size(); ++j) {
-                            if (line[i + 1 + j] != raw_delimiter[j]) {
-                                delimiter_matches = false;
-                                break;
-                            }
-                        }
-                        if (delimiter_matches && line[quote_index] == '"') {
-                            in_raw_string = false;
-                            i             = quote_index;
-                        }
-                    }
-                }
-                continue;
-            }
-            if (escape) {
-                escape = false;
-                continue;
-            }
-            if (in_string) {
-                if (ch == '\\') {
-                    escape = true;
-                } else if (ch == '"') {
-                    in_string = false;
-                }
-                continue;
-            }
-            if (in_char) {
-                if (ch == '\\') {
-                    escape = true;
-                } else if (ch == '\'') {
-                    in_char = false;
-                }
-                continue;
-            }
-            std::size_t raw_open_paren = 0;
-            if (try_start_raw_string(line, i, raw_delimiter, raw_open_paren)) {
-                in_raw_string = true;
-                i             = raw_open_paren;
-                continue;
-            }
-            if (ch == '"') {
-                in_string = true;
-                continue;
-            }
-            if (ch == '\'' && should_enter_char_literal(line, i)) {
-                in_char = true;
-                continue;
-            }
-            if (ch == '/' && next == '/') {
-                return i;
-            }
+    const std::size_t hash = std::hash<std::string_view>{}(std::string_view(buffer.data(), buffer.size()));
+    if (const auto it = cache.find(buffer.data()); it != cache.end()) {
+        if (it->second.size == buffer.size() && it->second.hash == hash) {
+            return it->second.tokens;
         }
-        return std::string_view::npos;
-    };
+        cache.erase(it);
+    }
+    if (cache.size() >= kMaxCachedBuffers) {
+        cache.clear();
+    }
+    auto &entry  = cache[buffer.data()];
+    entry.size   = buffer.size();
+    entry.hash   = hash;
+    entry.tokens = lex_raw_tokens(buffer);
+    return entry.tokens;
+}
 
-    auto skip_ws_and_comments = [&](std::size_t &cursor) {
-        bool progressed = true;
-        while (progressed && cursor > 0) {
-            progressed = false;
-            while (cursor > 0 && std::isspace(static_cast<unsigned char>(buffer[cursor - 1])) != 0) {
-                --cursor;
-                progressed = true;
-            }
-            if (cursor < 2) {
-                return;
-            }
-
-            // Skip trailing block comments.
-            if (buffer[cursor - 1] == '/' && buffer[cursor - 2] == '*') {
-                cursor -= 2;
-                while (cursor >= 2) {
-                    if (buffer[cursor - 2] == '/' && buffer[cursor - 1] == '*') {
-                        cursor -= 2;
-                        break;
-                    }
-                    --cursor;
-                }
-                progressed = true;
-                continue;
-            }
-
-            // Skip trailing line comments on the current line.
-            std::size_t line_start = cursor;
-            while (line_start > 0 && buffer[line_start - 1] != '\n' && buffer[line_start - 1] != '\r') {
-                --line_start;
-            }
-            const llvm::StringRef line = buffer.slice(line_start, cursor);
-            const auto            pos  = find_line_comment(std::string_view(line.data(), line.size()));
-            if (pos != std::string_view::npos) {
-                cursor     = line_start + pos;
-                progressed = true;
-                continue;
-            }
-        }
-    };
-
-    std::size_t cursor = start_offset <= static_cast<std::size_t>(buffer.size()) ? start_offset : buffer.size();
+// Step backward over declaration specifiers written between an attribute list
+// and the location Clang reports for the declaration: keywords and macros
+// (inline, static, virtual, constexpr, const, API_EXPORT, ...) and
+// parenthesized specifier arguments such as explicit(...) or alignas(...).
+std::size_t skip_decl_specifiers_backward(const std::vector<RawToken> &tokens, std::size_t cursor) {
     while (cursor > 0) {
-        std::size_t position = cursor;
-        skip_ws_and_comments(position);
+        const RawToken &previous = tokens[cursor - 1];
+        if (previous.is(tok::raw_identifier)) {
+            --cursor;
+            continue;
+        }
+        if (!previous.is(tok::r_paren)) {
+            break;
+        }
+        std::size_t depth = 0;
+        std::size_t open  = cursor;
+        bool        found = false;
+        while (open > 0) {
+            --open;
+            if (tokens[open].is(tok::r_paren)) {
+                ++depth;
+            } else if (tokens[open].is(tok::l_paren)) {
+                --depth;
+                if (depth == 0) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found || open == 0 || !tokens[open - 1].is(tok::raw_identifier)) {
+            break;
+        }
+        cursor = open - 1;
+    }
+    return cursor;
+}
 
-        if (position < 2 || buffer[position - 1] != ']' || buffer[position - 2] != ']') {
+void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buffer, std::size_t start_offset,
+                            bool skip_decl_specifiers = false) {
+    const auto &tokens = raw_tokens_for(buffer);
+
+    // tokens[0, cursor) are the tokens that end before the scan position.
+    // Comments are not tokens, so block and line comments between attribute
+    // lists and the declaration need no special handling.
+    std::size_t cursor = static_cast<std::size_t>(
+        std::ranges::lower_bound(tokens, start_offset, std::ranges::less{}, [](const RawToken &token) { return token.begin; }) -
+        tokens.begin());
+    if (skip_decl_specifiers) {
+        cursor = skip_decl_specifiers_backward(tokens, cursor);
+    }
+
+    while (cursor >= 2) {
+        if (!tokens[cursor - 1].is(tok::r_square) || !tokens[cursor - 2].is(tok::r_square)) {
             break;
         }
 
-        const std::size_t close_marker = position - 2;
-        const std::size_t open         = find_attribute_open_for_close(buffer, close_marker);
-        if (open == llvm::StringRef::npos) {
+        // Match the closing "]]" against its opening "[[", allowing nested
+        // subscripts inside attribute arguments.
+        std::size_t depth = 0;
+        std::size_t open  = cursor;
+        bool        found = false;
+        while (open > 0) {
+            --open;
+            if (tokens[open].is(tok::r_square)) {
+                ++depth;
+            } else if (tokens[open].is(tok::l_square)) {
+                --depth;
+                if (depth == 0) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found || !tokens[open + 1].is(tok::l_square)) {
             break;
         }
 
-        const llvm::StringRef    attribute_text = buffer.slice(open, close_marker + 2);
+        const llvm::StringRef    attribute_text = buffer.slice(tokens[open].begin, tokens[cursor - 1].end);
         std::string_view         namespace_name;
         std::string_view         args_text;
         std::string              owned_args_text;
@@ -674,31 +581,21 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
 auto collect_gentest_attributes_for(const FunctionDecl &func, const SourceManager &sm) -> AttributeCollection {
     AttributeCollection collected;
 
-    // LLVM 21 behavior change: For inline CXX member functions, getBeginLoc() points
-    // to the enclosing class, not the function. We need to find the actual start
-    // of the function declaration (including any attributes before it).
-    //
-    // Strategy: Use getSourceRange().getBegin() but adjust for member functions:
-    // In LLVM 21, for CXXMethodDecl with inline definitions, all location APIs
-    // (getBeginLoc, getOuterLocStart, etc.) incorrectly point to the class.
-    // Only getLocation() correctly points to the function name.
-    //
-    // For member functions: Use getTypeSourceInfo() to find the return type location,
-    // which should be before the function name but after any attributes.
-    // Then scan backward from there to find attributes.
+    // Clang reports the start of a member declaration at its leading
+    // attribute list, but the start of a free function after it. Start members
+    // at their declared type instead; the token scan then steps back over any
+    // specifiers (inline, static, virtual, const, ...) written between the
+    // attributes and that location.
     SourceLocation begin;
 
     if (auto *method = llvm::dyn_cast<CXXMethodDecl>(&func)) {
-        // For member functions: try to get return type location
         if (auto *tsi = method->getTypeSourceInfo()) {
             begin = tsi->getTypeLoc().getBeginLoc();
         }
         if (!begin.isValid()) {
-            // Fallback to function name location for members
             begin = func.getLocation();
         }
     } else {
-        // For free functions: getBeginLoc should work correctly
         begin = func.getBeginLoc();
     }
 
@@ -727,7 +624,7 @@ auto collect_gentest_attributes_for(const FunctionDecl &func, const SourceManage
     const llvm::StringRef buffer = sm.getBufferData(file_id);
     const unsigned        offset = sm.getFileOffset(file_location);
 
-    scan_attributes_before(collected, buffer, offset);
+    scan_attributes_before(collected, buffer, offset, /*skip_decl_specifiers=*/true);
 
     return collected;
 }
