@@ -171,6 +171,81 @@ add_dependencies(gentest_test_suites gentest_format_value_tests)
 add_test(NAME format_value COMMAND gentest_format_value_tests)
 set_property(TEST format_value APPEND PROPERTY LABELS "public-api")
 
+# Public assertion/formatting header regressions. Each program owns its case
+# table: the failing cases pin their source lines with #line, and the death
+# checks require the reported location to be the test's own file and line.
+foreach(_gentest_assertion_header_test IN ITEMS throw_forms)
+    add_executable(gentest_assertion_headers_${_gentest_assertion_header_test}_tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/${_gentest_assertion_header_test}.cpp)
+    target_compile_features(gentest_assertion_headers_${_gentest_assertion_header_test}_tests PRIVATE cxx_std_20)
+    target_link_libraries(gentest_assertion_headers_${_gentest_assertion_header_test}_tests PRIVATE gentest::gentest)
+    add_dependencies(gentest_test_suites gentest_assertion_headers_${_gentest_assertion_header_test}_tests)
+    add_test(NAME assertion_headers_${_gentest_assertion_header_test}_pass
+        COMMAND gentest_assertion_headers_${_gentest_assertion_header_test}_tests
+            --filter=${_gentest_assertion_header_test}/passing/* --no-color)
+    set_property(TEST assertion_headers_${_gentest_assertion_header_test}_pass APPEND PROPERTY LABELS "public-api;headers")
+endforeach()
+unset(_gentest_assertion_header_test)
+
+gentest_add_check_death(
+    NAME assertion_headers_throw_forms_fail
+    PROG gentest_assertion_headers_throw_forms_tests
+    ARGS --filter=throw_forms/failing/* --no-color
+    REQUIRED_SUBSTRINGS
+        "throw_forms.cpp:2001"
+        "caught std::exception: callable expect boom"
+        "throw_forms.cpp:2002"
+        "caught std::exception: callable assert boom"
+        "throw_forms.cpp:2003"
+        "caught std::exception: invoked lambda boom"
+        "throw_forms.cpp:2004"
+        "but no exception was thrown"
+        "throw_forms.cpp:2005"
+        "throw_forms.cpp:2006")
+set_property(TEST
+        assertion_headers_throw_forms_fail
+    APPEND PROPERTY LABELS "public-api;headers")
+
+# A lambda-expression handed to a statement macro would never be called, so the
+# macros reject it at compile time. Drive the compiler directly to observe the
+# diagnostic; variant 4 is the control that must compile.
+if(NOT CMAKE_CROSSCOMPILING AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
+    set(_gentest_probe_includes
+        "$<LIST:FILTER,$<TARGET_PROPERTY:gentest_assertion_headers_throw_forms_tests,INCLUDE_DIRECTORIES>,EXCLUDE,^$>")
+    separate_arguments(_gentest_probe_flags NATIVE_COMMAND "${CMAKE_CXX_FLAGS}")
+    if(CMAKE_OSX_SYSROOT)
+        list(APPEND _gentest_probe_flags -isysroot "${CMAKE_OSX_SYSROOT}")
+    endif()
+    set(_gentest_probe_args
+        ${_gentest_probe_flags}
+        -std=c++20
+        -fsyntax-only
+        "$<LIST:TRANSFORM,${_gentest_probe_includes},PREPEND,-I>"
+        ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/uncalled_lambda_rejected.cpp)
+    set(_gentest_probe_macros EXPECT_NO_THROW ASSERT_NO_THROW EXPECT_THROW ASSERT_THROW)
+    foreach(_gentest_probe_variant RANGE 0 3)
+        list(GET _gentest_probe_macros ${_gentest_probe_variant} _gentest_probe_macro)
+        gentest_add_check_death(
+            NAME assertion_headers_uncalled_lambda_rejected_${_gentest_probe_macro}
+            PROG ${CMAKE_CXX_COMPILER}
+            NO_EMULATOR
+            ARGS ${_gentest_probe_args} -DGENTEST_PROBE_VARIANT=${_gentest_probe_variant}
+            REQUIRED_SUBSTRING "${_gentest_probe_macro} executes its argument as a statement, so this lambda-expression would never be called")
+        set_property(TEST assertion_headers_uncalled_lambda_rejected_${_gentest_probe_macro}
+            APPEND PROPERTY LABELS "public-api;headers")
+    endforeach()
+    add_test(NAME assertion_headers_uncalled_lambda_control
+        COMMAND ${CMAKE_CXX_COMPILER} ${_gentest_probe_args} -DGENTEST_PROBE_VARIANT=4
+        COMMAND_EXPAND_LISTS)
+    set_property(TEST assertion_headers_uncalled_lambda_control APPEND PROPERTY LABELS "public-api;headers")
+    unset(_gentest_probe_args)
+    unset(_gentest_probe_flags)
+    unset(_gentest_probe_includes)
+    unset(_gentest_probe_macro)
+    unset(_gentest_probe_macros)
+    unset(_gentest_probe_variant)
+endif()
+
 add_executable(gentest_narrow_sync_surface_api_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/narrow_sync_surface_api.cpp)
 target_compile_features(gentest_narrow_sync_surface_api_tests PRIVATE cxx_std_20)
