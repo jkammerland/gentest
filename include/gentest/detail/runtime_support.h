@@ -8,6 +8,7 @@
 #include <exception>
 #include <filesystem>
 #include <fmt/format.h>
+#include <initializer_list>
 #include <memory>
 #include <source_location>
 #include <string>
@@ -168,20 +169,24 @@ inline void run_noexceptions_fatal_hook() noexcept {
 
 template <typename T> inline std::string to_string_fallback(const T &v) { return ::gentest::format_value(v); }
 
-inline std::string loc_to_string(const std::source_location &loc) {
-    std::filesystem::path p(std::string(loc.file_name()));
-    p                     = p.lexically_normal();
-    std::string s         = p.generic_string();
-    auto        keep_from = [&](std::string_view marker) -> bool {
-        const std::size_t pos = s.find(marker);
-        if (pos != std::string::npos) {
-            s = s.substr(pos);
-            return true;
+// Shorten a source path to start at its first `tests`, `include`, `src` or `tools`
+// directory. Markers match whole path components only, so `/home/u/contests/a.cpp`
+// is left alone instead of becoming `tests/a.cpp`.
+inline std::string trim_source_path(std::string_view file) {
+    std::string s = std::filesystem::path(std::string(file)).lexically_normal().generic_string();
+    for (const std::string_view marker : {"tests/", "include/", "src/", "tools/"}) {
+        for (std::size_t pos = s.find(marker); pos != std::string::npos; pos = s.find(marker, pos + 1)) {
+            if (pos == 0 || s[pos - 1] == '/') {
+                s.erase(0, pos);
+                return s;
+            }
         }
-        return false;
-    };
-    (void)(keep_from("tests/") || keep_from("include/") || keep_from("src/") || keep_from("tools/"));
-    return fmt::format("{}:{}", s, loc.line());
+    }
+    return s;
+}
+
+inline std::string loc_to_string(const std::source_location &loc) {
+    return fmt::format("{}:{}", trim_source_path(loc.file_name()), loc.line());
 }
 
 inline std::string failure_site_text(std::string_view label, const std::source_location &loc) {

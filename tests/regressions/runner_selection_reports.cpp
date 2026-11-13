@@ -5,6 +5,7 @@
 #include "../../src/runner_replay.h"
 #include "../../src/runner_selector.h"
 #include "gentest/detail/generated_runtime.h"
+#include "gentest/detail/runtime_support.h"
 #include "gentest/runner.h"
 
 #include <array>
@@ -165,6 +166,23 @@ int check_replay_quoting() {
     return g_failures == 0 ? 0 : 1;
 }
 
+// Failure paths are shortened at whole path components, never inside one.
+int check_failure_path_trim() {
+    using gentest::detail::trim_source_path;
+    expect(trim_source_path("/home/u/contests/2024/a.cpp") == "/home/u/contests/2024/a.cpp", "'contests/' is not a 'tests/' component");
+    expect(trim_source_path("/home/u/mytools/a.cpp") == "/home/u/mytools/a.cpp", "'mytools/' is not a 'tools/' component");
+    expect(trim_source_path("/home/u/proj/tests/unit/a.cpp") == "tests/unit/a.cpp", "repo-relative tests path");
+    expect(trim_source_path("tests/unit/a.cpp") == "tests/unit/a.cpp", "already relative path");
+    expect(trim_source_path("/x/contests/tests/a.cpp") == "tests/a.cpp", "a later real component still matches");
+    expect(trim_source_path("/x/mysrc/include/gentest/a.h") == "include/gentest/a.h", "'mysrc/' is skipped, 'include/' matches");
+    expect(trim_source_path("/x/latests/src/a.cpp") == "src/a.cpp", "'latests/' is skipped, 'src/' matches");
+    expect(trim_source_path("/x/src/proj/tests/a.cpp") == "tests/a.cpp", "'tests/' keeps priority over 'src/'");
+    expect(trim_source_path("/x/proj/tools/src/a.cpp") == "src/a.cpp", "'src/' keeps priority over 'tools/'");
+    expect(trim_source_path("/x/proj/./tests/../tests/a.cpp") == "tests/a.cpp", "paths are normalized first");
+    expect(trim_source_path("/opt/other/lib/a.cpp") == "/opt/other/lib/a.cpp", "paths without a marker are unchanged");
+    return g_failures == 0 ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -175,6 +193,8 @@ int main(int argc, char **argv) {
         return check_calibration_cap();
     if (mode == "replay-quoting")
         return check_replay_quoting();
+    if (mode == "failure-path-trim")
+        return check_failure_path_trim();
     std::cerr << "usage: runner_selection_reports <mode> [args]\n";
     return 2;
 }
