@@ -243,13 +243,48 @@ Use `find_dependency(trompeloeil CONFIG REQUIRED)` for Trompeloeil packages.
 
 Native mocks are strict by default: a call that no expectation accepts records `unexpected call to <method>`.
 `gentest::make_nice(mock)` relaxes this only for methods that have no expectations on that mock; such calls are ignored and
-return a value-initialized result (methods returning a reference terminate). Once a method has an expectation, nice mode does
+return a value-initialized result (see [Arguments, actions and results](#arguments-actions-and-results) for methods that
+cannot produce one). Once a method has an expectation, nice mode does
 not change its checking. Calls beyond the configured count, including any call to a `.times(0)` method, fail with `unexpected
 call to <method>` and the expectation's declaration location, as in strict mode. Use `.allow_more()` to accept extra calls.
 `gentest::make_strict(mock)` restores strict mode. Both apply to the default gentest backend; GMock and Trompeloeil mocks use
 their own mechanisms, such as `testing::NiceMock`.
 
 Before 2.0.0, nice mode also ignored calls after a method's expectations were used up, so tests that relied on that now fail.
+
+## Arguments, actions and results
+
+These rules apply to the default gentest backend.
+
+Mocking a method places no requirements on its parameter types: they may lack `operator==`, be non-copyable, or be references
+to abstract classes or streams. Only the argument checks you ask for are instantiated.
+
+- `.with(values...)` takes one value per parameter and compares with `==`. The expectation stores its own copy of each value,
+  so a temporary such as `.with(fmt::format(...))` is safe for a `std::string_view` parameter. `std::string`,
+  `std::string_view` and `const char *` parameters compare by content; a null `const char *` only equals `nullptr`. A value
+  that the parameter cannot be compared to directly is converted to the parameter type first. A parameter without a usable
+  `==` is a compile error at the `.with(...)` call; use `.where(...)` or `.where_call(...)` for it.
+- `.invokes(callable)` calls the callable with the arguments as the method declares them: it can assign through a non-const
+  reference (`[](int &out) { out = 1; }`) and take ownership of by-value and rvalue-reference arguments
+  (`[](std::unique_ptr<Job> job) { ... }`). A callable that only accepts const references keeps working. The callable is
+  stored once and called in place, so a `mutable` lambda keeps its state from call to call; it may be move-only. Argument
+  checks run before the action and see the arguments unmodified.
+- `.returns(value)` returns a copy of the value on every call. A move-only value such as `std::make_unique<T>()` is moved out
+  by the first call that returns it; later calls get the moved-from value. Use `.invokes(...)` to produce a fresh object per
+  call.
+- `.returns_ref(object)` is required for methods that return a reference.
+
+A call that has no action returns a value-initialized result. When that is impossible, because the method returns a reference
+or a type that cannot be value-initialized, the mock prints the reason to stderr and calls `std::terminate()`. This also
+applies to an unexpected call in strict mode and to an ignored call in nice mode: give such methods an expectation with
+`.returns(...)`, `.returns_ref(...)` or `.invokes(...)` for every call the test can make.
+
+Actions are not synchronized by the mock. A stateful action that is called from several threads must protect
+its own state.
+
+Method names: `EXPECT_CALL(mock, name)` needs a name that is not overloaded; select an overload with
+`gentest::expect(mock, static_cast<R (T::*)(Args...)>(&T::name))`. A method named `mock` cannot be mocked by the gentest
+backend, because the generated class is itself named `mock`; codegen reports it.
 
 ## Limitations
 

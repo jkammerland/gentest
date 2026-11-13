@@ -13,7 +13,9 @@
 
 #include <array>
 #include <atomic>
+#include <concepts>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <deque>
 #include <exception>
@@ -35,50 +37,97 @@ namespace gentest {
 
 namespace detail::mocking {
 
-struct MethodIdentity {
-    std::vector<std::byte> bytes;
-
-    template <class MethodPtr> static MethodIdentity from(MethodPtr ptr) {
-        MethodIdentity id;
-        id.bytes.resize(sizeof(MethodPtr));
-        std::memcpy(id.bytes.data(), static_cast<const void *>(std::addressof(ptr)), sizeof(MethodPtr));
-        return id;
+constexpr std::size_t hash_text(std::string_view text) noexcept {
+    auto value = static_cast<std::size_t>(14695981039346656037ull); // FNV-1a offset basis
+    for (const char c : text) {
+        value ^= static_cast<std::size_t>(static_cast<unsigned char>(c));
+        value *= static_cast<std::size_t>(1099511628211ull);
     }
+    return value;
+}
 
-    static MethodIdentity named(std::string_view name) {
+// Compiler-spelled name of T with static storage. Identities compare the text,
+// so they need no RTTI and stay equal across shared-library boundaries.
+template <class T> constexpr std::string_view type_token() noexcept {
+#if defined(__clang__) || defined(__GNUC__)
+    return __PRETTY_FUNCTION__;
+#elif defined(_MSC_VER)
+    return __FUNCSIG__;
+#else
+    return {};
+#endif
+}
+
+template <class T> struct TypeToken {
+    static constexpr std::string_view text = type_token<T>();
+    static constexpr std::size_t      hash = hash_text(text);
+};
+
+constexpr bool same_token(std::string_view lhs, std::string_view rhs) noexcept {
+    return lhs.size() == rhs.size() && (lhs.data() == rhs.data() || lhs == rhs);
+}
+
+// Identifies one mocked method: the member-pointer type (declaring class and
+// signature) plus either the pointer's object representation or a
+// compile-time token. The type keeps methods apart whose pointer values
+// coincide, such as the first virtual of two different base classes.
+struct MethodIdentity {
+    static constexpr std::size_t word_count = 4;
+
+    std::string_view                    type;
+    std::string_view                    name;
+    std::array<std::size_t, word_count> words{};
+    std::size_t                         hash = 0;
+
+    template <class MethodPtr> static MethodIdentity from(MethodPtr ptr) noexcept {
+        static_assert(sizeof(MethodPtr) <= sizeof(std::size_t) * word_count, "unsupported member pointer representation");
         MethodIdentity id;
-        id.bytes.resize(name.size());
-        if (!name.empty()) {
-            std::memcpy(id.bytes.data(), name.data(), name.size());
+        id.type = TypeToken<MethodPtr>::text;
+        std::memcpy(static_cast<void *>(id.words.data()), static_cast<const void *>(std::addressof(ptr)), sizeof(MethodPtr));
+        id.hash = TypeToken<MethodPtr>::hash;
+        for (const std::size_t word : id.words) {
+            id.hash = (id.hash ^ word) * static_cast<std::size_t>(1099511628211ull);
         }
         return id;
     }
 
-    bool operator==(const MethodIdentity &other) const noexcept { return bytes == other.bytes; }
+    // `name` must have static storage duration.
+    template <class MethodPtr> static constexpr MethodIdentity named(std::string_view name) noexcept {
+        MethodIdentity id;
+        id.type = TypeToken<MethodPtr>::text;
+        id.name = name;
+        id.hash = TypeToken<MethodPtr>::hash ^ hash_text(name);
+        return id;
+    }
+
+    bool operator==(const MethodIdentity &other) const noexcept {
+        return hash == other.hash && words == other.words && same_token(type, other.type) && same_token(name, other.name);
+    }
 };
 
 // Use a compile-time method token when the exact selected method is known.
 // MSVC-family Windows toolchains need this to avoid identical-code-folding
 // collisions; other toolchains keep the raw member-pointer bytes so distinct
 // template instantiations remain distinct identities.
-template <auto Method> inline MethodIdentity method_constant_identity() {
+template <auto Method> inline MethodIdentity method_constant_identity() noexcept {
 #if defined(_MSC_VER)
-    constexpr std::string_view token = __FUNCSIG__;
-    return MethodIdentity::named(token);
+    static constexpr MethodIdentity id = MethodIdentity::named<decltype(Method)>(__FUNCSIG__);
+    return id;
 #else
     return MethodIdentity::from(Method);
 #endif
 }
 
+// Selects the member of an overload set by its function type and yields the
+// pointer typed on the class that declares it. Generated mocks name inherited
+// methods this way: a base-to-derived member-pointer conversion is not
+// accepted as a template argument by every compiler.
+template <class Function> struct DeclaredMethod {
+    template <class Class> static constexpr auto select(Function Class::*method) noexcept -> Function Class::* { return method; }
+};
+
 struct MethodIdentityHash {
-    std::size_t operator()(const MethodIdentity &id) const noexcept {
-        std::size_t value = 1469598103934665603ull; // FNV-1a offset basis
-        for (const auto b : id.bytes) {
-            value ^= static_cast<std::size_t>(std::to_integer<unsigned char>(b));
-            value *= 1099511628211ull;
-        }
-        return value;
-    }
+    std::size_t operator()(const MethodIdentity &id) const noexcept { return id.hash; }
 };
 
 template <typename Lhs, typename Rhs> inline constexpr bool same_v = std::is_same_v<Lhs, Rhs>;
@@ -94,6 +143,9 @@ struct ExpectationBase {
     virtual void         verify(std::string_view method_name) = 0;
     bool                 already_verified                     = false;
     std::source_location location{};
+    // TypeToken of the R(Args...) the expectation was created for; dispatch
+    // checks it before downcasting.
+    std::string_view signature;
 };
 
 template <typename Signature> struct Expectation;
@@ -109,26 +161,114 @@ template <typename T> inline std::string to_string_fallback(const T &v) {
 using ::gentest::detail::matching::ArgPredicate;
 using ::gentest::detail::matching::to_arg_predicate;
 
-template <std::size_t I = 0, typename ExpectedTuple, typename ActualTuple>
-bool tuple_args_match(const ExpectedTuple &expected, const ActualTuple &actual) {
-    if constexpr (I == std::tuple_size_v<std::remove_reference_t<ExpectedTuple>>) {
-        return true;
+// Narrow-string parameters and expected values compare by content.
+template <typename T>
+concept TextParameter =
+    std::is_same_v<T, std::string> || std::is_same_v<T, std::string_view> || std::is_same_v<T, const char *> || std::is_same_v<T, char *>;
+template <typename T>
+concept TextValue = !std::is_null_pointer_v<T> && std::is_convertible_v<const T &, std::string_view>;
+
+template <typename T> std::optional<std::string_view> text_of(const T &value) {
+    if constexpr (std::is_pointer_v<T>) {
+        if (value == nullptr)
+            return std::nullopt;
+    }
+    return std::string_view(value);
+}
+
+inline std::string describe_text(const std::optional<std::string_view> &text) {
+    return text ? to_string_fallback(*text) : std::string("nullptr");
+}
+
+template <typename Param, typename Value>
+concept EqualityComparableWithValue = requires(const Param &actual, const Value &expected) {
+    { actual == expected } -> std::convertible_to<bool>;
+};
+
+// Holds a `.with(...)` value for the copyable std::function callbacks of an
+// ArgPredicate; move-only values are shared between the copies.
+template <typename T> struct ExpectedValue {
+    T        value;
+    const T &get() const noexcept { return value; }
+};
+template <typename T>
+    requires(!std::is_copy_constructible_v<T>)
+struct ExpectedValue<T> {
+    std::shared_ptr<const T> value;
+    const T                 &get() const noexcept { return *value; }
+};
+template <typename T, typename X> ExpectedValue<T> make_expected_value(X &&value) {
+    if constexpr (std::is_copy_constructible_v<T>) {
+        return ExpectedValue<T>{T(std::forward<X>(value))};
     } else {
-        return (std::get<I>(expected) == std::get<I>(actual)) && tuple_args_match<I + 1>(expected, actual);
+        return ExpectedValue<T>{std::make_shared<const T>(std::forward<X>(value))};
     }
 }
 
-template <std::size_t I = 0, typename ExpectedTuple, typename ActualTuple>
-void report_first_tuple_arg_mismatch(const ExpectedTuple &expected, std::string_view method_name, const ActualTuple &actual,
-                                     const std::source_location &location) {
-    if constexpr (I < std::tuple_size_v<std::remove_reference_t<ExpectedTuple>>) {
-        if (!(std::get<I>(expected) == std::get<I>(actual))) {
-            record_mock_failure(fmt::format("argument[{}] mismatch for {}: expected {}, got {}", I, method_name,
-                                            to_string_fallback(std::get<I>(expected)), to_string_fallback(std::get<I>(actual))),
-                                location);
-            return;
+template <typename Param, typename Stored> ArgPredicate<Param> expected_value_predicate(const ExpectedValue<Stored> &expected) {
+    ArgPredicate<Param> out;
+    out.test     = [expected](const Param &actual) -> bool { return actual == expected.get(); };
+    out.describe = [expected](const Param &actual) {
+        return fmt::format("expected {}, got {}", to_string_fallback(expected.get()), to_string_fallback(actual));
+    };
+    return out;
+}
+
+// The value can be converted to the parameter type and compared as such.
+template <typename Param, typename X>
+concept ConvertsToParameter = std::is_constructible_v<Param, X> && EqualityComparableWithValue<Param, Param>;
+// The caller's decayed value can be kept and compared to the parameter.
+template <typename Param, typename X>
+concept StoresCallerValue = EqualityComparableWithValue<Param, std::decay_t<X>> && std::is_constructible_v<std::decay_t<X>, X>;
+
+// Builds the matcher for one `.with(value)` argument. Equality is only
+// required here, so methods whose parameters cannot be compared can still be
+// mocked. The caller's value is stored (decayed) unless converting it to the
+// parameter type is the only way to compare or cannot dangle.
+template <typename Param, typename X> ArgPredicate<Param> expected_argument(X &&value) {
+    using Value = std::decay_t<X>;
+    if constexpr (TextParameter<Param> && TextValue<Value>) {
+        const std::decay_t<X>     &source = value;
+        const auto                 view   = text_of(source);
+        std::optional<std::string> expected;
+        if (view)
+            expected.emplace(*view);
+        ArgPredicate<Param> out;
+        out.test = [expected](const Param &actual) -> bool {
+            const auto text = text_of(actual);
+            return expected.has_value() == text.has_value() && (!text || *text == std::string_view(*expected));
+        };
+        out.describe = [expected](const Param &actual) {
+            return fmt::format("expected {}, got {}", describe_text(expected ? std::optional<std::string_view>(*expected) : std::nullopt),
+                               describe_text(text_of(actual)));
+        };
+        return out;
+    } else if constexpr (ConvertsToParameter<Param, X> &&
+                         (std::is_same_v<Value, Param> || std::is_scalar_v<Param> || !StoresCallerValue<Param, X>)) {
+        return expected_value_predicate<Param, Param>(make_expected_value<Param>(std::forward<X>(value)));
+    } else if constexpr (StoresCallerValue<Param, X>) {
+        return expected_value_predicate<Param, Value>(make_expected_value<Value>(std::forward<X>(value)));
+    } else {
+        static_assert(StoresCallerValue<Param, X>,
+                      "with(): the mocked parameter cannot be compared to this value with ==, or the value cannot be stored; use "
+                      "where()/where_call() instead");
+        return {};
+    }
+}
+
+template <std::size_t I = 0, typename PredicateTuple, typename ActualTuple>
+bool tuple_args_match_expected(const PredicateTuple &preds, std::string_view method_name, const ActualTuple &actual,
+                               const std::source_location &location) {
+    if constexpr (I == std::tuple_size_v<std::remove_reference_t<PredicateTuple>>) {
+        return true;
+    } else {
+        const auto &ap = std::get<I>(preds);
+        const auto &a  = std::get<I>(actual);
+        if (!ap.test(a)) {
+            record_mock_failure(fmt::format("argument[{}] mismatch for {}: {}", I, method_name, ap.describe(a)), location);
+            return false;
         }
-        report_first_tuple_arg_mismatch<I + 1>(expected, method_name, actual, location);
+        return tuple_args_match_expected<I + 1>(preds, method_name, actual, location);
     }
 }
 
@@ -149,17 +289,13 @@ bool tuple_args_match_predicates(const PredicateTuple &preds, std::string_view m
     }
 }
 
-template <typename Tuple, typename... A>
-bool check_args_equal(const std::optional<Tuple> &expected, std::string_view method_name, const std::source_location &location,
+template <typename TuplePred, typename... A>
+bool check_args_equal(const std::optional<TuplePred> &expected, std::string_view method_name, const std::source_location &location,
                       const A &...actual) {
     if (!expected)
         return true;
     const auto actual_tuple = std::forward_as_tuple(actual...);
-    const bool matched      = tuple_args_match(*expected, actual_tuple);
-    if (!matched) {
-        report_first_tuple_arg_mismatch(*expected, method_name, actual_tuple, location);
-    }
-    return matched;
+    return tuple_args_match_expected(*expected, method_name, actual_tuple, location);
 }
 
 template <typename TuplePred, typename... A>
@@ -181,17 +317,55 @@ inline void verify_calls_or_fail(std::size_t expected, std::size_t observed, std
     }
 }
 
+// A call must produce a value but nothing can: the method returns a reference
+// or a type that cannot be value-initialized and no action supplies it. The
+// failure recorded so far would be lost with the process, so print it first.
+[[noreturn]] inline void terminate_without_result(std::string_view method_name, std::string_view cause, bool returns_reference,
+                                                  const std::source_location &location) {
+    std::string message = fmt::format("gentest: {} {}, and no result can be produced: the method returns {}; configure {} or invokes()",
+                                      cause, method_name, returns_reference ? "a reference" : "a type that is not default-constructible",
+                                      returns_reference ? "returns_ref()" : "returns()");
+    if (location.line() != 0)
+        message += fmt::format(" (expectation at {})", ::gentest::detail::loc_to_string(location));
+    fmt::print(stderr, "{}; terminating\n", message);
+    (void)std::fflush(stderr);
+    std::terminate();
+}
+
+template <typename R>
+concept ValueInitializableResult = requires { R{}; };
+
+template <typename R> R default_result(std::string_view method_name, std::string_view cause, const std::source_location &location) {
+    if constexpr (std::is_void_v<R>) {
+        (void)method_name;
+        (void)cause;
+        (void)location;
+    } else if constexpr (!std::is_reference_v<R> && ValueInitializableResult<R>) {
+        (void)method_name;
+        (void)cause;
+        (void)location;
+        return R{};
+    } else {
+        terminate_without_result(method_name, cause, std::is_reference_v<R>, location);
+    }
+}
+
 template <typename... Args> struct ExpectationCommon : ExpectationBase {
-    std::size_t                                                    expected_calls = 1;
-    std::size_t                                                    observed_calls = 0;
-    bool                                                           allow_excess   = false;
-    std::optional<std::tuple<std::decay_t<Args>...>>               expected_args;
-    std::optional<std::tuple<ArgPredicate<std::decay_t<Args>>...>> arg_predicates;
-    std::function<bool(const std::decay_t<Args> &...)>             call_predicate;
-    std::shared_ptr<std::atomic<bool>>                             runtime_started;
+    using ArgPredicates = std::tuple<ArgPredicate<std::decay_t<Args>>...>;
+
+    std::size_t expected_calls = 1;
+    std::size_t observed_calls = 0;
+    bool        allow_excess   = false;
+    // `.with(...)` values and `.where(...)` matchers are both stored
+    // type-erased per argument, so mocking a method never requires its
+    // parameters to be copyable, comparable, or even complete objects.
+    std::optional<ArgPredicates>                       expected_args;
+    std::optional<ArgPredicates>                       arg_predicates;
+    std::function<bool(const std::decay_t<Args> &...)> call_predicate;
+    std::shared_ptr<std::atomic<bool>>                 runtime_started;
     // Configure expectations before worker threads start. Runtime dispatch and
     // verification keep queue/counter mutation in InstanceState and never hold
-    // this mutex across user predicates/actions.
+    // this mutex across user actions.
     mutable std::recursive_mutex state_mtx_;
 
     void verify(std::string_view method_name) override {
@@ -218,17 +392,18 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
     }
 
     template <typename... X> void set_expected(std::string_view method_name, X &&...values) {
+        static_assert(sizeof...(X) == sizeof...(Args), "with() arity must match mocked method");
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
         if (!allow_mutation(method_name))
             return;
-        expected_args = std::tuple<std::decay_t<Args>...>(std::forward<X>(values)...);
+        expected_args = ArgPredicates(expected_argument<std::decay_t<Args>>(std::forward<X>(values))...);
     }
 
     template <typename... P> void set_predicates(std::string_view method_name, P &&...preds) {
         std::lock_guard<std::recursive_mutex> lk(state_mtx_);
         if (!allow_mutation(method_name))
             return;
-        arg_predicates = std::tuple<ArgPredicate<std::decay_t<Args>>...>(to_arg_predicate<std::decay_t<Args>>(std::forward<P>(preds))...);
+        arg_predicates = ArgPredicates(to_arg_predicate<std::decay_t<Args>>(std::forward<P>(preds))...);
     }
 
     void set_call_predicate(std::string_view method_name, std::function<bool(const std::decay_t<Args> &...)> predicate) {
@@ -261,30 +436,48 @@ template <typename... Args> struct ExpectationCommon : ExpectationBase {
 };
 
 template <typename R, typename... Args> struct Expectation<R(Args...)> : ExpectationCommon<Args...> {
-    std::function<R(const std::decay_t<Args> &...)> action;
+    // Actions receive each argument as the mocked method declares it, so they
+    // can write through non-const references and take ownership of by-value
+    // or rvalue arguments.
+    using Action = std::function<R(Args &&...)>;
 
-    void set_action(std::string_view method_name, std::function<R(const std::decay_t<Args> &...)> next_action) {
+    Action action;
+
+    void set_action(std::string_view method_name, Action next_action) {
         std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
         if (!this->allow_mutation(method_name))
             return;
         action = std::move(next_action);
     }
 
-    R invoke(std::string_view method_name, const std::decay_t<Args> &...args) {
-        std::function<R(const std::decay_t<Args> &...)> action_snapshot;
-        {
-            std::lock_guard<std::recursive_mutex> lk(this->state_mtx_);
-            action_snapshot = action;
-        }
+    // Expectations are frozen before the first dispatch, so the action is
+    // invoked in place: a stateful action keeps its state across calls.
+    R invoke(std::string_view method_name, Args &&...args) {
         (void)this->check_args(method_name, args...);
-        if (action_snapshot) {
-            return action_snapshot(args...);
+        if (action) {
+            return action(std::forward<Args>(args)...);
         }
-        if constexpr (!std::is_void_v<R>) {
-            if constexpr (std::is_reference_v<R>) {
-                std::terminate();
+        return default_result<R>(method_name, "no action is configured for", this->location);
+    }
+};
+
+// Adapts a user callable to an expectation action. The callable is tried with
+// the declared argument types first and with const references otherwise.
+template <typename R, typename... Args> struct ActionCall {
+    template <typename Callable> static R call(Callable &callable, Args &&...args) {
+        if constexpr (std::is_invocable_v<Callable &, Args...>) {
+            if constexpr (std::is_void_v<R>) {
+                (void)callable(std::forward<Args>(args)...);
             } else {
-                return R{};
+                return callable(std::forward<Args>(args)...);
+            }
+        } else {
+            static_assert(std::is_invocable_v<Callable &, const std::decay_t<Args> &...>,
+                          "invokes(): the callable cannot be called with the mocked method's arguments");
+            if constexpr (std::is_void_v<R>) {
+                (void)callable(static_cast<const std::decay_t<Args> &>(args)...);
+            } else {
+                return callable(static_cast<const std::decay_t<Args> &>(args)...);
             }
         }
     }
@@ -344,6 +537,7 @@ class InstanceState {
         if (entry.method_name.empty())
             entry.method_name = std::move(method_name);
         auto expectation             = std::make_shared<Expectation<R(Args...)>>();
+        expectation->signature       = TypeToken<R(Args...)>::text;
         expectation->runtime_started = runtime_started_;
         expectation->location        = ::gentest::detail::mock_configuration_location_storage();
         entry.expectations.push_back(expectation);
@@ -360,6 +554,7 @@ class InstanceState {
         bool                 nice_mode        = false;
         bool                 unexpected       = false;
         bool                 has_expectations = false;
+        bool                 foreign          = false;
         ExpectationT        *expectation      = nullptr;
         std::source_location last_expectation_location;
         {
@@ -379,7 +574,15 @@ class InstanceState {
                 // frozen, the owning deque keeps entries alive for the rest of
                 // the mock lifetime, so a raw pointer avoids fragile shared_ptr
                 // copy/assignment emission in downstream module consumers.
-                expectation = static_cast<ExpectationT *>(it->second.expectations[it->second.next_expectation].get());
+                ExpectationBase *const candidate_expectation = it->second.expectations[it->second.next_expectation].get();
+                // The cast below is only valid for an expectation created for
+                // this exact signature.
+                if (!same_token(candidate_expectation->signature, TypeToken<R(Args...)>::text)) {
+                    foreign                   = true;
+                    last_expectation_location = candidate_expectation->location;
+                    return false;
+                }
+                expectation = static_cast<ExpectationT *>(candidate_expectation);
                 unexpected  = !expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls;
                 ++expectation->observed_calls;
                 if (!expectation->allow_excess && expectation->observed_calls >= expectation->expected_calls) {
@@ -397,18 +600,16 @@ class InstanceState {
         }
 
         if (!expectation) {
-            if (!nice_mode) {
+            if (foreign) {
+                record_mock_failure(
+                    fmt::format("expectation for {} was configured for a different method signature and cannot receive this call",
+                                method_name),
+                    last_expectation_location);
+            } else if (!nice_mode) {
                 record_mock_failure(fmt::format("unexpected call to {}", method_name), last_expectation_location);
             }
-            if constexpr (!std::is_void_v<R>) {
-                if constexpr (std::is_reference_v<R>) {
-                    std::terminate();
-                } else {
-                    return R{};
-                }
-            } else {
-                return;
-            }
+            return default_result<R>(method_name, nice_mode ? "no expectation is configured for" : "unexpected call to",
+                                     last_expectation_location);
         }
         if (unexpected) {
             record_mock_failure(fmt::format("unexpected call to {}", method_name), expectation->location);
@@ -463,10 +664,17 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
     template <typename Callable> ExpectationHandle &invokes(Callable &&callable) {
         require_configurable();
         if (expectation_) {
-            using DArgs = std::tuple<std::decay_t<Args>...>;
-            (void)sizeof(DArgs);
-            auto wrapper = [fn = std::forward<Callable>(callable)](const std::decay_t<Args> &...a) -> R { return fn(a...); };
-            expectation_->set_action(method_name_, std::move(wrapper));
+            using Fn = std::decay_t<Callable>;
+            if constexpr (std::is_copy_constructible_v<Fn>) {
+                expectation_->set_action(method_name_, [fn = Fn(std::forward<Callable>(callable))](Args &&...a) mutable -> R {
+                    return ActionCall<R, Args...>::call(fn, std::forward<Args>(a)...);
+                });
+            } else {
+                // std::function needs a copyable target; share the move-only callable.
+                expectation_->set_action(method_name_, [fn = std::make_shared<Fn>(std::forward<Callable>(callable))](Args &&...a) -> R {
+                    return ActionCall<R, Args...>::call(*fn, std::forward<Args>(a)...);
+                });
+            }
         }
         return *this;
     }
@@ -507,11 +715,24 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
         } else if constexpr (std::is_reference_v<R>) {
             static_assert(!std::is_reference_v<R>, "returns() is not available for reference-returning methods; use returns_ref()");
         } else {
-            if (expectation_) {
-                expectation_->set_action(method_name_, [captured = std::forward<Value>(value)](const std::decay_t<Args> &...a) -> R {
-                    (void)sizeof...(a);
-                    return captured;
-                });
+            using Stored = std::decay_t<Value>;
+            if constexpr (std::is_copy_constructible_v<Stored> && std::is_convertible_v<const Stored &, R>) {
+                if (expectation_) {
+                    expectation_->set_action(method_name_, [captured = Stored(std::forward<Value>(value))](Args &&...a) -> R {
+                        (void)sizeof...(a);
+                        return captured;
+                    });
+                }
+            } else {
+                // A move-only result is handed to the first call that returns it.
+                static_assert(std::is_convertible_v<Stored &&, R>, "returns(): the value is not convertible to the method's return type");
+                if (expectation_) {
+                    expectation_->set_action(method_name_,
+                                             [captured = std::make_shared<Stored>(std::forward<Value>(value))](Args &&...a) -> R {
+                                                 (void)sizeof...(a);
+                                                 return std::move(*captured);
+                                             });
+                }
             }
         }
         return *this;
@@ -524,7 +745,7 @@ template <typename R, typename... Args> class ExpectationHandle<R(Args...)> {
         } else {
             if (expectation_) {
                 auto *ptr = std::addressof(value);
-                expectation_->set_action(method_name_, [ptr](const std::decay_t<Args> &...a) -> R {
+                expectation_->set_action(method_name_, [ptr](Args &&...a) -> R {
                     (void)sizeof...(a);
                     return *ptr;
                 });
