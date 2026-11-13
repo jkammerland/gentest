@@ -1,3 +1,5 @@
+#include "notification_linux_test_hooks.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
@@ -165,6 +167,10 @@ WatchdogFailure failureFor(ProducerIdentity producer, WatchdogFailureCode code, 
     return failure;
 }
 } // namespace
+
+namespace detail {
+std::atomic<WatchdogReceiveDrainedHook> watchdogReceiveDrainedHook{nullptr};
+} // namespace detail
 
 LinuxNotificationChannel::LinuxNotificationChannel(Endpoints endpoints) noexcept
     : producer_(endpoints.producer), monitor_(endpoints.monitor) {}
@@ -751,63 +757,83 @@ struct WatchdogMonitor::State {
 
             bool receiveDrained = eof;
 
-            // Bound each receive batch so a busy producer cannot starve deadlines.
-            for (std::size_t batch = 0; batch < 64 && !eof && !model.failure(); ++batch) {
-                EncodedNotification record;
-                const auto received = ::recv(descriptors.socket, record.bytes.data(), record.bytes.size(), MSG_DONTWAIT | MSG_TRUNC);
-                if (received < 0 && errno == EINTR) {
-                    continue;
-                }
-                if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                    receiveDrained = true;
-                    break;
-                }
-                if (received == 0) {
-                    eof            = true;
-                    receiveDrained = true;
-                    if (!disarmed.load() && (model.activeSubjects() != 0 || !sawSubject)) {
-                        recordFailure(failureFor(producer, WatchdogFailureCode::transport_error,
-                                                 "notification channel closed before subjects finished"));
+            const auto receiveBatch = [&] {
+                receiveDrained = eof;
+                // Bound each receive batch so a busy producer cannot starve deadlines.
+                for (std::size_t batch = 0; batch < 64 && !eof && !model.failure(); ++batch) {
+                    EncodedNotification record;
+                    const auto received = ::recv(descriptors.socket, record.bytes.data(), record.bytes.size(), MSG_DONTWAIT | MSG_TRUNC);
+                    if (received < 0 && errno == EINTR) {
+                        continue;
                     }
-                    break;
+                    if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                        receiveDrained = true;
+                        break;
+                    }
+                    if (received == 0) {
+                        eof            = true;
+                        receiveDrained = true;
+                        if (!disarmed.load() && (model.activeSubjects() != 0 || !sawSubject)) {
+                            recordFailure(failureFor(producer, WatchdogFailureCode::transport_error,
+                                                     "notification channel closed before subjects finished"));
+                        }
+                        break;
+                    }
+                    if (received < 0 || std::cmp_greater(received, record.bytes.size())) {
+                        recordFailure(
+                            failureFor(producer, WatchdogFailureCode::invalid_record, "invalid or truncated notification packet"));
+                        break;
+                    }
+                    record.size = static_cast<std::size_t>(received);
+                    Notification notification;
+                    if (decodeNotification(record.view(), notification) != NotifyResult::accepted || notification.producer != producer) {
+                        recordFailure(failureFor(producer, WatchdogFailureCode::invalid_record,
+                                                 "malformed notification or unregistered producer identity"));
+                        break;
+                    }
+                    const auto now = Clock::now();
+                    if (!disarmed.load() && !finishing && !stopping && model.activeSubjects() == 0 && now >= idleDeadline) {
+                        recordFailure(
+                            failureFor(producer, WatchdogFailureCode::inactivity, "service was inactive before a subject started"));
+                        break;
+                    }
+                    const auto     previousSubjects = model.activeSubjects();
+                    WatchdogResult accepted;
+                    {
+                        // Serialize disarm against expiry inside model admission.
+                        std::lock_guard lock(mutex);
+                        accepted = disarmed.load() ? WatchdogResult::ignored : model.accept(notification, now);
+                    }
+                    if (accepted == WatchdogResult::failed) {
+                        break;
+                    }
+                    if (notification.kind == NotificationKind::subject_started && accepted == WatchdogResult::accepted) {
+                        sawSubject = true;
+                    }
+                    if (previousSubjects != 0 && model.activeSubjects() == 0) {
+                        idleDeadline = deadlineAfter(now, config.inactivityTimeout);
+                    }
+                    if (!enqueue(record)) {
+                        reportObserverFailure();
+                        recordFailure(failureFor(producer, WatchdogFailureCode::observation_failure, "bounded observer queue overflowed"));
+                        break;
+                    }
                 }
-                if (received < 0 || std::cmp_greater(received, record.bytes.size())) {
-                    recordFailure(failureFor(producer, WatchdogFailureCode::invalid_record, "invalid or truncated notification packet"));
-                    break;
+            };
+            receiveBatch();
+            if (receiveDrained) {
+                if (const auto hook = detail::watchdogReceiveDrainedHook.load(std::memory_order_acquire)) {
+                    hook();
                 }
-                record.size = static_cast<std::size_t>(received);
-                Notification notification;
-                if (decodeNotification(record.view(), notification) != NotifyResult::accepted || notification.producer != producer) {
-                    recordFailure(failureFor(producer, WatchdogFailureCode::invalid_record,
-                                             "malformed notification or unregistered producer identity"));
-                    break;
-                }
-                const auto now = Clock::now();
-                if (!disarmed.load() && !finishing && !stopping && model.activeSubjects() == 0 && now >= idleDeadline) {
-                    recordFailure(failureFor(producer, WatchdogFailureCode::inactivity, "service was inactive before a subject started"));
-                    break;
-                }
-                const auto     previousSubjects = model.activeSubjects();
-                WatchdogResult accepted;
-                {
-                    // Serialize disarm against expiry inside model admission.
-                    std::lock_guard lock(mutex);
-                    accepted = disarmed.load() ? WatchdogResult::ignored : model.accept(notification, now);
-                }
-                if (accepted == WatchdogResult::failed) {
-                    break;
-                }
-                if (notification.kind == NotificationKind::subject_started && accepted == WatchdogResult::accepted) {
-                    sawSubject = true;
-                }
-                if (previousSubjects != 0 && model.activeSubjects() == 0) {
-                    idleDeadline = deadlineAfter(now, config.inactivityTimeout);
-                }
-                if (!enqueue(record)) {
-                    reportObserverFailure();
-                    recordFailure(failureFor(producer, WatchdogFailureCode::observation_failure, "bounded observer queue overflowed"));
-                    break;
-                }
+            }
+
+            // The batch above can report an empty socket just before the process
+            // sends its last records and exits. Exit ends that producer, so one
+            // more drain after observing it sees everything the process sent;
+            // only then may its remaining active subjects count against it.
+            const bool processExited = ownedProcess >= 0 && readable(ownedProcess);
+            if (processExited && receiveDrained && !eof && !model.failure()) {
+                receiveBatch();
             }
 
             const auto now = Clock::now();
@@ -830,7 +856,7 @@ struct WatchdogMonitor::State {
             if (finishing && !stopping && receiveDrained) {
                 return;
             }
-            if (ownedProcess >= 0 && readable(ownedProcess) && (receiveDrained || stopping)) {
+            if (processExited && (receiveDrained || stopping)) {
                 {
                     std::lock_guard lock(mutex);
                     result.processExited = true;
