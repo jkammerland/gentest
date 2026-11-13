@@ -2208,6 +2208,32 @@ gentest_add_check_death(
         ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/local_class.cpp
         --
         ${_gentest_codegen_direct_clang_args})
+# The native mock class is named `mock`; a mocked method of that name cannot be generated.
+gentest_add_check_death(
+    NAME gentest_codegen_mock_method_named_mock_msg
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    REQUIRED_SUBSTRING "cannot mock a method named 'mock' (mockname::Framework::mock)"
+    ARGS
+        ${_gentest_codegen_discover_mocks_arg}
+        --tu-out-dir
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock
+        --tu-header-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock/mock_method_named_mock.gentest.h
+        --mock-registry
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock_mock_registry.hpp
+        --mock-impl
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock_mock_impl.hpp
+        --mock-domain-registry-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock_mock_registry__domain_0000_header.hpp
+        --mock-domain-impl-output
+        ${CMAKE_CURRENT_BINARY_DIR}/mock_method_named_mock_mock_impl__domain_0000_header.hpp
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/mock_errors/method_named_mock.hpp
+        --
+        ${_gentest_codegen_direct_cxx_language_clang_args})
+set_property(TEST gentest_codegen_mock_method_named_mock_msg APPEND PROPERTY LABELS "codegen")
 unset(_gentest_codegen_discover_mocks_arg)
 
 # Generator negative tests for fixtures: disallow member tests on suite/global under strict mode
@@ -4070,6 +4096,81 @@ _gentest_add_codegen_regression(gentest_cgr_mock_template_template_ctor_traits m
 add_test(NAME gentest_codegen_mock_template_template_ctor_traits_builds
     COMMAND ${CMAKE_COMMAND} -E sha256sum $<TARGET_FILE:gentest_cgr_mock_template_template_ctor_traits>)
 set_tests_properties(gentest_codegen_mock_template_template_ctor_traits_builds PROPERTIES LABELS "cmake;codegen")
+
+# Native mock runtime and generated-mock shape regressions. The fixtures build
+# with the main test build; the checks run their cases.
+_gentest_add_codegen_regression(gentest_cgr_mock_method_identity mock_method_identity
+    TESTS
+    MOCK_HEADER mock_method_identity_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_counts(
+    NAME gentest_codegen_mock_method_identity_runs
+    PROG gentest_cgr_mock_method_identity
+    PASS 3 FAIL 0 SKIP 0)
+gentest_add_check_death(
+    NAME gentest_codegen_mock_method_identity_foreign_signature
+    PROG gentest_cgr_mock_method_identity
+    REQUIRED_SUBSTRING "was configured for a different method signature"
+    ARGS --include-death --run=fixture/mock_method_identity/foreign_signature_death)
+
+_gentest_add_codegen_regression(gentest_cgr_mock_generated_shapes mock_generated_shapes
+    TESTS
+    MOCK_HEADER mock_generated_shapes_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_counts(
+    NAME gentest_codegen_mock_generated_shapes_runs
+    PROG gentest_cgr_mock_generated_shapes
+    PASS 4 FAIL 0 SKIP 0)
+
+_gentest_add_codegen_regression(gentest_cgr_mock_argument_shapes mock_argument_shapes
+    TESTS
+    MOCK_HEADER mock_argument_shapes_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_counts(
+    NAME gentest_codegen_mock_argument_shapes_runs
+    PROG gentest_cgr_mock_argument_shapes
+    PASS 3 FAIL 0 SKIP 0)
+gentest_add_check_death(
+    NAME gentest_codegen_mock_argument_shapes_text_mismatch
+    PROG gentest_cgr_mock_argument_shapes
+    REQUIRED_SUBSTRING "argument[0] mismatch for ::fixture::Text::label: expected \"expected\", got \"actual\""
+    ARGS --include-death --run=fixture/mock_argument_shapes/text_mismatch_death)
+
+_gentest_add_codegen_regression(gentest_cgr_mock_actions_results mock_actions_results
+    TESTS
+    MOCK_HEADER mock_actions_results_mocks.hpp
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_counts(
+    NAME gentest_codegen_mock_actions_results_runs
+    PROG gentest_cgr_mock_actions_results
+    PASS 5 FAIL 0 SKIP 0)
+# A call that cannot produce a result terminates; the reason must be printed first.
+gentest_add_check_death(
+    NAME gentest_codegen_mock_actions_results_reference_without_action
+    PROG gentest_cgr_mock_actions_results
+    REQUIRED_SUBSTRING "gentest: no action is configured for ::fixture::Factory::slot, and no result can be produced: the method returns a reference"
+    ARGS --include-death --run=fixture/mock_actions_results/reference_without_action_death)
+gentest_add_check_death(
+    NAME gentest_codegen_mock_actions_results_unexpected_reference_call
+    PROG gentest_cgr_mock_actions_results
+    REQUIRED_SUBSTRING "gentest: unexpected call to ::fixture::Factory::slot, and no result can be produced: the method returns a reference"
+    ARGS --include-death --run=fixture/mock_actions_results/unexpected_reference_call_death)
+gentest_add_check_death(
+    NAME gentest_codegen_mock_actions_results_unexpected_value_call
+    PROG gentest_cgr_mock_actions_results
+    REQUIRED_SUBSTRING "gentest: unexpected call to ::fixture::Factory::make_token, and no result can be produced: the method returns a type that is not default-constructible"
+    ARGS --include-death --run=fixture/mock_actions_results/unexpected_value_call_death)
+set_property(TEST
+    gentest_codegen_mock_method_identity_runs
+    gentest_codegen_mock_method_identity_foreign_signature
+    gentest_codegen_mock_generated_shapes_runs
+    gentest_codegen_mock_argument_shapes_runs
+    gentest_codegen_mock_argument_shapes_text_mismatch
+    gentest_codegen_mock_actions_results_runs
+    gentest_codegen_mock_actions_results_reference_without_action
+    gentest_codegen_mock_actions_results_unexpected_reference_call
+    gentest_codegen_mock_actions_results_unexpected_value_call
+    APPEND PROPERTY LABELS "codegen")
 
 # The deleted declaration must not be registered.
 _gentest_add_codegen_regression(gentest_cgr_deleted_annotated_case deleted_annotated_case

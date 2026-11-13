@@ -18,6 +18,7 @@ using ::gentest::detail::MockAccess;
 using ::gentest::detail::record_failure;
 
 namespace mocking {
+using ::gentest::detail::mocking::DeclaredMethod;
 using ::gentest::detail::mocking::ExpectationHandle;
 using ::gentest::detail::mocking::ExpectationPusher;
 using ::gentest::detail::mocking::InstanceState;

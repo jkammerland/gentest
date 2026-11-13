@@ -499,5 +499,151 @@ int main() {
         }
     }
 
+    {
+        // Generated dispatch must not declare locals: a parameter may be named
+        // like any of them.
+        MockClassInfo cls         = service_mock_without_ref_qualifier();
+        cls.methods[0].parameters = {MockParamInfo{.type = "int", .name = "token"}, MockParamInfo{.type = "int", .name = "fallback_token"}};
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(), {cls});
+        t.expect(result.error.empty(), "native backend renders parameters named like former dispatch locals");
+        const MockGeneratedFile *impl = find_file(result, "public_mocks_inline.hpp");
+        t.expect(impl != nullptr, "native backend emits an implementation header for colliding parameter names");
+        if (impl != nullptr) {
+            t.excludes(impl->content, "auto token", "dispatch declares no local named token");
+            t.excludes(impl->content, "auto fallback_token", "dispatch declares no local named fallback_token");
+            t.contains(impl->content, "static_cast<decltype(token)&&>(token), static_cast<decltype(fallback_token)&&>(fallback_token)",
+                       "dispatch forwards the user parameters");
+        }
+    }
+
+    {
+        // A method the target inherits keeps its declaring class in the
+        // template argument; GCC rejects the base-to-derived conversion there.
+        MockClassInfo cls             = service_mock_without_ref_qualifier();
+        cls.methods[0].qualified_name = "fixture::ServiceBase::compute";
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(), {cls});
+        t.expect(result.error.empty(), "native backend renders an inherited method");
+        const MockGeneratedFile *impl = find_file(result, "public_mocks_inline.hpp");
+        t.expect(impl != nullptr, "native backend emits an implementation header for an inherited method");
+        if (impl != nullptr) {
+            t.contains(
+                impl->content,
+                "method_constant_identity<::gentest::detail::mocking::DeclaredMethod<::std::pair<int, int>(::std::vector<int>) const "
+                "noexcept>::select(&::fixture::Service::compute)>()",
+                "inherited method identity is selected by function type");
+            t.excludes(impl->content, "method_constant_identity<static_cast<",
+                       "inherited method identity avoids a base-to-derived template argument");
+        }
+    }
+
+    {
+        // Function parameter packs are expanded where they are forwarded.
+        MockClassInfo cls              = service_mock_without_ref_qualifier();
+        cls.derive_for_virtual         = false;
+        cls.has_virtual_destructor     = false;
+        cls.methods[0].is_virtual      = false;
+        cls.methods[0].is_pure_virtual = false;
+        cls.methods[0].method_name     = "operator<<";
+        cls.methods[0].qualified_name  = "fixture::Service::operator<<";
+        cls.methods[0].return_type     = "void";
+        cls.methods[0].template_prefix = "template <class... Ts>";
+        cls.methods[0].template_params = {
+            {.kind = gentest::codegen::TemplateParamKind::Type, .name = "Ts", .is_pack = true, .usage_spelling = "Ts..."}};
+        cls.methods[0].parameters               = {MockParamInfo{.type = "Ts &&...", .name = "args"}};
+        cls.methods[0].parameters[0].pass_style = MockParamInfo::PassStyle::ForwardingRef;
+        gentest::codegen::MockCtorInfo ctor;
+        ctor.template_prefix          = "template <class... Ts>";
+        ctor.template_params          = cls.methods[0].template_params;
+        ctor.parameters               = cls.methods[0].parameters;
+        cls.constructors              = {ctor};
+        const MockRenderResult result = gentest::codegen::render::render_mocks(mock_options(), {cls});
+        t.expect(result.error.empty(), "native backend renders function parameter packs");
+        const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
+        const MockGeneratedFile *impl     = find_file(result, "public_mocks_inline.hpp");
+        t.expect(registry != nullptr && impl != nullptr, "native backend emits files for function parameter packs");
+        if (registry != nullptr && impl != nullptr) {
+            t.contains(registry->content, "static_cast<decltype(args)&&>(args)...);", "dispatch expands a forwarded parameter pack");
+            t.contains(impl->content, "((void)args, ...);", "constructor expands an unused parameter pack");
+            t.contains(registry->content, "&::fixture::Service::operator<< <Ts...>",
+                       "template arguments are separated from an operator name");
+            t.excludes(registry->content, "operator<<<", "operator name does not run into the template argument list");
+        }
+    }
+
+    {
+        MockClassInfo cls             = service_mock_without_ref_qualifier();
+        cls.methods[0].method_name    = "mock";
+        cls.methods[0].qualified_name = "fixture::Service::mock";
+        const MockRenderResult native = gentest::codegen::render::render_mocks(mock_options(), {cls});
+        t.contains(native.error, "gentest::mock<fixture::Service>: cannot mock a method named 'mock' (fixture::Service::mock)",
+                   "native backend rejects a method named mock");
+        const MockRenderResult gmock = gentest::codegen::render::render_mocks(mock_options(MockBackend::GMock), {cls});
+        t.expect(gmock.error.empty(), "gmock backend still accepts a method named mock");
+    }
+
+    for (const MockBackend backend : {MockBackend::GMock, MockBackend::Trompeloeil}) {
+        // Default-argument overloads forward owning and rvalue parameters.
+        MockClassInfo cls                       = service_mock_without_ref_qualifier();
+        cls.methods[0].qualifiers               = {};
+        cls.methods[0].return_type              = "void";
+        cls.methods[0].parameters               = {MockParamInfo{.type = "::std::unique_ptr<::fixture::Job>", .name = "job"},
+                                                   MockParamInfo{.type = "::fixture::Buf &&", .name = "buffer"},
+                                                   MockParamInfo{.type = "::fixture::Log &", .name = "log"},
+                                                   MockParamInfo{.type = "int", .name = "priority", .default_arg = "0"}};
+        cls.methods[0].parameters[1].pass_style = MockParamInfo::PassStyle::RValueRef;
+        cls.methods[0].parameters[2].pass_style = MockParamInfo::PassStyle::LValueRef;
+        const MockRenderResult result           = gentest::codegen::render::render_mocks(mock_options(backend), {cls});
+        t.expect(result.error.empty(), "third-party backend renders a default-argument overload");
+        const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
+        t.expect(registry != nullptr, "third-party backend emits a registry for a default-argument overload");
+        if (registry != nullptr) {
+            t.contains(registry->content,
+                       "this->compute(static_cast<decltype(job)&&>(job), static_cast<decltype(buffer)&&>(buffer), log, 0);",
+                       "default-argument overload forwards by-value and rvalue parameters");
+        }
+    }
+
+#ifndef _WIN32
+    {
+        // A source reached through a symlink that sits deeper than its real
+        // path must only remap definitions inside the linked tree.
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        const fs::path  root = fs::weakly_canonical(fs::temp_directory_path(), ec) / "gentest_render_mocks_symlink_depth";
+        fs::remove_all(root, ec);
+        fs::create_directories(root / "real" / "src", ec);
+        fs::create_directories(root / "view" / "nested", ec);
+        fs::create_directories(root / "outside", ec);
+        fs::create_directory_symlink(root / "real", root / "view" / "nested" / "link", ec);
+        if (!ec) {
+            CollectorOptions options             = mock_options();
+            options.sources                      = {(root / "view" / "nested" / "link" / "src" / "input.cpp").string()};
+            options.mock_registry_path           = root / "generated" / "public_mocks.hpp";
+            options.mock_impl_path               = root / "generated" / "public_mocks_impl.hpp";
+            options.mock_domain_registry_outputs = {root / "generated" / "public_mocks_registry.hpp"};
+            options.mock_domain_impl_outputs     = {root / "generated" / "public_mocks_inline.hpp"};
+            MockClassInfo outside                = service_mock();
+            outside.definition_file              = (root / "outside" / "service.hpp").string();
+            MockClassInfo inside                 = service_mock();
+            inside.qualified_name                = "fixture::Inside";
+            inside.display_name                  = "fixture::Inside";
+            inside.definition_file               = (root / "real" / "include" / "inside.hpp").string();
+            for (auto &method : inside.methods) {
+                method.qualified_name = "fixture::Inside::compute";
+            }
+            const MockRenderResult result = gentest::codegen::render::render_mocks(options, {outside, inside});
+            t.expect(result.error.empty(), "symlinked source at another depth renders without an error");
+            const MockGeneratedFile *registry = find_file(result, "public_mocks_registry.hpp");
+            t.expect(registry != nullptr, "symlinked source at another depth emits a registry file");
+            if (registry != nullptr) {
+                t.contains(registry->content, "#include \"../outside/service.hpp\"", "definition outside the linked tree keeps its path");
+                t.contains(registry->content, "#include \"../view/nested/link/include/inside.hpp\"",
+                           "definition inside the linked tree keeps the symlink-visible path");
+            }
+        }
+        fs::remove_all(root, ec);
+    }
+#endif
+
     return t.failures == 0 ? 0 : 1;
 }
