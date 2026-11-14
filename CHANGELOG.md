@@ -8,6 +8,7 @@
 - Rename `async_test<T>` to `gentest::awaitable<T>` and replace `await_subscribe` / `cancel_wait` with ordinary C++ awaiters.
 - Add `FILE_SET gentest_explicit_mock_defs DESTINATION include` when installing `gentest_add_mocks()` targets.
 - Review nice-mode mocks that relied on ignored extra calls, and shared fixtures expected to set up when unused.
+- Drop `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature; Allure output no longer needs them.
 
 ### Breaking changes
 
@@ -30,6 +31,8 @@
 - Explicit stop-token overloads of `sleep_for`, `yield`, `event.wait`, and `future.wait` require exceptions.
 - `--quiet-clang` / `QUIET_CLANG` no longer hides parse errors; a file that fails to parse fails codegen.
 - Numeric `range` / `linspace` bounds must be numeric literals; a mocked method named `mock` and template tests without a full `template(...)` set are rejected.
+- `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature are removed; `--allure-dir` always writes results.
+- Allure results drop the non-standard `time` field; use `start` and `stop`.
 
 ### Added
 
@@ -53,6 +56,7 @@
 - Linux first-use guide and developer build measurements (#237, #241).
 - `RunConfiguration::suspendProgressInterval` limits framework progress records per subject (1 ms default).
 - `gentest_add_mocks(... DEPENDS ...)` is documented for ordering mock codegen after generated inputs.
+- Allure results carry `uuid`, `historyId`, `fullName`, `stage`, `start` / `stop`, and framework, language, and tag labels, so reports show durations, timelines, tags, and history.
 
 ### Changed
 
@@ -70,6 +74,8 @@
 - Mock codegen is ordered after linked library targets and after the `DEFS` files.
 - `gentest_attach_codegen()` exports compile commands for its target without `CMAKE_EXPORT_COMPILE_COMMANDS`.
 - The release workflow checks for a dated changelog heading and packages once before pushing the tag.
+- The JSON encoder shared by every report is about ten times faster on ASCII text and three times faster on UTF-8.
+- Allure writer tests run in every CI lane; `GENTEST_ENABLE_ALLURE_TESTS` defaults to `ON`.
 
 ### Fixed
 
