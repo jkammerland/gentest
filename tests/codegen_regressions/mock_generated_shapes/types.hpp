@@ -55,7 +55,13 @@ struct Bus {
 struct Slots {
     template <class T> void fill(const std::array<T, detail::kSlots> &values) { (void)values; }
     template <class T> void grow(const std::array<T, detail::kSlots + detail::kExtra> &values) { (void)values; }
+#if !defined(_MSC_VER)
+    // MSVC 19.44 cannot compile a value-dependent noexcept-specifier on a
+    // function-pointer parameter ("'T': undeclared identifier"), even in this
+    // declaration. The guard must not depend on the compiler front end: codegen
+    // parses Windows sources with the same _MSC_VER-defining command line.
     template <class T> void call(void (*callback)(T) noexcept(detail::kNoThrowCall<T>), T value) { callback(value); }
+#endif
 };
 
 } // namespace fixture

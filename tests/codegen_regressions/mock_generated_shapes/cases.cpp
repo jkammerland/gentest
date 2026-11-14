@@ -60,15 +60,20 @@ void qualified_expressions() {
             sum += value;
     });
     EXPECT_CALL(mock_slots, grow<int>).times(1).invokes([&](const std::array<int, 4> &values) { sum += values[3]; });
+#if !defined(_MSC_VER)
     EXPECT_CALL(mock_slots, call<int>).times(1).invokes([&](void (*callback)(int) noexcept, int value) {
         callback(value);
         sum += value;
     });
+#endif
 
     mock_slots.fill(std::array<int, 3>{1, 2, 3});
     mock_slots.grow(std::array<int, 4>{0, 0, 0, 10});
+    gentest::expect_eq(sum, 16, "expressions in member template signatures resolve inside namespace gentest");
+#if !defined(_MSC_VER)
     mock_slots.call<int>([](int) noexcept {}, 100);
-    gentest::expect_eq(sum, 116, "expressions in member template signatures resolve inside namespace gentest");
+    gentest::expect_eq(sum, 116, "dependent noexcept-specifiers resolve inside namespace gentest");
+#endif
 }
 
 } // namespace fixture
