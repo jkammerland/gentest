@@ -176,7 +176,6 @@
       "clang_dir": "/usr/lib/llvm-23/lib/cmake/clang",
       "build_type": "debug",
       "primary": true,
-      "allure": true,
       "enable_package_tests": "ON",
       "host_llvm_major": 23
     },

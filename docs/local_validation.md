@@ -58,7 +58,7 @@ dependency prefixes yield INCOMPLETE. Compiler/configure/build/test failures
 remain failures; the runner never suppresses leak detection or retries tests.
 
 - All hosts: Git, Python, Ninja, CMake 3.31+, CTest, a compatible LLVM/Clang
-  development installation, fmt, and Boost.JSON. Use the repository's normal
+  development installation, and fmt. Use the repository's normal
   installation guides and package managers. Public modules use `AUTO`, enabling
   the surface when the toolchain supports it.
 - Linux: Clang, GCC, clang-format/tidy, llvm-cov, gcovr 8.6, Bazel, Meson, Xmake,
@@ -69,9 +69,7 @@ remain failures; the runner never suppresses leak detection or retries tests.
   provide it alongside the main CMake installation.
 - Windows: start in an x64 Visual Studio developer environment so `cl`, its SDK,
   headers, and libraries are available. Keep the LLVM developer packages
-  discoverable for both Clang and MSVC builds. Install the optional vcpkg
-  `allure-boost-json` feature into a normal user-owned prefix, then set
-  `GENTEST_BOOST_JSON_INCLUDE_DIR` to its `include` directory.
+  discoverable for both Clang and MSVC builds.
 - macOS: make Homebrew LLVM's prefix available separately from AppleClang. The
   runner refuses to count AppleClang a second time as the LLVM lane.
 
@@ -86,7 +84,6 @@ Private environment overrides, when necessary:
 | `GENTEST_PACKAGE_CMAKE` | Normally installed packaging-compatible CMake executable; its sibling CTest/CPack are used |
 | `VCPKG_ROOT` | Normal vcpkg checkout for the release-package preset |
 | `GENTEST_SERIALIZER_PREFIX` | Installed Glaze/cbor_tags prefix or CMake prefix list |
-| `GENTEST_BOOST_JSON_INCLUDE_DIR` | Installed directory containing `boost/json.hpp`, when not on CMake's default include search path |
 
 Executable hashes and version output are provenance, not a requirement to retain
 historical executable bytes. Build tools may fetch ordinary project dependencies

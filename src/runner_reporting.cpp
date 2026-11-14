@@ -3,6 +3,7 @@
 #include "runner_reporting_allure.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -235,7 +236,8 @@ void record_case_result(RunAccumulator &acc, const gentest::Case &test, CaseResu
         item.tags.emplace_back(sv);
     for (auto sv : test.requirements)
         item.requirements.emplace_back(sv);
-    item.attachments = std::move(result.attachments);
+    item.attachments  = std::move(result.attachments);
+    item.stop_unix_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     acc.report_items.push_back(std::move(item));
 }
 

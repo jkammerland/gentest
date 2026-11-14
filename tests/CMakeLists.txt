@@ -1,5 +1,9 @@
 include(GentestTests)
 
+# The Allure writer is always built; its tests run unless turned off here. Declared
+# first because Regressions.cmake adds Allure checks too.
+option(GENTEST_ENABLE_ALLURE_TESTS "Enable Allure writer tests" ON)
+
 add_executable(gentest_selection_tests selection/cases.cpp selection/cases.hpp)
 target_link_libraries(gentest_selection_tests PRIVATE gentest::gentest_main)
 target_compile_features(gentest_selection_tests PRIVATE cxx_std_20)
@@ -124,7 +128,7 @@ gentest_add_python_program_test(NAME runtime_recording
     PROG gentest_recording_tests
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_runtime_recording.py
     ARGS ${CMAKE_CURRENT_BINARY_DIR}/recording-reports
-    ${GENTEST_USE_BOOST_JSON}
+    ${GENTEST_ENABLE_ALLURE_TESTS}
     "$<AND:$<BOOL:${GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS}>,$<PLATFORM_ID:Windows>,$<CONFIG:Debug>>")
 set_tests_properties(runtime_recording PROPERTIES LABELS "public-api;runner;reporting")
 
@@ -2939,7 +2943,7 @@ gentest_add_check_exit_code(
     EXPECT_RC 0
     ARGS junit-report ${CMAKE_CURRENT_BINARY_DIR}/regression_junit_blocked_error)
 
-if(GENTEST_USE_BOOST_JSON)
+if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_check_exit_code(
         NAME regression_allure_blocked_utf8_and_stale_results
         PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
@@ -3091,7 +3095,6 @@ gentest_add_check_counts(
         --seed
         1337)
 
-option(GENTEST_ENABLE_ALLURE_TESTS "Enable Allure writer tests (off by default)" OFF)
 if(GENTEST_ENABLE_ALLURE_TESTS)
     # Check the configured writers so new report tests cannot silently share files.
     add_test(NAME allure_output_isolation
@@ -3109,6 +3112,14 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
             --run=unit/arithmetic/sum
             --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single)
     set_tests_properties(allure_smoke_single PROPERTIES LABELS "allure")
+
+    # Results follow the Allure 2 result model: identifiers, timestamps, labels, and
+    # a historyId that links a case's results across runs.
+    gentest_add_python_program_test(NAME allure_result_model
+        PROG gentest_selection_tests
+        SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_allure_result_model.py
+        ARGS ${CMAKE_CURRENT_BINARY_DIR}/allure_result_model)
+    set_tests_properties(allure_result_model PROPERTIES LABELS "allure;reporting")
 
     gentest_add_cmake_script_test(
         NAME allure_blocked_shared_fixture_label

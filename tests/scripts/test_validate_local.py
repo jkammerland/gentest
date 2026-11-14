@@ -293,15 +293,13 @@ class PlanTests(unittest.TestCase):
             self.assertIn("--cc=gcc", commands[0].args)
             self.assertIn("--cxx=g++", commands[0].args)
 
-    def test_boost_json_include_override_keeps_the_optional_writer_enabled(self):
-        with tempfile.TemporaryDirectory() as temp, \
-                patch.dict(os.environ, {"GENTEST_BOOST_JSON_INCLUDE_DIR": "/installed/boost/include"}):
+    def test_configure_commands_need_no_allure_backend(self):
+        with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
             stages = validator.make_plan("Windows", ROOT, output, output / "base", 2)
             for stage in stages:
                 configure = self.commands_without_preflight(stage)[0]
-                self.assertIn("-DGENTEST_USE_BOOST_JSON=ON", configure)
-                self.assertIn("-DGENTEST_BOOST_JSON_INCLUDE_DIR=/installed/boost/include", configure)
+                self.assertFalse(any("BOOST_JSON" in arg for arg in configure), configure)
 
     def test_ci_uses_the_shared_acceptance_commands(self):
         recording = (ROOT / ".github/workflows/recording.yml").read_text()

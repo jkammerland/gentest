@@ -385,8 +385,8 @@ int check_allure_report(const std::filesystem::path &directory) {
     expect(contains(blocked, R"("status":"broken")"), "a blocked case has the failing status 'broken'");
     expect(contains(blocked, R"({"name":"blocked","value":"true"})"), "a blocked case keeps its blocked label");
     expect(contains(blocked, R"("message":"blocked: fixture down")"), "a blocked case keeps its reason");
-    expect(contains(read_file(results / "result-1-result.json"), "failure-bad\xEF\xBF\xBD\xEF\xBF\xBD(bytes"),
-           "malformed bytes become U+FFFD");
+    // The JSON encoder shared by every report spells U+FFFD as the escape \uFFFD.
+    expect(contains(read_file(results / "result-1-result.json"), R"(failure-bad\uFFFD\uFFFD(bytes)"), "malformed bytes become U+FFFD");
     expect(contains(read_file(results / "result-2-result.json"), R"("status":"skipped")"), "an ordinary skip stays skipped");
     return g_failures == 0 ? 0 : 1;
 }

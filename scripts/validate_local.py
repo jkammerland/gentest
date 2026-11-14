@@ -128,12 +128,9 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         args = [cmake, "--preset=" + preset, "-B", str(build)]
         if cc:
             args += ["-DCMAKE_C_COMPILER=" + cc, "-DCMAKE_CXX_COMPILER=" + cxx]
-        args += ["-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO", "-DGENTEST_USE_BOOST_JSON=ON",
+        args += ["-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO",
                  "-DGENTEST_CODEGEN_HOST_CLANG=" + host_clang,
                  "-DGENTEST_CODEGEN_CLANG_SCAN_DEPS=" + primary_tool("clang-scan-deps"), *extra]
-        boost_include = os.environ.get("GENTEST_BOOST_JSON_INCLUDE_DIR", "")
-        if boost_include and "-DGENTEST_USE_BOOST_JSON=OFF" not in extra:
-            args.append("-DGENTEST_BOOST_JSON_INCLUDE_DIR=" + boost_include)
         commands = [Command(args, origin, env), Command([cmake, "--build", str(build), "--parallel", str(jobs),
                     *(["--config", configuration] if configuration else []),
                     *(["--target", *targets] if targets else [])], origin, env)]
@@ -173,8 +170,7 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         for arch in ("aarch64", "riscv64"):
             name = arch + "-qemu"
             cross = cmake_stage(name, name, "", "", test_preset=name + "-full", extra=(
-                f"-DGENTEST_CODEGEN_EXECUTABLE={codegen}", f"-DGENTEST_CODEGEN_HOST_CLANG={host_clang}",
-                "-DGENTEST_USE_BOOST_JSON=OFF"))
+                f"-DGENTEST_CODEGEN_EXECUTABLE={codegen}", f"-DGENTEST_CODEGEN_HOST_CLANG={host_clang}"))
             cross.tools += [arch + "-linux-gnu-g++", "qemu-" + arch]
             cross.dependencies = ["host-codegen"]
         for suite in ("bazel", "meson", "xmake", "recording"):

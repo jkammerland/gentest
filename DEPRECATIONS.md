@@ -28,6 +28,7 @@ Version fields mean:
 | Runner flag `--run-test=<name>` | Removed; exits with a usage error naming the replacement | N/A | N/A | Removed before `2.0.0` | `--run=<name>` | N/A |
 | Runner flags `--run-bench=<name>` and `--bench-filter=<pattern>` | Removed; exit with a usage error naming the replacement | N/A | N/A | Removed before `2.0.0` | `--run=<name> --kind=bench` and `--filter=<pattern> --kind=bench` | N/A |
 | Runner flags `--run-jitter=<name>` and `--jitter-filter=<pattern>` | Removed; exit with a usage error naming the replacement | N/A | N/A | Removed before `2.0.0` | `--run=<name> --kind=jitter` and `--filter=<pattern> --kind=jitter` | N/A |
+| `GENTEST_USE_BOOST_JSON` CMake option and the `allure-boost-json` vcpkg feature | Removed; setting the option emits a configure deprecation message | `2.0.0` | `2.0.0` | Removed in `2.0.0` | None needed: the Allure writer is always built and uses the runtime's own JSON encoder | N/A |
 | `EXPECT_SUBSTRING` in `gentest_discover_tests(...)` | Removed; configure hard-fails with replacement guidance | `1.0.0` | `1.0.0` | Removed in `2.0.0` | `DEATH_EXPECT_SUBSTRING` | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
 
 ## Removed or internal cleanup inventory

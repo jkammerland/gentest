@@ -5,6 +5,7 @@
 #include "runner_result_model.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <string>
 #include <string_view>
@@ -28,6 +29,8 @@ struct ReportItem {
     std::vector<std::string>                          tags;
     std::vector<std::string>                          requirements;
     std::vector<ReportAttachment>                     attachments;
+    // Wall-clock end of the case in Unix milliseconds; 0 when it was not recorded.
+    std::int64_t stop_unix_ms = 0;
 };
 
 struct FailureSummary {
