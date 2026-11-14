@@ -59,9 +59,9 @@ tables. Use `--fail-on-empty` when CI requires a nonempty selection. Listing and
 
 An execution that fails before any case runs (an unknown, ambiguous, kind-mismatched or death-excluded `--run` name, a
 bench/jitter filter that matches nothing, `--fail-on-empty`, a machine report format with an unmeasured selection, or invalid
-manual benchmark metadata) also replaces the requested JUnit and Allure reports. The replacement has no test cases and records
-the diagnostic as one runner error, so a report left by an earlier run is never mistaken for the current one. Invalid command
-lines are rejected before any report path is used and leave existing files alone.
+manual benchmark metadata) also writes the requested reports: a JUnit report with no test cases that records the diagnostic as
+one runner error, so a report left by an earlier run is never mistaken for the current one, and one Allure result for that
+error. Invalid command lines are rejected before any report path is used and leave existing files alone.
 
 Report outcome mapping:
 
@@ -77,10 +77,11 @@ A blocked case did not run and makes the run exit `1`, so it is reported as an e
 seconds in fixed-point decimal notation and, like the counts, do not depend on the process locale. Text that is not valid UTF-8
 is replaced in both formats (`?` in JUnit, U+FFFD in Allure).
 
-`--allure-dir=<dir>` owns the files it names: `result-<n>-*`, `runtime-record-<n>-<n>.*` and `runtime-case-<n>-index.json`.
-Before writing, the runner removes regular files with those names left by an earlier run, so a filtered rerun into the same
-directory does not merge old results. Other files and all subdirectories are left alone. Result numbering restarts for every
-invocation; give each test executable its own directory.
+`--allure-dir=<dir>` writes one `<token>-<n>-result.json` per case and per runner error, each after the attachments it
+references (`<token>-<n>-<k>-attachment.<ext>`, plus `<token>-record-*` and `<token>-case-<id>-index.json` for runtime
+records). The token is a random UUID made once per run, so any number of executables, shards, per-case CTest runs or
+`run_all_tests` calls can share a directory. The runner never removes or rewrites a file it did not write in that run; empty
+the directory first when a report should hold only the current run, as Allure's own adapters expect.
 
 Manual benchmarks may set source-level execution policy with the
 `Case::benchmark` field:

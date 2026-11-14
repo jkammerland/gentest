@@ -58,7 +58,7 @@ if(NOT _rc EQUAL EXPECT_RC)
   message(FATAL_ERROR "Expected exit code ${EXPECT_RC}, got ${_rc}. Output:\n${_all}")
 endif()
 
-file(GLOB _result_files LIST_DIRECTORIES false "${OUT_DIR}/result-*-result.json")
+file(GLOB _result_files LIST_DIRECTORIES false "${OUT_DIR}/*-result.json")
 if("${_result_files}" STREQUAL "")
   message(FATAL_ERROR "Expected Allure result files under ${OUT_DIR}. Output:\n${_all}")
 endif()

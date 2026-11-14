@@ -2945,11 +2945,11 @@ gentest_add_check_exit_code(
 
 if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_check_exit_code(
-        NAME regression_allure_blocked_utf8_and_stale_results
+        NAME regression_allure_blocked_utf8_keeps_other_files
         PROG $<TARGET_FILE:gentest_regression_runner_selection_reports>
         EXPECT_RC 0
         ARGS allure-report ${CMAKE_CURRENT_BINARY_DIR}/regression_allure_blocked_utf8_stale)
-    set_tests_properties(regression_allure_blocked_utf8_and_stale_results PROPERTIES LABELS "allure")
+    set_tests_properties(regression_allure_blocked_utf8_keeps_other_files PROPERTIES LABELS "allure")
 endif()
 
 gentest_add_check_exit_code(
@@ -3106,7 +3106,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_check_file_contains(
         NAME allure_smoke_single
         PROG $<TARGET_FILE:gentest_unit_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single/result-0-result.json
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_unit_single/*-0-result.json
         REQUIRED_SUBSTRING "\"status\":\"passed\""
         ARGS
             --run=unit/arithmetic/sum
@@ -3138,8 +3138,8 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_logs_attachment
         PROG $<TARGET_FILE:gentest_failing_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs_json/result-0-result.json
-        REQUIRED_SUBSTRING "result-0-attachment.txt"
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs_json/*-0-result.json
+        REQUIRED_SUBSTRING "-0-logs-attachment.txt"
         EXPECT_RC 1
         ARGS
             --run=failing/logging/attachment
@@ -3149,8 +3149,8 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_logs_attachment_has_plain_text_type
         PROG $<TARGET_FILE:gentest_failing_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs_typed/result-0-result.json
-        REQUIRED_SUBSTRING "\"name\":\"logs\",\"source\":\"result-0-attachment.txt\",\"type\":\"text/plain\""
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs_typed/*-0-result.json
+        REQUIRED_SUBSTRING "-0-logs-attachment.txt\",\"type\":\"text/plain\""
         EXPECT_RC 1
         ARGS
             --run=failing/logging/attachment
@@ -3160,7 +3160,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_logs_attachment_file
         PROG $<TARGET_FILE:gentest_failing_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs_file/result-0-attachment.txt
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_logs_file/*-0-logs-attachment.txt
         REQUIRED_SUBSTRING "hello from log"
         EXPECT_RC 1
         ARGS
@@ -3171,8 +3171,8 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_bench_metrics_attachment_json
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_metrics_json/result-0-result.json
-        REQUIRED_SUBSTRING "\"name\":\"metrics\",\"source\":\"result-0-metrics.tsv\",\"type\":\"text/tab-separated-values\""
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_metrics_json/*-0-result.json
+        REQUIRED_SUBSTRING "-0-metrics-attachment.tsv\",\"type\":\"text/tab-separated-values\""
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sqrt
@@ -3187,7 +3187,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_bench_metrics_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_metrics_file/result-0-metrics.tsv
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_metrics_file/*-0-metrics-attachment.tsv
         REQUIRED_SUBSTRING "metric\tvalue\nname\tbenchmarks/math/sqrt"
         EXPECT_RC 0
         ARGS
@@ -3203,8 +3203,8 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_bench_plot_attachment_json
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_plot_json/result-0-result.json
-        REQUIRED_SUBSTRING "\"name\":\"summary-plot\",\"source\":\"result-0-summary-plot.svg\",\"type\":\"image/svg+xml\""
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_plot_json/*-0-result.json
+        REQUIRED_SUBSTRING "-0-summary-plot-attachment.svg\",\"type\":\"image/svg+xml\""
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sqrt
@@ -3219,7 +3219,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_bench_plot_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_plot_file/result-0-summary-plot.svg
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_plot_file/*-0-summary-plot-attachment.svg
         REQUIRED_SUBSTRING "<svg"
         EXPECT_RC 0
         ARGS
@@ -3235,8 +3235,8 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_jitter_histogram_attachment_json
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_histogram_json/result-0-result.json
-        REQUIRED_SUBSTRING "\"name\":\"histogram\",\"source\":\"result-0-histogram.tsv\",\"type\":\"text/tab-separated-values\""
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_histogram_json/*-0-result.json
+        REQUIRED_SUBSTRING "-0-histogram-attachment.tsv\",\"type\":\"text/tab-separated-values\""
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -3252,7 +3252,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_jitter_histogram_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_histogram_file/result-0-histogram.tsv
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_histogram_file/*-0-histogram-attachment.tsv
         REQUIRED_SUBSTRING "bin\trange_lo_ns\trange_hi_ns\tinclusive_hi\tcount\tpercent\tcumulative_percent\n1\t"
         EXPECT_RC 0
         ARGS
@@ -3269,8 +3269,8 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_jitter_plot_attachment_json
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_plot_json/result-0-result.json
-        REQUIRED_SUBSTRING "\"name\":\"histogram-plot\",\"source\":\"result-0-histogram-plot.svg\",\"type\":\"image/svg+xml\""
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_plot_json/*-0-result.json
+        REQUIRED_SUBSTRING "-0-histogram-plot-attachment.svg\",\"type\":\"image/svg+xml\""
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -3286,7 +3286,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_jitter_plot_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_plot_file/result-0-histogram-plot.svg
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_plot_file/*-0-histogram-plot-attachment.svg
         REQUIRED_SUBSTRING "<svg"
         EXPECT_RC 0
         ARGS
@@ -3303,8 +3303,8 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_jitter_samples_attachment_json
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_json/result-0-result.json
-        REQUIRED_SUBSTRING "\"name\":\"samples\",\"source\":\"result-0-samples.json\",\"type\":\"application/json\""
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_json/*-0-result.json
+        REQUIRED_SUBSTRING "-0-samples-attachment.json\",\"type\":\"application/json\""
         EXPECT_RC 0
         ARGS
             --run=benchmarks/math/sin_jitter
@@ -3320,7 +3320,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_jitter_samples_attachment_file
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_file/result-0-samples.json
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_file/*-0-samples-attachment.json
         REQUIRED_SUBSTRING "\"sample_count\":"
         EXPECT_RC 0
         ARGS
@@ -3337,7 +3337,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME allure_jitter_samples_attachment_schema
         PROG $<TARGET_FILE:gentest_benchmarks_tests>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_schema/result-0-samples.json
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_samples_schema/*-0-samples-attachment.json
         REQUIRED_SUBSTRING "\"samples_ns\":"
         EXPECT_RC 0
         ARGS
@@ -3364,19 +3364,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     set_tests_properties(regression_allure_directory_failure_reports_infra PROPERTIES LABELS "allure")
 
     gentest_add_cmake_script_test(
-        NAME regression_allure_result_write_failure_reports_infra
-        PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
-        SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAllureResultWriteFailure.cmake"
-        ARGS
-            --run=regressions/runtime_reporting/pass_for_junit_io_visibility
-            --kind=test
-        DEFINES
-            "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_result_write_failure"
-            "REQUIRED_SUBSTRING=failed to open Allure result:")
-    set_tests_properties(regression_allure_result_write_failure_reports_infra PROPERTIES LABELS "allure")
-
-    gentest_add_cmake_script_test(
-        NAME regression_allure_result_write_failure_keeps_junit_in_sync
+        NAME regression_allure_directory_failure_keeps_junit_in_sync
         PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
         SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAllureJunitParity.cmake"
         ARGS
@@ -3385,10 +3373,30 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         DEFINES
             "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_junit_parity"
             "JUNIT_PATH=${CMAKE_CURRENT_BINARY_DIR}/allure_junit_parity/result.xml"
-            "REQUIRED_SUBSTRING=failed to open Allure result:"
+            "REQUIRED_SUBSTRING=failed to prepare Allure report directory:"
             "EXPECT_CASE_NAME=regressions/runtime_reporting/pass_for_junit_io_visibility"
             "EXPECT_JUNIT_COUNTS=tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"1\"")
-    set_tests_properties(regression_allure_result_write_failure_keeps_junit_in_sync PROPERTIES LABELS "allure")
+    set_tests_properties(regression_allure_directory_failure_keeps_junit_in_sync PROPERTIES LABELS "allure")
+
+    # /proc exists but takes no new files: each Allure result fails to open, and JUnit,
+    # written afterwards, reports it.
+    if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IS_DIRECTORY "/proc")
+        gentest_add_cmake_script_test(
+            NAME regression_allure_result_write_failure_keeps_junit_in_sync
+            PROG $<TARGET_FILE:gentest_regression_runtime_reporting>
+            SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckAllureJunitParity.cmake"
+            ARGS
+                --run=regressions/runtime_reporting/pass_for_junit_io_visibility
+                --kind=test
+            DEFINES
+                "OUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/allure_result_write_parity"
+                "ALLURE_DIR=/proc"
+                "JUNIT_PATH=${CMAKE_CURRENT_BINARY_DIR}/allure_result_write_parity/result.xml"
+                "REQUIRED_SUBSTRING=failed to open Allure result: /proc/"
+                "EXPECT_CASE_NAME=regressions/runtime_reporting/pass_for_junit_io_visibility"
+                "EXPECT_JUNIT_COUNTS=tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"1\"")
+        set_tests_properties(regression_allure_result_write_failure_keeps_junit_in_sync PROPERTIES LABELS "allure")
+    endif()
 
     gentest_add_cmake_script_test(
         NAME regression_junit_open_failure_keeps_allure_in_sync

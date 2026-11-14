@@ -3,19 +3,61 @@
 #include "runner_reporting_allure.h"
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fmt/format.h>
 #include <fstream>
 #include <iterator>
 #include <ostream>
+#include <random>
 #include <string>
 
 namespace gentest::runner {
 
 namespace {
+// Random version-4 UUIDs. Report file names rely on them being unique.
+class UuidSource {
+  public:
+    UuidSource() : engine_(make_engine()) {}
+
+    std::string next() {
+        const std::uint64_t high = (engine_() & 0xFFFFFFFFFFFF0FFFULL) | 0x0000000000004000ULL; // version 4
+        const std::uint64_t low  = (engine_() & 0x3FFFFFFFFFFFFFFFULL) | 0x8000000000000000ULL; // RFC 4122 variant
+        return fmt::format("{:08x}-{:04x}-{:04x}-{:04x}-{:012x}", high >> 32U, (high >> 16U) & 0xFFFFU, high & 0xFFFFU, low >> 48U,
+                           low & 0xFFFFFFFFFFFFULL);
+    }
+
+  private:
+    static std::mt19937_64 make_engine() {
+        const auto steady = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+        const auto wall   = static_cast<std::uint64_t>(std::chrono::system_clock::now().time_since_epoch().count());
+        // With address-space randomisation a stack address differs between processes, so
+        // runs started in the same clock tick still differ when there is no entropy source.
+        const auto                   stack = static_cast<std::uint64_t>(std::bit_cast<std::uintptr_t>(&steady));
+        std::array<std::uint32_t, 4> entropy{static_cast<std::uint32_t>(wall), static_cast<std::uint32_t>(wall >> 32U),
+                                             static_cast<std::uint32_t>(stack), static_cast<std::uint32_t>(stack >> 32U)};
+        try {
+            std::random_device device;
+            for (auto &word : entropy) {
+                word ^= device();
+            }
+        } catch (const std::exception &) {
+            // No entropy source: the clocks and the stack address remain; spread the clock bits.
+            entropy[0] ^= static_cast<std::uint32_t>(steady >> 16U);
+        }
+        std::seed_seq seed{
+            entropy[0], entropy[1], entropy[2], entropy[3], static_cast<std::uint32_t>(steady), static_cast<std::uint32_t>(steady >> 32U)};
+        return std::mt19937_64(seed);
+    }
+
+    std::mt19937_64 engine_;
+};
+
 std::string gha_escape_message(std::string_view s) {
     std::string out;
     out.reserve(s.size());
@@ -188,6 +230,18 @@ bool preflight_output_file(OnFailure &&on_failure, const std::filesystem::path &
 }
 } // namespace
 
+std::string random_uuid() {
+    thread_local UuidSource source;
+    return source.next();
+}
+
+const std::string &report_token(RunAccumulator &acc) {
+    if (acc.report_token.empty()) {
+        acc.report_token = random_uuid();
+    }
+    return acc.report_token;
+}
+
 void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vector<std::string> issues, std::string_view file,
                             unsigned line) {
     if (issues.empty())
@@ -259,9 +313,9 @@ void emit_github_annotations(const RunAccumulator &acc, FILE *stream) {
 }
 
 bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
-    bool                report_ok   = true;
-    bool                junit_ready = cfg.junit_path != nullptr;
-    AllureReportSession allure_session(acc, cfg, report_ok);
+    bool         report_ok   = true;
+    bool         junit_ready = cfg.junit_path != nullptr;
+    AllureReport allure(acc, cfg, report_ok);
 
     const auto write_junit_report = [&] {
         if (!cfg.junit_path) {
@@ -345,26 +399,21 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
         }
     };
     if (cfg.junit_path) {
-        const std::size_t infra_errors_before_junit = acc.infra_errors.size();
         if (!preflight_output_file(
                 [&](std::string message) { record_runner_level_failure(acc, "gentest/reporting/junit", std::move(message)); },
                 cfg.junit_path, "JUnit report")) {
             report_ok   = false;
             junit_ready = false;
         }
-        if (acc.infra_errors.size() != infra_errors_before_junit) {
-            allure_session.sync_after_infra_change(acc, report_ok);
-        }
     }
 
+    // Allure case results go first, so JUnit lists any failure to write them. Allure
+    // then gets one result per infrastructure error, including JUnit's own.
+    allure.write_cases(acc, report_ok);
     if (junit_ready) {
-        const std::size_t infra_errors_before_junit_write = acc.infra_errors.size();
         write_junit_report();
-        if (acc.infra_errors.size() != infra_errors_before_junit_write) {
-            allure_session.sync_after_infra_change(acc, report_ok);
-        }
     }
-    allure_session.flush(acc, report_ok);
+    allure.write_infra_errors(acc, report_ok);
     return report_ok;
 }
 

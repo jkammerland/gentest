@@ -1253,7 +1253,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckReportTime.cmake"
         ARGS --run=regressions/measured_local_fixture_teardown_skip/bench --kind=bench --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_teardown_skip
         DEFINES
-            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_teardown_skip/result-0-result.json"
+            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_teardown_skip/*-0-result.json"
             "FORMAT=ALLURE"
             "REQUIRED_SUBSTRING=\"status\":\"skipped\""
             "EXPECT_RC=0")
@@ -1264,7 +1264,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckReportTime.cmake"
         ARGS --run=regressions/measured_local_fixture_teardown_skip/jitter --kind=jitter --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_teardown_skip
         DEFINES
-            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_teardown_skip/result-0-result.json"
+            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_teardown_skip/*-0-result.json"
             "FORMAT=ALLURE"
             "REQUIRED_SUBSTRING=\"status\":\"skipped\""
             "EXPECT_RC=0")
@@ -1272,7 +1272,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME regression_bench_local_fixture_call_teardown_dualfail_allure_reports_failure
         PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail/result-0-result.json
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail/*-0-result.json
         REQUIRED_SUBSTRING "\"status\":\"failed\""
         EXPECT_RC 1
         ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail)
@@ -1283,7 +1283,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckReportTime.cmake"
         ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/bench --kind=bench --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail_time
         DEFINES
-            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail_time/result-0-result.json"
+            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_call_teardown_dualfail_time/*-0-result.json"
             "FORMAT=ALLURE"
             "REQUIRED_SUBSTRING=\"status\":\"failed\""
             "EXPECT_RC=1")
@@ -1291,7 +1291,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME regression_jitter_local_fixture_call_teardown_dualfail_allure_reports_failure
         PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_call_teardown_dualfail>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail/result-0-result.json
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail/*-0-result.json
         REQUIRED_SUBSTRING "\"status\":\"failed\""
         EXPECT_RC 1
         ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail)
@@ -1302,7 +1302,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
         SCRIPT "${PROJECT_SOURCE_DIR}/cmake/RunAndCheckReportTime.cmake"
         ARGS --run=regressions/measured_local_fixture_call_teardown_dualfail/jitter --kind=jitter --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail_time
         DEFINES
-            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail_time/result-0-result.json"
+            "FILE=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_call_teardown_dualfail_time/*-0-result.json"
             "FORMAT=ALLURE"
             "REQUIRED_SUBSTRING=\"status\":\"failed\""
             "EXPECT_RC=1")
@@ -1310,7 +1310,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME regression_bench_local_fixture_setup_skip_teardown_fail_allure_reports_failure
         PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_fail>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_setup_skip_teardown_fail/result-0-result.json
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_setup_skip_teardown_fail/*-0-result.json
         REQUIRED_SUBSTRING "\"status\":\"failed\""
         EXPECT_RC 1
         ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/bench --kind=bench --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_bench_local_fixture_setup_skip_teardown_fail)
@@ -1318,7 +1318,7 @@ if(GENTEST_ENABLE_ALLURE_TESTS)
     gentest_add_run_and_check_file(
         NAME regression_jitter_local_fixture_setup_skip_teardown_fail_allure_reports_failure
         PROG $<TARGET_FILE:gentest_regression_measured_local_fixture_setup_skip_teardown_fail>
-        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_setup_skip_teardown_fail/result-0-result.json
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_setup_skip_teardown_fail/*-0-result.json
         REQUIRED_SUBSTRING "\"status\":\"failed\""
         EXPECT_RC 1
         ARGS --run=regressions/measured_local_fixture_setup_skip_teardown_fail/jitter --kind=jitter --allure-dir=${CMAKE_CURRENT_BINARY_DIR}/allure_jitter_local_fixture_setup_skip_teardown_fail)

@@ -1,50 +1,60 @@
+// Regression: Allure attachment files never collide. A case's own attachments named like
+// the built-in logs and timeline, or like a result, each get their own file; one named
+// "result" with a .json extension is never taken for a result file; and two runs that
+// share a directory (several executables or shards) keep every file of both.
 #include "../../src/runner_reporting.h"
 
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <set>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace {
 
 constexpr auto kCustomResultPayload = R"({"payload":"custom result payload"})";
-constexpr auto kAttachmentSource0   = R"("source":"result-0-attachment.txt")";
-constexpr auto kAttachmentSource1   = R"("source":"result-0-attachment-1.txt")";
-constexpr auto kTimelineSource0     = R"("source":"result-0-timeline.txt")";
-constexpr auto kTimelineSource1     = R"("source":"result-0-timeline-1.txt")";
-constexpr auto kResultSource1       = R"("source":"result-0-result-1.json")";
 
-bool read_text(const std::filesystem::path &path, std::string &out) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in) {
-        return false;
+int g_failures = 0;
+
+void expect(bool ok, std::string_view what) {
+    if (!ok) {
+        ++g_failures;
+        std::cerr << "FAILED: " << what << '\n';
     }
-    out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-    return true;
+}
+
+std::string read_text(const std::filesystem::path &path) {
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
 }
 
 bool contains(std::string_view haystack, std::string_view needle) { return haystack.find(needle) != std::string_view::npos; }
 
-} // namespace
-
-int main(int argc, char **argv) {
-    if (argc != 2) {
-        std::cerr << "usage: reporting_attachment_collision <allure-dir>\n";
-        return 2;
+// The "source" values of a result, in order. Report tokens and file names hold no quotes.
+std::vector<std::string> attachment_sources(std::string_view json) {
+    constexpr std::string_view key = R"("source":")";
+    std::vector<std::string>   sources;
+    for (std::size_t pos = json.find(key); pos != std::string_view::npos; pos = json.find(key, pos)) {
+        pos += key.size();
+        const std::size_t end = json.find('"', pos);
+        sources.emplace_back(json.substr(pos, end - pos));
+        pos = end;
     }
+    return sources;
+}
 
-    const std::filesystem::path allure_dir = argv[1];
-    std::error_code             ec;
-    std::filesystem::remove_all(allure_dir, ec);
-
-    gentest::runner::RunAccumulator acc;
-    gentest::runner::ReportItem     item;
-    item.suite    = "regressions";
-    item.name     = "runtime_reporting/attachment_name_collision";
-    item.outcome  = gentest::runner::Outcome::Pass;
-    item.logs     = {"builtin logs payload"};
-    item.timeline = {"builtin timeline payload"};
+gentest::runner::ReportItem make_item() {
+    gentest::runner::ReportItem item;
+    item.suite        = "regressions";
+    item.name         = "runtime_reporting/attachment_name_collision";
+    item.outcome      = gentest::runner::Outcome::Pass;
+    item.logs         = {"builtin logs payload"};
+    item.timeline     = {"builtin timeline payload"};
+    item.requirements = {"REQ-7"};
     item.attachments.push_back(gentest::runner::ReportAttachment{
         .name           = "attachment",
         .mime_type      = "text/plain",
@@ -63,45 +73,60 @@ int main(int argc, char **argv) {
         .file_extension = ".json",
         .contents       = std::make_shared<const std::string>(kCustomResultPayload),
     });
-    acc.report_items.push_back(std::move(item));
+    return item;
+}
 
-    if (!gentest::runner::write_reports(acc, gentest::runner::ReportConfig{.allure_dir = argv[1]})) {
-        std::cerr << "write_reports reported failure\n";
-        return 1;
+} // namespace
+
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        std::cerr << "usage: reporting_attachment_collision <allure-dir>\n";
+        return 2;
     }
 
-    const auto result_path           = allure_dir / "result-0-result.json";
-    const auto builtin_logs_path     = allure_dir / "result-0-attachment.txt";
-    const auto builtin_timeline_path = allure_dir / "result-0-timeline.txt";
-    const auto custom_attach_path    = allure_dir / "result-0-attachment-1.txt";
-    const auto custom_timeline_path  = allure_dir / "result-0-timeline-1.txt";
-    const auto custom_result_path    = allure_dir / "result-0-result-1.json";
+    const std::filesystem::path allure_dir = argv[1];
+    std::error_code             ec;
+    std::filesystem::remove_all(allure_dir, ec);
 
-    std::string result_json;
-    std::string builtin_logs;
-    std::string builtin_timeline;
-    std::string custom_attach;
-    std::string custom_timeline;
-    std::string custom_result;
-    if (!read_text(result_path, result_json) || !read_text(builtin_logs_path, builtin_logs) ||
-        !read_text(builtin_timeline_path, builtin_timeline) || !read_text(custom_attach_path, custom_attach) ||
-        !read_text(custom_timeline_path, custom_timeline) || !read_text(custom_result_path, custom_result)) {
-        std::cerr << "missing expected Allure output file(s)\n";
-        return 1;
+    // Two runs into one directory, as from two executables.
+    for (int run = 0; run < 2; ++run) {
+        gentest::runner::RunAccumulator acc;
+        acc.report_items.push_back(make_item());
+        if (!gentest::runner::write_reports(acc, gentest::runner::ReportConfig{.allure_dir = argv[1]})) {
+            std::cerr << "write_reports reported failure\n";
+            return 1;
+        }
     }
 
-    if (builtin_logs != "builtin logs payload" || builtin_timeline != "builtin timeline payload" ||
-        custom_attach != "custom attachment payload" || custom_timeline != "custom timeline payload" ||
-        custom_result != kCustomResultPayload) {
-        std::cerr << "attachment payload mismatch\n";
-        return 1;
+    std::vector<std::filesystem::path> results;
+    for (const auto &entry : std::filesystem::directory_iterator(allure_dir)) {
+        if (entry.path().filename().string().ends_with("-result.json")) {
+            results.push_back(entry.path());
+        }
     }
+    expect(results.size() == 2, "both runs' results are kept, and only results are named like result files");
 
-    if (!contains(result_json, kAttachmentSource0) || !contains(result_json, kAttachmentSource1) ||
-        !contains(result_json, kTimelineSource0) || !contains(result_json, kTimelineSource1) || !contains(result_json, kResultSource1)) {
-        std::cerr << "result JSON missing expected attachment sources\n";
-        return 1;
+    const std::vector<std::string_view> payloads{"builtin logs payload", "builtin timeline payload", "custom attachment payload",
+                                                 "custom timeline payload", kCustomResultPayload};
+    std::set<std::string>               all_sources;
+    std::set<std::string>               tokens;
+    for (const auto &result : results) {
+        const std::string json = read_text(result);
+        expect(contains(json, R"({"name":"requirement","value":"REQ-7"})"), "requirements become labels");
+        // <token>-<n>-result.json: the token is everything before the result number.
+        const std::string file  = result.filename().string();
+        const std::string token = file.substr(0, file.rfind('-', file.size() - std::string_view{"-result.json"}.size() - 1));
+        tokens.insert(token);
+        const auto sources = attachment_sources(json);
+        expect(sources.size() == payloads.size(), "every attachment is referenced");
+        for (std::size_t i = 0; i < sources.size() && i < payloads.size(); ++i) {
+            expect(sources[i].starts_with(token + "-"), "attachment names start with their run's token: " + sources[i]);
+            expect(sources[i].ends_with(i < 4 ? "-attachment.txt" : "-attachment.json"), "attachment file kind: " + sources[i]);
+            expect(read_text(allure_dir / sources[i]) == payloads[i], "attachment payload: " + sources[i]);
+            all_sources.insert(sources[i]);
+        }
     }
-
-    return 0;
+    expect(tokens.size() == 2, "each run has its own report token");
+    expect(all_sources.size() == 2 * payloads.size(), "no attachment file is shared or overwritten");
+    return g_failures == 0 ? 0 : 1;
 }

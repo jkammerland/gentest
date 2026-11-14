@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Allure results follow the Allure 2 result model and stay linked across runs."""
+"""Allure results follow the Allure 2 result model, stay linked across runs, and two runs
+sharing one directory keep every file of both."""
 import json
 import re
 import shutil
@@ -12,6 +13,7 @@ from target_command import target_command
 
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 CASE_ID = re.compile(r"^[0-9a-f]{16}$")
+RESULT_FILE = re.compile(r"^([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})-[0-9]+-result\.json$")
 STATUSES = {"passed", "failed", "broken", "skipped"}
 SMOKE = ["--bench-epochs=2", "--bench-warmup=0", "--bench-min-epoch-time-s=0.0001",
          "--bench-min-total-time-s=0", "--bench-max-total-time-s=0.01"]
@@ -32,16 +34,35 @@ def labels_of(result):
     return labels
 
 
+def snapshot(directory):
+    return {path.name: path.read_bytes() for path in directory.iterdir() if path.is_file()}
+
+
 def write_run(binary, directory):
+    """Runs the binary into a directory that may hold earlier runs; returns this run's results."""
+    existing = snapshot(directory) if directory.exists() else {}
     before = int(time.time() * 1000)
     run(binary, f"--allure-dir={directory}", *SMOKE)
     after = int(time.time() * 1000)
+    now = snapshot(directory)
+    for name, contents in existing.items():
+        assert now.get(name) == contents, ("an earlier run's file was changed or removed", name)
+    added = sorted(set(now) - set(existing))
+    matches = [RESULT_FILE.match(name) for name in added if name.endswith("-result.json")]
+    assert matches and all(matches), ("result files are named <token>-<n>-result.json", added)
+    tokens = {match.group(1) for match in matches}
+    assert len(tokens) == 1, ("one report token per run", added)
+    token = tokens.pop()
+    assert all(name.startswith(token + "-") for name in added), ("every new file carries the run's token", added)
     results = {}
-    for path in sorted(directory.glob("*-result.json")):
-        result = json.loads(path.read_text(encoding="utf-8"))
-        assert result["fullName"] not in results, (path, result["fullName"])
+    for name in added:
+        if not name.endswith("-result.json"):
+            continue
+        assert len(now[name]) > 1, name
+        result = json.loads(now[name].decode("utf-8"))
+        assert result["fullName"] not in results, (name, result["fullName"])
         results[result["fullName"]] = result
-    return results, before, after
+    return results, before, after, set(added)
 
 
 def main():
@@ -51,10 +72,13 @@ def main():
     root.mkdir(parents=True)
     inventory = {entry["name"]: entry for entry in json.loads(run(binary, "--list-json").stdout)}
 
-    runs = [write_run(binary, root / name) for name in ("first", "second")]
+    # Two runs share one directory, as several executables or shards do.
+    directory = root / "shared"
+    runs = [write_run(binary, directory) for _ in range(2)]
+    assert not runs[0][3] & runs[1][3], "the runs share no file name"
     expected = {name for name, entry in inventory.items() if "death" not in entry["tags"]}
     uuids = set()
-    for (results, before, after), directory in zip(runs, (root / "first", root / "second")):
+    for results, before, after, added in runs:
         assert set(results) == expected, (sorted(results), sorted(expected))
         case_ids = set()
         for name, result in results.items():
@@ -79,9 +103,10 @@ def main():
             assert labels["suite"] == [entry["suite"]], result
             assert labels["framework"] == ["gentest"] and labels["language"] == ["cpp"], result
             assert sorted(labels.get("tag", [])) == sorted(entry["tags"]), (entry["tags"], result)
+            assert sorted(labels.get("requirement", [])) == sorted(entry["requirements"]), (entry["requirements"], result)
             for attachment in result.get("attachments", []):
                 assert set(attachment) == {"name", "source", "type"}, attachment
-                assert (directory / attachment["source"]).is_file(), attachment
+                assert attachment["source"] in added, ("attachments come from the same run", attachment)
         assert len(case_ids) == len(results), "each case has its own historyId"
 
     first, second = runs[0][0], runs[1][0]

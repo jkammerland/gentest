@@ -52,7 +52,15 @@ struct RunAccumulator {
     std::vector<FailureSummary>   failure_items;
     std::vector<std::string>      infra_errors;
     std::vector<GitHubAnnotation> github_annotations;
+    // Starts the name of every report file this run writes; see report_token().
+    std::string report_token;
 };
+
+// A random version-4 UUID.
+std::string random_uuid();
+// The run's report token, a random UUID made on first use. Report files whose names
+// start with it cannot collide with another run's, even in a shared directory.
+const std::string &report_token(RunAccumulator &acc);
 
 struct ReportConfig {
     const char *junit_path = nullptr;
