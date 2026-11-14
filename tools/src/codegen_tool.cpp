@@ -573,14 +573,9 @@ std::vector<std::string> mock_domain_modules_from_context(const gentest::codegen
     std::vector<std::string> modules;
     std::set<std::string>    seen_modules;
     for (const auto &source : options.sources) {
-        std::optional<std::string> module_name;
-        if (const auto it = options.module_interface_names_by_source.find(source); it != options.module_interface_names_by_source.end()) {
-            module_name = it->second;
-        } else {
-            module_name = gentest::codegen::scan::named_module_name_from_source_file(std::filesystem::path(source));
-        }
-        if (module_name.has_value() && !module_name->empty() && seen_modules.insert(*module_name).second) {
-            modules.push_back(std::move(*module_name));
+        if (const auto it = options.module_interface_names_by_source.find(source);
+            it != options.module_interface_names_by_source.end() && !it->second.empty() && seen_modules.insert(it->second).second) {
+            modules.push_back(it->second);
         }
     }
     return modules;
@@ -804,14 +799,6 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
 }
 
 [[nodiscard]] std::vector<std::filesystem::path> depfile_targets_for(const CollectorOptions &options) {
-    auto is_module_interface_source = [&](const std::filesystem::path              &path,
-                                          const std::vector<std::filesystem::path> &include_search_paths = {}) {
-        if (options.module_interface_sources.contains(path.string())) {
-            return true;
-        }
-        return named_module_name_from_source_file(path, include_search_paths).has_value();
-    };
-
     std::vector<std::filesystem::path> targets;
     if (!options.tu_output_dir.empty()) {
         targets.reserve(options.sources.size() * 3 + 3);
@@ -825,10 +812,12 @@ void append_depfile_escaped(std::string &out, std::string_view path) {
                 header_out.replace_extension(".h");
                 targets.push_back(std::move(header_out));
             }
-            if (is_module_interface_source(std::filesystem::path(options.sources[idx]))) {
-                if (!options.module_registration_outputs.empty()) {
+            // The run classified each source once, with its own compile command; the
+            // output validators require an output for every module source.
+            if (options.module_interface_sources.contains(options.sources[idx])) {
+                if (idx < options.module_registration_outputs.size() && !options.module_registration_outputs[idx].empty()) {
                     targets.push_back(options.module_registration_outputs[idx]);
-                } else {
+                } else if (idx < options.module_wrapper_outputs.size() && !options.module_wrapper_outputs[idx].empty()) {
                     targets.push_back(options.module_wrapper_outputs[idx]);
                 }
             }

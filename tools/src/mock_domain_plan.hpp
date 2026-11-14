@@ -1,7 +1,6 @@
 #pragma once
 
 #include "model.hpp"
-#include "scan_utils.hpp"
 
 #include <filesystem>
 #include <fmt/format.h>
@@ -56,15 +55,10 @@ struct MockOutputDomainPlan {
         return domains;
     }
 
+    // Module names come from the run's own classification of each source.
     for (const auto &source : options.sources) {
-        std::optional<std::string> module_name;
         if (const auto it = options.module_interface_names_by_source.find(source); it != options.module_interface_names_by_source.end()) {
-            module_name = it->second;
-        } else {
-            module_name = scan::named_module_name_from_source_file(std::filesystem::path(source));
-        }
-        if (module_name.has_value()) {
-            append_module_domain(seen_modules, std::move(*module_name));
+            append_module_domain(seen_modules, it->second);
         }
     }
 
