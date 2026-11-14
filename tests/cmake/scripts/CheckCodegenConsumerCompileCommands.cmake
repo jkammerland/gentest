@@ -108,6 +108,8 @@ if(_entry_count GREATER 0)
   math(EXPR _last_entry "${_entry_count} - 1")
   foreach(_idx RANGE 0 ${_last_entry})
     string(JSON _file GET "${_compdb_json}" ${_idx} file)
+    # Windows generators write native paths with backslashes.
+    file(TO_CMAKE_PATH "${_file}" _file)
     string(JSON _command ERROR_VARIABLE _command_error GET "${_compdb_json}" ${_idx} command)
     if(_file MATCHES "/consumer_cases\\.cpp$")
       set(_found_cases TRUE)
