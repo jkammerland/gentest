@@ -174,7 +174,16 @@ set_property(TEST format_value APPEND PROPERTY LABELS "public-api")
 # Public assertion/formatting header regressions. Each program owns its case
 # table: the failing cases pin their source lines with #line, and the death
 # checks require the reported location to be the test's own file and line.
-foreach(_gentest_assertion_header_test IN ITEMS throw_forms fmt_location no_rtti)
+set(_gentest_assertion_header_tests throw_forms fmt_location)
+# The Microsoft standard library defines std::any (used by gentest/async.h) only
+# with RTTI enabled, so the RTTI-free build is covered on other libraries only.
+if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+    set(_gentest_assertion_headers_no_rtti FALSE)
+else()
+    set(_gentest_assertion_headers_no_rtti TRUE)
+    list(APPEND _gentest_assertion_header_tests no_rtti)
+endif()
+foreach(_gentest_assertion_header_test IN LISTS _gentest_assertion_header_tests)
     add_executable(gentest_assertion_headers_${_gentest_assertion_header_test}_tests
         ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/${_gentest_assertion_header_test}.cpp)
     target_compile_features(gentest_assertion_headers_${_gentest_assertion_header_test}_tests PRIVATE cxx_std_20)
@@ -186,8 +195,10 @@ foreach(_gentest_assertion_header_test IN ITEMS throw_forms fmt_location no_rtti
     set_property(TEST assertion_headers_${_gentest_assertion_header_test}_pass APPEND PROPERTY LABELS "public-api;headers")
 endforeach()
 unset(_gentest_assertion_header_test)
-target_compile_options(gentest_assertion_headers_no_rtti_tests PRIVATE
-    $<IF:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>,/GR-,-fno-rtti>)
+unset(_gentest_assertion_header_tests)
+if(_gentest_assertion_headers_no_rtti)
+    target_compile_options(gentest_assertion_headers_no_rtti_tests PRIVATE -fno-rtti)
+endif()
 
 gentest_add_check_death(
     NAME assertion_headers_throw_forms_fail
@@ -237,20 +248,23 @@ gentest_add_check_death(
         "upper ASSERT_NE 13"
         "fmt_location.cpp:1014"
         "runtime format 14")
-gentest_add_check_death(
-    NAME assertion_headers_no_rtti_fail
-    PROG gentest_assertion_headers_no_rtti_tests
-    ARGS --filter=no_rtti/failing/* --no-color
-    REQUIRED_SUBSTRINGS
-        "no_rtti.cpp:3001"
-        "but caught std::exception: expect mismatch"
-        "no_rtti.cpp:3002"
-        "but caught std::exception: assert mismatch")
 set_property(TEST
         assertion_headers_throw_forms_fail
         assertion_headers_fmt_location_fail
-        assertion_headers_no_rtti_fail
     APPEND PROPERTY LABELS "public-api;headers")
+if(_gentest_assertion_headers_no_rtti)
+    gentest_add_check_death(
+        NAME assertion_headers_no_rtti_fail
+        PROG gentest_assertion_headers_no_rtti_tests
+        ARGS --filter=no_rtti/failing/* --no-color
+        REQUIRED_SUBSTRINGS
+            "no_rtti.cpp:3001"
+            "but caught std::exception: expect mismatch"
+            "no_rtti.cpp:3002"
+            "but caught std::exception: assert mismatch")
+    set_property(TEST assertion_headers_no_rtti_fail APPEND PROPERTY LABELS "public-api;headers")
+endif()
+unset(_gentest_assertion_headers_no_rtti)
 
 # gentest/record_cbor.h must compile with exceptions disabled. The optional
 # cbor_tags dependency is replaced by a stand-in encoder header here; the real
@@ -261,12 +275,13 @@ target_compile_features(gentest_assertion_headers_record_cbor_noexceptions PRIVA
 target_include_directories(gentest_assertion_headers_record_cbor_noexceptions BEFORE PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/assertion_headers/stubs)
 target_link_libraries(gentest_assertion_headers_record_cbor_noexceptions PRIVATE gentest::gentest)
-if(CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-    target_compile_options(gentest_assertion_headers_record_cbor_noexceptions PRIVATE /EHs-c-)
-    target_compile_definitions(gentest_assertion_headers_record_cbor_noexceptions PRIVATE _HAS_EXCEPTIONS=0)
-else()
-    target_compile_options(gentest_assertion_headers_record_cbor_noexceptions PRIVATE -fno-exceptions)
-endif()
+# _HAS_EXCEPTIONS=0 keeps the Microsoft standard library usable for every
+# frontend, including clang++ targeting it with -fno-exceptions.
+target_compile_options(gentest_assertion_headers_record_cbor_noexceptions
+    PRIVATE
+        $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:/EHs-c->
+        $<$<NOT:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:-fno-exceptions>)
+target_compile_definitions(gentest_assertion_headers_record_cbor_noexceptions PRIVATE _HAS_EXCEPTIONS=0)
 add_dependencies(gentest_test_suites gentest_assertion_headers_record_cbor_noexceptions)
 add_test(NAME assertion_headers_record_cbor_noexceptions COMMAND gentest_assertion_headers_record_cbor_noexceptions)
 set_property(TEST assertion_headers_record_cbor_noexceptions APPEND PROPERTY LABELS "public-api;headers;reporting")

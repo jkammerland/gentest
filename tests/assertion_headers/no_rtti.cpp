@@ -1,6 +1,6 @@
 // Regression: EXPECT_THROW/ASSERT_THROW with a std::exception-derived expected
 // type must compile and match with RTTI disabled (this TU is built with
-// -fno-rtti / /GR-).
+// -fno-rtti; not built against the Microsoft standard library).
 #include "gentest/runner.h"
 
 #include <stdexcept>
