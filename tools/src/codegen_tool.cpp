@@ -3577,35 +3577,58 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
     return adjusted;
 }
 
-std::filesystem::path resolve_codegen_module_cache_dir(const CollectorOptions &options, std::string_view compiler_path = {},
-                                                       std::string_view resource_dir = {}, std::string_view sysroot = {}) {
-    std::filesystem::path base_dir;
-    std::string           cache_key;
-    if (!options.tu_output_dir.empty()) {
-        base_dir  = options.tu_output_dir;
-        cache_key = options.tu_output_dir.generic_string();
-    } else {
-        base_dir  = std::filesystem::current_path();
-        cache_key = base_dir.generic_string();
+// The precompiled modules of one run. They are rebuilt on every run and only passed to
+// this process's own parses, so each run creates a fresh directory and removes it when
+// done. Parallel runs from one directory (two targets' mock-inspection steps, say) then
+// never share PCM files, and renamed modules or a changed compiler leave nothing behind.
+// GENTEST_CODEGEN_KEEP_MODULE_CACHE=1 keeps the directory for inspection.
+class ModuleScratchDirectory {
+  public:
+    ModuleScratchDirectory() = default;
+    ~ModuleScratchDirectory() {
+        if (!path_.empty() && !keep_) {
+            std::error_code ec;
+            std::filesystem::remove_all(path_, ec);
+        }
     }
-    if (base_dir.empty()) {
-        base_dir  = std::filesystem::current_path();
-        cache_key = base_dir.generic_string();
+    ModuleScratchDirectory(const ModuleScratchDirectory &)            = delete;
+    ModuleScratchDirectory &operator=(const ModuleScratchDirectory &) = delete;
+    ModuleScratchDirectory(ModuleScratchDirectory &&)                 = delete;
+    ModuleScratchDirectory &operator=(ModuleScratchDirectory &&)      = delete;
+
+    // Creates the directory under the run's output directory (the working directory
+    // when there is none) on first use; returns an empty path when that fails.
+    const std::filesystem::path &get(const CollectorOptions &options) {
+        if (!path_.empty() || failed_) {
+            return path_;
+        }
+        std::error_code             ec;
+        const std::filesystem::path base =
+            std::filesystem::absolute(options.tu_output_dir.empty() ? std::filesystem::current_path() : options.tu_output_dir, ec);
+        if (!ec) {
+            std::filesystem::create_directories(base, ec);
+        }
+        llvm::SmallString<256> created;
+        if (!ec) {
+            ec = llvm::sys::fs::createUniqueDirectory((base / ".gentest_codegen_modules").string(), created);
+        }
+        if (ec) {
+            gentest::codegen::log_err("gentest_codegen: failed to create a module cache directory under '{}': {}\n", base.string(),
+                                      ec.message());
+            failed_ = true;
+            return path_;
+        }
+        path_                 = std::filesystem::path{std::string(created.str())};
+        const auto keep_value = get_env_value("GENTEST_CODEGEN_KEEP_MODULE_CACHE");
+        keep_                 = keep_value.has_value() && *keep_value != "0";
+        return path_;
     }
-    if (!compiler_path.empty()) {
-        cache_key += "|compiler=";
-        cache_key += compiler_path;
-    }
-    if (!resource_dir.empty()) {
-        cache_key += "|resource-dir=";
-        cache_key += resource_dir;
-    }
-    if (!sysroot.empty()) {
-        cache_key += "|sysroot=";
-        cache_key += sysroot;
-    }
-    return base_dir / (".gentest_codegen_modules_" + stable_hash_hex(cache_key));
-}
+
+  private:
+    std::filesystem::path path_;
+    bool                  keep_   = false;
+    bool                  failed_ = false;
+};
 
 clang::tooling::CommandLineArguments build_module_precompile_command(const clang::tooling::CommandLineArguments &adjusted_command_line,
                                                                      std::string_view source_file, std::string_view working_directory,
@@ -5575,9 +5598,12 @@ int run_codegen_tool(int argc, const char **argv) {
         return 1;
     }
 
+    ModuleScratchDirectory module_scratch;
     if (!named_module_sources.empty() || has_any_named_module_imports) {
-        const std::filesystem::path module_cache_dir =
-            resolve_codegen_module_cache_dir(options, default_compiler_path, default_resource_dir, default_sysroot);
+        const std::filesystem::path module_cache_dir = module_scratch.get(options);
+        if (module_cache_dir.empty()) {
+            return 1;
+        }
         for (auto &module_source : named_module_sources) {
             module_source.pcm_path = module_cache_dir / fmt::format("m_{:04d}_{}.pcm", static_cast<unsigned>(module_source.source_index),
                                                                     stable_hash_hex(module_source.module_name));

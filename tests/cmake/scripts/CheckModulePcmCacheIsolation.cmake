@@ -158,6 +158,7 @@ function(_gentest_run_codegen_fixture output_stem)
 
   gentest_check_run_or_fail(
     COMMAND
+      "${CMAKE_COMMAND}" -E env GENTEST_CODEGEN_KEEP_MODULE_CACHE=1
       "${_codegen_exe}"
       --tu-out-dir "${_tu_output_dir}"
       ${_tu_output_args}
@@ -202,7 +203,7 @@ if(EXISTS "${_generated_dir}/.gentest_codegen_modules")
   message(FATAL_ERROR "Expected hashed per-target module cache directories, but found legacy shared cache directory '${_generated_dir}/.gentest_codegen_modules'")
 endif()
 
-file(GLOB _module_cache_dirs LIST_DIRECTORIES TRUE "${_generated_dir}/*/.gentest_codegen_modules_*")
+file(GLOB _module_cache_dirs LIST_DIRECTORIES TRUE "${_generated_dir}/*/.gentest_codegen_modules-*")
 list(SORT _module_cache_dirs)
 list(LENGTH _module_cache_dirs _module_cache_dir_count)
 _gentest_expect_equal("${_module_cache_dir_count}" "2" "module cache directory count")
@@ -230,5 +231,52 @@ list(LENGTH _pcm_basenames _pcm_basename_count)
 list(LENGTH _pcm_basename_unique _pcm_basename_unique_count)
 _gentest_expect_equal("${_pcm_basename_count}" "2" "total PCM basename count")
 _gentest_expect_equal("${_pcm_basename_unique_count}" "2" "unique PCM basename count")
+
+# The mock-inspection step has no --tu-out-dir, so it keeps its PCMs under the working
+# directory, which every target of one CMake directory shares. Two targets naming the
+# same module at the same source index run that step in parallel; each run needs its
+# own cache, and a run that is not asked to keep it leaves nothing behind.
+function(_gentest_run_inspect_fixture working_dir manifest_stem)
+  gentest_check_run_or_fail(
+    COMMAND
+      "${CMAKE_COMMAND}" -E env ${ARGN}
+      "${_codegen_exe}"
+      inspect-mocks
+      --mock-manifest-output "${_generated_dir}/${manifest_stem}.mock_manifest.json"
+      --compdb "${_build_dir}"
+      --clang-scan-deps "${_clang_scan_deps}"
+      --host-clang "${_clangxx}"
+      --source-root "${_src_dir}"
+      "${_src_dir}/alpha_dot_provider.cppm"
+      "${_src_dir}/alpha_dot_consumer.cppm"
+      --
+      -std=c++20
+      -x
+      c++-module
+      -DGENTEST_CODEGEN=1
+    WORKING_DIRECTORY "${working_dir}"
+    STRIP_TRAILING_WHITESPACE)
+endfunction()
+
+set(_inspect_dir "${_work_dir}/inspect")
+file(MAKE_DIRECTORY "${_inspect_dir}")
+message(STATUS "Run the mock-inspection step for two targets from one working directory...")
+_gentest_run_inspect_fixture("${_inspect_dir}" "inspect_first" GENTEST_CODEGEN_KEEP_MODULE_CACHE=1)
+_gentest_run_inspect_fixture("${_inspect_dir}" "inspect_second" GENTEST_CODEGEN_KEEP_MODULE_CACHE=1)
+file(GLOB _inspect_cache_dirs LIST_DIRECTORIES TRUE "${_inspect_dir}/.gentest_codegen_modules*")
+list(LENGTH _inspect_cache_dirs _inspect_cache_dir_count)
+_gentest_expect_equal("${_inspect_cache_dir_count}" "2" "mock-inspection module cache directory count")
+foreach(_inspect_cache_dir IN LISTS _inspect_cache_dirs)
+  file(GLOB _inspect_pcm_files LIST_DIRECTORIES FALSE "${_inspect_cache_dir}/m_*.pcm")
+  list(LENGTH _inspect_pcm_files _inspect_pcm_file_count)
+  _gentest_expect_equal("${_inspect_pcm_file_count}" "1" "local PCM file count in '${_inspect_cache_dir}'")
+endforeach()
+
+set(_cleanup_dir "${_work_dir}/inspect_cleanup")
+file(MAKE_DIRECTORY "${_cleanup_dir}")
+_gentest_run_inspect_fixture("${_cleanup_dir}" "inspect_cleanup")
+file(GLOB _leftover_cache_dirs LIST_DIRECTORIES TRUE "${_cleanup_dir}/.gentest_codegen_modules*")
+list(LENGTH _leftover_cache_dirs _leftover_cache_dir_count)
+_gentest_expect_equal("${_leftover_cache_dir_count}" "0" "module cache directories left after a run")
 
 message(STATUS "Shared-build-tree PCM cache isolation regression passed")

@@ -134,6 +134,7 @@ if(_scan_deps)
     COMMAND
       "${CMAKE_COMMAND}" -E env
       "GENTEST_CODEGEN_LOG_SCAN_DEPS=1"
+      "GENTEST_CODEGEN_KEEP_MODULE_CACHE=1"
       "${PROG}"
       --compdb "${_work_dir}"
       --clang-scan-deps "${_scan_deps}"
@@ -150,7 +151,7 @@ if(_scan_deps)
       "Expected gentest_codegen to report actual clang-scan-deps usage. Output:\n${_real_output}")
   endif()
 
-  file(GLOB _provider_pcm_candidates "${_generated_real_dir}/.gentest_codegen_modules_*/ext_*.pcm")
+  file(GLOB _provider_pcm_candidates "${_generated_real_dir}/.gentest_codegen_modules-*/ext_*.pcm")
   if(NOT _provider_pcm_candidates)
     message(FATAL_ERROR
       "Expected gentest_codegen to precompile the externally discovered macro-guarded provider module")
