@@ -9,6 +9,7 @@
 - Add `FILE_SET gentest_explicit_mock_defs DESTINATION include` when installing `gentest_add_mocks()` targets.
 - Review nice-mode mocks that relied on ignored extra calls, and shared fixtures expected to set up when unused.
 - Drop `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature; Allure output no longer needs them.
+- Empty `--allure-dir` before a run whose report should not include earlier results; runs no longer remove them.
 
 ### Breaking changes
 
@@ -33,6 +34,7 @@
 - Numeric `range` / `linspace` bounds must be numeric literals; a mocked method named `mock` and template tests without a full `template(...)` set are rejected.
 - `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature are removed; `--allure-dir` always writes results.
 - Allure results drop the non-standard `time` field; use `start` and `stop`.
+- Allure file names start with a per-run token, and a run no longer removes results that earlier runs left in `--allure-dir`.
 
 ### Added
 
@@ -57,6 +59,8 @@
 - `RunConfiguration::suspendProgressInterval` limits framework progress records per subject (1 ms default).
 - `gentest_add_mocks(... DEPENDS ...)` is documented for ordering mock codegen after generated inputs.
 - Allure results carry `uuid`, `historyId`, `fullName`, `stage`, `start` / `stop`, and framework, language, and tag labels, so reports show durations, timelines, tags, and history.
+- Any number of executables, shards, or per-case CTest runs can share one `--allure-dir`.
+- Allure results list every failure in `statusDetails.trace` and carry `requirement` labels.
 
 ### Changed
 
@@ -70,12 +74,13 @@
 - Full CI runs the QEMU and libassert test lanes in parallel (#300).
 - Native mock calls dispatch about twice as fast.
 - JUnit `time` is written as a fixed-point decimal, independent of locale.
-- Runs that fail before executing any case replace a stale JUnit report, and stale gentest result files are removed from `--allure-dir`.
+- Runs that fail before executing any case replace a stale JUnit report.
 - Mock codegen is ordered after linked library targets and after the `DEFS` files.
 - `gentest_attach_codegen()` exports compile commands for its target without `CMAKE_EXPORT_COMPILE_COMMANDS`.
 - The release workflow checks for a dated changelog heading and packages once before pushing the tag.
 - The JSON encoder shared by every report is about ten times faster on ASCII text and three times faster on UTF-8.
 - Allure writer tests run in every CI lane; `GENTEST_ENABLE_ALLURE_TESTS` defaults to `ON`.
+- Codegen precompiles named modules into a fresh directory per run and removes it after; `GENTEST_CODEGEN_KEEP_MODULE_CACHE=1` keeps it.
 
 ### Fixed
 
@@ -123,6 +128,8 @@
 - Installs honour `CMAKE_INSTALL_DATADIR`, find `gentest_codegen` in their own prefix, and do not export the Homebrew libc++ path.
 - Bazel `gentest_attach_codegen_textual(main = ...)` links the runtime; Meson passes the fmt fallback include to codegen.
 - The clang-tidy gate, `ctest -R` steps, and negative codegen checks fail when they check nothing.
+- Mock inspection of two targets in one directory no longer shares precompiled modules, which failed parallel builds intermittently.
+- Every codegen step uses the run's own module classification of a source, so macro-selected module declarations (Clang 22 and older) build.
 
 ## 1.3.0 - 2026-10-18
 
