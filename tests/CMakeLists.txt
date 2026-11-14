@@ -2889,6 +2889,16 @@ gentest_add_check_exit_code(
     PROG $<TARGET_FILE:gentest_regression_measured_report_coverage>
     EXPECT_RC 0)
 
+# The JSON encoder shared by every report writer, against a byte-by-byte reference.
+gentest_add_manual_regression(
+    TARGET gentest_regression_json_encoding
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/json_encoding.cpp)
+gentest_add_check_exit_code(
+    NAME regression_json_encoding
+    PROG $<TARGET_FILE:gentest_regression_json_encoding>
+    EXPECT_RC 0)
+set_tests_properties(regression_json_encoding PROPERTIES LABELS "reporting")
+
 gentest_add_manual_regression(
     TARGET gentest_regression_runner_selection_reports
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/regressions/runner_selection_reports.cpp)
