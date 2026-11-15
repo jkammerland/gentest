@@ -55,6 +55,12 @@ int main() {
     t.expect(quote_for_type(TypeKind::String, "row\rnext", "std::string") == R"("row\rnext")",
              "plain string quoting escapes carriage return");
     t.expect(quote_for_type(TypeKind::String, "wide", "std::wstring_view") == "L\"wide\"", "wstring prefix selection");
+    t.expect(quote_for_type(TypeKind::String, R"("a\x41")", "std::string_view") == R"("a\x41")", "escapes in a literal are kept verbatim");
+    t.expect(quote_for_type(TypeKind::String, R"( "wide\n" )", "std::wstring") == R"(L"wide\n")", "plain literal gains the wide prefix");
+    t.expect(quote_for_type(TypeKind::String, R"y(R"x(raw "text")x")y", "std::string") == R"y(R"x(raw "text")x")y",
+             "raw string literal is preserved");
+    t.expect(quote_for_type(TypeKind::String, R"y(u8R"(raw)")y", "std::u8string") == R"y(u8R"(raw)")y",
+             "prefixed raw string literal is preserved");
     t.expect(quote_for_type(TypeKind::String, "utf8", "std::u8string") == "u8\"utf8\"", "u8string prefix selection");
     t.expect(quote_for_type(TypeKind::String, "utf16", "const char16_t*") == "u\"utf16\"", "char16_t pointer prefix selection");
     t.expect(quote_for_type(TypeKind::String, "utf16-east", "char16_t const*") == "u\"utf16-east\"",

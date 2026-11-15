@@ -55,6 +55,51 @@ inline std::string ltrim_ascii_copy(std::string_view text) { return std::string{
 
 inline std::string rtrim_ascii_copy(std::string_view text) { return std::string{rtrim_ascii_view(text)}; }
 
+// Returns the length of the string, character or raw-string literal that
+// starts at line[index], or 0 when no literal starts there. A literal that is
+// not closed on this line extends to the end of the line.
+inline std::size_t scan_literal_length(std::string_view line, std::size_t index) {
+    const auto is_word = [](char ch) { return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_'; };
+    const char ch      = line[index];
+    if (ch == 'R' && index + 1 < line.size() && line[index + 1] == '"') {
+        // R"delim( ... )delim"; an encoding prefix before R was already copied.
+        const std::size_t open = line.find('(', index + 2);
+        if (open == std::string_view::npos || open - (index + 2) > 16) {
+            return 0;
+        }
+        std::string terminator{")"};
+        terminator.append(line.substr(index + 2, open - (index + 2)));
+        terminator.push_back('"');
+        const std::size_t close = line.find(terminator, open + 1);
+        return close == std::string_view::npos ? line.size() - index : close + terminator.size() - index;
+    }
+    if (ch != '"' && ch != '\'') {
+        return 0;
+    }
+    if (ch == '\'' && index > 0 && index + 1 < line.size() && is_word(line[index - 1]) && is_word(line[index + 1])) {
+        // A digit separator (1'000), unless the word before it is an encoding
+        // prefix of a character literal (u8'x', L'x').
+        std::size_t word_begin = index;
+        while (word_begin > 0 && is_word(line[word_begin - 1])) {
+            --word_begin;
+        }
+        const std::string_view word = line.substr(word_begin, index - word_begin);
+        if (word != "u8" && word != "u" && word != "U" && word != "L") {
+            return 0;
+        }
+    }
+    for (std::size_t i = index + 1; i < line.size(); ++i) {
+        if (line[i] == '\\') {
+            ++i;
+            continue;
+        }
+        if (line[i] == ch) {
+            return i + 1 - index;
+        }
+    }
+    return line.size() - index;
+}
+
 inline std::string strip_comments_for_line_scan(std::string_view line, bool &in_block_comment) {
     std::string out;
     out.reserve(line.size());
@@ -74,6 +119,12 @@ inline std::string strip_comments_for_line_scan(std::string_view line, bool &in_
             in_block_comment = false;
             append_gap();
             i = end + 2;
+            continue;
+        }
+        // Comment markers inside literals are text: "src/*.cpp", "http://x".
+        if (const std::size_t literal = scan_literal_length(line, i); literal != 0) {
+            out.append(line.substr(i, literal));
+            i += literal;
             continue;
         }
         if (i + 1 < line.size() && line[i] == '/' && line[i + 1] == '*') {

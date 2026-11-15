@@ -4191,6 +4191,19 @@ gentest_add_check_inventory(
     EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/codegen_member_operator_template_keyword.list)
 set_property(TEST gentest_codegen_member_operator_template_keyword_builds APPEND PROPERTY LABELS "codegen")
 
+# Constructs from the discovery/render review: reference returns of
+# non-copyable and abstract types, a global-namespace fixture type, fixture
+# parameters typed by bound template parameters, member templates with
+# qualified template arguments, escaped string parameters and literal axes.
+_gentest_add_codegen_regression(gentest_cgr_discovery_render_regressions discovery_render_regressions
+    TESTS
+    SOURCES cases.cpp cases.hpp)
+gentest_add_check_inventory(
+    NAME gentest_codegen_discovery_render_regressions_builds
+    PROG gentest_cgr_discovery_render_regressions
+    EXPECTED_LIST_FILE ${CMAKE_CURRENT_SOURCE_DIR}/expected/codegen_discovery_render_regressions.list)
+set_property(TEST gentest_codegen_discovery_render_regressions_builds APPEND PROPERTY LABELS "codegen")
+
 gentest_add_cmake_script_test(
     NAME gentest_codegen_check_cmake_fixture_build_build_config
     NO_EMULATOR
@@ -4938,6 +4951,32 @@ foreach(_gentest_driver_mode IN ITEMS g++ cl)
 endforeach()
 unset(_gentest_driver_suffix)
 unset(_gentest_driver_mode)
+
+# Direct-invocation regressions for attribute discovery, axis expansion and
+# registration rendering; one scenario per defect.
+foreach(_gentest_cdr_scenario IN ITEMS
+        quiet_clang_parse_error
+        shell_operator_arguments
+        attribute_text_scan
+        global_fixture_type
+        numeric_axes
+        string_literal_parameters
+        template_fixture_bindings
+        display_name_uniqueness
+        member_template_arguments
+        discarded_results
+        additive_include_boundary
+        placeholder_like_text
+        fallback_header_extensions)
+    _gentest_add_cmake_helper_test(
+        gentest_codegen_discovery_regression_${_gentest_cdr_scenario}
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckCodegenDiscoveryRegressions.cmake
+        cmake
+        -DSCENARIO=${_gentest_cdr_scenario})
+    set_property(TEST gentest_codegen_discovery_regression_${_gentest_cdr_scenario} APPEND PROPERTY LABELS "codegen")
+endforeach()
+unset(_gentest_cdr_scenario)
 
 gentest_add_fixture_prefix_test(
     CLANG
