@@ -3,6 +3,7 @@
 #include "gentest/detail/runtime_export.h"
 #include "gentest/notification.h"
 
+#include <chrono>
 #include <memory>
 #include <source_location>
 #include <string_view>
@@ -38,12 +39,18 @@ class GENTEST_RUNTIME_API FrameworkEventVisitor {
     virtual void onFixtureFinish(const FrameworkEvent &event) noexcept;
     virtual void onPhaseStart(const FrameworkEvent &event) noexcept;
     virtual void onPhaseFinish(const FrameworkEvent &event) noexcept;
+    // Publishes progress, rate-limited by RunConfiguration::suspendProgressInterval.
     virtual void onSuspend(const FrameworkEvent &event) noexcept;
 };
 
 struct RunConfiguration {
     Notifier                               notifier{};
     std::shared_ptr<FrameworkEventVisitor> frameworkEvents{};
+    // FrameworkEventVisitor::onSuspend publishes at most one progress record per
+    // subject within this interval, so a polling loop cannot flood a transport.
+    // Keep it far below the watchdog's inactivity timeout. Zero publishes every
+    // suspension.
+    std::chrono::nanoseconds suspendProgressInterval = std::chrono::milliseconds(1);
 };
 
 namespace detail {

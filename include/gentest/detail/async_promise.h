@@ -468,6 +468,7 @@ template <typename T> class future {
 
     [[nodiscard]] auto wait(std::stop_token stop, std::string reason = "async promise was not completed",
                             const std::source_location &loc = std::source_location::current()) -> awaitable {
+        detail::require_async_explicit_stop_support<T>();
         ensure_state();
         return awaitable{state_, std::move(reason), loc, stop};
     }
@@ -663,8 +664,11 @@ template <> class future<void> {
         return awaitable{state_, std::move(reason), loc};
     }
 
-    [[nodiscard]] auto wait(std::stop_token stop, std::string reason = "async promise was not completed",
+    // A template so exception-disabled builds reject it only when it is called.
+    template <std::same_as<std::stop_token> Token>
+    [[nodiscard]] auto wait(Token stop, std::string reason = "async promise was not completed",
                             const std::source_location &loc = std::source_location::current()) -> awaitable {
+        detail::require_async_explicit_stop_support<Token>();
         ensure_state();
         return awaitable{state_, std::move(reason), loc, stop};
     }

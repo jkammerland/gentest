@@ -156,6 +156,8 @@ enum class WatchdogResult { accepted, ignored, failed };
 // custom records cannot renew a deadline. An allowance sets a temporary deadline
 // to receipt time plus its bounded duration; progress restores the normal timeout.
 // Deadline equality expires before any record at that instant is considered.
+// A subject_started from a newer generation of a known producer ID retires every
+// subject still armed for the older generation; older-generation records are ignored.
 class WatchdogModel {
   public:
     using Clock     = std::chrono::steady_clock;

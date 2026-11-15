@@ -2,6 +2,7 @@
 #include "gentest/detail/runtime_context.h"
 #include "gentest/runner.h"
 
+#include <algorithm>
 #include <chrono>
 #include <coroutine>
 #include <cstdio>
@@ -10,9 +11,11 @@
 #include <memory>
 #include <optional>
 #include <ratio>
+#include <source_location>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -51,6 +54,10 @@ class Scheduler final : public gentest::detail::AsyncScheduler {
         return core_.post_completion(std::move(completion));
     }
     void block(std::coroutine_handle<> handle, std::string reason) override { core_.block(handle, std::move(reason)); }
+    void block_at(std::coroutine_handle<> handle, std::string reason, const std::source_location &loc) override {
+        blocked_at.push_back(loc);
+        core_.block(handle, std::move(reason), loc);
+    }
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     void attach_child(std::coroutine_handle<> child, std::coroutine_handle<> parent) override { core_.attach_child(child, parent); }
     void attach_child_frame(const gentest::detail::AsyncFramePtr &child, std::coroutine_handle<> parent) override {
@@ -86,7 +93,9 @@ class Scheduler final : public gentest::detail::AsyncScheduler {
         while (step()) {}
     }
     void cancel_all() { core_.cancel_all(); }
-    void advance(std::chrono::milliseconds milliseconds) {
+
+    std::vector<std::source_location> blocked_at;
+    void                              advance(std::chrono::milliseconds milliseconds) {
         ManualClock::milliseconds = milliseconds.count();
         for (const auto &[deadline, token] : timers_) {
             if (deadline <= ManualClock::now()) {
@@ -212,6 +221,49 @@ void emptyCompositionIsImmediatelyReady() {
     auto result = empty.await_resume();
     static_assert(std::is_same_v<decltype(result), std::tuple<>>);
     require(result == std::tuple<>{}, "empty when_all must return an empty tuple");
+}
+
+// when_all/when_any report the awaiting line, like wait_for, instead of a
+// location inside the gentest header that implements them.
+void compositionsCaptureCallerLocation() {
+    std::source_location expected_all;
+    std::source_location expected_any;
+    std::source_location expected_timed;
+    auto                 operation = [&]() -> gentest::awaitable<> {
+        // clang-format off
+        expected_all = std::source_location::current(); (void)co_await gentest::async::when_all(gentest::async::yield(), voidValue());
+        expected_any = std::source_location::current(); (void)co_await gentest::async::when_any(gentest::async::yield(), gentest::async::yield());
+        expected_timed = std::source_location::current(); (void)co_await gentest::async::wait_for(gentest::async::yield(), std::chrono::hours(1));
+        // clang-format on
+
+        // A composition passed as the only input stays an input.
+        auto nested = co_await gentest::async::when_all(gentest::async::when_all(voidValue(), voidValue()));
+        static_assert(std::is_same_v<decltype(nested), std::tuple<std::tuple<std::monostate, std::monostate>>>);
+        auto inner  = gentest::async::when_all(voidValue());
+        auto joined = co_await gentest::async::when_all(inner);
+        static_assert(std::is_same_v<decltype(joined), std::tuple<std::tuple<std::monostate>>>);
+        auto raced = co_await gentest::async::when_any(gentest::async::when_any(voidValue()));
+        static_assert(std::is_same_v<decltype(raced), std::variant<std::variant<std::monostate>>>);
+    };
+    auto      task = operation();
+    Scheduler scheduler;
+    scheduler.start(task);
+    scheduler.pump();
+    requireDone(task);
+
+    const auto reported = [&](const std::source_location &expected) {
+        return std::ranges::any_of(scheduler.blocked_at, [&](const std::source_location &actual) {
+            return actual.line() == expected.line() && std::string_view(actual.file_name()) == expected.file_name();
+        });
+    };
+    require(std::string_view(expected_all.file_name()).ends_with("async_composition.cpp"), "probe location is not this file");
+    require(reported(expected_timed), "wait_for lost its caller location");
+    require(reported(expected_all), "when_all reported a location other than its caller");
+    require(reported(expected_any), "when_any reported a location other than its caller");
+    for (const auto &location : scheduler.blocked_at) {
+        require(!std::string_view(location.file_name()).ends_with("async_composition.h"),
+                "a composition reported a location inside the gentest header");
+    }
 }
 
 void readyFormsAndOwningResults() {
@@ -882,6 +934,7 @@ int main() {
         {.name = "pending timer allows sibling yield", .run = &pendingTimerDoesNotBlockYieldingSibling},
         {.name = "empty composition is immediately ready", .run = &emptyCompositionIsImmediatelyReady},
         {.name = "ready forms and owning results", .run = &readyFormsAndOwningResults},
+        {.name = "compositions capture caller location", .run = &compositionsCaptureCallerLocation},
         {.name = "named composition releases inputs", .run = &namedCompositionReleasesInputs},
         {.name = "ordinary suspension forms and ordered join", .run = &suspensionFormsAndOrderedJoin},
         {.name = "group owner release during result extraction", .run = &releasingGroupOwnerDuringExtraction},

@@ -48,7 +48,11 @@ void handleRequest() {
 
 `notifierFromEnvironment()` attaches once to inherited Linux descriptors. With
 neither notification environment variable present, it returns a disabled
-notifier. Malformed or incomplete configuration throws. Retain and copy the
+notifier. Malformed or incomplete configuration throws. The descriptor numbers
+are validated before adoption: if they do not name an `AF_UNIX` `SOCK_SEQPACKET`
+socket and an eventfd, for example because a wrapper closed the inherited
+descriptors and the numbers were reused, the call throws and leaves those
+descriptors open and unmodified. Retain and copy the
 returned handle: successful attachment consumes the descriptors, marks them
 close-on-exec, and removes the environment variables. Do not reuse a live Linux
 sink after `fork`; attach fresh endpoints in the new process.
@@ -65,6 +69,13 @@ Logging is separate: `gentest::log`, stdout, and stderr do not renew progress.
 Progress from another active subject cannot extend this subject's deadline.
 Delayed or duplicate sequence numbers and older producer generations cannot
 renew current work. Use a fresh subject ID for each standalone work occurrence.
+
+A producer generation identifies one incarnation of a producer ID. When
+`WatchdogModel` accepts a `start()` from a newer generation, it retires every
+subject the older generation left unfinished: that incarnation can no longer
+report, so its subjects neither expire nor fail the new generation. Only a start
+record advances the generation. The Linux `WatchdogMonitor` supervises exactly
+one generation and treats any other identity as `invalid_record`.
 
 `NotifyResult::accepted` means admitted locally, not acknowledged by the monitor.
 A default-constructed notifier returns `disabled` without creating threads,
@@ -158,7 +169,19 @@ to the configured watchdog policy.
 
 `FrameworkEventVisitor` receives synchronous source hooks. Its default
 `onSuspend` publishes progress on the event's context-bound notifier. Default
-fixture and measurement phase hooks also publish progress. Case subject
+fixture and measurement phase hooks also publish progress.
+
+The hook runs at every suspension boundary, but a polling loop such as
+`while (!ready) co_await yield();` reaches one on each iteration. The default
+`onSuspend` therefore publishes at most one progress record per subject within
+`RunConfiguration::suspendProgressInterval` (1 ms by default). A subject that
+keeps suspending still renews its deadline at least that often, and a subject
+that stops suspending still expires; a renewal can be up to one interval older
+than the latest suspension, so keep the interval far below the watchdog's
+inactivity timeout. Set it to zero to publish every suspension. A custom
+visitor gets the same limit by delegating to `FrameworkEventVisitor::onSuspend`;
+one that calls the notifier itself on every event is responsible for its own
+rate. Case subject
 start/finish records remain runner-owned even when a custom visitor filters
 source hooks.
 
@@ -253,7 +276,10 @@ observer itself failed.
 `disarm()` stops inactivity enforcement while retaining transport drainage for
 owner-directed shutdown. After the owner has collected its process, `finish()`
 requests a final receive drain. `close()` completes enforcement and then drains
-callbacks. Process exit alone does not imply success: inspect both the process
+callbacks. Closing or destroying a started monitor without a preceding
+`finish()` is a stop request: the registered process owner is asked to stop and
+is killed through its pidfds if it outlives `shutdownGrace`. Call `finish()`
+first whenever the supervised process must survive the monitor. Process exit alone does not imply success: inspect both the process
 status and the monitor outcome.
 
 ## Bounded transport and failures
@@ -275,7 +301,17 @@ allows a sink to latch validation failures that occur before `submit`.
 The Linux producer queue and observer queue default to 256 records each; the
 watchdog defaults to at most 256 tracked subjects. Size these independently for
 the expected workload. Overflow does not switch to unbounded buffering or drop
-liveness records while claiming success. `LinuxNotificationSink::close(timeout)`
+liveness records while claiming success.
+
+Repeated progress is the one case the Linux producer coalesces. While a
+progress record is still waiting in the queue, another `progress()` for the same
+subject with the same label is accepted without taking a second slot. Nothing is
+lost: the monitor renews a deadline at receipt time, and the queued record is
+received after the coalesced call. A different label, another subject, or any
+start, finish, or allowance record in between always queues separately, and
+ordinary `notify()` records are never coalesced. Repeating the same progress
+call therefore cannot overflow the queue by itself; many distinct pending
+records still can. `LinuxNotificationSink::close(timeout)`
 performs a bounded drain; keep the receiver running while it drains.
 
 ## Standalone Linux example
