@@ -65,6 +65,9 @@ const std::string &report_token(RunAccumulator &acc);
 struct ReportConfig {
     const char *junit_path = nullptr;
     const char *allure_dir = nullptr;
+    // The program's argv[0], when known. Allure results are named after it, so tests of the
+    // same name in different programs stay apart in a shared report.
+    const char *executable = nullptr;
 };
 
 void prepare_record_reports(RunAccumulator &acc, const gentest::detail::RecordingSession &session, const char *records_dir,

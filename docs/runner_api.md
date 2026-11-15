@@ -78,10 +78,15 @@ seconds in fixed-point decimal notation and, like the counts, do not depend on t
 is replaced in both formats (`?` in JUnit, U+FFFD in Allure).
 
 `--allure-dir=<dir>` writes one `<token>-<n>-result.json` per case and per runner error, each after the attachments it
-references (`<token>-<n>-<k>-attachment.<ext>`, plus `<token>-record-*` and `<token>-case-<id>-index.json` for runtime
+references (`<token>-<n>-<name>-attachment.<ext>`, plus `<token>-record-*` and `<token>-case-<id>-index.json` for runtime
 records). The token is a random UUID made once per run, so any number of executables, shards, per-case CTest runs or
 `run_all_tests` calls can share a directory. The runner never removes or rewrites a file it did not write in that run; empty
 the directory first when a report should hold only the current run, as Allure's own adapters expect.
+
+Allure treats results with the same `historyId` as retries of one test. Each result's `fullName` is `<program>:<case>`,
+where the program is the executable's name without directory or extension; its `historyId` is a hash of that, and a
+`parentSuite` label holds the program. Same-named cases of different programs therefore stay separate tests, while reruns of
+one program link into one history.
 
 Manual benchmarks may set source-level execution policy with the
 `Case::benchmark` field:

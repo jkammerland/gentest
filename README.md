@@ -987,7 +987,7 @@ is not supported.
 ./my_tests --github-annotations
 ```
 
-`--allure-dir` writes Allure 2 result files (`uuid`, `historyId`, `fullName`, `start`/`stop`, labels, parameters, and attachments) that the Allure report generator reads directly; no optional library is needed. Every file a run writes there starts with that run's random token, so any number of executables, shards or per-case CTest runs can share one directory; gentest never removes a file from it, so empty the directory before a run whose report should not include earlier results. Blocked cases are reported as JUnit `<error>` / Allure `broken`; see [report outcome mapping](docs/runner_api.md). Measured cases emit richer native artifacts:
+`--allure-dir` writes Allure 2 result files (`uuid`, `historyId`, `fullName`, `start`/`stop`, labels, parameters, and attachments) that the Allure report generator reads directly; no optional library is needed. Results are named after their program: `fullName` is `<program>:<case>` and a `parentSuite` label holds the program, so same-named cases of different programs in one report stay separate tests, while reruns of one program link into one history. Every file a run writes there starts with that run's random token, so any number of executables, shards or per-case CTest runs can share one directory; gentest never removes a file from it, so empty the directory before a run whose report should not include earlier results. Blocked cases are reported as JUnit `<error>` / Allure `broken`; see [report outcome mapping](docs/runner_api.md). Measured cases emit richer native artifacts:
 - bench metrics as TSV plus an SVG summary plot
 - jitter metrics/histogram as TSV plus an SVG histogram plot and sampled raw JSON
 

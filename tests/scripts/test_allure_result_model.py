@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Allure results follow the Allure 2 result model, stay linked across runs, and two runs
-sharing one directory keep every file of both."""
+sharing one directory keep every file of both. Results are named after their program, so
+same-named tests of two programs in one report are not merged into one test."""
 import json
 import re
 import shutil
@@ -60,13 +61,14 @@ def write_run(binary, directory):
             continue
         assert len(now[name]) > 1, name
         result = json.loads(now[name].decode("utf-8"))
-        assert result["fullName"] not in results, (name, result["fullName"])
-        results[result["fullName"]] = result
+        assert result["name"] not in results, (name, result["name"])
+        results[result["name"]] = result
     return results, before, after, set(added)
 
 
 def main():
     binary, root = sys.argv[1], Path(sys.argv[2]).resolve()
+    program = Path(binary).stem
     if root.exists():
         shutil.rmtree(root)
     root.mkdir(parents=True)
@@ -76,6 +78,13 @@ def main():
     directory = root / "shared"
     runs = [write_run(binary, directory) for _ in range(2)]
     assert not runs[0][3] & runs[1][3], "the runs share no file name"
+    # A renamed copy is another program with the same test names, e.g. a second build variant.
+    copy = Path(binary).with_name(f"{program}_variant{Path(binary).suffix}")
+    shutil.copy2(binary, copy)
+    try:
+        variant = write_run(str(copy), directory)
+    finally:
+        copy.unlink()
     expected = {name for name, entry in inventory.items() if "death" not in entry["tags"]}
     uuids = set()
     for results, before, after, added in runs:
@@ -90,6 +99,7 @@ def main():
             assert result["testCaseId"] == result["historyId"], result
             case_ids.add(result["historyId"])
             assert result["name"] == name, result
+            assert result["fullName"] == f"{program}:{name}", result
             assert result["stage"] == "finished", result
             assert result["status"] in STATUSES, result
             if entry["skipped"]:
@@ -100,6 +110,7 @@ def main():
             # Millisecond clocks: allow one tick of slack on each side of the run.
             assert before - 1 <= result["start"] <= result["stop"] <= after + 1, (before, after, result)
             labels = labels_of(result)
+            assert labels["parentSuite"] == [program], result
             assert labels["suite"] == [entry["suite"]], result
             assert labels["framework"] == ["gentest"] and labels["language"] == ["cpp"], result
             assert sorted(labels.get("tag", [])) == sorted(entry["tags"]), (entry["tags"], result)
@@ -113,6 +124,14 @@ def main():
     for name in expected:
         assert first[name]["historyId"] == second[name]["historyId"], ("history is not linked across runs", name)
         assert first[name]["uuid"] != second[name]["uuid"], name
+
+    variant_results = variant[0]
+    assert set(variant_results) == expected, sorted(variant_results)
+    for name in expected:
+        result = variant_results[name]
+        assert result["fullName"] == f"{program}_variant:{name}", result
+        assert labels_of(result)["parentSuite"] == [f"{program}_variant"], result
+        assert result["historyId"] != first[name]["historyId"], ("another program's test is not a retry", name)
 
 
 if __name__ == "__main__":

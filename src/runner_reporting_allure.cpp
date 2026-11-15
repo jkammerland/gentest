@@ -112,15 +112,27 @@ struct AllureAttachmentEntry {
     std::string type;
 };
 
+// How Allure tells results apart. A program's name prefixes the full name and the history
+// key, so same-named tests of different programs sharing a report are not taken for retries
+// of one test, while reruns of the same program still link into one history.
+struct ResultIdentity {
+    std::string_view name;        // shown in the report
+    std::string      full_name;   // <program>:<name>, or the name when the program is unknown
+    std::string      history_key; // what the history and test-case ids are hashed from
+};
+
+std::string qualified(std::string_view program, std::string_view name) {
+    return program.empty() ? std::string(name) : fmt::format("{}:{}", program, name);
+}
+
 // Fields common to every result, in the Allure 2 result model.
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters): the displayed name, its history key and the status.
-void write_result_header(JsonWriter &json, std::string_view name, std::string_view history_key, std::string_view status) {
-    const std::string case_id = stable_id(history_key);
+void write_result_header(JsonWriter &json, const ResultIdentity &identity, std::string_view status) {
+    const std::string case_id = stable_id(identity.history_key);
     json.text_field("uuid", random_uuid());
     json.text_field("historyId", case_id);
     json.text_field("testCaseId", case_id);
-    json.text_field("fullName", name);
-    json.text_field("name", name);
+    json.text_field("fullName", identity.full_name);
+    json.text_field("name", identity.name);
     json.text_field("status", status);
 }
 
@@ -150,6 +162,9 @@ AllureReport::AllureReport(RunAccumulator &acc, const ReportConfig &cfg, bool &r
         return;
     }
     dir_ = cfg.allure_dir;
+    if (cfg.executable != nullptr) {
+        program_ = std::filesystem::path(cfg.executable).stem().string();
+    }
 }
 
 bool AllureReport::write_file(RunAccumulator &acc, std::string_view label, const std::string &name, std::string_view contents) {
@@ -227,7 +242,8 @@ void AllureReport::write_cases(RunAccumulator &acc, bool &report_ok) {
         buffer.clear();
         JsonWriter json(buffer);
         json.begin_object();
-        write_result_header(json, it.name, it.name, status);
+        write_result_header(json, {.name = it.name, .full_name = qualified(program_, it.name), .history_key = qualified(program_, it.name)},
+                            status);
         if (!it.failures.empty() || (it.skipped && !it.skip_reason.empty())) {
             json.key("statusDetails");
             json.begin_object();
@@ -243,6 +259,9 @@ void AllureReport::write_cases(RunAccumulator &acc, bool &report_ok) {
         json.integer_field("stop", stop);
         json.key("labels");
         json.begin_array();
+        if (!program_.empty()) {
+            write_label(json, "parentSuite", program_);
+        }
         write_label(json, "suite", it.suite);
         write_framework_labels(json);
         for (const auto &tag : it.tags) {
@@ -307,7 +326,11 @@ void AllureReport::write_infra_errors(RunAccumulator &acc, bool &report_ok) {
         JsonWriter json(buffer);
         json.begin_object();
         // Keyed by the message: runs sharing a directory number their errors alike.
-        write_result_header(json, fmt::format("gentest/infra_error/{}", infra_idx), "gentest/infra_error:" + message, "failed");
+        const std::string name = fmt::format("gentest/infra_error/{}", infra_idx);
+        write_result_header(
+            json,
+            {.name = name, .full_name = qualified(program_, name), .history_key = qualified(program_, "gentest/infra_error:" + message)},
+            "failed");
         json.key("statusDetails");
         json.begin_object();
         json.text_field("message", message);
@@ -317,6 +340,9 @@ void AllureReport::write_infra_errors(RunAccumulator &acc, bool &report_ok) {
         json.integer_field("stop", written_at);
         json.key("labels");
         json.begin_array();
+        if (!program_.empty()) {
+            write_label(json, "parentSuite", program_);
+        }
         write_label(json, "suite", "gentest/infra");
         write_framework_labels(json);
         json.end_array();

@@ -322,7 +322,7 @@ int fail_before_execution(const CliOptions &opt, const std::string &message, int
     if (opt.mode == Mode::Execute && (opt.junit_path || opt.allure_dir)) {
         RunAccumulator acc;
         record_runner_level_failure(acc, "gentest/selection", message);
-        write_reports(acc, ReportConfig{.junit_path = opt.junit_path, .allure_dir = opt.allure_dir});
+        write_reports(acc, ReportConfig{.junit_path = opt.junit_path, .allure_dir = opt.allure_dir, .executable = opt.executable});
         // The first entry is the message already printed; later ones are report-write failures.
         for (std::size_t i = 1; i < acc.infra_errors.size(); ++i)
             fmt::print(stderr, "{}\n", acc.infra_errors[i]);
@@ -524,6 +524,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
             gentest::runner::write_reports(state.acc, gentest::runner::ReportConfig{
                                                           .junit_path = opt.junit_path,
                                                           .allure_dir = opt.allure_dir,
+                                                          .executable = opt.executable,
                                                       });
         }
     }
@@ -591,7 +592,7 @@ int write_empty_execution_reports(const CliOptions &opt) {
     RunAccumulator                     acc;
     prepare_record_reports(acc, *run.session, opt.records_dir, opt.junit_path, opt.allure_dir);
     if (opt.junit_path || opt.allure_dir)
-        write_reports(acc, ReportConfig{.junit_path = opt.junit_path, .allure_dir = opt.allure_dir});
+        write_reports(acc, ReportConfig{.junit_path = opt.junit_path, .allure_dir = opt.allure_dir, .executable = opt.executable});
     if (opt.github_annotations)
         emit_github_annotations(acc, stderr);
     for (const auto &error : acc.infra_errors)

@@ -27,6 +27,7 @@ class AllureReport {
     bool write_file(RunAccumulator &acc, std::string_view label, const std::string &name, std::string_view contents);
 
     std::string dir_;
+    std::string program_; // The executable's name without directory or extension; may be empty.
     std::size_t next_result_ = 0;
 };
 

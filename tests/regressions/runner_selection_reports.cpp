@@ -367,7 +367,8 @@ int check_allure_report(const std::filesystem::path &directory) {
     acc.infra_errors.push_back("infra-" + bad);
 
     const std::string path = results.string();
-    expect(gentest::runner::write_reports(acc, {.junit_path = nullptr, .allure_dir = path.c_str()}), "the Allure results are written");
+    expect(gentest::runner::write_reports(acc, {.junit_path = nullptr, .allure_dir = path.c_str(), .executable = "bin/report-runner.exe"}),
+           "the Allure results are written");
 
     for (const auto *name : earlier)
         expect(read_file(results / name) == R"({"name":"earlier","status":"passed"})", std::string("earlier file is untouched: ") + name);
@@ -384,6 +385,10 @@ int check_allure_report(const std::filesystem::path &directory) {
     expect(contains(blocked, R"("status":"broken")"), "a blocked case has the failing status 'broken'");
     expect(contains(blocked, R"({"name":"blocked","value":"true"})"), "a blocked case keeps its blocked label");
     expect(contains(blocked, R"("message":"blocked: fixture down")"), "a blocked case keeps its reason");
+    // Named after the program, without directory or extension, so same-named tests of other programs stay apart.
+    expect(contains(blocked, R"("fullName":"report-runner:reports/blocked","name":"reports/blocked")"), "the full name has the program");
+    expect(contains(blocked, R"({"name":"parentSuite","value":"report-runner"})"), "the program is the parent suite");
+    expect(contains(read_file(result_file(4)), R"("fullName":"report-runner:gentest/infra_error/0")"), "infrastructure results too");
     const std::string failure = read_file(result_file(1));
     // The JSON encoder shared by every report spells U+FFFD as the escape \uFFFD.
     expect(contains(failure, R"(failure-bad\uFFFD\uFFFD(bytes)"), "malformed bytes become U+FFFD");
