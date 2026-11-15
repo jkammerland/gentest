@@ -59,6 +59,7 @@
 - `RunConfiguration::suspendProgressInterval` limits framework progress records per subject (1 ms default).
 - `gentest_add_mocks(... DEPENDS ...)` is documented for ordering mock codegen after generated inputs.
 - Allure results carry `uuid`, `historyId`, `fullName`, `stage`, `start` / `stop`, and framework, language, and tag labels, so reports show durations, timelines, tags, and history.
+- Allure results are named after their program (`<program>:<case>`, plus a `parentSuite` label), so same-named cases of different programs stay apart.
 - Any number of executables, shards, or per-case CTest runs can share one `--allure-dir`.
 - Allure results list every failure in `statusDetails.trace` and carry `requirement` labels.
 
@@ -81,6 +82,7 @@
 - The JSON encoder shared by every report is about ten times faster on ASCII text and three times faster on UTF-8.
 - Allure writer tests run in every CI lane; `GENTEST_ENABLE_ALLURE_TESTS` defaults to `ON`.
 - Codegen precompiles named modules into a fresh directory per run and removes it after; `GENTEST_CODEGEN_KEEP_MODULE_CACHE=1` keeps it.
+- Codegen precompiles each external module once per run instead of once per importing source.
 
 ### Fixed
 
@@ -130,6 +132,7 @@
 - The clang-tidy gate, `ctest -R` steps, and negative codegen checks fail when they check nothing.
 - Mock inspection of two targets in one directory no longer shares precompiled modules, which failed parallel builds intermittently.
 - Every codegen step uses the run's own module classification of a source, so macro-selected module declarations (Clang 22 and older) build.
+- Mocking a named-module type defined in a header included in the module's purview fails with a clear error instead of generating no mock.
 
 ## 1.3.0 - 2026-10-18
 
