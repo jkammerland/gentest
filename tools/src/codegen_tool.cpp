@@ -3851,6 +3851,10 @@ bool execute_module_precompile(const clang::tooling::CommandLineArguments &comma
         }
         return state;
     };
+    // clang-cl (cl driver mode, e.g. for an MSVC-style compile database) ignores -o for
+    // --precompile and writes <source stem>.pcm into the working directory instead; the
+    // gentest_codegen_msvc_modmap_external_module and _external_include_module_resolution
+    // tests cover it. Such a file only counts if this compile created or changed it.
     std::vector<AlternatePcmCandidateState> alternate_pcm_candidates;
     const std::string                       source_stem = std::filesystem::path{std::string(source_file)}.stem().string();
     if (!source_stem.empty()) {
