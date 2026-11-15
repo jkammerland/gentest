@@ -285,6 +285,10 @@ void module_functions() {
 }
 ```
 
+These function templates take a callable and invoke it. Include-based code sees statement macros under the same names
+(`EXPECT_NO_THROW(risky())`); there, a lambda-expression argument is rejected at compile time, and the function templates are
+reached with `(EXPECT_NO_THROW)(callable)` or `EXPECT_THROW<E>(callable)`.
+
 For richer checks, use normal C++ plus `gentest::fail(...)`, `gentest::expect_true(...)`, or `gentest::expect(...)`.
 
 ## Using mocks from named modules

@@ -266,11 +266,11 @@ inline void require_ge(auto &&lhs, auto &&rhs, std::string_view message = {},
 
 // Optional: alias-like helpers to align with requested naming without macro pitfalls.
 // Prefer `require`/`require_eq` in portable code; `assert_true`/`assert_eq` are synonyms.
-inline void assert_true(bool condition, std::string_view message, const std::source_location &loc = std::source_location::current()) {
+inline void assert_true(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
     require(condition, message, loc);
 }
 
-inline void assert_false(bool condition, std::string_view message, const std::source_location &loc = std::source_location::current()) {
+inline void assert_false(bool condition, std::string_view message = {}, const std::source_location &loc = std::source_location::current()) {
     require_false(condition, message, loc);
 }
 
@@ -389,9 +389,12 @@ inline void ASSERT_GE(L &&lhs, R &&rhs, std::string_view message = {}, const std
     require_ge(std::forward<L>(lhs), std::forward<R>(rhs), message, loc);
 }
 
-// Module-friendly exception assertions. Include-based consumers can keep using
-// the macro forms below; `import gentest;` consumers use these function
-// templates instead.
+// Callable exception assertions. `import gentest;` consumers use these function
+// templates because macros are not exported. Include-based consumers normally
+// use the statement macros below, which shadow these names; parenthesize the
+// name to reach the function template from include-based code:
+//   (EXPECT_NO_THROW)([&] { risky(); });
+//   EXPECT_THROW<std::runtime_error>([&] { risky(); }); // `<` already bypasses the macro
 template <class Expected, class Fn> inline void EXPECT_THROW(Fn &&fn, const std::source_location &loc = std::source_location::current()) {
     ::gentest::detail::expect_throw<Expected>(std::forward<Fn>(fn), detail_internal::expected_exception_name<Expected>(), loc);
 }
@@ -423,27 +426,69 @@ inline void fail(std::string_view message) {
 
 } // namespace gentest
 
+namespace gentest::detail {
+
+// The statement macros below execute their argument as a statement. A
+// lambda-expression argument is therefore only created, never called, so the
+// assertion would not observe anything its body throws. No portable construct
+// accepts an arbitrary statement and also yields the value of an expression
+// statement, so the macros cannot call such an argument; they reject it
+// instead. The check is textual: the argument starts with a lambda introducer
+// (`[`, but not the `[[` of an attribute) and ends with the closing brace of
+// the lambda body, optionally followed by semicolons. An invoked lambda
+// (`[&] { risky(); }()`) ends with `)` and stays a valid statement.
+constexpr bool statement_is_uncalled_lambda(std::string_view text) {
+    constexpr std::string_view spaces     = " \t\r\n\f\v";
+    constexpr std::string_view terminator = " \t\r\n\f\v;";
+    const auto                 first      = text.find_first_not_of(spaces);
+    const auto                 last       = text.find_last_not_of(terminator);
+    if (first == std::string_view::npos || last == std::string_view::npos || last <= first)
+        return false;
+    if (text[first] != '[' || text[last] != '}')
+        return false;
+    const auto second = text.find_first_not_of(spaces, first + 1);
+    return second != std::string_view::npos && text[second] != '[';
+}
+
+} // namespace gentest::detail
+
 // gtest-like exception macros (implemented on top of gentest's source_location-based reporting).
 // These are optional and can be disabled by defining GENTEST_NO_THROW_MACROS.
+//
+// The first argument is a statement (or several, separated by `;`) that the
+// macro executes; it is not a callable. Passing a lambda-expression is a
+// compile-time error because the lambda would never be called. To assert on a
+// callable, call it in the statement (`EXPECT_NO_THROW(fn())`) or use the
+// function templates in gentest::asserts (see above).
 #ifndef GENTEST_NO_THROW_MACROS
+
+#define GENTEST_DETAIL_REJECT_UNCALLED_LAMBDA(macro_name, statement_text)                                                                  \
+    static_assert(!::gentest::detail::statement_is_uncalled_lambda(statement_text),                                                        \
+                  macro_name " executes its argument as a statement, so this lambda-expression would never be called. "                    \
+                             "Pass the statement itself, call the lambda in the statement, "                                               \
+                             "or use the gentest::asserts function template by parenthesizing its name: (" macro_name ")(callable)")
 
 #define EXPECT_THROW(statement, exception_type)                                                                                            \
     do {                                                                                                                                   \
+        GENTEST_DETAIL_REJECT_UNCALLED_LAMBDA("EXPECT_THROW", #statement);                                                                 \
         ::gentest::detail::expect_throw<exception_type>([&] { statement; }, #exception_type, std::source_location::current());             \
     } while (false)
 
 #define EXPECT_NO_THROW(statement)                                                                                                         \
     do {                                                                                                                                   \
+        GENTEST_DETAIL_REJECT_UNCALLED_LAMBDA("EXPECT_NO_THROW", #statement);                                                              \
         ::gentest::detail::expect_no_throw([&] { statement; }, std::source_location::current());                                           \
     } while (false)
 
 #define ASSERT_THROW(statement, exception_type)                                                                                            \
     do {                                                                                                                                   \
+        GENTEST_DETAIL_REJECT_UNCALLED_LAMBDA("ASSERT_THROW", #statement);                                                                 \
         ::gentest::detail::require_throw<exception_type>([&] { statement; }, #exception_type, std::source_location::current());            \
     } while (false)
 
 #define ASSERT_NO_THROW(statement)                                                                                                         \
     do {                                                                                                                                   \
+        GENTEST_DETAIL_REJECT_UNCALLED_LAMBDA("ASSERT_NO_THROW", #statement);                                                              \
         ::gentest::detail::require_no_throw([&] { statement; }, std::source_location::current());                                          \
     } while (false)
 

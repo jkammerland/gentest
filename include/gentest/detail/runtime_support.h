@@ -254,6 +254,26 @@ GENTEST_RUNTIME_API void record_failure_at(std::string msg, std::string file, un
 [[noreturn]] GENTEST_RUNTIME_API void skip_shared_fixture_unavailable(std::string_view            reason,
                                                                       const std::source_location &loc = std::source_location::current());
 
+#if GENTEST_EXCEPTIONS_ENABLED
+// Handler types for expect_throw/require_throw. A handler that an earlier one
+// already covers is replaced by a type that is never thrown, so that no
+// instantiation declares an unreachable handler (clang -Wexceptions).
+template <int Slot> struct UnreachableThrowHandler {
+    [[nodiscard]] static const char *what() noexcept { return ""; }
+};
+
+// The framework control handlers come first and cover their derived types.
+template <class ExpectedT>
+using ExpectedThrowHandler = std::conditional_t<std::is_base_of_v<skip_exception, ExpectedT> || std::is_base_of_v<failure, ExpectedT> ||
+                                                    std::is_base_of_v<assertion, ExpectedT>,
+                                                UnreachableThrowHandler<0>, ExpectedT>;
+
+// Expecting std::exception itself already covers every std::exception.
+template <class ExpectedT>
+using StdExceptionThrowHandler =
+    std::conditional_t<std::is_base_of_v<ExpectedT, std::exception>, UnreachableThrowHandler<1>, std::exception>;
+#endif
+
 template <class Expected, class Fn> inline void expect_throw(Fn &&fn, std::string_view expected_name, const std::source_location &loc) {
     require_owner_context("assertion/expectation called");
 #if !GENTEST_EXCEPTIONS_ENABLED
@@ -263,59 +283,30 @@ template <class Expected, class Fn> inline void expect_throw(Fn &&fn, std::strin
 #else
     using ExpectedT = std::remove_cvref_t<Expected>;
 
-    if constexpr (std::is_base_of_v<std::exception, ExpectedT>) {
-        try {
-            fn();
-        } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
-            if constexpr (std::is_same_v<ExpectedT, gentest::failure>) {
-                return;
-            }
-            throw;
-        } catch (const gentest::assertion &) {
-            if constexpr (std::is_same_v<ExpectedT, gentest::assertion>) {
-                return;
-            }
-            throw;
-        } catch (const std::exception &err) {
-            if (dynamic_cast<const ExpectedT *>(&err) != nullptr) {
-                return;
-            }
-            ::gentest::detail::record_failure(::gentest::detail::format_failure_text("EXPECT_THROW", loc,
-                                                                                     "expected {} but caught std::exception: {}",
-                                                                                     expected_name, err.what()),
-                                              loc);
-            return;
-        } catch (...) {
-            ::gentest::detail::record_failure(
-                ::gentest::detail::format_failure_text("EXPECT_THROW", loc, "expected {} but caught unknown exception", expected_name),
-                loc);
+    // Ordinary handlers (rather than dynamic_cast on a caught std::exception)
+    // keep this usable with RTTI disabled. Framework control exceptions are
+    // matched first so they keep propagating unless explicitly expected.
+    try {
+        fn();
+    } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
+        if constexpr (std::is_same_v<ExpectedT, gentest::failure>) {
             return;
         }
-    } else {
-        try {
-            fn();
-        } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
-            if constexpr (std::is_same_v<ExpectedT, gentest::failure>) {
-                return;
-            }
-            throw;
-        } catch (const gentest::assertion &) {
-            if constexpr (std::is_same_v<ExpectedT, gentest::assertion>) {
-                return;
-            }
-            throw;
-        } catch (const ExpectedT &) { return; } catch (const std::exception &err) {
-            ::gentest::detail::record_failure(::gentest::detail::format_failure_text("EXPECT_THROW", loc,
-                                                                                     "expected {} but caught std::exception: {}",
-                                                                                     expected_name, err.what()),
-                                              loc);
-            return;
-        } catch (...) {
-            ::gentest::detail::record_failure(
-                ::gentest::detail::format_failure_text("EXPECT_THROW", loc, "expected {} but caught unknown exception", expected_name),
-                loc);
+        throw;
+    } catch (const gentest::assertion &) {
+        if constexpr (std::is_same_v<ExpectedT, gentest::assertion>) {
             return;
         }
+        throw;
+    } catch (const ExpectedThrowHandler<ExpectedT> &) { return; } catch (const StdExceptionThrowHandler<ExpectedT> &err) {
+        ::gentest::detail::record_failure(::gentest::detail::format_failure_text(
+                                              "EXPECT_THROW", loc, "expected {} but caught std::exception: {}", expected_name, err.what()),
+                                          loc);
+        return;
+    } catch (...) {
+        ::gentest::detail::record_failure(
+            ::gentest::detail::format_failure_text("EXPECT_THROW", loc, "expected {} but caught unknown exception", expected_name), loc);
+        return;
     }
 
     ::gentest::detail::record_failure(
@@ -352,63 +343,32 @@ template <class Expected, class Fn> inline void require_throw(Fn &&fn, std::stri
 #else
     using ExpectedT = std::remove_cvref_t<Expected>;
 
-    if constexpr (std::is_base_of_v<std::exception, ExpectedT>) {
-        try {
-            fn();
-        } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
-            if constexpr (std::is_same_v<ExpectedT, gentest::failure>) {
-                return;
-            }
-            throw;
-        } catch (const gentest::assertion &) {
-            if constexpr (std::is_same_v<ExpectedT, gentest::assertion>) {
-                return;
-            }
-            throw;
-        } catch (const std::exception &err) {
-            if (dynamic_cast<const ExpectedT *>(&err) != nullptr) {
-                return;
-            }
-            ::gentest::detail::record_failure(::gentest::detail::format_failure_text("ASSERT_THROW", loc,
-                                                                                     "expected {} but caught std::exception: {}",
-                                                                                     expected_name, err.what()),
-                                              loc);
-            // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-            throw gentest::assertion("ASSERT_THROW");
-        } catch (...) {
-            ::gentest::detail::record_failure(
-                ::gentest::detail::format_failure_text("ASSERT_THROW", loc, "expected {} but caught unknown exception", expected_name),
-                loc);
-            // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-            throw gentest::assertion("ASSERT_THROW");
+    // Ordinary handlers (rather than dynamic_cast on a caught std::exception)
+    // keep this usable with RTTI disabled. Framework control exceptions are
+    // matched first so they keep propagating unless explicitly expected.
+    try {
+        fn();
+    } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
+        if constexpr (std::is_same_v<ExpectedT, gentest::failure>) {
+            return;
         }
-    } else {
-        try {
-            fn();
-        } catch (const gentest::detail::skip_exception &) { throw; } catch (const gentest::failure &) {
-            if constexpr (std::is_same_v<ExpectedT, gentest::failure>) {
-                return;
-            }
-            throw;
-        } catch (const gentest::assertion &) {
-            if constexpr (std::is_same_v<ExpectedT, gentest::assertion>) {
-                return;
-            }
-            throw;
-        } catch (const ExpectedT &) { return; } catch (const std::exception &err) {
-            ::gentest::detail::record_failure(::gentest::detail::format_failure_text("ASSERT_THROW", loc,
-                                                                                     "expected {} but caught std::exception: {}",
-                                                                                     expected_name, err.what()),
-                                              loc);
-            // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-            throw gentest::assertion("ASSERT_THROW");
-        } catch (...) {
-            ::gentest::detail::record_failure(
-                ::gentest::detail::format_failure_text("ASSERT_THROW", loc, "expected {} but caught unknown exception", expected_name),
-                loc);
-            // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-            throw gentest::assertion("ASSERT_THROW");
+        throw;
+    } catch (const gentest::assertion &) {
+        if constexpr (std::is_same_v<ExpectedT, gentest::assertion>) {
+            return;
         }
+        throw;
+    } catch (const ExpectedThrowHandler<ExpectedT> &) { return; } catch (const StdExceptionThrowHandler<ExpectedT> &err) {
+        ::gentest::detail::record_failure(::gentest::detail::format_failure_text(
+                                              "ASSERT_THROW", loc, "expected {} but caught std::exception: {}", expected_name, err.what()),
+                                          loc);
+        // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
+        throw gentest::assertion("ASSERT_THROW");
+    } catch (...) {
+        ::gentest::detail::record_failure(
+            ::gentest::detail::format_failure_text("ASSERT_THROW", loc, "expected {} but caught unknown exception", expected_name), loc);
+        // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
+        throw gentest::assertion("ASSERT_THROW");
     }
 
     ::gentest::detail::record_failure(
