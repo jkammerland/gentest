@@ -178,6 +178,25 @@ def check_invalid_options(binary):
         (("--log-output=",), "--log-output requires a non-empty value"),
         (("--log-output",), "--log-output requires a value"),
         (("--log-output=all", "--log-output=failures"), "duplicate --log-output"),
+        # Single-valued options reject repetition instead of choosing a winner.
+        (("--seed=1", "--seed=2"), "duplicate --seed"),
+        (("--seed", "1", "--seed=1"), "duplicate --seed"),
+        (("--repeat=1", "--repeat=2"), "duplicate --repeat"),
+        (("--kind=test", "--kind=bench"), "duplicate --kind"),
+        (("--bench-epochs=2", "--bench-epochs=3"), "duplicate --bench-epochs"),
+        (("--bench-warmup=0", "--bench-warmup=1"), "duplicate --bench-warmup"),
+        (("--bench-min-epoch-time-s=0", "--bench-min-epoch-time-s=1"), "duplicate --bench-min-epoch-time-s"),
+        (("--bench-min-total-time-s=0", "--bench-min-total-time-s=1"), "duplicate --bench-min-total-time-s"),
+        (("--bench-max-total-time-s=0", "--bench-max-total-time-s=1"), "duplicate --bench-max-total-time-s"),
+        (("--jitter-bins=5", "--jitter-bins=6"), "duplicate --jitter-bins"),
+        # Out-of-range counts are rejected, never adjusted silently.
+        (("--repeat=0",), "--repeat must be between 1 and 1000000"),
+        (("--repeat=1000001",), "--repeat must be between 1 and 1000000"),
+        (("--bench-epochs=0",), "--bench-epochs must be at least 1"),
+        # A huge histogram must fail at parse time, before anything is measured.
+        (("--jitter-bins=0",), "--jitter-bins must be between 1 and 10000"),
+        (("--jitter-bins=10001",), "--jitter-bins must be between 1 and 10000"),
+        (("--jitter-bins=2147483647",), "--jitter-bins must be between 1 and 10000"),
     ):
         result = run(binary, *arguments, expected=1)
         assert message in result.stderr and not result.stdout, result

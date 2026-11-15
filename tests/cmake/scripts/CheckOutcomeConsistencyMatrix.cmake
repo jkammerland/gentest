@@ -64,9 +64,13 @@ function(run_matrix_case _label _prog _expect_rc _expect_summary _expect_junit)
   endif()
 
   if(_label STREQUAL "infra_skip_test")
+    string(FIND "${_junit_content}" "<error type=\"blocked\"" _blocked_pos)
+    if(_blocked_pos EQUAL -1)
+      message(FATAL_ERROR "${_label}: shared fixture infrastructure failures must mark dependent cases as blocked errors. File:\n${_junit_content}")
+    endif()
     string(FIND "${_junit_content}" "<skipped" _skip_pos)
-    if(_skip_pos EQUAL -1)
-      message(FATAL_ERROR "${_label}: shared fixture infrastructure failures must mark dependent cases as blocked skips. File:\n${_junit_content}")
+    if(NOT _skip_pos EQUAL -1)
+      message(FATAL_ERROR "${_label}: blocked cases fail the run and must not be reported as skipped. File:\n${_junit_content}")
     endif()
 
     foreach(_expected_issue IN ITEMS
@@ -135,7 +139,7 @@ run_matrix_case(
   "${PROG_INFRA_TEST}"
   1
   "Summary: passed 0/2; failed 2; skipped 0; blocked 2; xfail 0; xpass 0."
-  "tests=\"2\" failures=\"0\" skipped=\"2\" errors=\"2\""
+  "tests=\"2\" failures=\"0\" skipped=\"0\" errors=\"4\""
   --kind=test)
 
 run_matrix_case(
@@ -143,6 +147,6 @@ run_matrix_case(
   "${PROG_INFRA_MEASURED}"
   1
   "Summary: passed 0/1; failed 0; skipped 0; blocked 1; xfail 0; xpass 0."
-  "tests=\"1\" failures=\"0\" skipped=\"1\" errors=\"0\""
+  "tests=\"1\" failures=\"0\" skipped=\"0\" errors=\"1\""
   --run=regressions/member_shared_setup_skip_measured/bench_member
   --kind=bench)

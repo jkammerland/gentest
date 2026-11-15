@@ -44,12 +44,43 @@ Return codes match `run_all_tests` for the same cases and arguments: `0` means t
 `--run` case was not found. `--run` prefers a full name, then accepts a unique suffix among cases matching `--kind`;
 ambiguous suffixes are errors. Benchmark- or jitter-only filters that match nothing retain their existing failure semantics.
 
+Options that take one value (`--run`, `--filter`, `--kind`, `--seed`, `--repeat`, `--output`, `--log-output`, `--time-unit`,
+`--report-format`, `--junit`, `--allure-dir`, `--records`, `--skip-return-code`, `--async-log-tail`, the `--bench-*` settings and
+`--jitter-bins`) may appear once; a repeated one is rejected as a CLI error (exit `1`) instead of choosing a winner. Only
+`--tag`, `--exclude-tag` and `--exclude` accumulate. Out-of-range counts are rejected too, not adjusted: `--repeat` accepts
+1–1000000, `--bench-epochs` requires at least 1, and `--jitter-bins` accepts 1–10000.
+
 `--skip-return-code=N` (4–255) returns `N` when every selected case skips and the run has no failures. Expected failures (XFAIL)
 retain success status. Discovered ordinary CTest entries use `--skip-return-code=77` with `SKIP_RETURN_CODE=77`, so runtime and
 attribute skips appear as skipped. Fixture teardown and report-write errors return failure even when the case skips.
 
 A successful execution with `--junit=<path>` writes a report for that invocation, including zero-test selections and empty case
 tables. Use `--fail-on-empty` when CI requires a nonempty selection. Listing and preview operations do not write reports.
+
+An execution that fails before any case runs (an unknown, ambiguous, kind-mismatched or death-excluded `--run` name, a
+bench/jitter filter that matches nothing, `--fail-on-empty`, a machine report format with an unmeasured selection, or invalid
+manual benchmark metadata) also replaces the requested JUnit and Allure reports. The replacement has no test cases and records
+the diagnostic as one runner error, so a report left by an earlier run is never mistaken for the current one. Invalid command
+lines are rejected before any report path is used and leave existing files alone.
+
+Report outcome mapping:
+
+| Outcome | JUnit | Allure `status` |
+| --- | --- | --- |
+| pass | no child element | `passed` |
+| fail, unexpected pass | `<failure>`, counted in `failures` | `failed` |
+| skip, expected failure | `<skipped>`, counted in `skipped` | `skipped` (expected failures add an `xfail` label) |
+| blocked | `<error type="blocked">`, counted in `errors` | `broken`, with `blocked` and `blocked_reason` labels |
+| runner or fixture infrastructure error | `<system-err>`, counted in `errors` | separate `failed` result under `gentest/infra` |
+
+A blocked case did not run and makes the run exit `1`, so it is reported as an error, never as a skip. JUnit `time` values are
+seconds in fixed-point decimal notation and, like the counts, do not depend on the process locale. Text that is not valid UTF-8
+is replaced in both formats (`?` in JUnit, U+FFFD in Allure).
+
+`--allure-dir=<dir>` owns the files it names: `result-<n>-*`, `runtime-record-<n>-<n>.*` and `runtime-case-<n>-index.json`.
+Before writing, the runner removes regular files with those names left by an earlier run, so a filtered rerun into the same
+directory does not merge old results. Other files and all subdirectories are left alone. Result numbering restarts for every
+invocation; give each test executable its own directory.
 
 Manual benchmarks may set source-level execution policy with the
 `Case::benchmark` field:

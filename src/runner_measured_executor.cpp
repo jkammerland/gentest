@@ -68,10 +68,12 @@ CalibratedEpoch calibrate_epoch_iterations(const gentest::Case &c, void *ctx, co
         if (calibration.had_assert || calibration.elapsed_s >= cfg.min_epoch_time_s) {
             return calibration;
         }
-        calibration.iterations *= 2;
-        if (calibration.iterations == 0 || calibration.iterations > (static_cast<std::size_t>(1) << 30U)) {
+        // Check the cap before doubling: the returned count must be one that was executed
+        // and timed, never the next untried doubling.
+        if (calibration.iterations > cfg.max_calibration_iterations / 2) {
             return calibration;
         }
+        calibration.iterations *= 2;
     }
 }
 
@@ -481,6 +483,36 @@ void apply_measurement(BenchResult &result, MeasurementSnapshot snapshot) {
 
 void apply_measurement(JitterResult &result, MeasurementSnapshot snapshot) { result.measurement = std::move(snapshot); }
 
+// Body-entry notification for hand-written measured cases. The death-test marker names
+// the current case, so the notification runs under a context carrying that name, and a
+// marker that cannot be written fails the case instead of escaping the runner.
+struct MeasuredBodyScope {
+    bool        active = false;
+    std::string error;
+
+    explicit MeasuredBodyScope(const gentest::Case &c) {
+        if (c.reports_body_start) {
+            return;
+        }
+        auto context          = std::make_shared<gentest::detail::TestContextInfo>();
+        context->display_name = std::string(c.name);
+        detail::CurrentTestContextScope current(std::move(context));
+        try {
+            gentest::detail::notify_case_body_start();
+            active = true;
+        } catch (const gentest::failure &e) { error = e.what(); }
+    }
+
+    MeasuredBodyScope(const MeasuredBodyScope &)            = delete;
+    MeasuredBodyScope &operator=(const MeasuredBodyScope &) = delete;
+
+    ~MeasuredBodyScope() {
+        if (active) {
+            gentest::detail::notify_case_body_finish();
+        }
+    }
+};
+
 template <typename Result, typename CallFn>
 bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn &&run_call, Result &out_result,
                        MeasurementCaseFailure &out_failure) {
@@ -605,8 +637,13 @@ bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn
     {
         // Notify only around the entire measurement operation, outside timed loops.
         gentest::detail::FrameworkPhaseScope events(FrameworkPhase::call);
-        gentest::detail::CaseBodyScope       body_scope(!c.reports_body_start);
-        out_result = run_call(c, ctx, out_failure);
+        MeasuredBodyScope                    body_scope(c);
+        if (body_scope.error.empty()) {
+            out_result = run_call(c, ctx, out_failure);
+        } else {
+            // Reported as a call-phase failure once local teardown has run.
+            gentest::detail::record_bench_error(std::move(body_scope.error));
+        }
     }
     out_failure.time_s = out_result.wall_time_s;
 

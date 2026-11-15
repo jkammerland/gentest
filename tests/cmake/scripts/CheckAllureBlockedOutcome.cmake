@@ -57,9 +57,9 @@ endif()
 set(_blocked_result_json "")
 foreach(_result_file IN LISTS _result_files)
   file(READ "${_result_file}" _candidate_json)
-  string(FIND "${_candidate_json}" "\"status\":\"skipped\"" _skipped_pos)
+  string(FIND "${_candidate_json}" "\"status\":\"broken\"" _broken_pos)
   string(FIND "${_candidate_json}" "\"name\":\"blocked\"" _blocked_label_pos)
-  if(NOT _skipped_pos EQUAL -1 AND NOT _blocked_label_pos EQUAL -1)
+  if(NOT _broken_pos EQUAL -1 AND NOT _blocked_label_pos EQUAL -1)
     if(NOT _blocked_result_json STREQUAL "")
       message(FATAL_ERROR "Expected one blocked Allure result, found multiple in ${OUT_DIR}")
     endif()
@@ -68,11 +68,11 @@ foreach(_result_file IN LISTS _result_files)
 endforeach()
 
 if(_blocked_result_json STREQUAL "")
-  message(FATAL_ERROR "Expected a skipped Allure result with a blocked label in ${OUT_DIR}")
+  message(FATAL_ERROR "Expected a broken Allure result with a blocked label in ${OUT_DIR}")
 endif()
 
 foreach(_required IN ITEMS
-    "\"status\":\"skipped\""
+    "\"status\":\"broken\""
     "\"name\":\"blocked\""
     "\"value\":\"true\"")
   string(FIND "${_blocked_result_json}" "${_required}" _required_pos)

@@ -315,11 +315,26 @@ std::string_view machine_measured_report_format_name(const CliOptions &opt) {
     return opt.measured_report_format == MeasuredReportFormat::Json ? std::string_view("json") : std::string_view("csv");
 }
 
+// An invocation that fails before any case runs still replaces requested reports, so a
+// report left by an earlier run cannot be mistaken for this one. Previews write nothing.
+int fail_before_execution(const CliOptions &opt, const std::string &message, int exit_code = 1) {
+    fmt::print(stderr, "{}\n", message);
+    if (opt.mode == Mode::Execute && (opt.junit_path || opt.allure_dir)) {
+        RunAccumulator acc;
+        record_runner_level_failure(acc, "gentest/selection", message);
+        write_reports(acc, ReportConfig{.junit_path = opt.junit_path, .allure_dir = opt.allure_dir});
+        // The first entry is the message already printed; later ones are report-write failures.
+        for (std::size_t i = 1; i < acc.infra_errors.size(); ++i)
+            fmt::print(stderr, "{}\n", acc.infra_errors[i]);
+    }
+    return exit_code;
+}
+
 int reject_machine_measured_report_unmeasured_selection(const CliOptions &opt) {
-    fmt::print(stderr,
-               "error: --report-format={} requires a measured-only selection; use --kind=bench, --kind=jitter, or a measured-only filter\n",
-               machine_measured_report_format_name(opt));
-    return 1;
+    return fail_before_execution(
+        opt, fmt::format("error: --report-format={} requires a measured-only selection; use --kind=bench, --kind=jitter, or a "
+                         "measured-only filter",
+                         machine_measured_report_format_name(opt)));
 }
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
@@ -387,8 +402,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
     // Validate manual registrations as well as generated ones, before shared/local fixture setup.
     for (const auto index : selection.idxs) {
         if (const auto error = gentest::detail::validate_benchmark_options(kCases[index]); !error.empty()) {
-            fmt::print(stderr, "invalid benchmark metadata for {}: {}\n", kCases[index].name, error);
-            return 1;
+            return fail_before_execution(opt, fmt::format("invalid benchmark metadata for {}: {}", kCases[index].name, error));
         }
     }
 
@@ -626,19 +640,19 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --output=<mode>       Test output: full|compact|failures-only (default full)\n");
         fmt::print("  --log-output=<mode>   gentest logs: all|failures (default failures for compact/failures-only)\n");
         fmt::print("  --fail-on-empty       Fail when execution/preview selects no cases\n");
-        fmt::print("  --repeat=N            Repeat selected tests N times (default 1)\n");
+        fmt::print("  --repeat=N            Repeat selected tests N times (1..1000000, default 1)\n");
         fmt::print("  --async-log-tail=N    Live async log lines per case (default 5, 0 disables)\n");
         fmt::print("  --shuffle             Shuffle tests (respects fixture/grouping)\n");
         fmt::print("  --seed N              Base shuffle seed; each repeat prints its own replay seed\n");
         fmt::print("\nBenchmark options:\n");
         fmt::print("  --bench-table         Print a summary table per suite (runs benches)\n");
         fmt::print("  --bench-min-epoch-time-s=<sec>  Minimum epoch time\n");
-        fmt::print("  --bench-epochs=<N>    Measurement epochs (default 12)\n");
+        fmt::print("  --bench-epochs=<N>    Measurement epochs (at least 1, default 12)\n");
         fmt::print("  --bench-warmup=<N>    Warmup epochs (default 1)\n");
         fmt::print("  --bench-min-total-time-s=<sec>  Min total time per benchmark (may exceed --bench-epochs)\n");
         fmt::print("  --bench-max-total-time-s=<sec>  Max total time per benchmark\n");
         fmt::print("\nJitter options:\n");
-        fmt::print("  --jitter-bins=<N>     Histogram bins (default 10)\n");
+        fmt::print("  --jitter-bins=<N>     Histogram bins (1..10000, default 10)\n");
         return 0;
     case Mode::ListTags: {
         std::vector<std::string> tags;
@@ -701,31 +715,31 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     // Selection failures happen before fixture setup. Matched skipped cases
     // still count as selected; excluded death tests do not.
     if (opt.fail_on_empty && (selection.status == SelectionStatus::ZeroSelected || selection.status == SelectionStatus::DeathExcludedAll)) {
-        fmt::print(stderr, "No cases selected (--kind={}, --filter={}); --fail-on-empty is enabled{}\n", kind_to_string(opt.kind),
-                   opt.filter_pat ? opt.filter_pat : "*", selection.filtered_death ? " (death tests excluded; use --include-death)" : "");
-        return 1;
+        return fail_before_execution(opt, fmt::format("No cases selected (--kind={}, --filter={}); --fail-on-empty is enabled{}",
+                                                      kind_to_string(opt.kind), opt.filter_pat ? opt.filter_pat : "*",
+                                                      selection.filtered_death ? " (death tests excluded; use --include-death)" : ""));
     }
 
     switch (selection.status) {
     case SelectionStatus::Ok: break;
-    case SelectionStatus::CaseNotFound: fmt::print(stderr, "Case not found: {}\n", opt.run_name); return kExitCaseNotFound;
+    case SelectionStatus::CaseNotFound:
+        return fail_before_execution(opt, fmt::format("Case not found: {}", opt.run_name), kExitCaseNotFound);
     case SelectionStatus::KindMismatch:
-        fmt::print(stderr, "Case '{}' does not match --kind={}\n", opt.run_name, gentest::runner::kind_to_string(opt.kind));
-        return 1;
-    case SelectionStatus::Ambiguous:
-        fmt::print(stderr, "Case name is ambiguous: {}\n", opt.run_name);
-        fmt::print(stderr, "Matches:\n");
+        return fail_before_execution(
+            opt, fmt::format("Case '{}' does not match --kind={}", opt.run_name, gentest::runner::kind_to_string(opt.kind)));
+    case SelectionStatus::Ambiguous: {
+        std::string message = fmt::format("Case name is ambiguous: {}\nMatches:", opt.run_name);
         for (auto idx : selection.ambiguous_matches)
-            fmt::print(stderr, "  {}\n", kCases[idx].name);
-        return 1;
+            message += fmt::format("\n  {}", kCases[idx].name);
+        return fail_before_execution(opt, message);
+    }
     case SelectionStatus::FilterNoBenchMatch:
-        fmt::print(stderr, "benchmark filter matched 0 benchmarks: {}\n", opt.filter_pat);
-        fmt::print(stderr, "hint: use --list-benches to see available names\n");
-        return 1;
+        return fail_before_execution(
+            opt, fmt::format("benchmark filter matched 0 benchmarks: {}\nhint: use --list-benches to see available names", opt.filter_pat));
     case SelectionStatus::FilterNoJitterMatch:
-        fmt::print(stderr, "jitter filter matched 0 jitter benchmarks: {}\n", opt.filter_pat);
-        fmt::print(stderr, "hint: use --list-benches to see available names\n");
-        return 1;
+        return fail_before_execution(
+            opt,
+            fmt::format("jitter filter matched 0 jitter benchmarks: {}\nhint: use --list-benches to see available names", opt.filter_pat));
     case SelectionStatus::ZeroSelected:
         if (opt.mode == Mode::ListSelected)
             return 0;
@@ -745,8 +759,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         }
         return write_empty_execution_reports(opt);
     case SelectionStatus::DeathExcludedRun:
-        fmt::print(stderr, "Case '{}' is tagged as a death test; rerun with --include-death\n", opt.run_name);
-        return 1;
+        return fail_before_execution(opt, fmt::format("Case '{}' is tagged as a death test; rerun with --include-death", opt.run_name));
     case SelectionStatus::DeathExcludedAll:
         if (opt.mode == Mode::ListSelected)
             return 0;
@@ -782,8 +795,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     }
 
     if (opt.death_test_marker && (selection.idxs.size() != 1 || !has_tag_ci(kCases[selection.idxs.front()], "death"))) {
-        fmt::print(stderr, "error: death-test protocol requires exactly one death-tagged case\n");
-        return 1;
+        return fail_before_execution(opt, "error: death-test protocol requires exactly one death-tagged case");
     }
 
     if (selection.filtered_death > 0) {
