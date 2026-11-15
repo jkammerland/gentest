@@ -890,6 +890,16 @@ template <typename DeclT> [[nodiscard]] bool is_in_named_module_compat(const Dec
     }
 }
 
+// The primary interface name of the named module a declaration is attached to, or empty.
+template <typename DeclT> [[nodiscard]] std::string owning_named_module_name_compat(const DeclT &decl) {
+    if constexpr (requires { decl.getTopLevelOwningNamedModule()->getPrimaryModuleInterfaceName(); }) {
+        if (const auto *owner = decl.getTopLevelOwningNamedModule(); owner != nullptr) {
+            return owner->getPrimaryModuleInterfaceName().str();
+        }
+    }
+    return {};
+}
+
 template <typename DeclT> [[nodiscard]] bool is_from_header_unit_compat(const DeclT &decl) {
     if constexpr (requires { decl.isFromHeaderUnit(); }) {
         return decl.isFromHeaderUnit();
@@ -1202,14 +1212,27 @@ void MockUsageCollector::handle_mock_target_type(const QualType &target_type, So
 
     const std::string definition_file   = resolve_definition_file(sm, def_loc);
     const auto        definition_module = named_module_name_from_file(definition_file);
-    const bool        from_named_module =
-        (is_in_named_module_compat(*definition_record) && !is_from_header_unit_compat(*definition_record)) || definition_module.has_value();
+    const bool attached_to_named_module = is_in_named_module_compat(*definition_record) && !is_from_header_unit_compat(*definition_record);
+    const bool from_named_module        = attached_to_named_module || definition_module.has_value();
     if (definition_file.empty() || (looks_like_source_or_module_interface(definition_file) && !from_named_module)) {
         had_error_                 = true;
         const std::string location = definition_file.empty() ? std::string{"<unknown-file>"} : definition_file;
         report(sm, use_loc,
                fmt::format("gentest::mock<{}>: target definition must be in a header or header module (found in {})",
                            record->getQualifiedNameAsString(), location));
+        return;
+    }
+    // A named-module mock is generated inside the module interface source that defines its
+    // target. A target the module pulls in through an #include in its purview has no such
+    // source, and used to be left without a mock.
+    if (attached_to_named_module && !definition_module.has_value()) {
+        had_error_              = true;
+        const std::string owner = owning_named_module_name_compat(*definition_record);
+        report(sm, use_loc,
+               fmt::format("gentest::mock<{}>: the target belongs to named module '{}' but is defined in '{}'; named-module mocks need "
+                           "the target defined in the module interface unit itself (or its header included in the global module "
+                           "fragment instead)",
+                           record->getQualifiedNameAsString(), owner.empty() ? std::string{"<unknown>"} : owner, definition_file));
         return;
     }
     info.definition_file = definition_file;

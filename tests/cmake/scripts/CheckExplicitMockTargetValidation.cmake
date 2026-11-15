@@ -528,4 +528,5 @@ _gentest_expect_build_failure("implementation_unit_module" "module implementatio
 _gentest_expect_build_failure("partition_module" "declares module partition")
 _gentest_expect_configure_failure("missing_module_name" "MODULE_NAME is")
 _gentest_expect_build_failure("nested_module_class_scope" "named-module mock targets must be declared at namespace scope")
+_gentest_expect_build_failure("module_purview_header" "named-module mocks need the target defined in the module interface unit itself")
 endif()
