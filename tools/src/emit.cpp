@@ -46,7 +46,6 @@ using gentest::codegen::scan::is_global_module_fragment_scan_line;
 using gentest::codegen::scan::is_preprocessor_directive_scan_line;
 using gentest::codegen::scan::looks_like_import_scan_prefix;
 using gentest::codegen::scan::looks_like_named_module_scan_prefix;
-using gentest::codegen::scan::named_module_name_from_source_file;
 using gentest::codegen::scan::normalize_scan_module_preamble_source;
 using gentest::codegen::scan::parse_imported_module_name_from_scan_line;
 using gentest::codegen::scan::parse_include_header_from_scan_line;
@@ -192,11 +191,10 @@ fs::path resolve_tu_header_output(const CollectorOptions &opts, std::size_t idx)
     return header_out;
 }
 
+// The run classified each source once, with its own compile command (macros and include
+// paths); re-reading the file here without them could disagree with that answer.
 bool is_module_interface_source(const CollectorOptions &opts, const fs::path &path) {
-    if (opts.module_interface_sources.contains(path.string())) {
-        return true;
-    }
-    return named_module_name_from_source_file(path).has_value();
+    return opts.module_interface_sources.contains(path.string());
 }
 
 fs::path resolve_module_wrapper_output(const CollectorOptions &opts, std::size_t idx) { return opts.module_wrapper_outputs[idx]; }

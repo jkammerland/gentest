@@ -81,6 +81,7 @@ function(_gentest_run_codegen_with_resource_dir resource_dir)
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env
       "CXX=${_clangxx_norm}"
+      "GENTEST_CODEGEN_KEEP_MODULE_CACHE=1"
       "GENTEST_CODEGEN_RESOURCE_DIR=${resource_dir}"
       "${PROG}" --check --compdb "${_work_dir}"
       --clang-scan-deps "${_clang_scan_deps}" --host-clang "${_clangxx_norm}"
@@ -109,7 +110,7 @@ if(EXISTS "${_generated_dir}/.gentest_codegen_modules")
     "Expected hashed module cache directories, but found legacy shared cache directory '${_generated_dir}/.gentest_codegen_modules'")
 endif()
 
-file(GLOB _module_cache_dirs LIST_DIRECTORIES TRUE "${_generated_dir}/.gentest_codegen_modules_*")
+file(GLOB _module_cache_dirs LIST_DIRECTORIES TRUE "${_generated_dir}/.gentest_codegen_modules-*")
 list(SORT _module_cache_dirs)
 list(LENGTH _module_cache_dirs _module_cache_dir_count)
 if(NOT _module_cache_dir_count EQUAL 2)

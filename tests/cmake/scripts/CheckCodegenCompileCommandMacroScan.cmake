@@ -134,6 +134,7 @@ if(_scan_deps)
     COMMAND
       "${CMAKE_COMMAND}" -E env
       "GENTEST_CODEGEN_LOG_SCAN_DEPS=1"
+      "GENTEST_CODEGEN_KEEP_MODULE_CACHE=1"
       "${PROG}"
       --compdb "${_work_dir}"
       --clang-scan-deps "${_scan_deps}"
@@ -150,7 +151,7 @@ if(_scan_deps)
       "Expected gentest_codegen to report actual clang-scan-deps usage. Output:\n${_real_output}")
   endif()
 
-  file(GLOB _provider_pcm_candidates "${_generated_real_dir}/.gentest_codegen_modules_*/ext_*.pcm")
+  file(GLOB _provider_pcm_candidates "${_generated_real_dir}/.gentest_codegen_modules-*/ext_*.pcm")
   if(NOT _provider_pcm_candidates)
     message(FATAL_ERROR
       "Expected gentest_codegen to precompile the externally discovered macro-guarded provider module")
@@ -188,4 +189,62 @@ set(_scan_deps_on_all "${_scan_deps_on_out}\n${_scan_deps_on_err}")
 string(FIND "${_scan_deps_on_all}" "failed to resolve named-module dependencies via clang-scan-deps" _scan_deps_on_pos)
 if(_scan_deps_on_pos EQUAL -1)
   message(FATAL_ERROR "Expected a required clang-scan-deps failure. Output:\n${_scan_deps_on_all}")
+endif()
+
+# A source that is a named module unless its compile command defines a macro is
+# built here as ordinary C++, in the per-TU header mode the xmake and Bazel
+# integrations use. Every later step (emitting, the depfile) must reuse the run's
+# own classification; re-reading the file without the build's macros made them
+# take it for a module and index its absent module wrapper output.
+set(_dual_dir "${_work_dir}/dual")
+set(_dual_generated_dir "${_dual_dir}/generated")
+set(_dual_source "${_dual_dir}/dual.cpp")
+set(_dual_header "${_dual_generated_dir}/tu_0000_dual.gentest.h")
+set(_dual_depfile "${_dual_generated_dir}/dual.gentest.d")
+file(MAKE_DIRECTORY "${_dual_generated_dir}")
+gentest_fixture_write_file("${_dual_source}" [=[
+#if !defined(GENTEST_SCAN_DUAL_TEXTUAL)
+module;
+#endif
+#include <gentest/runner.h>
+#if !defined(GENTEST_SCAN_DUAL_TEXTUAL)
+export module gentest.scan.dual;
+#endif
+
+[[using gentest: test("scan/dual_textual")]]
+void dual_textual() {
+    gentest::expect(true);
+}
+]=])
+gentest_fixture_make_compdb_entry(
+  _dual_entry
+  DIRECTORY "${_dual_dir}"
+  FILE "${_dual_source}"
+  ARGUMENTS ${_common_args} "-DGENTEST_SCAN_DUAL_TEXTUAL=1" "-c" "${_dual_source}" "-o" "${_dual_dir}/dual.o")
+gentest_fixture_write_compdb("${_dual_dir}/compile_commands.json" "${_dual_entry}")
+
+message(STATUS "Generate a macro-selected textual source with a depfile...")
+gentest_check_run_or_fail(
+  COMMAND
+    "${PROG}"
+    --compdb "${_dual_dir}"
+    --tu-out-dir "${_dual_generated_dir}"
+    --tu-header-output "${_dual_header}"
+    --depfile "${_dual_depfile}"
+    "${_dual_source}"
+  WORKING_DIRECTORY "${_dual_dir}"
+  STRIP_TRAILING_WHITESPACE)
+
+if(NOT EXISTS "${_dual_header}")
+  message(FATAL_ERROR "Expected the registration header for the textual build of '${_dual_source}'")
+endif()
+file(READ "${_dual_depfile}" _dual_depfile_text)
+string(FIND "${_dual_depfile_text}" " :" _dual_targets_end)
+if(_dual_targets_end EQUAL -1)
+  message(FATAL_ERROR "Malformed depfile '${_dual_depfile}':\n${_dual_depfile_text}")
+endif()
+string(SUBSTRING "${_dual_depfile_text}" 0 ${_dual_targets_end} _dual_targets)
+string(FIND "${_dual_targets}" ".cppm" _dual_wrapper_target_pos)
+if(NOT _dual_targets MATCHES "tu_0000_dual\\.gentest\\.h$" OR NOT _dual_wrapper_target_pos EQUAL -1)
+  message(FATAL_ERROR "Expected the depfile to name only the registration header as its target, got: '${_dual_targets}'")
 endif()
