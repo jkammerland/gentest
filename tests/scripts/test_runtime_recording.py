@@ -49,6 +49,9 @@ junit = root / "success.xml"
 extra = [f"--allure-dir={root / 'allure'}"] if allure_enabled else []
 run("--filter=rt_recording/ok/*", "--repeat=2", "--shuffle", "--seed=42",
     f"--records={output}", f"--junit={junit}", *extra)
+if allure_enabled:
+    # A second run into the same Allure directory, as another shard would.
+    run("--filter=rt_recording/ok/*", "--repeat=2", "--shuffle", "--seed=42", *extra)
 directory, index = bundles(output)[0]
 assert index["schemaVersion"] == 1
 assert index["errors"] == []
@@ -90,8 +93,9 @@ for case in ET.parse(junit).getroot().findall("testcase"):
         assert props["gentest.property.whitespace   "] == "distinct key"
 
 if allure_enabled:
-    reports = [json.loads(p.read_text(encoding="utf-8")) for p in (root / "allure").glob("*-result.json")]
-    assert len(reports) == 8
+    allure = root / "allure"
+    reports = [json.loads(p.read_text(encoding="utf-8")) for p in allure.glob("*-result.json")]
+    assert len(reports) == 16  # Two runs of eight cases each.
     shared = []
     for report in reports:
         assert report["parameters"]
@@ -100,11 +104,17 @@ if allure_enabled:
             assert parameters["gentest.property.invalid_utf8"] == "\ufffd"
             assert parameters["gentest.property.nul"] == "a\0b"
         for attachment in report["attachments"]:
-            path = root / "allure" / attachment["source"]
+            path = allure / attachment["source"]
             assert path.is_file()
             if attachment["name"] == "global":
                 shared.append(path)
-    assert len(shared) == 8 and len(set(shared)) == 1
+            if attachment["name"] == "runtime record index":
+                # The index names its records by file; they sit next to it in the Allure directory.
+                for scope in json.loads(path.read_text(encoding="utf-8"))["scopes"]:
+                    for record in scope["data"]["records"]:
+                        assert (allure / record["path"]).is_file(), record
+    # Each run writes its run-scope record once, under its own name.
+    assert len(shared) == 16 and len(set(shared)) == 2
 
 # Runtime failures keep earlier records and local teardown evidence.
 for name, expected, rc in [("invalid", "fail", 1), ("exception", "fail", 1), ("skip", "skip", 0),
@@ -132,8 +142,13 @@ assert waiting["data"]["properties"]["local_teardown"] is True
 
 # Select a case that acquires RunInfo so repeated runner invocations exercise
 # fresh shared-fixture scope state as well as fresh result bundles.
-run("--record-twice", "--run=rt_recording/ok/scalars", f"--records={root / 'twice'}")
+twice_allure = [f"--allure-dir={root / 'twice-allure'}"] if allure_enabled else []
+run("--record-twice", "--run=rt_recording/ok/scalars", f"--records={root / 'twice'}", *twice_allure)
 first, second = [index for _, index in bundles(root / "twice")]
+if allure_enabled:
+    # Two runs in one process write two results that share no file.
+    names = sorted(p.name for p in (root / "twice-allure").glob("*-result.json"))
+    assert len(names) == 2 and names[0].split("-0-result")[0] != names[1].split("-0-result")[0], names
 assert first["run"]["properties"]["run"] == 1
 assert second["run"]["properties"]["run"] == 2
 assert "first_run_only" not in second["run"]["properties"]

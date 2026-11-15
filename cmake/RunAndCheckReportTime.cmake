@@ -4,7 +4,8 @@
 #     -P cmake/RunAndCheckReportTime.cmake
 #
 # Runs the program, then checks that FILE exists, optionally contains REQUIRED_SUBSTRING,
-# and reports a positive serialized time for the target item.
+# and reports a positive time for the target item: JUnit's `time` attribute, or the
+# Allure result's `stop - start` in milliseconds.
 
 if(NOT DEFINED PROG)
   message(FATAL_ERROR "PROG not set")
@@ -34,7 +35,14 @@ if(DEFINED ARGS)
   endif()
 endif()
 
-if(EXISTS "${FILE}")
+# FILE may be a glob, since Allure names each result file after its run: matches left
+# by an earlier run are removed first, and exactly one must exist afterwards.
+if(FILE MATCHES "[*?]")
+  file(GLOB _stale_matches LIST_DIRECTORIES false "${FILE}")
+  if(_stale_matches)
+    file(REMOVE ${_stale_matches})
+  endif()
+elseif(EXISTS "${FILE}")
   file(REMOVE "${FILE}")
 endif()
 
@@ -51,6 +59,14 @@ if(DEFINED EXPECT_RC AND NOT "${EXPECT_RC}" STREQUAL "")
   endif()
 endif()
 
+if(FILE MATCHES "[*?]")
+  file(GLOB _matches LIST_DIRECTORIES false "${FILE}")
+  list(LENGTH _matches _match_count)
+  if(NOT _match_count EQUAL 1)
+    message(FATAL_ERROR "Expected one file matching ${FILE}, found ${_match_count}: ${_matches}\nProgram exit code: ${rc}\nOutput:\n${out}\nErrors:\n${err}")
+  endif()
+  set(FILE "${_matches}")
+endif()
 if(NOT EXISTS "${FILE}")
   message(FATAL_ERROR "Expected file not found: ${FILE}\nProgram exit code: ${rc}\nOutput:\n${out}\nErrors:\n${err}")
 endif()
@@ -77,8 +93,17 @@ if(_format STREQUAL "JUNIT")
   string(REGEX MATCH "time=\"([^\"]+)\"" _time_match "${_tail}")
   set(_time_value "${CMAKE_MATCH_1}")
 elseif(_format STREQUAL "ALLURE")
-  string(REGEX MATCH "\"time\":([0-9.eE+-]+)" _time_match "${_content}")
-  set(_time_value "${CMAKE_MATCH_1}")
+  string(REGEX MATCH "\"start\":([0-9]+)" _start_match "${_content}")
+  set(_allure_start "${CMAKE_MATCH_1}")
+  string(REGEX MATCH "\"stop\":([0-9]+)" _stop_match "${_content}")
+  set(_allure_stop "${CMAKE_MATCH_1}")
+  if(_allure_start STREQUAL "" OR _allure_stop STREQUAL "")
+    message(FATAL_ERROR "Allure start/stop not found in ${FILE}\nContent:\n${_content}")
+  endif()
+  math(EXPR _time_value "${_allure_stop} - ${_allure_start}")
+  if(_time_value LESS_EQUAL 0)
+    message(FATAL_ERROR "Allure duration must be positive, got ${_time_value} ms. File: ${FILE}\nContent:\n${_content}")
+  endif()
 else()
   message(FATAL_ERROR "Unsupported FORMAT '${FORMAT}'")
 endif()

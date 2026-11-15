@@ -80,7 +80,7 @@ records and only `--junit=results.xml`, the runner creates
 
 Allure exports effective scalar parameters, typed payload attachments, and a
 per-case JSON scope index. Run/suite payloads are written once and referenced by
-applicable cases. Allure retains its existing build-time Boost.JSON requirement.
+applicable cases.
 Recording itself works without any exporter. Listing does not execute hooks or
 create recording files.
 

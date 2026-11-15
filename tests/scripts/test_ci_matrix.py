@@ -35,16 +35,15 @@ class MatrixTests(unittest.TestCase):
         self.assertTrue(any(job.get("enable_package_tests") == "ON" for job in selected["windows"]["include"]))
         self.assertTrue(any(job["compiler"] == "appleclang" for job in selected["macos"]["include"]))
 
-    def test_primary_allure_and_sanitizer_lanes_are_present(self):
+    def test_primary_and_sanitizer_lanes_are_present(self):
         linux = select_matrix()["linux"]["include"]
         primary = [entry for entry in linux if entry.get("primary") and entry["compiler"] == "clang"]
         self.assertEqual({entry["build_type"] for entry in primary}, {"debug", "ASan+UBSan", "TSan"})
         self.assertTrue(all(entry["clang_version"] == str(LLVM_MAJOR) for entry in primary))
-        allure = [entry for entry in linux if entry.get("allure")]
-        self.assertEqual(len(allure), 1)
-        self.assertEqual(allure[0]["build_type"], "debug")
-        self.assertTrue(allure[0]["primary"])
-        self.assertEqual(allure[0]["enable_package_tests"], "ON")
+        primary_debug = next(entry for entry in primary if entry["build_type"] == "debug")
+        self.assertEqual(primary_debug["enable_package_tests"], "ON")
+        # Allure tests run in every lane now that the writer needs no optional library.
+        self.assertFalse(any("allure" in entry for entry in linux))
         self.assertEqual(next(entry for entry in primary if entry["build_type"] == "ASan+UBSan")["preset"], "alusan-system")
         self.assertEqual(next(entry for entry in primary if entry["build_type"] == "TSan")["preset"], "tsan-system")
 

@@ -421,9 +421,6 @@ jobs:
             libgmock-dev \
             libtrompeloeil-cpp-dev \
             doctest-dev
-          if [ "${{ matrix.allure }}" = "true" ]; then
-            apt_install libboost-json-dev
-          fi
           if [ "${{ matrix.setup_mode }}" = "apt-llvm-org" ]; then
             curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
             printf '%s\n' \
@@ -616,9 +613,6 @@ jobs:
             "-DGENTEST_CODEGEN_HOST_CLANG=${GENTEST_CODEGEN_HOST_CLANG}"
             "-DGENTEST_ENABLE_PACKAGE_TESTS=${{ matrix.enable_package_tests || 'OFF' }}"
           )
-          if [ "${{ matrix.allure }}" = "true" ]; then
-            CMAKE_ARGS+=("-DGENTEST_ENABLE_ALLURE_TESTS=ON" "-DGENTEST_USE_BOOST_JSON=ON")
-          fi
           if [ "${{ matrix.compiler }}" = "clang" ]; then
             CMAKE_ARGS+=("-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${GENTEST_CODEGEN_CLANG_SCAN_DEPS}")
           fi

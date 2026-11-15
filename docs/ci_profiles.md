@@ -100,7 +100,7 @@ Windows rows that produced identical `RelWithDebInfo` builds are consolidated;
 all retained LLVM versions still run both Clang and MSVC with explicit build and
 CTest configuration selection, including representative package consumers.
 
-Primary LLVM 23 coverage includes full Debug CTest with Allure and Boost.JSON,
+Every lane runs the Allure writer tests. Primary LLVM 23 coverage includes full Debug CTest,
 ASan/LSan/UBSan, TSan, and a separate libassert configuration without exceptions.
 TSan death tests run normally. The guard on the configured CTest inventory fails
 if the death inventory is empty or any death test is disabled.

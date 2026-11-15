@@ -51,12 +51,14 @@ struct BagExport {
     std::vector<ReportAttachment> attachments;
 };
 
-BagExport export_bag(const RecordingBag &bag, std::size_t scope_id) {
+// Record files are named after the run's report token: the Allure directory they are
+// also written to may be shared with other runs.
+BagExport export_bag(const RecordingBag &bag, std::string_view token, std::size_t scope_id) {
     BagExport result;
     result.json = "{\"properties\":" + properties_json(bag.properties) + ",\"records\":[";
     for (std::size_t i = 0; i < bag.records.size(); ++i) {
         const auto &record   = bag.records[i];
-        const auto  filename = fmt::format("runtime-record-{}-{}{}", scope_id, i, extension(record.content_type));
+        const auto  filename = fmt::format("{}-record-{}-{}{}", token, scope_id, i, extension(record.content_type));
         if (i != 0)
             result.json += ',';
         result.json += fmt::format(R"({{"sequence":{},"name":{},"contentType":{},"schema":{},"path":{}}})", i, json_string(record.name),
@@ -101,7 +103,8 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
     try {
         std::map<const RecordingBag *, BagExport> bags;
         std::size_t                               next_id = 0;
-        auto add_bag = [&](const RecordingBag &bag) { bags.emplace(&bag, export_bag(bag, next_id++)); };
+        const std::string                         token   = report_token(acc);
+        auto add_bag = [&](const RecordingBag &bag) { bags.emplace(&bag, export_bag(bag, token, next_id++)); };
         add_bag(session.run);
         for (const auto &[name, bag] : session.suites) {
             (void)name;
@@ -198,7 +201,7 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
                                             .mime_type      = "application/json",
                                             .file_extension = ".json",
                                             .contents       = std::make_shared<const std::string>(std::move(scopes)),
-                                            .shared_source  = fmt::format("runtime-case-{}-index.json", c.id)});
+                                            .shared_source  = fmt::format("{}-case-{}-index.json", token, c.id)});
             }
         }
     } catch (const std::exception &e) { record_runner_level_failure(acc, "gentest/reporting/records", e.what()); }

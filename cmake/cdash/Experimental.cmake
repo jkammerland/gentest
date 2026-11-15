@@ -97,9 +97,6 @@ set(_gentest_cdash_configure_options
     "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF"
     "-DCMAKE_BUILD_TYPE=${CTEST_BUILD_CONFIGURATION}"
     "-DGENTEST_ENABLE_ALLURE_TESTS=${_gentest_cdash_enable_allure}")
-if(_gentest_cdash_enable_allure STREQUAL "ON")
-    list(APPEND _gentest_cdash_configure_options "-DGENTEST_USE_BOOST_JSON=ON")
-endif()
 
 if(DEFINED ENV{GENTEST_CDASH_CONFIGURE_OPTIONS} AND NOT "$ENV{GENTEST_CDASH_CONFIGURE_OPTIONS}" STREQUAL "")
     set(_gentest_cdash_extra_options "$ENV{GENTEST_CDASH_CONFIGURE_OPTIONS}")

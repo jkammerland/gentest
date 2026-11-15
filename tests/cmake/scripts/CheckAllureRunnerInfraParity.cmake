@@ -54,7 +54,7 @@ if(DEFINED EXPECT_RC AND NOT "${EXPECT_RC}" STREQUAL "")
   endif()
 endif()
 
-file(GLOB _results "${OUT_DIR}/result-*-result.json")
+file(GLOB _results "${OUT_DIR}/*-result.json")
 list(LENGTH _results _result_count)
 if(_result_count LESS 2)
   message(FATAL_ERROR "Expected at least 2 Allure result files, found ${_result_count}. Output:\n${_all}")

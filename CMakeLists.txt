@@ -76,7 +76,10 @@ option(GENTEST_REQUIRE_PACKAGE_SIGNING "Fail package configuration unless a GPG 
 option(GENTEST_RELEASE_HOST_DEVELOPER_KIT "Label CPack output as the transitional host-bound developer kit" OFF)
 set(GENTEST_GPG_SIGNING_KEY "" CACHE STRING "GPG fingerprint or key ID used to sign release packages")
 set(GENTEST_GPG_PASSPHRASE_FILE "" CACHE FILEPATH "Optional file containing the GPG signing-key passphrase")
-option(GENTEST_USE_BOOST_JSON "Use Boost.JSON for Allure writer in generated runtime" OFF)
+if(GENTEST_USE_BOOST_JSON)
+    message(DEPRECATION
+        "GENTEST_USE_BOOST_JSON is no longer used: the Allure writer is always built and no longer needs Boost.JSON.")
+endif()
 set(GENTEST_ENABLE_PUBLIC_MODULES "OFF" CACHE STRING "Enable gentest's public C++ module interfaces (AUTO, ON, or OFF)")
 set_property(CACHE GENTEST_ENABLE_PUBLIC_MODULES PROPERTY STRINGS AUTO ON OFF)
 

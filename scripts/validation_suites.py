@@ -57,7 +57,7 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
         add("cmake", "--preset=debug-system", "-B", build,
             f"-DCMAKE_C_COMPILER={cc}", f"-DCMAKE_CXX_COMPILER={cxx}",
             f"-DCMAKE_PREFIX_PATH={serializers}", "-DGENTEST_ENABLE_RECORDING_ADAPTER_TESTS=ON",
-            "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF", "-DGENTEST_USE_BOOST_JSON=ON",
+            "-DGENTEST_ENABLE_PACKAGE_TESTS=OFF",
             "-Dgentest_INSTALL=ON", f"-DCMAKE_INSTALL_PREFIX={install}")
         add("cmake", "--build", build, "--parallel", jobs, "--target",
             "gentest_recording_tests", "gentest_recording_lifetime_tests", "gentest_recording_shared_payloads_tests",

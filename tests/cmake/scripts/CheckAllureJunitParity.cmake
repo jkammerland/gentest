@@ -38,13 +38,19 @@ if(DEFINED ARGS)
   endif()
 endif()
 
+# Writing the Allure output must fail. By default its path is an ordinary file, so the
+# directory cannot be created; ALLURE_DIR may instead name an existing directory that
+# takes no new files (/proc on Linux), so each result fails to open.
 file(REMOVE_RECURSE "${OUT_DIR}")
 file(MAKE_DIRECTORY "${OUT_DIR}")
-file(MAKE_DIRECTORY "${OUT_DIR}/result-0-result.json")
+if(NOT DEFINED ALLURE_DIR OR "${ALLURE_DIR}" STREQUAL "")
+  set(ALLURE_DIR "${OUT_DIR}/allure-is-a-file")
+  file(WRITE "${ALLURE_DIR}" "not a directory\n")
+endif()
 file(REMOVE "${JUNIT_PATH}")
 
 execute_process(
-  COMMAND ${_emu} "${PROG}" ${_args} "--allure-dir=${OUT_DIR}" "--junit=${JUNIT_PATH}"
+  COMMAND ${_emu} "${PROG}" ${_args} "--allure-dir=${ALLURE_DIR}" "--junit=${JUNIT_PATH}"
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _out
   ERROR_VARIABLE _err
