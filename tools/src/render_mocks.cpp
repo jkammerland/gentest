@@ -303,22 +303,64 @@ std::string template_usage_suffix(const MockMethodInfo &method) {
     return out;
 }
 
+// `&Target::name<Args>`. An operator name must not run into the template
+// argument list: `operator<<T>` would lex as `operator<<`.
+std::string raw_method_reference(const MockMethodInfo &method, const std::string &fq_type, const std::string &tpl_usage) {
+    const bool separate = !tpl_usage.empty() && method.method_name.starts_with("operator");
+    return fmt::format("&{0}::{1}{2}{3}", fq_type, method.method_name, separate ? " " : "", tpl_usage);
+}
+
+bool is_declared_by_target(const MockClassInfo &cls, const MockMethodInfo &method) {
+    return method.qualified_name == fmt::format("{}::{}", cls.qualified_name, method.method_name);
+}
+
+// Constant expression that names exactly `method`, usable as a template
+// argument. A method the target inherits is selected by its function type and
+// keeps the pointer type of its declaring class: converting it to a pointer
+// to member of the target is not a valid template argument for GCC.
+std::string method_constant_reference(const MockClassInfo &cls, const MockMethodInfo &method, const MethodTypeRenderParts &type_parts,
+                                      const std::string &fq_type, const std::string &tpl_usage) {
+    const std::string raw = raw_method_reference(method, fq_type, tpl_usage);
+    if (!method.is_static && method.template_prefix.empty() && !is_declared_by_target(cls, method)) {
+        return fmt::format("::gentest::detail::mocking::DeclaredMethod<{0}{1}>::select({2})", type_parts.signature, type_parts.qualifiers,
+                           raw);
+    }
+    return fmt::format("static_cast<{0}>({1})", type_parts.pointer_type, raw);
+}
+
+// The method as `EXPECT_CALL(mock, name)` names it: `&Target::name`, typed on
+// the declaring class. Selecting it by function type keeps the expression
+// valid when the name is overloaded.
+std::string fallback_method_reference(const MockMethodInfo &method, const MethodTypeRenderParts &type_parts, const std::string &fq_type,
+                                      const std::string &tpl_usage) {
+    std::string raw = raw_method_reference(method, fq_type, tpl_usage);
+    if (!method.template_prefix.empty()) {
+        return raw;
+    }
+    if (method.is_static) {
+        return fmt::format("static_cast<{0}>({1})", type_parts.pointer_type, raw);
+    }
+    return fmt::format("::gentest::detail::mocking::DeclaredMethod<{0}{1}>::select({2})", type_parts.signature, type_parts.qualifiers, raw);
+}
+
+// The dispatch is a single expression: generated locals would collide with
+// user parameter names such as `token`.
 std::string dispatch_block(const std::string &indent, const MockClassInfo &cls, const MockMethodInfo &method, const std::string &fq_type,
                            const std::string &tpl_usage) {
     RenderBuffer      block;
-    const auto        type_parts        = render_method_type_parts(cls, method);
-    const std::string args              = argument_list(method);
-    const bool        returns_value     = method.return_type != "void";
-    const std::string fq_method         = fmt::format("::{}", method.qualified_name);
-    const std::string fq_method_escaped = escape_string(fq_method);
-    const std::string dispatch_args     = args.empty() ? std::string{} : fmt::format(", {}", args);
-    const std::string method_constant_ref =
-        fmt::format("static_cast<{0}>(&{1}::{2}{3})", type_parts.pointer_type, fq_type, method.method_name, tpl_usage);
-    const std::string raw_method_ref = fmt::format("&{0}::{1}{2}", fq_type, method.method_name, tpl_usage);
-    block.append("{0}auto token = ::gentest::detail::mocking::method_constant_identity<{1}>();\n", indent, method_constant_ref);
-    block.append("{0}auto fallback_token = this->gentest_mock_state_.identify({1});\n", indent, raw_method_ref);
-    block.append("{0}{1}this->gentest_mock_state_.template dispatch_with_fallback<{2}>(token, fallback_token, \"{3}\"{4});\n", indent,
-                 returns_value ? "return " : "", type_parts.expectation_push_types, fq_method_escaped, dispatch_args);
+    const auto        type_parts          = render_method_type_parts(cls, method);
+    const std::string args                = argument_list(method);
+    const bool        returns_value       = method.return_type != "void";
+    const std::string fq_method           = fmt::format("::{}", method.qualified_name);
+    const std::string fq_method_escaped   = escape_string(fq_method);
+    const std::string dispatch_args       = args.empty() ? std::string{} : fmt::format(", {}", args);
+    const std::string method_constant_ref = method_constant_reference(cls, method, type_parts, fq_type, tpl_usage);
+    const std::string raw_method_ref      = fallback_method_reference(method, type_parts, fq_type, tpl_usage);
+    block.append("{0}{1}this->gentest_mock_state_.template dispatch_with_fallback<{2}>(\n", indent, returns_value ? "return " : "",
+                 type_parts.expectation_push_types);
+    block.append("{0}    ::gentest::detail::mocking::method_constant_identity<{1}>(),\n", indent, method_constant_ref);
+    block.append("{0}    this->gentest_mock_state_.identify({1}),\n", indent, raw_method_ref);
+    block.append("{0}    \"{1}\"{2});\n", indent, fq_method_escaped, dispatch_args);
     return block.str();
 }
 
@@ -516,9 +558,21 @@ struct ForwardingPolicy {
     }
 };
 
+// A function parameter pack is spelled `Ts &&...` / `Ts...`.
+bool is_parameter_pack(const MockParamInfo &param) { return std::string_view(param.type).ends_with("..."); }
+
 std::string argument_expr(const MockParamInfo &param) {
     static const ForwardingPolicy policy{};
-    return policy.expr_for(param);
+    std::string                   expr = policy.expr_for(param);
+    if (is_parameter_pack(param)) {
+        expr += "...";
+    }
+    return expr;
+}
+
+// Statement that marks a constructor parameter as used.
+std::string unused_parameter_statement(const MockParamInfo &param) {
+    return is_parameter_pack(param) ? fmt::format("((void){}, ...);", param.name) : fmt::format("(void){};", param.name);
 }
 
 std::string build_method_declaration(const MockClassInfo &cls, const MockMethodInfo &method) {
@@ -720,7 +774,7 @@ std::string build_mock_access(const MockClassInfo &cls, bool module_mode = false
         }
         const std::string fq_method           = fmt::format("::{}", method.qualified_name);
         const std::string fq_method_escaped   = escape_string(fq_method);
-        const std::string method_constant_ref = fmt::format("static_cast<{0}>(&{1}::{2})", pointer_type, fq_type, method.method_name);
+        const std::string method_constant_ref = method_constant_reference(cls, method, type_parts, fq_type, {});
         const std::string branch_intro        = first_branch ? "        if constexpr" : "        else if constexpr";
         first_branch                          = false;
         body.append("{0} (::gentest::detail::mocking::same_v<MethodPtr, {1}>) {{\n", branch_intro, pointer_type);
@@ -802,6 +856,13 @@ struct SourcePathAlias {
             if (visible_cursor == canonical_cursor) {
                 break;
             }
+            // Above the symlink the two paths are unrelated directories that
+            // merely sit at the same distance from the source.
+            const fs::path resolved_cursor = fs::weakly_canonical(visible_cursor, ec).lexically_normal();
+            if (ec || resolved_cursor != canonical_cursor) {
+                ec.clear();
+                break;
+            }
             aliases.push_back(SourcePathAlias{
                 .canonical_prefix = canonical_cursor,
                 .visible_prefix   = visible_cursor,
@@ -827,12 +888,14 @@ struct SourcePathAlias {
 [[nodiscard]] std::filesystem::path remap_to_visible_source_path(const std::filesystem::path        &path,
                                                                  const std::vector<SourcePathAlias> &aliases) {
     for (const auto &alias : aliases) {
-        const auto rel = path.lexically_relative(alias.canonical_prefix);
-        if (!rel.empty() && !rel.is_absolute()) {
-            return (alias.visible_prefix / rel).lexically_normal();
-        }
         if (path == alias.canonical_prefix) {
             return alias.visible_prefix;
+        }
+        // Only paths below the aliased prefix are reached through it; a
+        // relative path that climbs out (`../x`) names something else.
+        const auto rel = path.lexically_relative(alias.canonical_prefix);
+        if (!rel.empty() && !rel.is_absolute() && *rel.begin() != ".." && rel != ".") {
+            return (alias.visible_prefix / rel).lexically_normal();
         }
     }
     return path;
@@ -993,7 +1056,7 @@ void append_mock_implementation(RenderBuffer &impl, const MockClassInfo &cls) {
         } else {
             impl.append_raw(" : gentest_mock_state_{} {\n");
             for (const auto &p : ctor.parameters) {
-                impl.append("    (void){};\n", p.name);
+                impl.append("    {}\n", unused_parameter_statement(p));
             }
             impl.append_raw("}\n");
         }
@@ -1236,7 +1299,7 @@ std::string third_party_constructor_body(const MockClassInfo &cls, const MockCto
     body.append_raw(" {\n");
     if (!cls.derive_for_virtual) {
         for (const auto &param : ctor.parameters) {
-            body.append("        (void){};\n", param.name);
+            body.append("        {}\n", unused_parameter_statement(param));
         }
     }
     body.append_raw("    }\n");
@@ -1361,7 +1424,9 @@ std::string third_party_default_overload_call_args(const MockMethodInfo &method,
         if (i != 0) {
             out += ", ";
         }
-        out += i < arity ? method.parameters[i].name : method.parameters[i].default_arg;
+        // Forward like the mocked method itself: a by-value `std::unique_ptr`
+        // or an rvalue reference cannot be passed on as an lvalue.
+        out += i < arity ? argument_expr(method.parameters[i]) : method.parameters[i].default_arg;
     }
     return out;
 }
@@ -1599,9 +1664,29 @@ std::string generate_dispatcher_header(const std::filesystem::path &included_fil
 
 } // namespace
 
+// The native mock is the class `gentest::mock<T>`: a member function named
+// `mock` would declare a constructor there.
+std::string gentest_unsupported_reason(const MockClassInfo &cls) {
+    for (const auto &method : cls.methods) {
+        if (method.method_name == "mock") {
+            return fmt::format(
+                "gentest::mock<{0}>: cannot mock a method named 'mock' ({1}): the generated class is itself named 'mock', so "
+                "the method would be read as a constructor. Rename the method or use the gmock or trompeloeil backend",
+                cls.qualified_name, method.qualified_name);
+        }
+    }
+    return {};
+}
+
 MockRenderResult render_gentest_mocks(const CollectorOptions &options, const std::vector<MockClassInfo> &mocks) {
     MockRenderResult result;
-    const auto       domains = gentest::codegen::build_mock_output_domains(options);
+    for (const auto &cls : mocks) {
+        if (std::string reason = gentest_unsupported_reason(cls); !reason.empty()) {
+            result.error = std::move(reason);
+            return result;
+        }
+    }
+    const auto domains = gentest::codegen::build_mock_output_domains(options);
 
     std::vector<const MockClassInfo *> classes;
     classes.reserve(mocks.size());
