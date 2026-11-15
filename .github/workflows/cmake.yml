@@ -173,7 +173,7 @@ jobs:
 
       - name: Test Bazel Bzlmod Consumer
         if: matrix.compiler == 'llvm@23' && matrix.build-type == 'debug' && matrix.variant == 'default'
-        run: ctest --preset=${{ matrix.build-type }} --output-on-failure -R '^(gentest_bazel_bzlmod_consumer)$'
+        run: ctest --no-tests=error --preset=${{ matrix.build-type }} --output-on-failure -R '^(gentest_bazel_bzlmod_consumer)$'
 
       - name: Test
         run: |
@@ -323,7 +323,7 @@ jobs:
       - name: Test Bazel helper contract
         if: matrix.compiler == 'clang'
         shell: pwsh
-        run: ctest --preset=${{ matrix.preset }} -C RelWithDebInfo --output-on-failure -R '^(gentest_bazel_helpers_use_configured_toolchain)$'
+        run: ctest --no-tests=error --preset=${{ matrix.preset }} -C RelWithDebInfo --output-on-failure -R '^(gentest_bazel_helpers_use_configured_toolchain)$'
 
       - name: Test
         if: matrix.compiler == 'clang'

@@ -1,4 +1,4 @@
-project('gentest', 'cpp', default_options: ['cpp_std=c++20'])
+project('gentest', 'cpp', version: '2.0.0', default_options: ['cpp_std=c++20'])
 
 cpp = meson.get_compiler('cpp')
 fs = import('fs')
@@ -57,21 +57,36 @@ if parent:
     candidates.append(os.path.join(parent, '_deps', 'fmt-src', 'include'))
 for candidate in candidates:
     if os.path.isdir(candidate):
+        # First line: the spelling include_directories() accepts (relative when
+        # inside the source tree). Second line: the absolute path for tools that
+        # do not run from the source root.
         if source_root and os.path.commonpath([source_root, candidate]) == source_root:
             print(os.path.relpath(candidate, source_root))
         else:
             print(candidate)
+        print(candidate)
         break
 ''',
   meson.project_source_root(),
   codegen,
   check: true
 )
-fmt_fallback_include_dir = fmt_fallback_include_cmd.stdout().strip()
+fmt_fallback_include_dir = ''
+# Absolute spelling of the same directory. Codegen runs from the build
+# directory, so it must not be handed the source-relative one.
+fmt_fallback_include_path = ''
+fmt_fallback_include_lines = fmt_fallback_include_cmd.stdout().strip().split('\n')
+if fmt_fallback_include_lines.length() == 2
+  fmt_fallback_include_dir = fmt_fallback_include_lines[0].strip()
+  fmt_fallback_include_path = fmt_fallback_include_lines[1].strip()
+endif
 use_fmt_fallback = not fmt_dep.found() and fmt_fallback_include_dir != ''
 project_includes = [inc]
+# Consumers of the exported dependencies compile gentest headers that include fmt.
+gentest_dep_includes = [include_directories('include')]
 if use_fmt_fallback
   project_includes += [include_directories(fmt_fallback_include_dir)]
+  gentest_dep_includes += [include_directories(fmt_fallback_include_dir)]
 endif
 
 # Build the runtime as a static library (compiled, not header-only)
@@ -151,7 +166,7 @@ libgentest_runtime = static_library(
   objects: libgentest_bench_escape.extract_all_objects(recursive: false),
   link_with: libgentest_notifications,
   include_directories: project_includes,
-  cpp_args: runtime_cargs,
+  cpp_args: runtime_cargs + ['-DGENTEST_VERSION_STR="@0@"'.format(meson.project_version())],
   dependencies: runtime_deps,
 )
 
@@ -164,19 +179,19 @@ libgentest_main = static_library(
 )
 
 gentest_runtime_dep = declare_dependency(
-  include_directories: gentest_public_include,
+  include_directories: gentest_dep_includes,
   compile_args: runtime_cargs,
   dependencies: runtime_deps,
   link_with: libgentest_runtime,
 )
 gentest_main_dep = declare_dependency(
-  include_directories: gentest_public_include,
+  include_directories: gentest_dep_includes,
   compile_args: runtime_cargs,
   dependencies: runtime_deps,
   link_with: libgentest_main,
 )
 gentest_dep = declare_dependency(
-  include_directories: gentest_public_include,
+  include_directories: gentest_dep_includes,
   compile_args: runtime_cargs,
   dependencies: runtime_deps,
   link_with: [libgentest_main, libgentest_runtime],
@@ -207,7 +222,7 @@ foreach fmt_include_dir : fmt_pkgconfig_include_dirs
   clang_args += ['-I@0@'.format(fmt_include_dir)]
 endforeach
 if use_fmt_fallback
-  clang_args += ['-I@0@'.format(fmt_fallback_include_dir)]
+  clang_args += ['-I@0@'.format(fmt_fallback_include_path)]
 endif
 if get_option('build_self_tests')
   tests_suites = ['unit', 'integration', 'fixtures', 'skiponly']

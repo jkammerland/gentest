@@ -43,10 +43,14 @@ PY
 
 jobs="${CLANG_TIDY_JOBS:-$(default_jobs)}"
 
-materialize_generated_targets=()
-while IFS= read -r target_name; do
-    materialize_generated_targets+=("${target_name}")
-done < <(python3 - "${build_dir}/compile_commands.json" <<'PY'
+tidy_compdb_dir="$(mktemp -d "${build_dir}/clang-tidy.XXXXXX")"
+trap 'rm -rf "${tidy_compdb_dir}"' EXIT
+tidy_compdb="${tidy_compdb_dir}/compile_commands.json"
+
+# Write each Python-produced list to a file before reading it: process
+# substitution would discard a failing exit status and lint nothing.
+generated_target_list="${tidy_compdb_dir}/generated_targets.txt"
+python3 - "${build_dir}/compile_commands.json" > "${generated_target_list}" <<'PY'
 import json
 import pathlib
 import re
@@ -92,21 +96,18 @@ for entry in compile_commands:
     seen.add(target)
     print(target)
 PY
-)
+materialize_generated_targets=()
+while IFS= read -r target_name; do
+    materialize_generated_targets+=("${target_name}")
+done < "${generated_target_list}"
 
 if [ "${#materialize_generated_targets[@]}" -ne 0 ]; then
     echo "clang-tidy: materializing generated targets: ${materialize_generated_targets[*]}"
     cmake --build "${build_dir}" --parallel "${jobs}" --target "${materialize_generated_targets[@]}"
 fi
 
-tidy_compdb_dir="$(mktemp -d "${build_dir}/clang-tidy.XXXXXX")"
-trap 'rm -rf "${tidy_compdb_dir}"' EXIT
-tidy_compdb="${tidy_compdb_dir}/compile_commands.json"
-
-tidy_files=()
-while IFS= read -r tidy_file; do
-    tidy_files+=("${tidy_file}")
-done < <(python3 - "${repo_root}" "${build_dir}/compile_commands.json" "${tidy_compdb}" <<'PY'
+tidy_file_list="${tidy_compdb_dir}/tidy_files.txt"
+python3 - "${repo_root}" "${build_dir}/compile_commands.json" "${tidy_compdb}" > "${tidy_file_list}" <<'PY'
 import json
 import pathlib
 import sys
@@ -145,11 +146,15 @@ output_path.write_text(json.dumps([seen[key] for key in sorted(seen)], indent = 
 for rel in sorted(seen):
     print(rel)
 PY
-)
+tidy_files=()
+while IFS= read -r tidy_file; do
+    tidy_files+=("${tidy_file}")
+done < "${tidy_file_list}"
 
+# A lint gate that finds nothing to lint is misconfigured, not clean.
 if [ "${#tidy_files[@]}" -eq 0 ]; then
-    echo "No clang-tidy translation units found."
-    exit 0
+    echo "No clang-tidy translation units found in ${build_dir}/compile_commands.json." >&2
+    exit 1
 fi
 
 line_filter_json="$(python3 - "${repo_root}" <<'PY'
@@ -280,10 +285,8 @@ fi
 
 run_module_tidy() {
     local module_file="$1"
-    module_args=()
-    while IFS= read -r module_arg; do
-        module_args+=("${module_arg}")
-    done < <(python3 - "${repo_root}" "${tidy_compdb}" "${module_file}" <<'PY'
+    local module_arg_list="${tidy_compdb_dir}/module_args.txt"
+    python3 - "${repo_root}" "${tidy_compdb}" "${module_file}" > "${module_arg_list}" <<'PY'
 import json
 import pathlib
 import shlex
@@ -326,7 +329,10 @@ for entry in compile_commands:
 else:
     raise SystemExit(f"missing compile command for {target}")
 PY
-)
+    module_args=()
+    while IFS= read -r module_arg; do
+        module_args+=("${module_arg}")
+    done < "${module_arg_list}"
     "${clang_tidy_bin}" "${args[@]}" --line-filter="${LINE_FILTER_JSON}" "${module_file}" -- "${module_args[@]}"
 }
 

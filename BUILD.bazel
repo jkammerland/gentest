@@ -38,6 +38,9 @@ _gentest_linkopts = select({
 })
 
 _gentest_module_features = ['cpp_modules']
+
+# Keep in sync with MODULE.bazel and CMakeLists.txt (checked by gentest_vcpkg_manifest_metadata).
+_gentest_version = '2.0.0'
 _gentest_public_copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({
     '@bazel_tools//src/conditions:windows': ['/wd5030'],
     '//conditions:default': ['-Wno-attributes'],
@@ -246,6 +249,8 @@ cc_library(
     copts = _gentest_public_copts,
     includes = ['include', 'third_party/include'],
     linkopts = _gentest_linkopts,
+    # Defines are shell-tokenized, so the quotes of the string literal are escaped.
+    local_defines = ['GENTEST_VERSION_STR=\\"' + _gentest_version + '\\"'],
     deps = [':gentest_bench_escape', ':gentest_notifications', '@fmt//:fmt'],
     visibility = ['//visibility:public'],
 )

@@ -171,6 +171,7 @@ target_compile_options(gentest_regression_local_fixture_teardown_noexceptions
         $<$<NOT:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:-fno-exceptions>)
 target_compile_definitions(gentest_regression_local_fixture_teardown_noexceptions
     PRIVATE
+        FMT_USE_EXCEPTIONS=0
         FMT_EXCEPTIONS=0
         _HAS_EXCEPTIONS=0)
 target_compile_options(gentest_regression_async_local_fixture_teardown_noexceptions
@@ -179,6 +180,7 @@ target_compile_options(gentest_regression_async_local_fixture_teardown_noexcepti
         $<$<NOT:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:-fno-exceptions>)
 target_compile_definitions(gentest_regression_async_local_fixture_teardown_noexceptions
     PRIVATE
+        FMT_USE_EXCEPTIONS=0
         FMT_EXCEPTIONS=0
         _HAS_EXCEPTIONS=0)
 
@@ -233,6 +235,7 @@ foreach(_gentest_noexc_target
             $<$<NOT:$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>:-fno-exceptions>)
     target_compile_definitions(${_gentest_noexc_target}
         PRIVATE
+            FMT_USE_EXCEPTIONS=0
             FMT_EXCEPTIONS=0
             _HAS_EXCEPTIONS=0
             GENTEST_EXPECT_NO_EXCEPTIONS=1)

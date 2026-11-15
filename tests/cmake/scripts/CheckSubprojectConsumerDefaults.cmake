@@ -96,6 +96,16 @@ function(_gentest_assert_defaults _cache_file _context)
       "${_context} must default GENTEST_ENABLE_PUBLIC_MODULES=OFF so consumers do not build gentest public module interfaces unless they opt in explicitly.\n"
       "Observed cache entry: '${_public_modules_default}'")
   endif()
+
+  # The CRT is the top-level project's choice. gentest may select one for its
+  # own directories, but must never write it to the cache, where it would also
+  # apply to every target of a project that merely adds gentest.
+  file(STRINGS "${_cache_file}" _msvc_runtime_entry REGEX "^CMAKE_MSVC_RUNTIME_LIBRARY(:[A-Z]+)?=" LIMIT_COUNT 1)
+  if(_msvc_runtime_entry)
+    message(FATAL_ERROR
+      "${_context} must not write CMAKE_MSVC_RUNTIME_LIBRARY to the cache.\n"
+      "Observed cache entry: '${_msvc_runtime_entry}'")
+  endif()
 endfunction()
 
 message(STATUS "Configure top-level default-off fixture...")

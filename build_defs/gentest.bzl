@@ -33,6 +33,15 @@ _GENTEST_MODULE_LABEL = Label("//:gentest")
 _GENTEST_MOCK_MODULE_LABEL = Label("//:gentest_mock")
 _GENTEST_CODEGEN_TOOLCHAIN_TYPE = Label("//bazel:gentest_codegen_toolchain_type")
 
+def _gentest_lists_label(deps, label):
+    # Bazel rejects a label that is listed twice. select() values are opaque here.
+    if type(deps) != "list":
+        return False
+    for dep in deps:
+        if type(dep) in ("string", "Label") and native.package_relative_label(dep) == label:
+            return True
+    return False
+
 def _gentest_unique(items):
     seen = {}
     result = []
@@ -1019,7 +1028,10 @@ def gentest_attach_codegen_textual(
         srcs = final_srcs,
         copts = _gentest_compile_copts(defines, clang_args),
         linkopts = linkopts,
-        deps = [":{}".format(source_hdr_name)] + mock_targets + deps + ([_GENTEST_MAIN_LABEL] if not main else []),
+        # A custom main still needs the runtime; only gentest's main is optional.
+        deps = [":{}".format(source_hdr_name)] + mock_targets + deps +
+               ([] if _gentest_lists_label(deps, _GENTEST_RUNTIME_LABEL) else [_GENTEST_RUNTIME_LABEL]) +
+               ([_GENTEST_MAIN_LABEL] if not main else []),
         visibility = visibility,
     )
 
