@@ -84,6 +84,7 @@
 - Allure writer tests run in every CI lane; `GENTEST_ENABLE_ALLURE_TESTS` defaults to `ON`.
 - Codegen precompiles named modules into a fresh directory per run and removes it after; `GENTEST_CODEGEN_KEEP_MODULE_CACHE=1` keeps it.
 - Codegen precompiles each external module once per run instead of once per importing source.
+- The bundled `target_install_package` is updated from 7.1.0 to 7.5.0.
 
 ### Fixed
 

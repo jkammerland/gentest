@@ -179,10 +179,10 @@ if(${PROJECT_NAME}_INSTALL)
 
     # This helper runs in CMake on the host, outside any target sysroot.
     if(GENTEST_USE_INSTALLED_PACKAGE_HELPER)
-        find_package(target_install_package 7.1 CONFIG REQUIRED)
+        find_package(target_install_package 7.5 CONFIG REQUIRED)
     else()
         set(_gentest_target_install_package_root "${PROJECT_SOURCE_DIR}/third_party/target_install_package")
-        find_package(target_install_package 7.1.0 EXACT CONFIG REQUIRED
+        find_package(target_install_package 7.5.0 EXACT CONFIG REQUIRED
             PATHS "${_gentest_target_install_package_root}"
             NO_DEFAULT_PATH
             NO_CMAKE_FIND_ROOT_PATH)

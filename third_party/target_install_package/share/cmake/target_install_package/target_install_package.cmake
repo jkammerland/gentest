@@ -5,7 +5,7 @@ get_property(
   PROPERTY "list_file_include_guard_cmake_INITIALIZED"
   SET)
 if(_LFG_INITIALIZED)
-  list_file_include_guard(VERSION 7.1.0)
+  list_file_include_guard(VERSION 7.5.0)
 else()
   message(VERBOSE "including <${CMAKE_CURRENT_FUNCTION_LIST_FILE}>, without list_file_include_guard")
 
@@ -44,7 +44,7 @@ endif()
 # AUTOMATIC FINALIZATION:
 # - target_install_package() can be called at any time and in any order
 # - Multiple targets can share the same EXPORT_NAME without explicit coordination
-# - finalize_package() is called automatically at the end of CMAKE_SOURCE_DIR (top-level)
+# - Each export is finalized automatically at the end of CMAKE_SOURCE_DIR (top-level)
 #
 # API:
 #   target_install_package(TARGET_NAME
@@ -58,6 +58,10 @@ endif()
 #     INCLUDE_DESTINATION <include_dest>
 #     MODULE_DESTINATION <module_dest>
 #     SOURCE_DESTINATION <source_dest>
+#     SOURCE_FILE_SET_FROM_TARGET_SOURCES <file_set>
+#     SOURCE_LIBRARY_TYPE <STATIC|SHARED|OBJECT|AUTO>
+#     SOURCE_LIBRARY_ALIAS <alias>
+#     SOURCE_FILE_SET_PROPERTIES <file_set> <property> <boolean> [...]
 #     CMAKE_CONFIG_DESTINATION <config_dest>
 #     COMPONENT <component>
 #     DEBUG_POSTFIX <postfix>
@@ -96,13 +100,14 @@ endif()
 #     SBOM_DESTINATION <destination>
 #     SBOM_VERSION <version>
 #     SBOM_LICENSE <license>
+#     SBOM_DEFAULT_LICENSE <license>
 #     SBOM_DESCRIPTION <description>
 #     SBOM_HOMEPAGE_URL <url>
 #     SBOM_PACKAGE_URL <url>
 #     SBOM_FORMAT <format>
 #     DISABLE_RPATH)
 #
-#   SBOM requires CMAKE_EXPERIMENTAL_GENERATE_SBOM.
+#   SBOM on CMake 4.3 and 4.4 requires CMAKE_EXPERIMENTAL_GENERATE_SBOM.
 #
 # Parameters:
 #   TARGET_NAME                  - Name of the target to install.
@@ -118,10 +123,18 @@ endif()
 #   INCLUDE_DESTINATION          - Destination for installed headers (default: `${CMAKE_INSTALL_INCLUDEDIR}`).
 #   MODULE_DESTINATION           - Destination for C++20 modules (default: `${CMAKE_INSTALL_INCLUDEDIR}`).
 #   SOURCE_DESTINATION           - Destination for CMake 4.4 SOURCES file sets (default: `${CMAKE_INSTALL_DATADIR}/${EXPORT_NAME}/src`).
+#   SOURCE_FILE_SET_FROM_TARGET_SOURCES
+#                              - Creates a CMake 4.4 SOURCES file set from an interface library's ordinary target sources. Only
+#                                files that can be deterministically resolved inside the target's source or binary directory are accepted.
+#   SOURCE_LIBRARY_TYPE          - Creates an opt-in consumer-local library from installed SOURCES file sets. Supports STATIC,
+#                                  SHARED, OBJECT, or AUTO (uses BUILD_SHARED_LIBS at consumer configure time). Requires CMake 4.4+.
+#   SOURCE_LIBRARY_ALIAS         - Consumer alias suffix for SOURCE_LIBRARY_TYPE (default: `${ALIAS_NAME}_source`).
+#   SOURCE_FILE_SET_PROPERTIES   - CMake 4.4 source file-set property triples: `<file_set> <property> <boolean>`. Supported properties are
+#                                  `SKIP_LINTING`, `SKIP_PRECOMPILE_HEADERS`, `SKIP_UNITY_BUILD_INCLUSION`, and `CXX_SCAN_FOR_MODULES`.
 #   CMAKE_CONFIG_DESTINATION     - Destination for CMake config files (default: `${CMAKE_INSTALL_DATADIR}/cmake/${EXPORT_NAME}`).
 #   COMPONENT                    - Optional runtime component name. Development files stay in the shared `Development` component.
 #                                  If omitted, uses default "Runtime" and "Development" components.
-#   DEBUG_POSTFIX                - Debug postfix for library names (default: "d").
+#   DEBUG_POSTFIX                - Per-target debug postfix, including an explicit empty string. Otherwise preserves the final target property, then defaults to "d".
 #   ADDITIONAL_FILES             - Additional files to install, relative to source dir.
 #   ADDITIONAL_FILES_DESTINATION - Destination for additional files (default: install prefix root).
 #   ADDITIONAL_FILES_COMPONENTS  - Optional install components for additional files. If omitted, files use the development component.
@@ -132,14 +145,17 @@ endif()
 #   CPS                          - Generate Common Package Specification metadata for the whole export with CMake 4.3+.
 #   CPS_*                        - Options forwarded to install(PACKAGE_INFO ...). CPS version metadata defaults from VERSION unless CPS_PROJECT inherits it.
 #                                  If CPS_DEFAULT_TARGETS is omitted, only static, shared, and interface library aliases are default CPS targets.
-#                                  This wrapper rejects executables and CMake MODULE_LIBRARY targets for CPS exports.
-#   SBOM                         - Generate a software bill of materials for the whole export with CMake 4.3+ experimental install(SBOM).
+#                                  On CMake 4.3 and 4.4, this wrapper rejects executables and CMake MODULE_LIBRARY targets for CPS exports.
+#   SBOM                         - Generate a software bill of materials for the whole export with CMake 4.3+ install(SBOM).
 #   SBOM_*                       - Options used to configure install(SBOM ...). SBOM_NAME defaults to EXPORT_NAME. SBOM project metadata is resolved at
 #                                  target_install_package() call time and emitted explicitly with CMake project inheritance disabled.
 #                                  All SBOM calls for the same export must use the same metadata inheritance mode.
 #                                  SBOM version metadata defaults from explicit SBOM_VERSION, then explicit wrapper VERSION, then selected
 #                                  call-time project VERSION. Wrapper effective VERSION fallback only applies when SBOM_PROJECT was not explicit.
-#                                  CMAKE_EXPERIMENTAL_GENERATE_SBOM must be set to this CMake version's non-boolean activation value.
+#                                  SBOM_LICENSE sets the SPDX document data license. SBOM_DEFAULT_LICENSE (CMake 4.5+) sets the declared
+#                                  license of targets without SPDX_LICENSE. On CMake 4.5+, an inherited project SPDX_LICENSE fills both.
+#                                  On CMake 4.3 and 4.4, CMAKE_EXPERIMENTAL_GENERATE_SBOM must be set to that version's non-boolean
+#                                  activation value. CMake 4.5+ provides install(SBOM) without an experiment gate.
 #                                  Exports sharing one SBOM_NAME are aggregated with CMake 4.4+ and must use identical metadata.
 #   DISABLE_RPATH                - Disable automatic RPATH configuration for Unix/Linux/macOS (default: OFF).
 #
@@ -147,6 +163,9 @@ endif()
 #   - Installs headers, libraries, and config files for the target.
 #   - Handles both legacy PUBLIC_HEADER and modern FILE_SET installation.
 #   - Installs public and interface SOURCES file sets with CMake 4.4+.
+#   - Can create an installable SOURCES file set from ordinary target sources with CMake 4.4+.
+#   - Can create a consumer-local library from installed SOURCES file sets with CMake 4.4+.
+#   - Applies requested consumer-build hygiene controls to public and interface SOURCES file sets with CMake 4.4+.
 #   - Supports C++20 modules (CMake 3.28+).
 #   - Generates CMake config files with version and dependency handling.
 #   - Supports multi-config builds with automatic debug postfix handling.
@@ -184,15 +203,20 @@ endif()
 #   target_install_package(system_library
 #     DISABLE_RPATH)
 # ~~~
-function(target_install_package TARGET_NAME)
-  # Parse arguments to extract EXPORT_NAME and new multi-config parameters
-  set(options "")
-  set(oneValueArgs EXPORT_NAME DEBUG_POSTFIX)
-  set(multiValueArgs "")
-  cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
-
-  # Forward all arguments the implementation, target_prepare_package
-  target_prepare_package(${TARGET_NAME} ${ARGN})
+function(target_install_package _tip_target_name)
+  # Preserve empty arguments and literal semicolons through the public forwarding wrapper.
+  set(_tip_forward_call "target_prepare_package(")
+  math(EXPR _tip_last_argument "${ARGC} - 1")
+  foreach(_tip_argument_index RANGE 0 ${_tip_last_argument})
+    set(_tip_argument "${ARGV${_tip_argument_index}}")
+    set(_tip_bracket_equals "=")
+    while("${_tip_argument}" MATCHES "\\]${_tip_bracket_equals}\\]")
+      string(APPEND _tip_bracket_equals "=")
+    endwhile()
+    string(APPEND _tip_forward_call " [${_tip_bracket_equals}[${_tip_argument}]${_tip_bracket_equals}]")
+  endforeach()
+  string(APPEND _tip_forward_call ")")
+  cmake_language(EVAL CODE "${_tip_forward_call}")
 
   # ~~~
   # Finalization is handled automatically via deferred calls.
@@ -200,6 +224,72 @@ function(target_install_package TARGET_NAME)
   # The actual finalization happens at the end of the configuration (CMAKE_SOURCE_DIR)
   # ~~~
 endfunction(target_install_package)
+
+function(_tip_capture_config_template_context _tip_export_prefix _tip_template)
+  if(NOT EXISTS "${_tip_template}")
+    project_log(FATAL_ERROR "User-provided config template not found: ${_tip_template}")
+  endif()
+
+  set(_tip_generated_placeholders
+      PACKAGE_INIT
+      PACKAGE_CMAKE_INSTALL_PREFIX
+      PACKAGE_COMPONENT_DEPENDENCIES_CONTENT
+      PACKAGE_PUBLIC_DEPENDENCIES_CONTENT
+      PACKAGE_INCLUDE_ON_FIND_PACKAGE
+      PACKAGE_SOURCE_FILE_SET_PROPERTIES_CONTENT
+      PACKAGE_CONSUMER_LOCAL_SOURCE_TARGETS_CONTENT
+      PACKAGE_COMPONENT_TARGET_MAP)
+  file(READ "${_tip_template}" _tip_template_content)
+  string(REGEX MATCHALL "@[A-Za-z_][A-Za-z0-9_]*@" _tip_template_placeholders "${_tip_template_content}")
+  list(REMOVE_DUPLICATES _tip_template_placeholders)
+  foreach(_tip_placeholder IN LISTS _tip_template_placeholders)
+    string(REGEX REPLACE "^@|@$" "" _tip_variable "${_tip_placeholder}")
+
+    # Package-generated placeholders are supplied after every target has registered.
+    if(_tip_variable IN_LIST _tip_generated_placeholders OR _tip_variable MATCHES "^(ARG_|_tip_)")
+      continue()
+    endif()
+
+    set(_tip_context_property "${_tip_export_prefix}_TEMPLATE_VARIABLE_${_tip_variable}")
+    get_property(
+      _tip_context_set GLOBAL
+      PROPERTY "${_tip_context_property}"
+      SET)
+    get_property(_tip_context_value GLOBAL PROPERTY "${_tip_context_property}")
+    if(_tip_context_set AND NOT "${_tip_context_value}" STREQUAL "${${_tip_variable}}")
+      project_log(FATAL_ERROR "Conflicting CONFIG_TEMPLATE substitution '${_tip_variable}' for the same export: '${_tip_context_value}' vs '${${_tip_variable}}'.")
+    endif()
+    set_property(GLOBAL PROPERTY "${_tip_context_property}" "${${_tip_variable}}")
+    set_property(GLOBAL APPEND PROPERTY "${_tip_export_prefix}_TEMPLATE_VARIABLES" "${_tip_variable}")
+  endforeach()
+endfunction()
+
+function(_tip_configure_package_template _tip_template _tip_output _tip_destination _tip_export_prefix)
+  get_property(_tip_variables GLOBAL PROPERTY "${_tip_export_prefix}_TEMPLATE_VARIABLES")
+  if(_tip_variables)
+    # Native package helpers also have locals such as options. Route caller substitutions
+    # through private names so those helpers cannot shadow them or expand their values twice.
+    file(READ "${_tip_template}" _tip_template_content)
+    foreach(_tip_variable IN LISTS _tip_variables)
+      string(SHA256 _tip_variable_hash "${_tip_variable}")
+      set(_tip_captured_name "_tip_captured_${_tip_variable_hash}")
+      get_property("${_tip_captured_name}" GLOBAL PROPERTY "${_tip_export_prefix}_TEMPLATE_VARIABLE_${_tip_variable}")
+      string(REPLACE "@${_tip_variable}@" "@${_tip_captured_name}@" _tip_template_content "${_tip_template_content}")
+    endforeach()
+
+    set_property(
+      DIRECTORY
+      APPEND
+      PROPERTY CMAKE_CONFIGURE_DEPENDS "${_tip_template}")
+    set(_tip_template "${_tip_output}.tip-template.in")
+    file(WRITE "${_tip_template}" "${_tip_template_content}")
+  endif()
+
+  configure_package_config_file(
+    "${_tip_template}" "${_tip_output}"
+    INSTALL_DESTINATION "${_tip_destination}"
+    PATH_VARS CMAKE_INSTALL_PREFIX)
+endfunction()
 
 function(_tip_find_target_install_package_resource_file file_name out_var)
   set(_tip_resource_candidates "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/${file_name}" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/${file_name}")
@@ -238,8 +328,543 @@ function(_tip_resolve_absolute_paths RESULT_VAR BASE_DIR)
       PARENT_SCOPE)
 endfunction()
 
+function(_tip_is_automatic_header_file_set_include OUT_VAR TARGET_NAME INCLUDE_DIRECTORY)
+  set(_tip_is_automatic_include FALSE)
+  get_target_property(_tip_header_sets ${TARGET_NAME} INTERFACE_HEADER_SETS)
+  foreach(_tip_header_set IN LISTS _tip_header_sets)
+    get_target_property(_tip_header_base_dirs ${TARGET_NAME} HEADER_DIRS_${_tip_header_set})
+    foreach(_tip_header_base_dir IN LISTS _tip_header_base_dirs)
+      if("${INCLUDE_DIRECTORY}" STREQUAL "$<BUILD_INTERFACE:${_tip_header_base_dir}>")
+        set(_tip_is_automatic_include TRUE)
+        break()
+      endif()
+    endforeach()
+    if(_tip_is_automatic_include)
+      break()
+    endif()
+  endforeach()
+  set(${OUT_VAR}
+      ${_tip_is_automatic_include}
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_validate_consumer_local_source_library TARGET_NAME LIBRARY_TYPE LIBRARY_ALIAS)
+  if("${LIBRARY_TYPE}" STREQUAL "")
+    return()
+  endif()
+
+  if(CMAKE_VERSION VERSION_LESS "4.4")
+    project_log(FATAL_ERROR "SOURCE_LIBRARY_TYPE requires CMake 4.4 or newer.")
+  endif()
+
+  if(NOT LIBRARY_TYPE MATCHES "^(STATIC|SHARED|OBJECT|AUTO)$")
+    project_log(FATAL_ERROR "SOURCE_LIBRARY_TYPE for target '${TARGET_NAME}' must be STATIC, SHARED, OBJECT, or AUTO.")
+  endif()
+
+  if("${LIBRARY_ALIAS}" STREQUAL "" OR "${LIBRARY_ALIAS}" MATCHES "::")
+    project_log(FATAL_ERROR "SOURCE_LIBRARY_ALIAS for target '${TARGET_NAME}' must be a non-namespaced target name.")
+  endif()
+
+  get_target_property(_tip_target_type ${TARGET_NAME} TYPE)
+  if(NOT _tip_target_type MATCHES "^(INTERFACE|STATIC|SHARED|OBJECT)_LIBRARY$")
+    project_log(FATAL_ERROR "SOURCE_LIBRARY_TYPE supports library targets only; '${TARGET_NAME}' is ${_tip_target_type}.")
+  endif()
+
+  get_target_property(_tip_source_sets ${TARGET_NAME} INTERFACE_SOURCE_SETS)
+  if(NOT _tip_source_sets OR _tip_source_sets MATCHES "-NOTFOUND$")
+    project_log(FATAL_ERROR "SOURCE_LIBRARY_TYPE for target '${TARGET_NAME}' requires an INTERFACE SOURCES file set.")
+  endif()
+
+  get_target_property(_tip_module_sets ${TARGET_NAME} INTERFACE_CXX_MODULE_SETS)
+  if(_tip_module_sets AND NOT _tip_module_sets MATCHES "-NOTFOUND$")
+    project_log(FATAL_ERROR "SOURCE_LIBRARY_TYPE for target '${TARGET_NAME}' does not support C++ module file sets.")
+  endif()
+
+  get_target_property(_tip_target_source_dir ${TARGET_NAME} SOURCE_DIR)
+  get_target_property(_tip_target_binary_dir ${TARGET_NAME} BINARY_DIR)
+  foreach(
+    _tip_private_property IN
+    ITEMS COMPILE_DEFINITIONS
+          COMPILE_OPTIONS
+          COMPILE_FEATURES
+          INCLUDE_DIRECTORIES
+          LINK_LIBRARIES
+          LINK_OPTIONS
+          LINK_DIRECTORIES)
+    get_target_property(_tip_private_values ${TARGET_NAME} ${_tip_private_property})
+    if(NOT _tip_private_values OR _tip_private_values MATCHES "-NOTFOUND$")
+      continue()
+    endif()
+
+    foreach(_tip_private_value IN LISTS _tip_private_values)
+      if(_tip_private_property STREQUAL "INCLUDE_DIRECTORIES")
+        _tip_is_automatic_header_file_set_include(_tip_automatic_header_include ${TARGET_NAME} "${_tip_private_value}")
+        if(_tip_automatic_header_include)
+          continue()
+        endif()
+      endif()
+      if("${_tip_private_value}" MATCHES "\\$<")
+        project_log(FATAL_ERROR "SOURCE_LIBRARY_TYPE for target '${TARGET_NAME}' does not support generator expressions in ${_tip_private_property}: '${_tip_private_value}'.")
+      endif()
+      string(FIND "${_tip_private_value}" "${_tip_target_source_dir}" _tip_source_dir_index)
+      string(FIND "${_tip_private_value}" "${_tip_target_binary_dir}" _tip_binary_dir_index)
+      if(NOT _tip_source_dir_index EQUAL -1 OR NOT _tip_binary_dir_index EQUAL -1)
+        project_log(FATAL_ERROR
+                    "SOURCE_LIBRARY_TYPE for target '${TARGET_NAME}' cannot relocate ${_tip_private_property} entry '${_tip_private_value}'. Use an exported target or an install-tree path.")
+      endif()
+    endforeach()
+  endforeach()
+endfunction()
+
+function(_tip_append_consumer_local_source_library_content OUT_VAR EXPORT_PROPERTY_PREFIX NAMESPACE TARGETS TARGET_NAME)
+  get_property(_tip_library_type GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_SOURCE_LIBRARY_TYPE")
+  if("${_tip_library_type}" STREQUAL "")
+    return()
+  endif()
+
+  get_property(_tip_target_alias GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME")
+  get_property(_tip_library_alias GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_SOURCE_LIBRARY_ALIAS")
+  get_property(_tip_source_file_set_properties GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_SOURCE_FILE_SET_PROPERTIES")
+  set(_tip_imported_target "${NAMESPACE}${_tip_target_alias}")
+  set(_tip_public_alias "${NAMESPACE}${_tip_library_alias}")
+  string(SHA256 _tip_library_hash "${_tip_imported_target}:${_tip_public_alias}")
+  string(SUBSTRING "${_tip_library_hash}" 0 16 _tip_library_hash)
+  set(_tip_internal_target "_tip_consumer_source_${_tip_library_hash}")
+  set(_tip_variable_prefix "_tip_consumer_source_${_tip_library_hash}")
+
+  get_target_property(_tip_source_sets ${TARGET_NAME} INTERFACE_SOURCE_SETS)
+  foreach(_tip_source_set IN LISTS _tip_source_sets)
+    get_target_property(_tip_source_files ${TARGET_NAME} SOURCE_SET_${_tip_source_set})
+    foreach(_tip_source_file IN LISTS _tip_source_files)
+      if("${_tip_source_file}" MATCHES "\\$<")
+        project_log(FATAL_ERROR "SOURCE_LIBRARY_TYPE for target '${TARGET_NAME}' does not support generator expressions in SOURCES file set '${_tip_source_set}'.")
+      endif()
+    endforeach()
+  endforeach()
+
+  set(_tip_private_link_libraries "")
+  get_target_property(_tip_link_libraries ${TARGET_NAME} LINK_LIBRARIES)
+  if(_tip_link_libraries AND NOT _tip_link_libraries MATCHES "-NOTFOUND$")
+    foreach(_tip_link_library IN LISTS _tip_link_libraries)
+      set(_tip_exported_link_target "${_tip_link_library}")
+      if(TARGET "${_tip_link_library}")
+        get_target_property(_tip_aliased_link_target "${_tip_link_library}" ALIASED_TARGET)
+        if(_tip_aliased_link_target AND NOT _tip_aliased_link_target MATCHES "-NOTFOUND$")
+          set(_tip_exported_link_target "${_tip_aliased_link_target}")
+        endif()
+      endif()
+      list(FIND TARGETS "${_tip_exported_link_target}" _tip_exported_target_index)
+      if(_tip_exported_target_index EQUAL -1)
+        list(APPEND _tip_private_link_libraries "${_tip_link_library}")
+      else()
+        get_property(_tip_link_library_alias GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_exported_link_target}_ALIAS_NAME")
+        list(APPEND _tip_private_link_libraries "${NAMESPACE}${_tip_link_library_alias}")
+      endif()
+    endforeach()
+  endif()
+
+  set(_tip_content "")
+  string(APPEND _tip_content "# Consumer-local source library for ${_tip_imported_target}.\n")
+  string(APPEND _tip_content "if(NOT TARGET ${_tip_internal_target})\n")
+  if(_tip_library_type STREQUAL "AUTO")
+    string(APPEND _tip_content "  if(BUILD_SHARED_LIBS)\n    set(${_tip_variable_prefix}_type SHARED)\n  else()\n    set(${_tip_variable_prefix}_type STATIC)\n  endif()\n")
+  else()
+    string(APPEND _tip_content "  set(${_tip_variable_prefix}_type ${_tip_library_type})\n")
+  endif()
+  string(APPEND _tip_content "  get_target_property(${_tip_variable_prefix}_sets ${_tip_imported_target} INTERFACE_SOURCE_SETS)\n")
+  string(
+    APPEND
+    _tip_content
+    "  if(NOT ${_tip_variable_prefix}_sets OR ${_tip_variable_prefix}_sets MATCHES \"-NOTFOUND$\")\n    message(FATAL_ERROR \"Package '${_tip_imported_target}' is missing its installed SOURCES file sets.\")\n  endif()\n"
+  )
+  string(APPEND _tip_content "  set(${_tip_variable_prefix}_files)\n")
+  string(
+    APPEND
+    _tip_content
+    "  foreach(${_tip_variable_prefix}_set IN LISTS ${_tip_variable_prefix}_sets)\n    get_target_property(${_tip_variable_prefix}_set_files ${_tip_imported_target} SOURCE_SET_\${${_tip_variable_prefix}_set})\n    list(APPEND ${_tip_variable_prefix}_files \${${_tip_variable_prefix}_set_files})\n  endforeach()\n"
+  )
+  string(APPEND _tip_content "  if(NOT ${_tip_variable_prefix}_files)\n    message(FATAL_ERROR \"Package '${_tip_imported_target}' has no installed source files.\")\n  endif()\n")
+  string(APPEND _tip_content "  add_library(${_tip_internal_target} \${${_tip_variable_prefix}_type})\n")
+  string(APPEND _tip_content
+         "  if(WIN32 AND \"\${${_tip_variable_prefix}_type}\" STREQUAL \"SHARED\")\n    set_property(TARGET ${_tip_internal_target} PROPERTY WINDOWS_EXPORT_ALL_SYMBOLS ON)\n  endif()\n")
+  string(
+    APPEND
+    _tip_content
+    "  foreach(${_tip_variable_prefix}_set IN LISTS ${_tip_variable_prefix}_sets)\n    get_target_property(${_tip_variable_prefix}_set_dirs ${_tip_imported_target} SOURCE_DIRS_\${${_tip_variable_prefix}_set})\n    get_target_property(${_tip_variable_prefix}_set_files ${_tip_imported_target} SOURCE_SET_\${${_tip_variable_prefix}_set})\n    target_sources(${_tip_internal_target} PRIVATE FILE_SET \"\${${_tip_variable_prefix}_set}\" TYPE SOURCES BASE_DIRS \${${_tip_variable_prefix}_set_dirs} FILES \${${_tip_variable_prefix}_set_files})\n  endforeach()\n"
+  )
+
+  list(LENGTH _tip_source_file_set_properties _tip_source_file_set_property_count)
+  set(_tip_source_file_set_property_index 0)
+  while(_tip_source_file_set_property_index LESS _tip_source_file_set_property_count)
+    list(GET _tip_source_file_set_properties ${_tip_source_file_set_property_index} _tip_source_file_set_name)
+    math(EXPR _tip_source_file_set_property_index "${_tip_source_file_set_property_index} + 1")
+    list(GET _tip_source_file_set_properties ${_tip_source_file_set_property_index} _tip_source_file_set_property)
+    math(EXPR _tip_source_file_set_property_index "${_tip_source_file_set_property_index} + 1")
+    list(GET _tip_source_file_set_properties ${_tip_source_file_set_property_index} _tip_source_file_set_value)
+    math(EXPR _tip_source_file_set_property_index "${_tip_source_file_set_property_index} + 1")
+    string(APPEND _tip_content
+           "  set_property(FILE_SET [==[${_tip_source_file_set_name}]==] TARGET ${_tip_internal_target} PROPERTY [==[${_tip_source_file_set_property}]==] [==[${_tip_source_file_set_value}]==])\n")
+  endwhile()
+
+  foreach(_tip_private_property IN ITEMS COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FEATURES INCLUDE_DIRECTORIES LINK_OPTIONS LINK_DIRECTORIES)
+    get_target_property(_tip_private_values ${TARGET_NAME} ${_tip_private_property})
+    if(NOT _tip_private_values OR _tip_private_values MATCHES "-NOTFOUND$")
+      continue()
+    endif()
+
+    if(_tip_private_property STREQUAL "COMPILE_DEFINITIONS")
+      set(_tip_private_command target_compile_definitions)
+    elseif(_tip_private_property STREQUAL "COMPILE_OPTIONS")
+      set(_tip_private_command target_compile_options)
+    elseif(_tip_private_property STREQUAL "COMPILE_FEATURES")
+      set(_tip_private_command target_compile_features)
+    elseif(_tip_private_property STREQUAL "INCLUDE_DIRECTORIES")
+      set(_tip_private_command target_include_directories)
+    elseif(_tip_private_property STREQUAL "LINK_OPTIONS")
+      set(_tip_private_command target_link_options)
+    elseif(_tip_private_property STREQUAL "LINK_DIRECTORIES")
+      set(_tip_private_command target_link_directories)
+    endif()
+
+    foreach(_tip_private_value IN LISTS _tip_private_values)
+      if(_tip_private_property STREQUAL "INCLUDE_DIRECTORIES")
+        _tip_is_automatic_header_file_set_include(_tip_automatic_header_include ${TARGET_NAME} "${_tip_private_value}")
+        if(_tip_automatic_header_include)
+          continue()
+        endif()
+      endif()
+      string(APPEND _tip_content "  ${_tip_private_command}(${_tip_internal_target} PRIVATE [==[${_tip_private_value}]==])\n")
+    endforeach()
+  endforeach()
+  foreach(_tip_private_link_library IN LISTS _tip_private_link_libraries)
+    string(APPEND _tip_content "  target_link_libraries(${_tip_internal_target} PRIVATE [==[${_tip_private_link_library}]==])\n")
+  endforeach()
+
+  foreach(
+    _tip_public_property IN
+    ITEMS COMPILE_DEFINITIONS
+          COMPILE_OPTIONS
+          COMPILE_FEATURES
+          INCLUDE_DIRECTORIES
+          LINK_OPTIONS
+          LINK_DIRECTORIES
+          LINK_LIBRARIES)
+    if(_tip_public_property STREQUAL "COMPILE_DEFINITIONS")
+      set(_tip_public_command target_compile_definitions)
+    elseif(_tip_public_property STREQUAL "COMPILE_OPTIONS")
+      set(_tip_public_command target_compile_options)
+    elseif(_tip_public_property STREQUAL "COMPILE_FEATURES")
+      set(_tip_public_command target_compile_features)
+    elseif(_tip_public_property STREQUAL "INCLUDE_DIRECTORIES")
+      set(_tip_public_command target_include_directories)
+    elseif(_tip_public_property STREQUAL "LINK_OPTIONS")
+      set(_tip_public_command target_link_options)
+    elseif(_tip_public_property STREQUAL "LINK_DIRECTORIES")
+      set(_tip_public_command target_link_directories)
+    elseif(_tip_public_property STREQUAL "LINK_LIBRARIES")
+      set(_tip_public_command target_link_libraries)
+    endif()
+
+    string(APPEND _tip_content "  get_target_property(${_tip_variable_prefix}_${_tip_public_property} ${_tip_imported_target} INTERFACE_${_tip_public_property})\n")
+    string(
+      APPEND
+      _tip_content
+      "  if(${_tip_variable_prefix}_${_tip_public_property} AND NOT ${_tip_variable_prefix}_${_tip_public_property} MATCHES \"-NOTFOUND$\")\n    ${_tip_public_command}(${_tip_internal_target} PUBLIC \${${_tip_variable_prefix}_${_tip_public_property}})\n  endif()\n"
+    )
+  endforeach()
+  string(APPEND _tip_content "  get_target_property(${_tip_variable_prefix}_system_includes ${_tip_imported_target} INTERFACE_SYSTEM_INCLUDE_DIRECTORIES)\n")
+  string(
+    APPEND
+    _tip_content
+    "  if(${_tip_variable_prefix}_system_includes AND NOT ${_tip_variable_prefix}_system_includes MATCHES \"-NOTFOUND$\")\n    target_include_directories(${_tip_internal_target} SYSTEM PUBLIC \${${_tip_variable_prefix}_system_includes})\n  endif()\n"
+  )
+  string(APPEND _tip_content "  get_target_property(${_tip_variable_prefix}_pic ${_tip_imported_target} INTERFACE_POSITION_INDEPENDENT_CODE)\n")
+  string(
+    APPEND
+    _tip_content
+    "  if(NOT ${_tip_variable_prefix}_pic MATCHES \"-NOTFOUND$\" AND NOT \"\${${_tip_variable_prefix}_pic}\" STREQUAL \"\")\n    set_property(TARGET ${_tip_internal_target} PROPERTY POSITION_INDEPENDENT_CODE \"\${${_tip_variable_prefix}_pic}\")\n  endif()\n"
+  )
+  string(APPEND _tip_content "  add_library(${_tip_public_alias} ALIAS ${_tip_internal_target})\n")
+  string(APPEND _tip_content "endif()\n")
+
+  set(${OUT_VAR}
+      "${${OUT_VAR}}${_tip_content}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_apply_source_file_set_properties TARGET_NAME)
+  set(_tip_source_file_set_properties ${ARGN})
+  if(NOT _tip_source_file_set_properties)
+    return()
+  endif()
+
+  if(CMAKE_VERSION VERSION_LESS "4.4")
+    project_log(FATAL_ERROR "SOURCE_FILE_SET_PROPERTIES requires CMake 4.4 or newer.")
+  endif()
+
+  list(LENGTH _tip_source_file_set_properties _tip_source_file_set_property_count)
+  math(EXPR _tip_source_file_set_property_remainder "${_tip_source_file_set_property_count} % 3")
+  if(NOT _tip_source_file_set_property_remainder EQUAL 0)
+    project_log(FATAL_ERROR "SOURCE_FILE_SET_PROPERTIES for target '${TARGET_NAME}' requires `<file_set> <property> <boolean>` triples.")
+  endif()
+
+  get_target_property(_tip_interface_source_sets ${TARGET_NAME} INTERFACE_SOURCE_SETS)
+  if(NOT _tip_interface_source_sets OR _tip_interface_source_sets MATCHES "-NOTFOUND$")
+    set(_tip_interface_source_sets "")
+  endif()
+
+  set(_tip_supported_source_file_set_properties SKIP_LINTING SKIP_PRECOMPILE_HEADERS SKIP_UNITY_BUILD_INCLUSION CXX_SCAN_FOR_MODULES)
+  set(_tip_boolean_values
+      ON
+      OFF
+      TRUE
+      FALSE
+      YES
+      NO
+      Y
+      N
+      1
+      0)
+  set(_tip_source_file_set_property_index 0)
+  while(_tip_source_file_set_property_index LESS _tip_source_file_set_property_count)
+    list(GET _tip_source_file_set_properties ${_tip_source_file_set_property_index} _tip_source_file_set_name)
+    math(EXPR _tip_source_file_set_property_index "${_tip_source_file_set_property_index} + 1")
+    list(GET _tip_source_file_set_properties ${_tip_source_file_set_property_index} _tip_source_file_set_property)
+    math(EXPR _tip_source_file_set_property_index "${_tip_source_file_set_property_index} + 1")
+    list(GET _tip_source_file_set_properties ${_tip_source_file_set_property_index} _tip_source_file_set_value)
+    math(EXPR _tip_source_file_set_property_index "${_tip_source_file_set_property_index} + 1")
+
+    if(NOT _tip_source_file_set_name IN_LIST _tip_interface_source_sets)
+      project_log(FATAL_ERROR "SOURCE_FILE_SET_PROPERTIES file set '${_tip_source_file_set_name}' does not name an INTERFACE SOURCES file set on target '${TARGET_NAME}'.")
+    endif()
+
+    get_property(
+      _tip_source_file_set_type FILE_SET "${_tip_source_file_set_name}"
+      TARGET "${TARGET_NAME}"
+      PROPERTY TYPE)
+    if(NOT _tip_source_file_set_type STREQUAL "SOURCES")
+      project_log(FATAL_ERROR "SOURCE_FILE_SET_PROPERTIES file set '${_tip_source_file_set_name}' on target '${TARGET_NAME}' must have type SOURCES.")
+    endif()
+
+    if(NOT _tip_source_file_set_property IN_LIST _tip_supported_source_file_set_properties)
+      project_log(FATAL_ERROR "Unsupported SOURCE_FILE_SET_PROPERTIES property '${_tip_source_file_set_property}'. Supported properties: ${_tip_supported_source_file_set_properties}.")
+    endif()
+
+    string(TOUPPER "${_tip_source_file_set_value}" _tip_source_file_set_value_upper)
+    if(NOT _tip_source_file_set_value_upper IN_LIST _tip_boolean_values)
+      project_log(FATAL_ERROR "SOURCE_FILE_SET_PROPERTIES value '${_tip_source_file_set_value}' for '${_tip_source_file_set_property}' must be a boolean.")
+    endif()
+
+    set_property(
+      FILE_SET "${_tip_source_file_set_name}"
+      TARGET "${TARGET_NAME}"
+      PROPERTY "${_tip_source_file_set_property}" "${_tip_source_file_set_value}")
+    project_log(DEBUG "  Set ${_tip_source_file_set_property}=${_tip_source_file_set_value} on SOURCES file set '${_tip_source_file_set_name}'")
+  endwhile()
+endfunction()
+
+function(_tip_add_source_file_set_from_target_sources TARGET_NAME FILE_SET_NAME)
+  if(CMAKE_VERSION VERSION_LESS "4.4")
+    project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES requires CMake 4.4 or newer.")
+  endif()
+
+  if("${FILE_SET_NAME}" STREQUAL "")
+    project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES requires a file-set name for target '${TARGET_NAME}'.")
+  endif()
+
+  get_target_property(_tip_target_type ${TARGET_NAME} TYPE)
+  if(NOT _tip_target_type STREQUAL "INTERFACE_LIBRARY")
+    project_log(
+      FATAL_ERROR
+      "SOURCE_FILE_SET_FROM_TARGET_SOURCES supports INTERFACE_LIBRARY targets only; '${TARGET_NAME}' is ${_tip_target_type}. Extracting a binary library's implementation sources would expose them to consumers."
+    )
+  endif()
+
+  get_target_property(_tip_target_source_dir ${TARGET_NAME} SOURCE_DIR)
+  get_target_property(_tip_target_binary_dir ${TARGET_NAME} BINARY_DIR)
+  if(NOT _tip_target_source_dir OR NOT _tip_target_binary_dir)
+    project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES could not determine source and binary directories for target '${TARGET_NAME}'.")
+  endif()
+
+  get_target_property(_tip_existing_source_sets ${TARGET_NAME} INTERFACE_SOURCE_SETS)
+  if(NOT _tip_existing_source_sets OR _tip_existing_source_sets MATCHES "-NOTFOUND$")
+    set(_tip_existing_source_sets "")
+  endif()
+  if(FILE_SET_NAME IN_LIST _tip_existing_source_sets)
+    project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES file set '${FILE_SET_NAME}' already exists on target '${TARGET_NAME}'.")
+  endif()
+
+  get_target_property(_tip_target_sources ${TARGET_NAME} SOURCES)
+  if(_tip_target_sources MATCHES "-NOTFOUND$")
+    set(_tip_target_sources "")
+  endif()
+  get_target_property(_tip_target_interface_sources ${TARGET_NAME} INTERFACE_SOURCES)
+  if(_tip_target_interface_sources MATCHES "-NOTFOUND$")
+    set(_tip_target_interface_sources "")
+  endif()
+  set(_tip_candidate_sources ${_tip_target_sources} ${_tip_target_interface_sources})
+  if(NOT _tip_candidate_sources)
+    project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES found no ordinary sources on target '${TARGET_NAME}'.")
+  endif()
+
+  set(_tip_existing_source_set_files "")
+  foreach(_tip_existing_source_set IN LISTS _tip_existing_source_sets)
+    get_target_property(_tip_existing_source_set_entries ${TARGET_NAME} SOURCE_SET_${_tip_existing_source_set})
+    foreach(_tip_existing_source_set_entry IN LISTS _tip_existing_source_set_entries)
+      if(NOT _tip_existing_source_set_entry MATCHES "\\$<")
+        if(IS_ABSOLUTE "${_tip_existing_source_set_entry}")
+          set(_tip_existing_source_set_file "${_tip_existing_source_set_entry}")
+        else()
+          cmake_path(
+            ABSOLUTE_PATH
+            _tip_existing_source_set_entry
+            BASE_DIRECTORY
+            "${_tip_target_source_dir}"
+            NORMALIZE
+            OUTPUT_VARIABLE
+            _tip_existing_source_set_file)
+        endif()
+        list(APPEND _tip_existing_source_set_files "${_tip_existing_source_set_file}")
+      endif()
+    endforeach()
+  endforeach()
+
+  set(_tip_header_extensions
+      .h
+      .hh
+      .hpp
+      .hxx
+      .h++
+      .inl
+      .ipp
+      .tpp)
+  set(_tip_module_extensions .cppm .ixx .mpp .mxx)
+  set(_tip_extracted_sources "")
+  foreach(_tip_candidate_source IN LISTS _tip_candidate_sources)
+    if("${_tip_candidate_source}" MATCHES "\\$<")
+      project_log(FATAL_ERROR
+                  "SOURCE_FILE_SET_FROM_TARGET_SOURCES cannot extract generator expression '${_tip_candidate_source}' from target '${TARGET_NAME}'. Add an explicit SOURCES file set instead.")
+    endif()
+
+    if(IS_ABSOLUTE "${_tip_candidate_source}")
+      cmake_path(NORMAL_PATH _tip_candidate_source OUTPUT_VARIABLE _tip_candidate_source_path)
+    else()
+      cmake_path(
+        ABSOLUTE_PATH
+        _tip_candidate_source
+        BASE_DIRECTORY
+        "${_tip_target_source_dir}"
+        NORMALIZE
+        OUTPUT_VARIABLE
+        _tip_candidate_source_path)
+    endif()
+
+    cmake_path(IS_PREFIX _tip_target_source_dir "${_tip_candidate_source_path}" NORMALIZE _tip_candidate_in_source_tree)
+    cmake_path(IS_PREFIX _tip_target_binary_dir "${_tip_candidate_source_path}" NORMALIZE _tip_candidate_in_binary_tree)
+    if(NOT _tip_candidate_in_source_tree AND NOT _tip_candidate_in_binary_tree)
+      project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES source '${_tip_candidate_source}' on target '${TARGET_NAME}' is outside the target source and binary directories.")
+    endif()
+
+    get_filename_component(_tip_candidate_extension "${_tip_candidate_source_path}" LAST_EXT)
+    string(TOLOWER "${_tip_candidate_extension}" _tip_candidate_extension)
+    if(_tip_candidate_extension IN_LIST _tip_header_extensions)
+      project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES source '${_tip_candidate_source}' on target '${TARGET_NAME}' is a header. Keep headers in a HEADERS file set.")
+    endif()
+    if(_tip_candidate_extension IN_LIST _tip_module_extensions)
+      project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES source '${_tip_candidate_source}' on target '${TARGET_NAME}' is a C++ module interface. Keep modules in a CXX_MODULES file set.")
+    endif()
+
+    if(NOT EXISTS "${_tip_candidate_source_path}")
+      get_property(
+        _tip_candidate_generated
+        SOURCE "${_tip_candidate_source_path}" TARGET_DIRECTORY "${TARGET_NAME}"
+        PROPERTY GENERATED)
+      if(NOT _tip_candidate_generated)
+        project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES source '${_tip_candidate_source}' on target '${TARGET_NAME}' does not exist and is not marked GENERATED.")
+      endif()
+    endif()
+
+    if(_tip_candidate_source_path IN_LIST _tip_existing_source_set_files)
+      project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES source '${_tip_candidate_source}' on target '${TARGET_NAME}' is already in an explicit source file set.")
+    endif()
+    if(NOT _tip_candidate_source_path IN_LIST _tip_extracted_sources)
+      list(APPEND _tip_extracted_sources "${_tip_candidate_source_path}")
+    endif()
+  endforeach()
+
+  if(NOT _tip_extracted_sources)
+    project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES found no extractable sources on target '${TARGET_NAME}'.")
+  endif()
+
+  set(_tip_source_base_dirs "${_tip_target_source_dir}" "${_tip_target_binary_dir}")
+  cmake_path(IS_PREFIX _tip_target_source_dir "${_tip_target_binary_dir}" NORMALIZE _tip_source_dir_contains_binary_dir)
+  cmake_path(IS_PREFIX _tip_target_binary_dir "${_tip_target_source_dir}" NORMALIZE _tip_binary_dir_contains_source_dir)
+  if(_tip_source_dir_contains_binary_dir)
+    set(_tip_source_base_dirs "${_tip_target_source_dir}")
+  elseif(_tip_binary_dir_contains_source_dir)
+    set(_tip_source_base_dirs "${_tip_target_binary_dir}")
+  endif()
+
+  set(_tip_installed_relative_paths "")
+  set(_tip_installed_relative_path_sources "")
+  foreach(_tip_extracted_source IN LISTS _tip_extracted_sources)
+    set(_tip_installed_relative_path "")
+    foreach(_tip_source_base_dir IN LISTS _tip_source_base_dirs)
+      cmake_path(IS_PREFIX _tip_source_base_dir "${_tip_extracted_source}" NORMALIZE _tip_source_in_base_dir)
+      if(_tip_source_in_base_dir)
+        set(_tip_source_path "${_tip_extracted_source}")
+        cmake_path(RELATIVE_PATH _tip_source_path BASE_DIRECTORY "${_tip_source_base_dir}" OUTPUT_VARIABLE _tip_installed_relative_path)
+        break()
+      endif()
+    endforeach()
+
+    if("${_tip_installed_relative_path}" STREQUAL "")
+      project_log(FATAL_ERROR "SOURCE_FILE_SET_FROM_TARGET_SOURCES could not map source '${_tip_extracted_source}' on target '${TARGET_NAME}' to an installed relative path.")
+    endif()
+
+    list(FIND _tip_installed_relative_paths "${_tip_installed_relative_path}" _tip_installed_relative_path_index)
+    if(NOT _tip_installed_relative_path_index EQUAL -1)
+      list(GET _tip_installed_relative_path_sources ${_tip_installed_relative_path_index} _tip_colliding_source)
+      project_log(
+        FATAL_ERROR
+        "SOURCE_FILE_SET_FROM_TARGET_SOURCES sources '${_tip_colliding_source}' and '${_tip_extracted_source}' on target '${TARGET_NAME}' have the same installed relative path '${_tip_installed_relative_path}'."
+      )
+    endif()
+    list(APPEND _tip_installed_relative_paths "${_tip_installed_relative_path}")
+    list(APPEND _tip_installed_relative_path_sources "${_tip_extracted_source}")
+  endforeach()
+
+  target_sources(
+    ${TARGET_NAME}
+    INTERFACE FILE_SET
+              ${FILE_SET_NAME}
+              TYPE
+              SOURCES
+              BASE_DIRS
+              ${_tip_source_base_dirs}
+              FILES
+              ${_tip_extracted_sources})
+
+  # Raw INTERFACE_SOURCES cannot contain build-tree paths in an exported target.
+  # The file set above is their relocatable exported representation.
+  set_property(TARGET ${TARGET_NAME} PROPERTY INTERFACE_SOURCES "")
+endfunction()
+
 function(_tip_store_export_property EXPORT_PROPERTY_PREFIX EXPORT_NAME PROPERTY_SUFFIX VALUE DESCRIPTION)
   get_property(_tip_existing GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_${PROPERTY_SUFFIX}")
+
+  # An explicitly empty namespace is meaningful and must agree across the export.
+  if(PROPERTY_SUFFIX STREQUAL "NAMESPACE")
+    get_property(
+      _tip_namespace_set GLOBAL
+      PROPERTY "${EXPORT_PROPERTY_PREFIX}_${PROPERTY_SUFFIX}"
+      SET)
+    if(_tip_namespace_set AND NOT "${_tip_existing}" STREQUAL "${VALUE}")
+      project_log(FATAL_ERROR "Conflicting ${DESCRIPTION} for export '${EXPORT_NAME}': '${_tip_existing}' vs '${VALUE}'")
+    endif()
+    set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_${PROPERTY_SUFFIX}" "${VALUE}")
+    return()
+  endif()
 
   if(NOT DEFINED _tip_existing OR "${_tip_existing}" STREQUAL "")
     set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_${PROPERTY_SUFFIX}" "${VALUE}")
@@ -329,6 +954,11 @@ function(_tip_validate_sbom_activation EXPORT_NAME)
     project_log(FATAL_ERROR "SBOM metadata requires CMake 4.3 or newer because it uses install(SBOM).")
   endif()
 
+  # CMake 4.5 provides install(SBOM) as a stable command; only 4.3 and 4.4 gate it behind an experiment.
+  if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.5")
+    return()
+  endif()
+
   if(NOT DEFINED CMAKE_EXPERIMENTAL_GENERATE_SBOM OR "${CMAKE_EXPERIMENTAL_GENERATE_SBOM}" STREQUAL "")
     project_log(FATAL_ERROR "SBOM metadata for export '${EXPORT_NAME}' requires CMAKE_EXPERIMENTAL_GENERATE_SBOM to be set to the activation value for this CMake version.")
   endif()
@@ -353,6 +983,7 @@ function(_tip_resolve_sbom_export_metadata EXPORT_NAME OUT_PREFIX)
           SBOM_VERSION_EXPLICIT
           SBOM_INHERITED_VERSION
           SBOM_LICENSE
+          SBOM_DEFAULT_LICENSE
           SBOM_INHERITED_LICENSE
           SBOM_DESCRIPTION
           SBOM_INHERITED_DESCRIPTION
@@ -385,6 +1016,13 @@ function(_tip_resolve_sbom_export_metadata EXPORT_NAME OUT_PREFIX)
     set(_tip_effective_license "${_tip_SBOM_INHERITED_LICENSE}")
   endif()
 
+  # CMake 4.5 project inheritance uses the project SPDX_LICENSE for both the document data license
+  # and the declared license of targets without SPDX_LICENSE. Mirror that for the explicit snapshot.
+  set(_tip_effective_default_license "${_tip_SBOM_DEFAULT_LICENSE}")
+  if("${_tip_effective_default_license}" STREQUAL "" AND CMAKE_VERSION VERSION_GREATER_EQUAL "4.5")
+    set(_tip_effective_default_license "${_tip_SBOM_INHERITED_LICENSE}")
+  endif()
+
   set(_tip_effective_description "${_tip_SBOM_DESCRIPTION}")
   if("${_tip_effective_description}" STREQUAL "")
     set(_tip_effective_description "${_tip_SBOM_INHERITED_DESCRIPTION}")
@@ -406,6 +1044,9 @@ function(_tip_resolve_sbom_export_metadata EXPORT_NAME OUT_PREFIX)
       PARENT_SCOPE)
   set(${OUT_PREFIX}_LICENSE
       "${_tip_effective_license}"
+      PARENT_SCOPE)
+  set(${OUT_PREFIX}_DEFAULT_LICENSE
+      "${_tip_effective_default_license}"
       PARENT_SCOPE)
   set(${OUT_PREFIX}_DESCRIPTION
       "${_tip_effective_description}"
@@ -457,6 +1098,7 @@ function(_tip_finalize_all_sboms)
               DESTINATION
               VERSION
               LICENSE
+              DEFAULT_LICENSE
               DESCRIPTION
               HOMEPAGE_URL
               PACKAGE_URL
@@ -474,7 +1116,10 @@ function(_tip_finalize_all_sboms)
       endforeach()
     endforeach()
 
-    set(CMAKE_EXPERIMENTAL_GENERATE_SBOM "${_tip_reference_EXPERIMENTAL_VALUE}")
+    # Restore the call-time activation value for the experimental CMake 4.3 and 4.4 command.
+    if(CMAKE_VERSION VERSION_LESS "4.5")
+      set(CMAKE_EXPERIMENTAL_GENERATE_SBOM "${_tip_reference_EXPERIMENTAL_VALUE}")
+    endif()
     _tip_validate_sbom_activation("${_tip_reference_export}")
 
     if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.4")
@@ -485,17 +1130,28 @@ function(_tip_finalize_all_sboms)
     endif()
     list(APPEND _tip_sbom_args NO_PROJECT_METADATA)
 
+    # CMake 4.5 names the document license DATA_LICENSE; CMake 4.3 and 4.4 call the same field LICENSE.
+    set(_tip_sbom_license_keyword LICENSE)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.5")
+      set(_tip_sbom_license_keyword DATA_LICENSE)
+    endif()
+
     foreach(
       _tip_field IN
       ITEMS DESTINATION
             VERSION
             LICENSE
+            DEFAULT_LICENSE
             DESCRIPTION
             HOMEPAGE_URL
             PACKAGE_URL
             FORMAT)
+      set(_tip_keyword "${_tip_field}")
+      if(_tip_field STREQUAL "LICENSE")
+        set(_tip_keyword "${_tip_sbom_license_keyword}")
+      endif()
       if(NOT "${_tip_reference_${_tip_field}}" STREQUAL "")
-        list(APPEND _tip_sbom_args "${_tip_field}" "${_tip_reference_${_tip_field}}")
+        list(APPEND _tip_sbom_args "${_tip_keyword}" "${_tip_reference_${_tip_field}}")
       endif()
     endforeach()
 
@@ -567,17 +1223,12 @@ function(_tip_find_package_expression_package_name OUT_VAR DEPENDENCY_EXPRESSION
 endfunction()
 
 # ~~~
-# Prepare a CMake installation target for packaging.
+# Register one target for deferred package finalization.
 #
-# This function validates and prepares installation rules for a target, storing
-# the configuration for later finalization. Finalization happens automatically
-# at the end of configuration using cmake_language(DEFER CALL).
+# This legacy implementation entry point validates and stores target metadata for
+# target_install_package(). It is not public API.
 #
-# Use this function when you have multiple targets that should be part of the same
-# export with aggregated dependencies. Call this for each target, then optionally
-# call finalize_package() for explicit control (otherwise it happens automatically).
-#
-# API:
+# Internal signature:
 #   target_prepare_package(TARGET_NAME
 #     NAMESPACE <namespace>
 #     ALIAS_NAME <alias_name>
@@ -589,6 +1240,8 @@ endfunction()
 #     INCLUDE_DESTINATION <include_dest>
 #     MODULE_DESTINATION <module_dest>
 #     SOURCE_DESTINATION <source_dest>
+#     SOURCE_FILE_SET_FROM_TARGET_SOURCES <file_set>
+#     SOURCE_FILE_SET_PROPERTIES <file_set> <property> <boolean> [...]
 #     CMAKE_CONFIG_DESTINATION <config_dest>
 #     COMPONENT <component>
 #     DEBUG_POSTFIX <postfix>
@@ -626,18 +1279,45 @@ endfunction()
 #     SBOM_DESTINATION <destination>
 #     SBOM_VERSION <version>
 #     SBOM_LICENSE <license>
+#     SBOM_DEFAULT_LICENSE <license>
 #     SBOM_DESCRIPTION <description>
 #     SBOM_HOMEPAGE_URL <url>
 #     SBOM_PACKAGE_URL <url>
 #     SBOM_FORMAT <format>)
 #
-# SBOM requires CMAKE_EXPERIMENTAL_GENERATE_SBOM.
+# SBOM on CMake 4.3 and 4.4 requires CMAKE_EXPERIMENTAL_GENERATE_SBOM.
 #
 # See target_install_package() for parameter descriptions.
 # CONFIG_TEMPLATE resolution source of truth:
 # docs/template_resolution.md#source-of-truth
 # ~~~
-function(target_prepare_package TARGET_NAME)
+function(target_prepare_package _tip_target_name)
+  # Capture caller substitutions before nonreserved implementation locals shadow their names.
+  # Only inspect the two routing arguments here; the complete parser below validates them.
+  set(_tip_registration_export "${_tip_target_name}")
+  set(_tip_registration_template "")
+  set(_tip_registration_index 1)
+  while(_tip_registration_index LESS ARGC)
+    set(_tip_registration_keyword "${ARGV${_tip_registration_index}}")
+    math(EXPR _tip_registration_index "${_tip_registration_index} + 1")
+    if(_tip_registration_keyword STREQUAL "EXPORT_NAME")
+      set(_tip_registration_export "${ARGV${_tip_registration_index}}")
+    elseif(_tip_registration_keyword STREQUAL "CONFIG_TEMPLATE")
+      set(_tip_registration_template "${ARGV${_tip_registration_index}}")
+    endif()
+  endwhile()
+  if(NOT _tip_registration_export)
+    set(_tip_registration_export "${_tip_target_name}")
+  endif()
+  if(_tip_registration_template)
+    _tip_resolve_absolute_paths(_tip_registration_template "${CMAKE_CURRENT_SOURCE_DIR}" "${_tip_registration_template}")
+    if(EXISTS "${_tip_registration_template}")
+      _tip_capture_config_template_context("_CMAKE_PACKAGE_EXPORT_${_tip_registration_export}" "${_tip_registration_template}")
+    endif()
+  endif()
+
+  set(TARGET_NAME "${_tip_target_name}")
+
   # Check for deprecated parameters BEFORE parsing
   if("RUNTIME_COMPONENT" IN_LIST ARGN OR "DEVELOPMENT_COMPONENT" IN_LIST ARGN)
     message(FATAL_ERROR "RUNTIME_COMPONENT and DEVELOPMENT_COMPONENT parameters are deprecated. "
@@ -664,6 +1344,9 @@ function(target_prepare_package TARGET_NAME)
       INCLUDE_DESTINATION
       MODULE_DESTINATION
       SOURCE_DESTINATION
+      SOURCE_FILE_SET_FROM_TARGET_SOURCES
+      SOURCE_LIBRARY_TYPE
+      SOURCE_LIBRARY_ALIAS
       CMAKE_CONFIG_DESTINATION
       COMPONENT
       DEBUG_POSTFIX
@@ -687,6 +1370,7 @@ function(target_prepare_package TARGET_NAME)
       SBOM_DESTINATION
       SBOM_VERSION
       SBOM_LICENSE
+      SBOM_DEFAULT_LICENSE
       SBOM_DESCRIPTION
       SBOM_HOMEPAGE_URL
       SBOM_PACKAGE_URL
@@ -699,13 +1383,44 @@ function(target_prepare_package TARGET_NAME)
       INCLUDE_ON_FIND_PACKAGE
       PUBLIC_CMAKE_FILES
       COMPONENT_DEPENDENCIES
+      SOURCE_FILE_SET_PROPERTIES
       CPS_DEFAULT_TARGETS
       CPS_DEFAULT_CONFIGURATIONS
       CPS_PERMISSIONS
       CPS_CONFIGURATIONS)
-  cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+  # Function calls share the caller's policy scope, so keep CMP0174 NEW private to this parse.
+  cmake_policy(PUSH)
+  if(POLICY CMP0174)
+    cmake_policy(SET CMP0174 NEW)
+  endif()
+  cmake_parse_arguments(PARSE_ARGV 1 ARG "${options}" "${oneValueArgs}" "${multiValueArgs}")
+  cmake_policy(POP)
   if(ARG_UNPARSED_ARGUMENTS)
     project_log(FATAL_ERROR "Unknown arguments for target_install_package('${TARGET_NAME}'): ${ARG_UNPARSED_ARGUMENTS}")
+  endif()
+
+  # CMake 3.25 cannot distinguish an explicit empty one-value argument via PARSE_ARGV alone.
+  # Inspect the original arguments to reject missing values while preserving explicit empties.
+  set(_tip_keywords ${options} ${oneValueArgs} ${multiValueArgs})
+  set(_tip_argument_index 1)
+  while(_tip_argument_index LESS ARGC)
+    set(_tip_keyword "${ARGV${_tip_argument_index}}")
+    math(EXPR _tip_argument_index "${_tip_argument_index} + 1")
+    if(_tip_keyword IN_LIST oneValueArgs)
+      set(_tip_value "${ARGV${_tip_argument_index}}")
+      if(_tip_argument_index GREATER_EQUAL ARGC OR _tip_value IN_LIST _tip_keywords)
+        project_log(FATAL_ERROR "Keyword '${_tip_keyword}' requires a value for target_install_package('${TARGET_NAME}').")
+      endif()
+      if(_tip_keyword STREQUAL "VERSION" AND "${_tip_value}" STREQUAL "")
+        project_log(FATAL_ERROR "Keyword 'VERSION' requires a nonempty value for target_install_package('${TARGET_NAME}').")
+      endif()
+      set("ARG_${_tip_keyword}" "${_tip_value}")
+      list(REMOVE_ITEM ARG_KEYWORDS_MISSING_VALUES "${_tip_keyword}")
+      math(EXPR _tip_argument_index "${_tip_argument_index} + 1")
+    endif()
+  endwhile()
+  if(ARG_KEYWORDS_MISSING_VALUES)
+    project_log(FATAL_ERROR "Keywords require values for target_install_package('${TARGET_NAME}'): ${ARG_KEYWORDS_MISSING_VALUES}")
   endif()
 
   # Store DISABLE_RPATH as a target property for later use
@@ -766,7 +1481,7 @@ function(target_prepare_package TARGET_NAME)
   endif()
 
   # Handle VERSION specially since it has PROJECT_VERSION fallback logic
-  if(NOT ARG_VERSION)
+  if(NOT DEFINED ARG_VERSION)
     if(PROJECT_VERSION)
       set(ARG_VERSION "${PROJECT_VERSION}")
       project_log(DEBUG "  Version not provided, using PROJECT_VERSION: ${ARG_VERSION}")
@@ -804,9 +1519,16 @@ function(target_prepare_package TARGET_NAME)
   endif()
 
   # NAMESPACE defaults to EXPORT_NAME::
-  if(NOT ARG_NAMESPACE)
+  if(NOT DEFINED ARG_NAMESPACE)
     set(ARG_NAMESPACE "${ARG_EXPORT_NAME}::")
     project_log(DEBUG "  Namespace not provided, using export name: ${ARG_NAMESPACE}")
+  endif()
+
+  if(NOT "${ARG_SOURCE_LIBRARY_ALIAS}" STREQUAL "" AND "${ARG_SOURCE_LIBRARY_TYPE}" STREQUAL "")
+    project_log(FATAL_ERROR "SOURCE_LIBRARY_ALIAS requires SOURCE_LIBRARY_TYPE for target '${TARGET_NAME}'.")
+  endif()
+  if(NOT ARG_SOURCE_LIBRARY_ALIAS)
+    set(ARG_SOURCE_LIBRARY_ALIAS "${ARG_ALIAS_NAME}_source")
   endif()
 
   # Handle CMAKE_CONFIG_DESTINATION using EXPORT_NAME instead of TARGET_NAME
@@ -832,12 +1554,6 @@ function(target_prepare_package TARGET_NAME)
       FATAL_ERROR
         "COMPONENT name '${ARG_COMPONENT}' is deprecated. " "The purpose of COMPONENT is to create meaningful component groups that differ from the default 'Runtime'/'Development'. "
         "Use COMPONENT with a descriptive name (e.g., 'Core', 'Graphics', 'Network') to separate components logically. " "If you want default behavior, simply omit the COMPONENT parameter entirely.")
-  endif()
-
-  # Handle DEBUG_POSTFIX default value
-  if(NOT ARG_DEBUG_POSTFIX)
-    set(ARG_DEBUG_POSTFIX "d")
-    project_log(DEBUG "  Debug postfix not provided, using default: ${ARG_DEBUG_POSTFIX}")
   endif()
 
   # Set default values using the helper function (skip NAMESPACE and EXPORT_NAME as they're already handled)
@@ -950,6 +1666,7 @@ function(target_prepare_package TARGET_NAME)
           ARG_SBOM_DESTINATION
           ARG_SBOM_VERSION
           ARG_SBOM_LICENSE
+          ARG_SBOM_DEFAULT_LICENSE
           ARG_SBOM_DESCRIPTION
           ARG_SBOM_HOMEPAGE_URL
           ARG_SBOM_PACKAGE_URL
@@ -971,6 +1688,9 @@ function(target_prepare_package TARGET_NAME)
 
     if(NOT "${ARG_SBOM_PACKAGE_URL}" STREQUAL "" AND CMAKE_VERSION VERSION_LESS "4.4")
       project_log(FATAL_ERROR "SBOM_PACKAGE_URL requires CMake 4.4 or newer because CMake 4.3 does not accept PACKAGE_URL in install(SBOM).")
+    endif()
+    if(NOT "${ARG_SBOM_DEFAULT_LICENSE}" STREQUAL "" AND CMAKE_VERSION VERSION_LESS "4.5")
+      project_log(FATAL_ERROR "SBOM_DEFAULT_LICENSE requires CMake 4.5 or newer because CMake 4.3 and 4.4 do not accept DEFAULT_LICENSE in install(SBOM).")
     endif()
 
     set(_tip_effective_sbom_name "${ARG_SBOM_NAME}")
@@ -1014,9 +1734,15 @@ function(target_prepare_package TARGET_NAME)
     project_log(FATAL_ERROR "Export '${ARG_EXPORT_NAME}' has already been finalized. Target '${TARGET_NAME}' cannot be added after finalize_package().")
   endif()
 
+  _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "TARGET_${TARGET_NAME}_SOURCE_FILE_SET_FROM_TARGET_SOURCES" "${ARG_SOURCE_FILE_SET_FROM_TARGET_SOURCES}"
+                             "SOURCE_FILE_SET_FROM_TARGET_SOURCES for target '${TARGET_NAME}'")
+
   if(ARG_CONFIG_TEMPLATE)
     _tip_resolve_absolute_paths(ARG_CONFIG_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}" "${ARG_CONFIG_TEMPLATE}")
     list(GET ARG_CONFIG_TEMPLATE 0 ARG_CONFIG_TEMPLATE)
+    if(NOT EXISTS "${ARG_CONFIG_TEMPLATE}")
+      project_log(FATAL_ERROR "User-provided config template not found: ${ARG_CONFIG_TEMPLATE}")
+    endif()
   endif()
 
   if(ARG_INCLUDE_ON_FIND_PACKAGE)
@@ -1084,6 +1810,16 @@ function(target_prepare_package TARGET_NAME)
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_COMPONENT_EXPLICIT" "${_tip_component_explicit}")
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME" "${ARG_ALIAS_NAME}")
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME_EXPLICIT" "${_tip_alias_name_explicit}")
+  set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_SOURCE_LIBRARY_TYPE" "${ARG_SOURCE_LIBRARY_TYPE}")
+  set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_SOURCE_LIBRARY_ALIAS" "${ARG_SOURCE_LIBRARY_ALIAS}")
+
+  if(ARG_SOURCE_FILE_SET_PROPERTIES)
+    get_property(_tip_existing_source_file_set_properties GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_SOURCE_FILE_SET_PROPERTIES")
+    if(_tip_existing_source_file_set_properties AND NOT "${_tip_existing_source_file_set_properties}" STREQUAL "${ARG_SOURCE_FILE_SET_PROPERTIES}")
+      project_log(FATAL_ERROR "Conflicting SOURCE_FILE_SET_PROPERTIES for target '${TARGET_NAME}' in export '${ARG_EXPORT_NAME}'.")
+    endif()
+    set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_SOURCE_FILE_SET_PROPERTIES" "${ARG_SOURCE_FILE_SET_PROPERTIES}")
+  endif()
 
   foreach(_tip_additional_target IN LISTS ARG_ADDITIONAL_TARGETS)
     get_property(
@@ -1117,6 +1853,36 @@ function(target_prepare_package TARGET_NAME)
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_DEVELOPMENT_COMPONENT_EXPLICIT" FALSE)
   project_log(DEBUG "  DEVELOPMENT_COMPONENT_EXPLICIT for '${TARGET_NAME}': FALSE")
 
+  # Destinations belong to individual targets; grouped exports may span different child projects.
+  foreach(_tip_registered_target IN ITEMS ${TARGET_NAME} ${ARG_ADDITIONAL_TARGETS})
+    set(_tip_target_prefix "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_registered_target}")
+    get_property(
+      _tip_context_registered GLOBAL
+      PROPERTY "${_tip_target_prefix}_SOURCE_DIR"
+      SET)
+    if(_tip_registered_target STREQUAL TARGET_NAME OR NOT _tip_context_registered)
+      set_property(GLOBAL PROPERTY "${_tip_target_prefix}_SOURCE_DIR" "${CMAKE_CURRENT_SOURCE_DIR}")
+      foreach(_tip_destination IN ITEMS INCLUDE_DESTINATION MODULE_DESTINATION SOURCE_DESTINATION)
+        set_property(GLOBAL PROPERTY "${_tip_target_prefix}_${_tip_destination}" "${ARG_${_tip_destination}}")
+      endforeach()
+      foreach(_tip_install_variable IN ITEMS CMAKE_INSTALL_LIBDIR CMAKE_INSTALL_BINDIR CMAKE_INSTALL_DATADIR CMAKE_INSTALL_RPATH CMAKE_SKIP_INSTALL_RPATH)
+        set_property(GLOBAL PROPERTY "${_tip_target_prefix}_${_tip_install_variable}" "${${_tip_install_variable}}")
+      endforeach()
+      if(DEFINED ARG_DEBUG_POSTFIX)
+        set_property(GLOBAL PROPERTY "${_tip_target_prefix}_DEBUG_POSTFIX" "${ARG_DEBUG_POSTFIX}")
+      endif()
+
+      # Target-local lookup lets runtime dependencies span independently finalized exports.
+      get_property(
+        _tip_target_exports
+        TARGET ${_tip_registered_target}
+        PROPERTY _TIP_INSTALL_EXPORT_PREFIXES)
+      list(APPEND _tip_target_exports "${EXPORT_PROPERTY_PREFIX}")
+      list(REMOVE_DUPLICATES _tip_target_exports)
+      set_property(TARGET ${_tip_registered_target} PROPERTY _TIP_INSTALL_EXPORT_PREFIXES "${_tip_target_exports}")
+    endif()
+  endforeach()
+
   # Store export-level configuration (shared settings)
   set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGETS" "${EXISTING_TARGETS}")
   if(_tip_version_explicit)
@@ -1127,11 +1893,7 @@ function(target_prepare_package TARGET_NAME)
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "COMPATIBILITY" "${ARG_COMPATIBILITY}" "compatibility")
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "ARCH_INDEPENDENT" "${ARG_ARCH_INDEPENDENT}" "architecture independence")
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "CONFIG_TEMPLATE" "${ARG_CONFIG_TEMPLATE}" "config template")
-  _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "INCLUDE_DESTINATION" "${ARG_INCLUDE_DESTINATION}" "include destination")
-  _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "MODULE_DESTINATION" "${ARG_MODULE_DESTINATION}" "module destination")
-  _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SOURCE_DESTINATION" "${ARG_SOURCE_DESTINATION}" "source destination")
   _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "CMAKE_CONFIG_DESTINATION" "${ARG_CMAKE_CONFIG_DESTINATION}" "CMake config destination")
-  _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "DEBUG_POSTFIX" "${ARG_DEBUG_POSTFIX}" "debug postfix")
 
   if(ARG_CPS)
     set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS" TRUE)
@@ -1183,7 +1945,10 @@ function(target_prepare_package TARGET_NAME)
   if(ARG_SBOM)
     set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM" TRUE)
     _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_METADATA_MODE" "${_tip_sbom_metadata_mode}" "SBOM metadata inheritance mode")
-    _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_EXPERIMENTAL_VALUE" "${CMAKE_EXPERIMENTAL_GENERATE_SBOM}" "SBOM experimental activation value")
+    # The activation value only exists for CMake 4.3 and 4.4; a leftover value on 4.5+ must not create conflicts.
+    if(CMAKE_VERSION VERSION_LESS "4.5")
+      _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_EXPERIMENTAL_VALUE" "${CMAKE_EXPERIMENTAL_GENERATE_SBOM}" "SBOM experimental activation value")
+    endif()
     if(_tip_sbom_version_explicit)
       set_property(GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SBOM_VERSION_EXPLICIT" TRUE)
     endif()
@@ -1195,6 +1960,7 @@ function(target_prepare_package TARGET_NAME)
             SBOM_DESTINATION
             SBOM_VERSION
             SBOM_LICENSE
+            SBOM_DEFAULT_LICENSE
             SBOM_DESCRIPTION
             SBOM_HOMEPAGE_URL
             SBOM_PACKAGE_URL
@@ -1222,8 +1988,15 @@ function(target_prepare_package TARGET_NAME)
         _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_INHERITED_VERSION" "${${_tip_sbom_project_version_var}}" "SBOM inherited project version")
       endif()
 
+      # The project license fills the data license and, on CMake 4.5+, the default declared license.
+      set(_tip_sbom_inherited_license_used FALSE)
+      if("${ARG_SBOM_LICENSE}" STREQUAL "")
+        set(_tip_sbom_inherited_license_used TRUE)
+      elseif(CMAKE_VERSION VERSION_GREATER_EQUAL "4.5" AND "${ARG_SBOM_DEFAULT_LICENSE}" STREQUAL "")
+        set(_tip_sbom_inherited_license_used TRUE)
+      endif()
       set(_tip_sbom_project_license_var "${_tip_sbom_metadata_project}_SPDX_LICENSE")
-      if("${ARG_SBOM_LICENSE}" STREQUAL ""
+      if(_tip_sbom_inherited_license_used
          AND DEFINED ${_tip_sbom_project_license_var}
          AND NOT "${${_tip_sbom_project_license_var}}" STREQUAL "")
         _tip_store_export_property("${EXPORT_PROPERTY_PREFIX}" "${ARG_EXPORT_NAME}" "SBOM_INHERITED_LICENSE" "${${_tip_sbom_project_license_var}}" "SBOM inherited project license")
@@ -1562,10 +2335,169 @@ function(_build_component_args VAR_PREFIX COMPONENT_PREFIX COMPONENT_TYPE)
       PARENT_SCOPE)
 endfunction()
 
+# Resolve the same configuration prefix for artifact installation and runtime lookup.
+function(_tip_install_configuration_prefix OUT_VAR TARGET_NAME)
+  get_target_property(_tip_layout ${TARGET_NAME} TARGET_INSTALL_PACKAGE_LAYOUT)
+  if(NOT _tip_layout OR _tip_layout STREQUAL "fhs")
+    set(_tip_prefix "")
+  elseif(_tip_layout STREQUAL "split_debug")
+    set(_tip_prefix "$<$<CONFIG:Debug>:debug/>")
+  elseif(_tip_layout STREQUAL "split_all")
+    set(_tip_prefix "$<$<BOOL:$<CONFIG>>:$<LOWER_CASE:$<CONFIG>>/>")
+  else()
+    project_log(FATAL_ERROR "Invalid LAYOUT '${_tip_layout}'. Valid values: fhs, split_debug, split_all")
+  endif()
+  set(${OUT_VAR}
+      "${_tip_prefix}"
+      PARENT_SCOPE)
+endfunction()
+
+# Resolve literal target links and bounded configuration selectors without interpreting
+# arbitrary link flags or guessing names embedded in other generator expressions.
+function(_tip_link_target_for_configuration OUT_VAR UNRESOLVED_OUT LINK_ITEM CONFIGURATION)
+  set(_tip_link "${LINK_ITEM}")
+  set(${UNRESOLVED_OUT}
+      FALSE
+      PARENT_SCOPE)
+  string(TOUPPER "${CONFIGURATION}" _tip_configuration)
+  while(TRUE)
+    if(TARGET "${_tip_link}")
+      set(${OUT_VAR}
+          "${_tip_link}"
+          PARENT_SCOPE)
+      return()
+    elseif(_tip_link MATCHES "^\\$<(LINK_ONLY|BUILD_INTERFACE|TARGET_NAME_IF_EXISTS):(.*)>$")
+      set(_tip_link "${CMAKE_MATCH_2}")
+    else()
+      set(_tip_negated FALSE)
+      if(_tip_link MATCHES "^\\$<\\$<CONFIG:([^>]*)>:(.*)>$")
+        set(_tip_configurations "${CMAKE_MATCH_1}")
+        set(_tip_payload "${CMAKE_MATCH_2}")
+      elseif(_tip_link MATCHES "^\\$<\\$<NOT:\\$<CONFIG:([^>]*)>>:(.*)>$")
+        set(_tip_configurations "${CMAKE_MATCH_1}")
+        set(_tip_payload "${CMAKE_MATCH_2}")
+        set(_tip_negated TRUE)
+      else()
+        if(_tip_link MATCHES "\\$<" AND NOT _tip_link MATCHES "^\\$<INSTALL_INTERFACE:.*>$")
+          set(${UNRESOLVED_OUT}
+              TRUE
+              PARENT_SCOPE)
+        endif()
+        break()
+      endif()
+
+      string(TOUPPER "${_tip_configurations}" _tip_configurations)
+      string(REPLACE "," ";" _tip_configurations "${_tip_configurations}")
+      set(_tip_selected FALSE)
+      if(_tip_configuration IN_LIST _tip_configurations OR _tip_configuration STREQUAL _tip_configurations)
+        set(_tip_selected TRUE)
+      endif()
+      if((_tip_selected AND NOT _tip_negated) OR (NOT _tip_selected AND _tip_negated))
+        set(_tip_link "${_tip_payload}")
+      else()
+        break()
+      endif()
+    endif()
+  endwhile()
+  set(${OUT_VAR}
+      ""
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_append_linked_install_rpaths OUT_VAR TARGET_NAME FROM_DESTINATION LOADER_ORIGIN)
+  set(_tip_paths "${${OUT_VAR}}")
+  if(CMAKE_CONFIGURATION_TYPES)
+    foreach(_tip_configuration IN LISTS CMAKE_CONFIGURATION_TYPES)
+      set(_tip_config_paths "")
+      _tip_append_linked_install_rpaths_for_configuration(_tip_config_paths "${TARGET_NAME}" "${FROM_DESTINATION}" "${LOADER_ORIGIN}" "${_tip_configuration}")
+      foreach(_tip_path IN LISTS _tip_config_paths)
+        list(APPEND _tip_paths "$<$<CONFIG:${_tip_configuration}>:${_tip_path}>")
+      endforeach()
+    endforeach()
+  else()
+    _tip_append_linked_install_rpaths_for_configuration(_tip_paths "${TARGET_NAME}" "${FROM_DESTINATION}" "${LOADER_ORIGIN}" "${CMAKE_BUILD_TYPE}")
+  endif()
+  set(${OUT_VAR}
+      "${_tip_paths}"
+      PARENT_SCOPE)
+endfunction()
+
+# Append runtime paths for registered shared libraries reached through linked targets.
+# Follow aliases and interface/static intermediaries, independent of export finalization order.
+function(_tip_append_linked_install_rpaths_for_configuration OUT_VAR TARGET_NAME FROM_DESTINATION LOADER_ORIGIN CONFIGURATION)
+  set(_tip_pending "${TARGET_NAME}")
+  set(_tip_visited "")
+  set(_tip_paths "${${OUT_VAR}}")
+  while(NOT "${_tip_pending}" STREQUAL "")
+    list(POP_FRONT _tip_pending _tip_dependency)
+    if(NOT TARGET "${_tip_dependency}")
+      continue()
+    endif()
+    get_target_property(_tip_aliased_target "${_tip_dependency}" ALIASED_TARGET)
+    if(_tip_aliased_target)
+      set(_tip_dependency "${_tip_aliased_target}")
+    endif()
+    if(_tip_dependency IN_LIST _tip_visited)
+      continue()
+    endif()
+    list(APPEND _tip_visited "${_tip_dependency}")
+
+    get_target_property(_tip_dependency_type "${_tip_dependency}" TYPE)
+    if(_tip_dependency_type STREQUAL "SHARED_LIBRARY" AND NOT _tip_dependency STREQUAL TARGET_NAME)
+      get_property(
+        _tip_exports
+        TARGET "${_tip_dependency}"
+        PROPERTY _TIP_INSTALL_EXPORT_PREFIXES)
+      _tip_install_configuration_prefix(_tip_prefix "${_tip_dependency}")
+      foreach(_tip_export IN LISTS _tip_exports)
+        get_property(_tip_libdir GLOBAL PROPERTY "${_tip_export}_TARGET_${_tip_dependency}_CMAKE_INSTALL_LIBDIR")
+        _tip_compute_relative_install_path(_tip_relative "${FROM_DESTINATION}" "${_tip_prefix}${_tip_libdir}")
+        if(NOT "${_tip_relative}" STREQUAL "")
+          if(IS_ABSOLUTE "${_tip_relative}")
+            list(APPEND _tip_paths "${_tip_relative}")
+          elseif(_tip_relative STREQUAL ".")
+            list(APPEND _tip_paths "${LOADER_ORIGIN}")
+          else()
+            list(APPEND _tip_paths "${LOADER_ORIGIN}/${_tip_relative}")
+          endif()
+        endif()
+      endforeach()
+    endif()
+
+    # Direct-link injections are usage requirements too. Do not prune EXCLUDE targets:
+    # exclusion changes the direct link list, but a target may still be needed indirectly.
+    foreach(_tip_link_property IN ITEMS LINK_LIBRARIES INTERFACE_LINK_LIBRARIES INTERFACE_LINK_LIBRARIES_DIRECT)
+      get_property(
+        _tip_links
+        TARGET "${_tip_dependency}"
+        PROPERTY ${_tip_link_property})
+      foreach(_tip_link IN LISTS _tip_links)
+        _tip_link_target_for_configuration(_tip_link_target _tip_unresolved_link "${_tip_link}" "${CONFIGURATION}")
+        if(_tip_unresolved_link)
+          string(SHA256 _tip_warning_key "${TARGET_NAME}:${_tip_dependency}:${_tip_link}")
+          get_property(_tip_warned GLOBAL PROPERTY "_TIP_RPATH_UNRESOLVED_${_tip_warning_key}")
+          if(NOT _tip_warned)
+            project_log(
+              WARNING
+              "Automatic RPATH cannot resolve link expression '${_tip_link}' on '${_tip_dependency}' for '${TARGET_NAME}'. Set INSTALL_RPATH explicitly if this dependency uses a custom install destination."
+            )
+            set_property(GLOBAL PROPERTY "_TIP_RPATH_UNRESOLVED_${_tip_warning_key}" TRUE)
+          endif()
+        endif()
+        if(TARGET "${_tip_link_target}")
+          list(APPEND _tip_pending "${_tip_link_target}")
+        endif()
+      endforeach()
+    endforeach()
+  endwhile()
+  set(${OUT_VAR}
+      "${_tip_paths}"
+      PARENT_SCOPE)
+endfunction()
+
 # ~~~
 # Compute the path from one install destination to another using a dummy prefix so
-# results stay generator-agnostic. Returns an empty string if either destination
-# contains generator expressions that cannot be resolved at configure time.
+# results remain relocatable. Resolve layout generator expressions at generation time.
 # ~~~
 function(_tip_compute_relative_install_path RESULT_VAR FROM_DESTINATION TO_DESTINATION)
   set(${RESULT_VAR}
@@ -1576,15 +2508,19 @@ function(_tip_compute_relative_install_path RESULT_VAR FROM_DESTINATION TO_DESTI
     return()
   endif()
 
-  if("${TO_DESTINATION}" MATCHES "\\$<" OR "${FROM_DESTINATION}" MATCHES "\\$<")
-    project_log(DEBUG "Skipping relative path computation for generator expression destinations: from='${FROM_DESTINATION}' to='${TO_DESTINATION}'")
-    return()
-  endif()
-
   cmake_path(IS_ABSOLUTE TO_DESTINATION TO_IS_ABSOLUTE)
   if(TO_IS_ABSOLUTE)
     set(${RESULT_VAR}
         "${TO_DESTINATION}"
+        PARENT_SCOPE)
+    return()
+  endif()
+
+  if("${TO_DESTINATION}" MATCHES "\\$<" OR "${FROM_DESTINATION}" MATCHES "\\$<")
+    set(_tip_from "$<PATH:ABSOLUTE_PATH,NORMALIZE,${FROM_DESTINATION},/target_install_package_prefix>")
+    set(_tip_to "$<PATH:ABSOLUTE_PATH,NORMALIZE,${TO_DESTINATION},/target_install_package_prefix>")
+    set(${RESULT_VAR}
+        "$<PATH:RELATIVE_PATH,${_tip_to},${_tip_from}>"
         PARENT_SCOPE)
     return()
   endif()
@@ -1624,16 +2560,10 @@ endfunction()
 
 # Helper to setup CPack component relationships
 # ~~~
-# Finalize and install a prepared package export.
+# Finalize and install a registered package export.
 #
-# This function completes the installation process for all targets that were
-# prepared with target_prepare_package() for the given export name.
-#
-# NOTE: This function is OPTIONAL. All exports are automatically finalized at
-# the end of configuration using cmake_language(DEFER CALL).
-# Use this function only when you need explicit control over finalization timing.
-#
-# I don't think this function is needed anymore, but I leave it for now.
+# This legacy implementation entry point is invoked by deferred auto-finalization.
+# It is not public API.
 #
 # Under the hood:
 # 1. Collects all targets and their configurations from global properties
@@ -1642,17 +2572,11 @@ endfunction()
 # 4. Creates package config files with all aggregated dependencies
 # 5. Installs each target with its individual component assignments
 #
-# API:
+# Internal signature:
 #   finalize_package(EXPORT_NAME <export_name>)
 #
 # Parameters:
 #   EXPORT_NAME - Name of the export to finalize (required)
-#
-# Example:
-#   target_prepare_package(my_library EXPORT_NAME my_project PUBLIC_DEPENDENCIES "fmt REQUIRED")
-#   target_prepare_package(my_executable EXPORT_NAME my_project PUBLIC_DEPENDENCIES "spdlog REQUIRED")
-#   finalize_package(EXPORT_NAME my_project)
-#   # Result: Config file contains both fmt and spdlog dependencies
 # ~~~
 function(finalize_package)
   # Parse arguments
@@ -1680,15 +2604,28 @@ function(finalize_package)
     project_log(FATAL_ERROR "No targets prepared for export '${ARG_EXPORT_NAME}'")
   endif()
 
+  foreach(_tip_source_target IN LISTS TARGETS)
+    get_property(_tip_source_file_set_from_target_sources GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_source_target}_SOURCE_FILE_SET_FROM_TARGET_SOURCES")
+    if(NOT "${_tip_source_file_set_from_target_sources}" STREQUAL "")
+      _tip_add_source_file_set_from_target_sources(${_tip_source_target} "${_tip_source_file_set_from_target_sources}")
+    endif()
+
+    get_property(_tip_source_file_set_properties GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_source_target}_SOURCE_FILE_SET_PROPERTIES")
+    if(_tip_source_file_set_properties)
+      _tip_apply_source_file_set_properties(${_tip_source_target} ${_tip_source_file_set_properties})
+    endif()
+
+    get_property(_tip_source_library_type GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_source_target}_SOURCE_LIBRARY_TYPE")
+    get_property(_tip_source_library_alias GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${_tip_source_target}_SOURCE_LIBRARY_ALIAS")
+    _tip_validate_consumer_local_source_library(${_tip_source_target} "${_tip_source_library_type}" "${_tip_source_library_alias}")
+  endforeach()
+
   # Get all stored properties
   get_property(NAMESPACE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_NAMESPACE")
   get_property(VERSION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_VERSION")
   get_property(COMPATIBILITY GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_COMPATIBILITY")
   get_property(ARCH_INDEPENDENT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_ARCH_INDEPENDENT")
   get_property(CONFIG_TEMPLATE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CONFIG_TEMPLATE")
-  get_property(INCLUDE_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_INCLUDE_DESTINATION")
-  get_property(MODULE_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_MODULE_DESTINATION")
-  get_property(SOURCE_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_SOURCE_DESTINATION")
   get_property(CMAKE_CONFIG_DESTINATION GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CMAKE_CONFIG_DESTINATION")
   get_property(CONFIG_DEV_COMPONENT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CONFIG_DEVELOPMENT_COMPONENT")
   get_property(CURRENT_SOURCE_DIR GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CURRENT_SOURCE_DIR")
@@ -1696,7 +2633,6 @@ function(finalize_package)
   get_property(PUBLIC_DEPENDENCIES GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_PUBLIC_DEPENDENCIES")
   get_property(INCLUDE_ON_FIND_PACKAGE GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_INCLUDE_ON_FIND_PACKAGE")
   get_property(COMPONENT_DEPENDENCY_COMPONENTS GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_COMPONENT_DEPENDENCY_COMPONENTS")
-  get_property(DEBUG_POSTFIX GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_DEBUG_POSTFIX")
   get_property(CPS_ENABLED GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS")
   get_property(CPS_PACKAGE_NAME GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_PACKAGE_NAME")
   get_property(CPS_PROJECT GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_CPS_PROJECT")
@@ -1812,26 +2748,69 @@ function(finalize_package)
     endforeach()
   endif()
 
-  # Apply DEBUG_POSTFIX only to library targets if specified
-  if(DEBUG_POSTFIX)
-    foreach(TARGET_NAME ${TARGETS})
-      get_target_property(TARGET_TYPE ${TARGET_NAME} TYPE)
-      if(TARGET_TYPE MATCHES "LIBRARY")
-        set_target_properties(${TARGET_NAME} PROPERTIES DEBUG_POSTFIX "${DEBUG_POSTFIX}")
-        project_log(DEBUG "  Set DEBUG_POSTFIX '${DEBUG_POSTFIX}' for library '${TARGET_NAME}'")
-      endif()
-    endforeach()
-  endif()
-
   set(_tip_cps_exported_target_names "")
   set(_tip_cps_default_target_names "")
   set(_tip_cps_default_target_types STATIC_LIBRARY SHARED_LIBRARY INTERFACE_LIBRARY)
-  set(_tip_cps_unsupported_target_types EXECUTABLE MODULE_LIBRARY)
+  # CPS written by CMake 4.3 and 4.4 is readable by CMake 4.3 and 4.4 consumers, which cannot import executable or
+  # module components. CMake 4.5 writes a CPS version that only CMake 4.5+ consumers read, and they import both.
+  set(_tip_cps_unsupported_target_types "")
+  if(CMAKE_VERSION VERSION_LESS "4.5")
+    set(_tip_cps_unsupported_target_types EXECUTABLE MODULE_LIBRARY)
+  endif()
   set(_tip_exported_alias_names "")
+  set(_tip_source_library_alias_names "")
+  set(PACKAGE_SOURCE_FILE_SET_PROPERTIES_CONTENT "")
 
   # Install each target separately with its own components
   set(_tip_export_has_source_sets FALSE)
   foreach(TARGET_NAME ${TARGETS})
+    set(_tip_target_prefix "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}")
+    foreach(_tip_destination IN ITEMS INCLUDE_DESTINATION MODULE_DESTINATION SOURCE_DESTINATION)
+      get_property(${_tip_destination} GLOBAL PROPERTY "${_tip_target_prefix}_${_tip_destination}")
+    endforeach()
+    foreach(_tip_install_variable IN ITEMS CMAKE_INSTALL_LIBDIR CMAKE_INSTALL_BINDIR CMAKE_INSTALL_DATADIR CMAKE_INSTALL_RPATH CMAKE_SKIP_INSTALL_RPATH)
+      get_property(${_tip_install_variable} GLOBAL PROPERTY "${_tip_target_prefix}_${_tip_install_variable}")
+    endforeach()
+
+    # Honor explicit wrapper choices, otherwise preserve the target's final property (including empty).
+    get_target_property(TARGET_TYPE ${TARGET_NAME} TYPE)
+    if(TARGET_TYPE MATCHES "LIBRARY")
+      get_property(
+        _tip_postfix_explicit GLOBAL
+        PROPERTY "${_tip_target_prefix}_DEBUG_POSTFIX"
+        SET)
+      get_property(
+        _tip_postfix_set
+        TARGET ${TARGET_NAME}
+        PROPERTY DEBUG_POSTFIX
+        SET)
+      if(_tip_postfix_explicit)
+        get_property(_tip_postfix GLOBAL PROPERTY "${_tip_target_prefix}_DEBUG_POSTFIX")
+        set_property(TARGET ${TARGET_NAME} PROPERTY DEBUG_POSTFIX "${_tip_postfix}")
+      elseif(NOT _tip_postfix_set)
+        set_property(TARGET ${TARGET_NAME} PROPERTY DEBUG_POSTFIX "d")
+      endif()
+    endif()
+
+    # Legacy file properties are interpreted relative to the registration directory, not the deferred root.
+    get_property(_tip_source_dir GLOBAL PROPERTY "${_tip_target_prefix}_SOURCE_DIR")
+    foreach(_tip_file_property IN ITEMS PUBLIC_HEADER PRIVATE_HEADER RESOURCE)
+      get_target_property(_tip_files ${TARGET_NAME} ${_tip_file_property})
+      if(NOT _tip_files OR _tip_files MATCHES "-NOTFOUND$")
+        continue()
+      endif()
+      set(_tip_absolute_files "")
+      foreach(_tip_file IN LISTS _tip_files)
+        if(_tip_file MATCHES "\\$<")
+          list(APPEND _tip_absolute_files "$<$<NOT:$<STREQUAL:${_tip_file},>>:$<PATH:ABSOLUTE_PATH,NORMALIZE,${_tip_file},${_tip_source_dir}>>")
+        else()
+          _tip_resolve_absolute_paths(_tip_absolute_file "${_tip_source_dir}" "${_tip_file}")
+          list(APPEND _tip_absolute_files "${_tip_absolute_file}")
+        endif()
+      endforeach()
+      set_property(TARGET ${TARGET_NAME} PROPERTY ${_tip_file_property} "${_tip_absolute_files}")
+    endforeach()
+
     get_property(TARGET_RUNTIME_COMP GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_RUNTIME_COMPONENT")
     get_property(TARGET_DEV_COMP GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_DEVELOPMENT_COMPONENT")
     get_property(TARGET_ALIAS_NAME GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_ALIAS_NAME")
@@ -1851,14 +2830,33 @@ function(finalize_package)
     if(TARGET_ALIAS_NAME IN_LIST _tip_exported_alias_names)
       project_log(FATAL_ERROR "Duplicate exported target name '${TARGET_ALIAS_NAME}' in export '${ARG_EXPORT_NAME}'. Use unique ALIAS_NAME values for each target.")
     endif()
+    if(TARGET_ALIAS_NAME IN_LIST _tip_source_library_alias_names)
+      project_log(FATAL_ERROR
+                  "Consumer-local source alias '${TARGET_ALIAS_NAME}' in export '${ARG_EXPORT_NAME}' conflicts with exported target name '${TARGET_ALIAS_NAME}'. Use a unique SOURCE_LIBRARY_ALIAS.")
+    endif()
     list(APPEND _tip_exported_alias_names "${TARGET_ALIAS_NAME}")
     list(APPEND _tip_cps_exported_target_names "${TARGET_ALIAS_NAME}")
+
+    get_property(_tip_source_library_type GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_SOURCE_LIBRARY_TYPE")
+    if(NOT "${_tip_source_library_type}" STREQUAL "")
+      get_property(_tip_source_library_alias GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_SOURCE_LIBRARY_ALIAS")
+      if(_tip_source_library_alias IN_LIST _tip_exported_alias_names)
+        project_log(
+          FATAL_ERROR
+          "Consumer-local source alias '${_tip_source_library_alias}' for target '${TARGET_NAME}' in export '${ARG_EXPORT_NAME}' conflicts with an exported target name. Use a unique SOURCE_LIBRARY_ALIAS."
+        )
+      endif()
+      if(_tip_source_library_alias IN_LIST _tip_source_library_alias_names)
+        project_log(FATAL_ERROR "Duplicate consumer-local source alias '${_tip_source_library_alias}' in export '${ARG_EXPORT_NAME}'. Use unique SOURCE_LIBRARY_ALIAS values for each target.")
+      endif()
+      list(APPEND _tip_source_library_alias_names "${_tip_source_library_alias}")
+    endif()
 
     get_target_property(_tip_cps_target_type ${TARGET_NAME} TYPE)
     if(CPS_ENABLED AND _tip_cps_target_type IN_LIST _tip_cps_unsupported_target_types)
       project_log(
         FATAL_ERROR
-        "CPS package metadata for export '${ARG_EXPORT_NAME}' does not support target '${TARGET_NAME}' of type '${_tip_cps_target_type}'. Put executables and module libraries in a separate non-CPS export."
+        "CPS package metadata for export '${ARG_EXPORT_NAME}' does not support target '${TARGET_NAME}' of type '${_tip_cps_target_type}' on CMake ${CMAKE_VERSION}. CMake 4.3 and 4.4 CPS consumers cannot import executables or module libraries. Put them in a separate non-CPS export, or produce the package with CMake 4.5 or newer."
       )
     endif()
     if(_tip_cps_target_type IN_LIST _tip_cps_default_target_types)
@@ -1889,6 +2887,23 @@ function(finalize_package)
       project_log(DEBUG "Set EXPORT_NAME '${TARGET_ALIAS_NAME}' for target '${TARGET_NAME}'")
     endif()
 
+    get_property(_tip_target_source_file_set_properties GLOBAL PROPERTY "${EXPORT_PROPERTY_PREFIX}_TARGET_${TARGET_NAME}_SOURCE_FILE_SET_PROPERTIES")
+    if(_tip_target_source_file_set_properties)
+      list(LENGTH _tip_target_source_file_set_properties _tip_target_source_file_set_property_count)
+      set(_tip_target_source_file_set_property_index 0)
+      while(_tip_target_source_file_set_property_index LESS _tip_target_source_file_set_property_count)
+        list(GET _tip_target_source_file_set_properties ${_tip_target_source_file_set_property_index} _tip_source_file_set_name)
+        math(EXPR _tip_target_source_file_set_property_index "${_tip_target_source_file_set_property_index} + 1")
+        list(GET _tip_target_source_file_set_properties ${_tip_target_source_file_set_property_index} _tip_source_file_set_property)
+        math(EXPR _tip_target_source_file_set_property_index "${_tip_target_source_file_set_property_index} + 1")
+        list(GET _tip_target_source_file_set_properties ${_tip_target_source_file_set_property_index} _tip_source_file_set_value)
+        math(EXPR _tip_target_source_file_set_property_index "${_tip_target_source_file_set_property_index} + 1")
+
+        string(APPEND PACKAGE_SOURCE_FILE_SET_PROPERTIES_CONTENT
+               "set_property(FILE_SET \"${_tip_source_file_set_name}\" TARGET \"${NAMESPACE}${TARGET_ALIAS_NAME}\" PROPERTY \"${_tip_source_file_set_property}\" \"${_tip_source_file_set_value}\")\n")
+      endwhile()
+    endif()
+
     # Primary install with export (to base components)
     set(INSTALL_ARGS TARGETS ${TARGET_NAME} EXPORT ${ARG_EXPORT_NAME})
 
@@ -1901,23 +2916,7 @@ function(finalize_package)
     # - ARCHIVE: Static libraries and Windows import libs → lib/
     #   (Import .lib files are development artifacts, not runtime)
     # ~~~
-    # Determine configuration subdirectory policy based on layout. Layout options: - fhs:           no config subdir (standard system layout) - split_debug:   Debug under debug/, others no subdir -
-    # split_all: all configs under lower-cased $<CONFIG>/ (guarded for empty)
-    get_target_property(_tip_target_layout ${TARGET_NAME} TARGET_INSTALL_PACKAGE_LAYOUT)
-    if(NOT _tip_target_layout)
-      set(_tip_target_layout "fhs")
-    endif()
-    set(_tip_cfgdir "")
-
-    if(_tip_target_layout STREQUAL "fhs")
-      set(_tip_cfgdir "")
-    elseif(_tip_target_layout STREQUAL "split_debug")
-      set(_tip_cfgdir "$<$<CONFIG:Debug>:debug/>")
-    elseif(_tip_target_layout STREQUAL "split_all")
-      set(_tip_cfgdir "$<$<BOOL:$<CONFIG>>:$<LOWER_CASE:$<CONFIG>>/>")
-    else()
-      project_log(FATAL_ERROR "Invalid LAYOUT '${_tip_target_layout}'. Valid values: fhs, split_debug, split_all")
-    endif()
+    _tip_install_configuration_prefix(_tip_cfgdir "${TARGET_NAME}")
 
     list(
       APPEND
@@ -1957,6 +2956,15 @@ function(finalize_package)
       list(APPEND INSTALL_ARGS PUBLIC_HEADER DESTINATION ${INCLUDE_DESTINATION} ${TARGET_DEV_COMPONENT_ARGS})
     endif()
 
+    get_target_property(TARGET_PRIVATE_HEADERS ${TARGET_NAME} PRIVATE_HEADER)
+    if(TARGET_PRIVATE_HEADERS)
+      list(APPEND INSTALL_ARGS PRIVATE_HEADER DESTINATION "${INCLUDE_DESTINATION}" ${TARGET_DEV_COMPONENT_ARGS})
+    endif()
+    get_target_property(TARGET_RESOURCES ${TARGET_NAME} RESOURCE)
+    if(TARGET_RESOURCES)
+      list(APPEND INSTALL_ARGS RESOURCE DESTINATION "${CMAKE_INSTALL_DATADIR}" ${TARGET_DEV_COMPONENT_ARGS})
+    endif()
+
     # Handle installable source file sets. All public and interface file sets must be listed when the target is exported.
     if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.4")
       get_target_property(TARGET_INTERFACE_SOURCE_SETS ${TARGET_NAME} INTERFACE_SOURCE_SETS)
@@ -1965,7 +2973,8 @@ function(finalize_package)
         if(CPS_ENABLED)
           project_log(
             FATAL_ERROR
-            "CPS package metadata for export '${ARG_EXPORT_NAME}' is not supported with SOURCES file sets. Use the authoritative Config.cmake export or move source-only targets to a non-CPS export.")
+            "CPS package metadata for export '${ARG_EXPORT_NAME}' does not support SOURCES file sets. CMake install(PACKAGE_INFO) omits source-set metadata from CPS output. Use the authoritative Config.cmake export or move source-only targets to a non-CPS export."
+          )
         endif()
         foreach(CURRENT_SOURCE_SET_NAME IN LISTS TARGET_INTERFACE_SOURCE_SETS)
           list(
@@ -2021,66 +3030,36 @@ function(finalize_package)
         if(NOT TARGET_RPATH AND NOT CMAKE_INSTALL_RPATH)
           set(DEFAULT_RPATHS)
 
-          set(_tip_runtime_destination "${CMAKE_INSTALL_BINDIR}")
-          if(NOT _tip_runtime_destination)
-            set(_tip_runtime_destination "bin")
-          endif()
-
-          set(_tip_library_destination "${CMAKE_INSTALL_LIBDIR}")
-          if(NOT _tip_library_destination)
-            set(_tip_library_destination "lib")
-          endif()
-
           if(APPLE)
             if(TARGET_TYPE STREQUAL "EXECUTABLE")
-              set(_tip_rel_path "")
-              _tip_compute_relative_install_path(_tip_rel_path "${_tip_runtime_destination}" "${_tip_library_destination}")
-
-              if(_tip_rel_path)
-                cmake_path(IS_ABSOLUTE _tip_rel_path _tip_rel_abs)
-                if(_tip_rel_abs)
-                  list(APPEND DEFAULT_RPATHS "${_tip_rel_path}")
-                elseif(_tip_rel_path STREQUAL "." OR _tip_rel_path STREQUAL "./")
-                  list(APPEND DEFAULT_RPATHS "@executable_path")
-                else()
-                  string(REGEX REPLACE "^\\./" "" _tip_rel_path_clean "${_tip_rel_path}")
-                  string(REPLACE "\\" "/" _tip_rel_path_clean "${_tip_rel_path_clean}")
-                  list(APPEND DEFAULT_RPATHS "@executable_path/${_tip_rel_path_clean}")
-                endif()
-              else()
-                list(APPEND DEFAULT_RPATHS "@executable_path/../lib" "@executable_path/../lib64")
-              endif()
-
-              # Always allow colocated runtime resolution for custom layouts
-              list(APPEND DEFAULT_RPATHS "@executable_path")
+              set(_tip_loader_origin "@executable_path")
             else()
-              list(APPEND DEFAULT_RPATHS "@loader_path")
+              set(_tip_loader_origin "@loader_path")
             endif()
-          else() # Linux/Unix
-            if(TARGET_TYPE STREQUAL "EXECUTABLE")
-              set(_tip_rel_path "")
-              _tip_compute_relative_install_path(_tip_rel_path "${_tip_runtime_destination}" "${_tip_library_destination}")
+          else()
+            set(_tip_loader_origin "\$ORIGIN")
+          endif()
 
-              if(_tip_rel_path)
-                cmake_path(IS_ABSOLUTE _tip_rel_path _tip_rel_abs)
-                if(_tip_rel_abs)
-                  list(APPEND DEFAULT_RPATHS "${_tip_rel_path}")
-                elseif(_tip_rel_path STREQUAL "." OR _tip_rel_path STREQUAL "./")
-                  list(APPEND DEFAULT_RPATHS "\$ORIGIN")
-                else()
-                  string(REGEX REPLACE "^\\./" "" _tip_rel_path_clean "${_tip_rel_path}")
-                  list(APPEND DEFAULT_RPATHS "\$ORIGIN/${_tip_rel_path_clean}")
-                endif()
-              else()
-                list(APPEND DEFAULT_RPATHS "\$ORIGIN/../lib" "\$ORIGIN/../lib64")
-              endif()
+          set(_tip_library_destination "${_tip_cfgdir}${CMAKE_INSTALL_LIBDIR}")
+          if(TARGET_TYPE STREQUAL "EXECUTABLE")
+            set(_tip_target_destination "${_tip_cfgdir}${CMAKE_INSTALL_BINDIR}")
+          else()
+            set(_tip_target_destination "${_tip_library_destination}")
+          endif()
+          _tip_append_linked_install_rpaths(DEFAULT_RPATHS "${TARGET_NAME}" "${_tip_target_destination}" "${_tip_loader_origin}")
 
-              # Allow executables to resolve libraries placed alongside them (plugins, tests, etc.)
-              list(APPEND DEFAULT_RPATHS "\$ORIGIN")
-            else()
-              list(APPEND DEFAULT_RPATHS "\$ORIGIN")
+          # Retain the directory-local defaults for unregistered runtime dependencies.
+          if(TARGET_TYPE STREQUAL "EXECUTABLE")
+            _tip_compute_relative_install_path(_tip_relative "${_tip_target_destination}" "${_tip_library_destination}")
+            if(IS_ABSOLUTE "${_tip_relative}")
+              list(APPEND DEFAULT_RPATHS "${_tip_relative}")
+            elseif(_tip_relative STREQUAL ".")
+              list(APPEND DEFAULT_RPATHS "${_tip_loader_origin}")
+            elseif(NOT "${_tip_relative}" STREQUAL "")
+              list(APPEND DEFAULT_RPATHS "${_tip_loader_origin}/${_tip_relative}")
             endif()
           endif()
+          list(APPEND DEFAULT_RPATHS "${_tip_loader_origin}")
 
           list(FILTER DEFAULT_RPATHS EXCLUDE REGEX "^$")
           list(REMOVE_DUPLICATES DEFAULT_RPATHS)
@@ -2173,7 +3152,7 @@ function(finalize_package)
     install(
       EXPORT ${ARG_EXPORT_NAME}
       FILE ${ARG_EXPORT_NAME}Targets.cmake
-      NAMESPACE ${NAMESPACE}
+      NAMESPACE "${NAMESPACE}"
       DESTINATION ${CMAKE_CONFIG_DESTINATION}
       COMPONENT "${_tip_config_component}")
   endforeach()
@@ -2415,6 +3394,15 @@ function(finalize_package)
     endforeach()
   endif()
 
+  set(PACKAGE_CONSUMER_LOCAL_SOURCE_TARGETS_CONTENT "")
+  foreach(TARGET_NAME IN LISTS TARGETS)
+    _tip_append_consumer_local_source_library_content(PACKAGE_CONSUMER_LOCAL_SOURCE_TARGETS_CONTENT "${EXPORT_PROPERTY_PREFIX}" "${NAMESPACE}" "${TARGETS}" "${TARGET_NAME}")
+  endforeach()
+  set(_tip_has_consumer_local_source_targets FALSE)
+  if(NOT "${PACKAGE_CONSUMER_LOCAL_SOURCE_TARGETS_CONTENT}" STREQUAL "")
+    set(_tip_has_consumer_local_source_targets TRUE)
+  endif()
+
   # Source of truth for CONFIG_TEMPLATE resolution: docs/template_resolution.md#source-of-truth
   set(CONFIG_TEMPLATE_TO_USE "")
   if(CONFIG_TEMPLATE)
@@ -2462,16 +3450,20 @@ function(finalize_package)
   endif()
 
   # Validate template contains required placeholders for provided parameters
-  _validate_config_template_placeholders("${CONFIG_TEMPLATE_TO_USE}" "${ARG_EXPORT_NAME}" "${INCLUDE_ON_FIND_PACKAGE}" "${_tip_package_public_content_required}" "${_tip_find_package_components}")
+  _validate_config_template_placeholders(
+    "${CONFIG_TEMPLATE_TO_USE}"
+    "${ARG_EXPORT_NAME}"
+    "${INCLUDE_ON_FIND_PACKAGE}"
+    "${_tip_package_public_content_required}"
+    "${_tip_find_package_components}"
+    "${_tip_has_consumer_local_source_targets}"
+    "${PACKAGE_SOURCE_FILE_SET_PROPERTIES_CONTENT}")
 
   # Generate correct config filename following CMake conventions Use <PackageName>Config.cmake format (exact case + "Config.cmake")
   set(CONFIG_FILENAME "${ARG_EXPORT_NAME}Config.cmake")
 
   # Configure and generate package config file using correct filename
-  configure_package_config_file(
-    "${CONFIG_TEMPLATE_TO_USE}" "${CURRENT_BINARY_DIR}/${CONFIG_FILENAME}"
-    INSTALL_DESTINATION ${CMAKE_CONFIG_DESTINATION}
-    PATH_VARS CMAKE_INSTALL_PREFIX)
+  _tip_configure_package_template("${CONFIG_TEMPLATE_TO_USE}" "${CURRENT_BINARY_DIR}/${CONFIG_FILENAME}" "${CMAKE_CONFIG_DESTINATION}" "${EXPORT_PROPERTY_PREFIX}")
 
   # Install config files using correct filename with config component
   foreach(_tip_config_component IN LISTS CONFIG_COMPONENTS)
@@ -2587,7 +3579,15 @@ function(_auto_finalize_single_export EXPORT_NAME)
 endfunction()
 
 # Template validation helper function
-function(_validate_config_template_placeholders template_path export_name include_files public_deps component_deps)
+function(
+  _validate_config_template_placeholders
+  template_path
+  export_name
+  include_files
+  public_deps
+  component_deps
+  consumer_local_source_targets
+  source_file_set_properties)
   # Read template content to validate required placeholders exist
   if(NOT EXISTS "${template_path}")
     project_log(FATAL_ERROR "Template file does not exist: ${template_path}")
@@ -2615,6 +3615,14 @@ function(_validate_config_template_placeholders template_path export_name includ
 
   if(component_deps AND NOT template_content MATCHES "@PACKAGE_COMPONENT_DEPENDENCIES_CONTENT@")
     list(APPEND missing_placeholders "@PACKAGE_COMPONENT_DEPENDENCIES_CONTENT@")
+  endif()
+
+  if(consumer_local_source_targets AND NOT template_content MATCHES "@PACKAGE_CONSUMER_LOCAL_SOURCE_TARGETS_CONTENT@")
+    list(APPEND missing_placeholders "@PACKAGE_CONSUMER_LOCAL_SOURCE_TARGETS_CONTENT@")
+  endif()
+
+  if(source_file_set_properties AND NOT template_content MATCHES "@PACKAGE_SOURCE_FILE_SET_PROPERTIES_CONTENT@")
+    list(APPEND missing_placeholders "@PACKAGE_SOURCE_FILE_SET_PROPERTIES_CONTENT@")
   endif()
 
   # Report missing placeholders with actionable error message

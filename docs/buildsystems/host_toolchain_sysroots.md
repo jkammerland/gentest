@@ -328,7 +328,7 @@ surface should therefore be a no-network configure path; host compiler/toolchain
 selection remains a separate concern. To use a separately installed helper
 instead, for example where packaging rules forbid bundled copies, configure with
 `-DGENTEST_USE_INSTALLED_PACKAGE_HELPER=ON`; CMake's normal package search then
-looks for `target_install_package` 7.1 or newer.
+looks for `target_install_package` 7.5 or newer.
 
 So the clean packaging model is:
 
