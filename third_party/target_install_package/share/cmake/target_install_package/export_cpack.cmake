@@ -5,7 +5,7 @@ get_property(
   PROPERTY "list_file_include_guard_cmake_INITIALIZED"
   SET)
 if(_LFG_INITIALIZED)
-  list_file_include_guard(VERSION 7.1.0)
+  list_file_include_guard(VERSION 7.5.0)
 else()
   if(COMMAND project_log)
     project_log(VERBOSE "including <${CMAKE_CURRENT_FUNCTION_LIST_FILE}>, without list_file_include_guard")
@@ -67,11 +67,21 @@ endif()
 #     [PACKAGE_LICENSE <license-id>]
 #     [LICENSE_FILE <path>]
 #     [GENERATORS <generator1> <generator2> ...]
+#     [APPIMAGE_DESKTOP_FILE <path>]
+#     [APPIMAGE_ICON_FILE <path>]
+#     [APPIMAGE_TOOL_EXECUTABLE <path-or-program>]
+#     [APPIMAGE_PATCHELF_EXECUTABLE <path-or-program>]
 #     [COMPONENTS <component1> <component2> ...]
 #     [COMPONENT_GROUPS]
 #     [DEFAULT_COMPONENTS <component1> <component2> ...]
 #     [ENABLE_COMPONENT_INSTALL]
 #     [ARCHIVE_FORMAT <format>]
+#     [COMPRESSION_LEVEL <0-19>]
+#     [ARCHIVE_COMPRESSION_LEVEL <0-19>]
+#     [DEBIAN_COMPRESSION_TYPE <gzip|bzip2|xz|lzma|zstd>]
+#     [DEBIAN_COMPRESSION_LEVEL <0-19>]
+#     [ARCHIVE_UID <uid>]
+#     [ARCHIVE_GID <gid>]
 #     [NO_DEFAULT_GENERATORS]
 #     [GPG_SIGNING_KEY <fingerprint_or_key_id>]
 #     [GPG_PASSPHRASE_FILE <path>]
@@ -99,12 +109,25 @@ endif()
 #   PACKAGE_LICENSE         - Package license identifier for package metadata such as RPM License: (default: Unknown)
 #   LICENSE_FILE            - Path to CPack's license resource file; relative paths use the calling source directory (default: auto-detected there)
 #   GENERATORS              - Explicit list of CPack generators to use (TGZ, DEB, RPM, CONTAINER, etc.)
+#   APPIMAGE_DESKTOP_FILE   - Source path of the installed .desktop file used by the AppImage generator
+#   APPIMAGE_ICON_FILE      - Source path of the installed PNG, SVG, or XPM icon referenced by the desktop file
+#   APPIMAGE_TOOL_EXECUTABLE - Optional appimagetool executable override (default: appimagetool from PATH)
+#   APPIMAGE_PATCHELF_EXECUTABLE - Optional patchelf executable override (default: patchelf from PATH)
 #   COMPONENTS              - Explicit list of components to package (default: auto-detected)
 #   COMPONENT_GROUPS        - Enable component grouping (default: auto-detected from prefixes)
 #   DEFAULT_COMPONENTS      - Components selected by default in installers that honor CPack DISABLED metadata.
 #                             Defaults to detected runtime-payload components, or Development when no runtime payload exists.
 #   ENABLE_COMPONENT_INSTALL - Force component-based installation
-#   ARCHIVE_FORMAT          - Format for archive generators (TGZ, ZIP, etc.)
+#   ARCHIVE_FORMAT          - Select one archive generator when GENERATORS is omitted; cannot be combined with GENERATORS.
+#   COMPRESSION_LEVEL       - Generic CPack compression level. Requires CMake 4.3+; 0 selects the backend default.
+#   ARCHIVE_COMPRESSION_LEVEL - Archive-specific compression level. Requires a selected binary archive generator and CMake 4.3+.
+#                               The level is validated against both binary and source archive generators because CPack writes it to both configs.
+#   DEBIAN_COMPRESSION_TYPE - Debian compression algorithm (gzip, bzip2, xz, lzma, or zstd). Requires a selected binary or source DEB generator.
+#   DEBIAN_COMPRESSION_LEVEL - Debian-specific compression level. Requires a selected binary or source DEB generator and CMake 4.3+.
+#   ARCHIVE_UID             - Numeric UID from 0 to 2147483647 passed to CPack's Archive generator (requires CMake 4.3+). Tar and ZIP formats store it;
+#                             7Z formats and CPack's FreeBSD generator ignore it.
+#   ARCHIVE_GID             - Numeric GID from 0 to 2147483647 passed to CPack's Archive generator (requires CMake 4.3+). Tar and ZIP formats store it;
+#                             7Z formats and CPack's FreeBSD generator ignore it.
 #   NO_DEFAULT_GENERATORS   - Don't set default generators based on platform
 #   CHECKSUMS               - Package checksum algorithms. Supports MD5, SHA1, SHA2, and SHA3 variants accepted by CMake.
 #   GENERATE_CHECKSUMS      - Compatibility alias: ON selects SHA256 and SHA512; OFF selects none. Cannot be combined with CHECKSUMS.
@@ -116,12 +139,12 @@ endif()
 #   CONTAINER_COMPONENTS    - Components merged into the container rootfs (default: DEFAULT_COMPONENTS)
 #   CONTAINER_ROOTFS_OVERLAYS - Directories whose contents are merged into the rootfs after components
 #   ADDITIONAL_CPACK_VARS   - Additional CPack variables as key-value pairs
-#                             Can override any auto-detected settings including architecture
+#                             Can override any auto-detected or explicit settings, including compression and architecture
 #
 # Behavior:
 #   - Automatically detects components from previous target_install_package calls
 #   - Registers runtime components only for targets with runtime payloads
-#   - Sets platform-appropriate default generators (TGZ/ZIP on all, DEB/RPM on Linux, WIX on Windows)
+#   - Defaults to ZIP on Windows and TGZ elsewhere; native package formats require explicit GENERATORS.
 #   - Records CPack component metadata and maps component dependencies to DEB Depends/RPM Requires when component packaging is enabled
 #   - Handles both single-component and multi-component packages
 #   - Integrates with existing CMake project metadata
@@ -129,7 +152,9 @@ endif()
 # Auto-detected components and their typical usage:
 #   - Runtime or named COMPONENT values: shared libraries, modules, and executables needed at runtime
 #   - Development: Headers, static/import libraries, namelinks, CMake config files, and CPS metadata by default
-#   - Component dependencies: Development records dependencies on runtime components registered for the same export
+#   - Component dependencies: Development records dependencies on runtime components registered for the same export.
+#     Dependencies between runtime components are not inferred from target_link_libraries(); set CPACK_COMPONENT_<NAME>_DEPENDS through ADDITIONAL_CPACK_VARS.
+#   - Manual install components omitted from the registered package set produce a warning unless COMPONENTS explicitly selects the package set.
 #
 # Examples:
 #   # Basic usage with auto-detection (CPack is automatically included)
@@ -151,12 +176,27 @@ endif()
 #     COMPONENT_GROUPS
 #   )
 #
+#   # Store deterministic numeric ownership in tar or ZIP archive entries
+#   export_cpack(
+#     GENERATORS "TGZ"
+#     ARCHIVE_UID 0
+#     ARCHIVE_GID 0
+#   )
+#
 #   # Override architecture detection for special cases
 #   export_cpack(
 #     GENERATORS "DEB;RPM"
 #     ADDITIONAL_CPACK_VARS
 #       CPACK_DEBIAN_PACKAGE_ARCHITECTURE "all"  # Architecture-independent package
 #       CPACK_RPM_PACKAGE_ARCHITECTURE "noarch"
+#   )
+#
+#   # AppImage is Linux-only, requires CMake 4.2+, and is never selected by default.
+#   # The desktop and icon source files must also be installed with install(FILES ...).
+#   export_cpack(
+#     GENERATORS AppImage
+#     APPIMAGE_DESKTOP_FILE packaging/com.example.app.desktop
+#     APPIMAGE_ICON_FILE packaging/com.example.app.svg
 #   )
 #
 #   # Generate container image alongside traditional packages
@@ -197,6 +237,50 @@ function(_tip_finalize_registered_exports_for_cpack)
   endforeach()
 endfunction()
 
+function(_tip_validate_cpack_compression_level argument_name value max_level)
+  if(NOT "${value}" MATCHES "^[0-9]+$")
+    project_log(FATAL_ERROR "${argument_name} must be an integer from 0 to ${max_level}, got: ${value}")
+  endif()
+
+  string(REGEX REPLACE "^0+" "" _tip_normalized_level "${value}")
+  if(_tip_normalized_level STREQUAL "")
+    set(_tip_normalized_level 0)
+  endif()
+  string(LENGTH "${_tip_normalized_level}" _tip_compression_level_length)
+  string(LENGTH "${max_level}" _tip_max_compression_level_length)
+  if(_tip_compression_level_length GREATER _tip_max_compression_level_length OR (_tip_compression_level_length EQUAL _tip_max_compression_level_length AND "${_tip_normalized_level}" STRGREATER
+                                                                                                                                                           "${max_level}"))
+    project_log(FATAL_ERROR "${argument_name} must be an integer from 0 to ${max_level}, got: ${value}")
+  endif()
+endfunction()
+
+function(_tip_cpack_option_value_is_set out_var value)
+  if(NOT "${value}" STREQUAL "" AND NOT "${value}" MATCHES "(^|-)NOTFOUND$")
+    set(${out_var}
+        TRUE
+        PARENT_SCOPE)
+  else()
+    set(${out_var}
+        FALSE
+        PARENT_SCOPE)
+  endif()
+endfunction()
+
+function(_tip_validate_archive_owner_id argument_name value)
+  if(NOT "${value}" MATCHES "^[0-9]+$")
+    project_log(FATAL_ERROR "${argument_name} must be an integer from 0 to 2147483647, got: '${value}'")
+  endif()
+
+  string(REGEX REPLACE "^0+" "" _tip_normalized_owner_id "${value}")
+  if(_tip_normalized_owner_id STREQUAL "")
+    set(_tip_normalized_owner_id 0)
+  endif()
+  string(LENGTH "${_tip_normalized_owner_id}" _tip_owner_id_length)
+  if(_tip_owner_id_length GREATER 10 OR (_tip_owner_id_length EQUAL 10 AND "${_tip_normalized_owner_id}" STRGREATER "2147483647"))
+    project_log(FATAL_ERROR "${argument_name} must be an integer from 0 to 2147483647, got: '${value}'")
+  endif()
+endfunction()
+
 function(export_cpack)
   # Check if export_cpack has already been called (not deferred execution)
   get_property(cpack_config_stored GLOBAL PROPERTY "_TIP_CPACK_CONFIG_STORED")
@@ -216,17 +300,131 @@ function(export_cpack)
     endif()
   endif()
 
-  # Store arguments for deferred configuration. Preserve semicolon-valued arguments so list-valued CPack variables remain one value.
-  set(_tip_cpack_config_args "")
-  if(ARGC GREATER 0)
-    math(EXPR _tip_cpack_last_arg "${ARGC} - 1")
-    foreach(_tip_cpack_arg_index RANGE 0 ${_tip_cpack_last_arg})
-      set(_tip_cpack_arg "${ARGV${_tip_cpack_arg_index}}")
-      string(REPLACE ";" "\\;" _tip_cpack_arg "${_tip_cpack_arg}")
-      list(APPEND _tip_cpack_config_args "${_tip_cpack_arg}")
-    endforeach()
-  endif()
-  set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_ARGS" "${_tip_cpack_config_args}")
+  # Parse original arguments before deferring: CMake lists cannot round-trip arbitrary
+  # scalar strings, especially embedded semicolons, empty values, or trailing backslashes.
+  set(_tip_options COMPONENT_GROUPS ENABLE_COMPONENT_INSTALL NO_DEFAULT_GENERATORS)
+  set(_tip_one_value_args
+      PACKAGE_NAME
+      PACKAGE_VERSION
+      PACKAGE_VENDOR
+      PACKAGE_CONTACT
+      PACKAGE_DESCRIPTION
+      PACKAGE_HOMEPAGE_URL
+      PACKAGE_LICENSE
+      LICENSE_FILE
+      ARCHIVE_FORMAT
+      APPIMAGE_DESKTOP_FILE
+      APPIMAGE_ICON_FILE
+      APPIMAGE_TOOL_EXECUTABLE
+      APPIMAGE_PATCHELF_EXECUTABLE
+      COMPRESSION_LEVEL
+      ARCHIVE_COMPRESSION_LEVEL
+      DEBIAN_COMPRESSION_TYPE
+      DEBIAN_COMPRESSION_LEVEL
+      ARCHIVE_UID
+      ARCHIVE_GID
+      GPG_SIGNING_KEY
+      GPG_PASSPHRASE_FILE
+      SIGNING_METHOD
+      GPG_KEYSERVER
+      GENERATE_CHECKSUMS
+      CONTAINER_NAME
+      CONTAINER_TAG
+      CONTAINER_RUNTIME
+      CONTAINER_ENTRYPOINT
+      CONTAINER_ARCHIVE_FORMAT)
+  set(_tip_multi_value_args GENERATORS COMPONENTS DEFAULT_COMPONENTS CHECKSUMS CONTAINER_COMPONENTS CONTAINER_ROOTFS_OVERLAYS)
+  set(_tip_keywords ${_tip_options} ${_tip_one_value_args} ${_tip_multi_value_args} ADDITIONAL_CPACK_VARS)
+  set(_tip_explicit_keywords "")
+  set(_tip_additional_count 0)
+  set(_tip_index 0)
+  while(_tip_index LESS ARGC)
+    set(_tip_keyword "${ARGV${_tip_index}}")
+    if(NOT _tip_keyword IN_LIST _tip_keywords)
+      project_log(FATAL_ERROR "Unknown arguments for export_cpack(): ${_tip_keyword}")
+    endif()
+    list(APPEND _tip_explicit_keywords "${_tip_keyword}")
+    math(EXPR _tip_index "${_tip_index} + 1")
+
+    if(_tip_keyword IN_LIST _tip_options)
+      set(_tip_value TRUE)
+    elseif(_tip_keyword STREQUAL "ADDITIONAL_CPACK_VARS")
+      set(_tip_pair_start ${_tip_additional_count})
+      while(_tip_index LESS ARGC)
+        set(_tip_name "${ARGV${_tip_index}}")
+        if(_tip_name IN_LIST _tip_keywords)
+          break()
+        endif()
+        if(NOT _tip_name MATCHES "^CPACK_[A-Za-z0-9_.+-]+$")
+          project_log(FATAL_ERROR "ADDITIONAL_CPACK_VARS requires CPACK_ variable names, got: '${_tip_name}'")
+        endif()
+        math(EXPR _tip_index "${_tip_index} + 1")
+        if(_tip_index EQUAL ARGC)
+          project_log(FATAL_ERROR "ADDITIONAL_CPACK_VARS must contain key/value pairs, got an odd number of arguments.")
+        endif()
+        # Values may themselves equal public keywords, and may intentionally be empty.
+        set_property(GLOBAL PROPERTY "_TIP_CPACK_ADDITIONAL_${_tip_additional_count}_NAME" "${_tip_name}")
+        set_property(GLOBAL PROPERTY "_TIP_CPACK_ADDITIONAL_${_tip_additional_count}_VALUE" "${ARGV${_tip_index}}")
+        math(EXPR _tip_index "${_tip_index} + 1")
+        math(EXPR _tip_additional_count "${_tip_additional_count} + 1")
+      endwhile()
+      if(_tip_pair_start EQUAL _tip_additional_count)
+        project_log(FATAL_ERROR "ADDITIONAL_CPACK_VARS must contain key/value pairs, got no arguments.")
+      endif()
+      continue()
+    elseif(_tip_keyword STREQUAL "GENERATE_CHECKSUMS")
+      set(_tip_value ON)
+      if(_tip_index LESS ARGC AND NOT ARGV${_tip_index} IN_LIST _tip_keywords)
+        string(TOUPPER "${ARGV${_tip_index}}" _tip_value)
+        if(NOT _tip_value MATCHES "^(ON|TRUE|YES|1|OFF|FALSE|NO|0)$")
+          project_log(FATAL_ERROR "GENERATE_CHECKSUMS must be ON or OFF when a value is provided, got: ${ARGV${_tip_index}}")
+        endif()
+        math(EXPR _tip_index "${_tip_index} + 1")
+      endif()
+    elseif(_tip_keyword IN_LIST _tip_one_value_args)
+      if(_tip_index EQUAL ARGC OR ARGV${_tip_index} IN_LIST _tip_keywords)
+        project_log(FATAL_ERROR "${_tip_keyword} requires a value.")
+      endif()
+      set(_tip_value "${ARGV${_tip_index}}")
+      math(EXPR _tip_index "${_tip_index} + 1")
+      # Empty descriptive metadata and optional signing values are meaningful.
+      if(_tip_value STREQUAL ""
+         AND NOT
+             _tip_keyword
+             MATCHES
+             "^(PACKAGE_(VENDOR|CONTACT|DESCRIPTION|HOMEPAGE_URL|LICENSE)|LICENSE_FILE|GPG_(SIGNING_KEY|PASSPHRASE_FILE|KEYSERVER)|SIGNING_METHOD|CONTAINER_(NAME|TAG|RUNTIME|ENTRYPOINT|ARCHIVE_FORMAT))$"
+      )
+        project_log(FATAL_ERROR "${_tip_keyword} requires a non-empty value.")
+      endif()
+    else()
+      set(_tip_value "")
+      while(_tip_index LESS ARGC AND NOT ARGV${_tip_index} IN_LIST _tip_keywords)
+        list(APPEND _tip_value "${ARGV${_tip_index}}")
+        math(EXPR _tip_index "${_tip_index} + 1")
+      endwhile()
+      # CHECKSUMS with no algorithms explicitly disables automatic checksums.
+      if(_tip_value STREQUAL "" AND NOT _tip_keyword STREQUAL "CHECKSUMS")
+        project_log(FATAL_ERROR "${_tip_keyword} requires a value.")
+      endif()
+
+      # Composed argument blocks may repeat a list keyword. Retain prior values
+      # in encounter order, while scalar keywords continue to use the last value.
+      get_property(_tip_previous_values GLOBAL PROPERTY "_TIP_CPACK_ARG_${_tip_keyword}")
+      if(NOT "${_tip_previous_values}" STREQUAL "")
+        if(_tip_value STREQUAL "")
+          set(_tip_value "${_tip_previous_values}")
+        else()
+          set(_tip_value "${_tip_previous_values};${_tip_value}")
+        endif()
+      endif()
+    endif()
+    set_property(GLOBAL PROPERTY "_TIP_CPACK_ARG_${_tip_keyword}" "${_tip_value}")
+  endwhile()
+
+  list(REMOVE_DUPLICATES _tip_explicit_keywords)
+  set_property(GLOBAL PROPERTY "_TIP_CPACK_KEYWORDS" "${_tip_keywords}")
+  set_property(GLOBAL PROPERTY "_TIP_CPACK_EXPLICIT_KEYWORDS" "${_tip_explicit_keywords}")
+  set_property(GLOBAL PROPERTY "_TIP_CPACK_ADDITIONAL_COUNT" "${_tip_additional_count}")
   set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_SOURCE_DIR" "${CMAKE_CURRENT_SOURCE_DIR}")
   set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_NAME" "${PROJECT_NAME}")
   set_property(GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_VERSION" "${PROJECT_VERSION}")
@@ -845,11 +1043,175 @@ function(_tip_detect_package_architecture system_processor out_canonical out_deb
       PARENT_SCOPE)
 endfunction()
 
+function(_tip_resolve_appimage_program out_var argument_name configured_value default_name base_directory)
+  if("${configured_value}" STREQUAL "")
+    set(_tip_appimage_program_candidate "${default_name}")
+  else()
+    set(_tip_appimage_program_candidate "${configured_value}")
+  endif()
+
+  unset(_tip_appimage_program)
+  if(_tip_appimage_program_candidate MATCHES "[/\\\\]")
+    cmake_path(
+      ABSOLUTE_PATH
+      _tip_appimage_program_candidate
+      BASE_DIRECTORY
+      "${base_directory}"
+      NORMALIZE
+      OUTPUT_VARIABLE
+      _tip_appimage_program_candidate)
+    get_filename_component(_tip_appimage_program_directory "${_tip_appimage_program_candidate}" DIRECTORY)
+    get_filename_component(_tip_appimage_program_name "${_tip_appimage_program_candidate}" NAME)
+    find_program(
+      _tip_appimage_program
+      NAMES "${_tip_appimage_program_name}"
+      PATHS "${_tip_appimage_program_directory}"
+      NO_DEFAULT_PATH NO_CACHE)
+  else()
+    find_program(_tip_appimage_program NAMES "${_tip_appimage_program_candidate}" NO_CACHE)
+  endif()
+
+  if(NOT _tip_appimage_program)
+    project_log(FATAL_ERROR "${argument_name} '${_tip_appimage_program_candidate}' was not found or is not executable. Install ${default_name}, add it to PATH, or pass an executable override.")
+  endif()
+
+  set(${out_var}
+      "${_tip_appimage_program}"
+      PARENT_SCOPE)
+endfunction()
+
+function(
+  _tip_resolve_appimage_metadata_file
+  out_path
+  out_name
+  argument_name
+  configured_path
+  base_directory
+  kind)
+  cmake_path(
+    ABSOLUTE_PATH
+    configured_path
+    BASE_DIRECTORY
+    "${base_directory}"
+    NORMALIZE
+    OUTPUT_VARIABLE
+    _tip_appimage_metadata_path)
+  if(NOT EXISTS "${_tip_appimage_metadata_path}" OR IS_DIRECTORY "${_tip_appimage_metadata_path}")
+    project_log(FATAL_ERROR "${argument_name} must name an existing file, got: ${_tip_appimage_metadata_path}")
+  endif()
+
+  get_filename_component(_tip_appimage_metadata_name "${_tip_appimage_metadata_path}" NAME)
+  string(REGEX MATCH "\\.[^.]*$" _tip_appimage_metadata_extension "${_tip_appimage_metadata_name}")
+  if(kind STREQUAL "DESKTOP")
+    if(NOT _tip_appimage_metadata_extension STREQUAL ".desktop")
+      project_log(FATAL_ERROR "${argument_name} must have the case-sensitive .desktop extension, got: ${_tip_appimage_metadata_name}")
+    endif()
+  elseif(
+    NOT _tip_appimage_metadata_extension STREQUAL ".png"
+    AND NOT _tip_appimage_metadata_extension STREQUAL ".svg"
+    AND NOT _tip_appimage_metadata_extension STREQUAL ".xpm")
+    project_log(FATAL_ERROR "${argument_name} must have a case-sensitive .png, .svg, or .xpm extension, got: ${_tip_appimage_metadata_name}")
+  endif()
+
+  set(${out_path}
+      "${_tip_appimage_metadata_path}"
+      PARENT_SCOPE)
+  set(${out_name}
+      "${_tip_appimage_metadata_name}"
+      PARENT_SCOPE)
+endfunction()
+
+function(_tip_validate_appimage_desktop_file desktop_path icon_name)
+  file(STRINGS "${desktop_path}" _tip_appimage_desktop_lines ENCODING UTF-8)
+  set(_tip_appimage_in_desktop_entry FALSE)
+  set(_tip_appimage_has_desktop_entry FALSE)
+  set(_tip_appimage_desktop_type "")
+  set(_tip_appimage_desktop_name "")
+  set(_tip_appimage_desktop_categories "")
+  set(_tip_appimage_desktop_icon "")
+  set(_tip_appimage_desktop_exec "")
+  foreach(_tip_appimage_desktop_line IN LISTS _tip_appimage_desktop_lines)
+    string(STRIP "${_tip_appimage_desktop_line}" _tip_appimage_desktop_line)
+    if(_tip_appimage_desktop_line MATCHES "^\\[.*\\]$")
+      if(_tip_appimage_desktop_line STREQUAL "[Desktop Entry]")
+        set(_tip_appimage_in_desktop_entry TRUE)
+        set(_tip_appimage_has_desktop_entry TRUE)
+      else()
+        set(_tip_appimage_in_desktop_entry FALSE)
+      endif()
+    elseif(_tip_appimage_in_desktop_entry AND _tip_appimage_desktop_line MATCHES "^([^=]+)=(.*)$")
+      string(STRIP "${CMAKE_MATCH_1}" _tip_appimage_desktop_key)
+      string(STRIP "${CMAKE_MATCH_2}" _tip_appimage_desktop_value)
+      if(_tip_appimage_desktop_key STREQUAL "Type" AND "${_tip_appimage_desktop_type}" STREQUAL "")
+        set(_tip_appimage_desktop_type "${_tip_appimage_desktop_value}")
+      elseif(_tip_appimage_desktop_key STREQUAL "Name" AND "${_tip_appimage_desktop_name}" STREQUAL "")
+        set(_tip_appimage_desktop_name "${_tip_appimage_desktop_value}")
+      elseif(_tip_appimage_desktop_key STREQUAL "Categories" AND "${_tip_appimage_desktop_categories}" STREQUAL "")
+        set(_tip_appimage_desktop_categories "${_tip_appimage_desktop_value}")
+      elseif(_tip_appimage_desktop_key STREQUAL "Icon" AND "${_tip_appimage_desktop_icon}" STREQUAL "")
+        set(_tip_appimage_desktop_icon "${_tip_appimage_desktop_value}")
+      elseif(_tip_appimage_desktop_key STREQUAL "Exec" AND "${_tip_appimage_desktop_exec}" STREQUAL "")
+        set(_tip_appimage_desktop_exec "${_tip_appimage_desktop_value}")
+      endif()
+    endif()
+  endforeach()
+
+  if(NOT _tip_appimage_has_desktop_entry)
+    project_log(FATAL_ERROR "APPIMAGE_DESKTOP_FILE must contain a [Desktop Entry] section: ${desktop_path}")
+  endif()
+  if(NOT _tip_appimage_desktop_type STREQUAL "Application")
+    project_log(FATAL_ERROR "APPIMAGE_DESKTOP_FILE must set Type=Application in [Desktop Entry]: ${desktop_path}")
+  endif()
+  if("${_tip_appimage_desktop_name}" STREQUAL "")
+    project_log(FATAL_ERROR "APPIMAGE_DESKTOP_FILE must set a non-empty Name key in [Desktop Entry]: ${desktop_path}")
+  endif()
+  if("${_tip_appimage_desktop_categories}" STREQUAL "")
+    project_log(FATAL_ERROR "APPIMAGE_DESKTOP_FILE must set a non-empty Categories key in [Desktop Entry]: ${desktop_path}")
+  endif()
+  if("${_tip_appimage_desktop_icon}" STREQUAL "")
+    project_log(FATAL_ERROR "APPIMAGE_DESKTOP_FILE must set a non-empty Icon key in [Desktop Entry]: ${desktop_path}")
+  endif()
+  if(_tip_appimage_desktop_icon MATCHES "[/\\\\]")
+    project_log(FATAL_ERROR "APPIMAGE_DESKTOP_FILE Icon must be an installed icon name, not a path: ${_tip_appimage_desktop_icon}")
+  endif()
+  get_filename_component(_tip_appimage_icon_stem "${icon_name}" NAME_WLE)
+  if(NOT _tip_appimage_desktop_icon STREQUAL _tip_appimage_icon_stem)
+    project_log(FATAL_ERROR "APPIMAGE_DESKTOP_FILE Icon '${_tip_appimage_desktop_icon}' must exactly match APPIMAGE_ICON_FILE basename without its final extension '${_tip_appimage_icon_stem}'.")
+  endif()
+  if("${_tip_appimage_desktop_exec}" STREQUAL "")
+    project_log(FATAL_ERROR "APPIMAGE_DESKTOP_FILE must set a non-empty Exec key in [Desktop Entry]: ${desktop_path}")
+  endif()
+endfunction()
+
+function(_tip_get_additional_cpack_pair index name_out value_out)
+  get_property(_tip_name GLOBAL PROPERTY "_TIP_CPACK_ADDITIONAL_${index}_NAME")
+  get_property(_tip_value GLOBAL PROPERTY "_TIP_CPACK_ADDITIONAL_${index}_VALUE")
+  set(${name_out}
+      "${_tip_name}"
+      PARENT_SCOPE)
+  set(${value_out}
+      "${_tip_value}"
+      PARENT_SCOPE)
+endfunction()
+
 # Internal function to execute the deferred CPack configuration
 function(_execute_deferred_cpack_config)
-  get_property(args GLOBAL PROPERTY "_TIP_CPACK_CONFIG_ARGS")
-  if(NOT args)
-    return()
+  # Shadow every parsed name, including omitted options. Unsetting names would
+  # expose same-named cache entries; explicit-keyword membership records presence.
+  get_property(_tip_cpack_keywords GLOBAL PROPERTY "_TIP_CPACK_KEYWORDS")
+  foreach(_tip_keyword IN LISTS _tip_cpack_keywords)
+    set(ARG_${_tip_keyword} "")
+  endforeach()
+
+  get_property(_tip_cpack_parse_args GLOBAL PROPERTY "_TIP_CPACK_EXPLICIT_KEYWORDS")
+  foreach(_tip_keyword IN LISTS _tip_cpack_parse_args)
+    get_property(ARG_${_tip_keyword} GLOBAL PROPERTY "_TIP_CPACK_ARG_${_tip_keyword}")
+  endforeach()
+  get_property(_tip_additional_cpack_vars_pair_count GLOBAL PROPERTY "_TIP_CPACK_ADDITIONAL_COUNT")
+  math(EXPR _tip_additional_cpack_vars_max_index "${_tip_additional_cpack_vars_pair_count} - 1")
+  set(_tip_additional_cpack_vars_seen FALSE)
+  if(_tip_additional_cpack_vars_pair_count GREATER 0)
+    set(_tip_additional_cpack_vars_seen TRUE)
   endif()
   _tip_finalize_registered_exports_for_cpack()
   get_property(_tip_cpack_config_source_dir GLOBAL PROPERTY "_TIP_CPACK_CONFIG_SOURCE_DIR")
@@ -861,86 +1223,7 @@ function(_execute_deferred_cpack_config)
   get_property(_tip_cpack_config_project_description GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_DESCRIPTION")
   get_property(_tip_cpack_config_project_homepage_url GLOBAL PROPERTY "_TIP_CPACK_CONFIG_PROJECT_HOMEPAGE_URL")
 
-  set(_tip_cpack_keyword_names
-      PACKAGE_NAME
-      PACKAGE_VERSION
-      PACKAGE_VENDOR
-      PACKAGE_CONTACT
-      PACKAGE_DESCRIPTION
-      PACKAGE_HOMEPAGE_URL
-      PACKAGE_LICENSE
-      LICENSE_FILE
-      GENERATORS
-      COMPONENTS
-      COMPONENT_GROUPS
-      DEFAULT_COMPONENTS
-      ENABLE_COMPONENT_INSTALL
-      ARCHIVE_FORMAT
-      NO_DEFAULT_GENERATORS
-      GPG_SIGNING_KEY
-      GPG_PASSPHRASE_FILE
-      SIGNING_METHOD
-      GPG_KEYSERVER
-      GENERATE_CHECKSUMS
-      CHECKSUMS
-      CONTAINER_NAME
-      CONTAINER_TAG
-      CONTAINER_RUNTIME
-      CONTAINER_ENTRYPOINT
-      CONTAINER_ARCHIVE_FORMAT
-      CONTAINER_COMPONENTS
-      CONTAINER_ROOTFS_OVERLAYS
-      ADDITIONAL_CPACK_VARS)
-
-  set(_tip_cpack_parse_args "")
-  set(_tip_additional_cpack_vars "")
-  set(_tip_additional_cpack_vars_seen FALSE)
-  list(LENGTH args _tip_cpack_arg_count)
-  set(_tip_cpack_arg_index 0)
-  while(_tip_cpack_arg_index LESS _tip_cpack_arg_count)
-    list(GET args ${_tip_cpack_arg_index} _tip_cpack_arg)
-
-    if(_tip_cpack_arg STREQUAL "GENERATE_CHECKSUMS")
-      math(EXPR _tip_cpack_next_index "${_tip_cpack_arg_index} + 1")
-      if(_tip_cpack_next_index LESS _tip_cpack_arg_count)
-        list(GET args ${_tip_cpack_next_index} _tip_cpack_next_arg)
-        string(TOUPPER "${_tip_cpack_next_arg}" _tip_cpack_next_arg_upper)
-        if(_tip_cpack_next_arg_upper MATCHES "^(ON|TRUE|YES|1)$")
-          list(APPEND _tip_cpack_parse_args GENERATE_CHECKSUMS ON)
-          math(EXPR _tip_cpack_arg_index "${_tip_cpack_arg_index} + 2")
-          continue()
-        elseif(_tip_cpack_next_arg_upper MATCHES "^(OFF|FALSE|NO|0)$")
-          list(APPEND _tip_cpack_parse_args GENERATE_CHECKSUMS OFF)
-          math(EXPR _tip_cpack_arg_index "${_tip_cpack_arg_index} + 2")
-          continue()
-        elseif(NOT _tip_cpack_next_arg IN_LIST _tip_cpack_keyword_names)
-          project_log(FATAL_ERROR "GENERATE_CHECKSUMS must be ON or OFF when a value is provided, got: ${_tip_cpack_next_arg}")
-        endif()
-      endif()
-
-      list(APPEND _tip_cpack_parse_args GENERATE_CHECKSUMS ON)
-    elseif(_tip_cpack_arg STREQUAL "ADDITIONAL_CPACK_VARS")
-      set(_tip_additional_cpack_vars_seen TRUE)
-      math(EXPR _tip_cpack_arg_index "${_tip_cpack_arg_index} + 1")
-      while(_tip_cpack_arg_index LESS _tip_cpack_arg_count)
-        list(GET args ${_tip_cpack_arg_index} _tip_cpack_additional_arg)
-        if(_tip_cpack_additional_arg IN_LIST _tip_cpack_keyword_names)
-          break()
-        endif()
-
-        string(REPLACE ";" "\\;" _tip_cpack_additional_arg "${_tip_cpack_additional_arg}")
-        list(APPEND _tip_additional_cpack_vars "${_tip_cpack_additional_arg}")
-        math(EXPR _tip_cpack_arg_index "${_tip_cpack_arg_index} + 1")
-      endwhile()
-      continue()
-    else()
-      list(APPEND _tip_cpack_parse_args "${_tip_cpack_arg}")
-    endif()
-
-    math(EXPR _tip_cpack_arg_index "${_tip_cpack_arg_index} + 1")
-  endwhile()
-
-  # Now parse and process the stored arguments
+  # Validate combinations using the explicitly supplied keyword set.
   set(_tip_checksums_explicit FALSE)
   set(_tip_legacy_checksums_explicit FALSE)
   if("CHECKSUMS" IN_LIST _tip_cpack_parse_args)
@@ -949,38 +1232,59 @@ function(_execute_deferred_cpack_config)
   if("GENERATE_CHECKSUMS" IN_LIST _tip_cpack_parse_args)
     set(_tip_legacy_checksums_explicit TRUE)
   endif()
+  set(_tip_archive_uid_explicit FALSE)
+  set(_tip_archive_gid_explicit FALSE)
+  if("ARCHIVE_UID" IN_LIST _tip_cpack_parse_args)
+    set(_tip_archive_uid_explicit TRUE)
+  endif()
+  if("ARCHIVE_GID" IN_LIST _tip_cpack_parse_args)
+    set(_tip_archive_gid_explicit TRUE)
+  endif()
   if(_tip_checksums_explicit AND _tip_legacy_checksums_explicit)
     project_log(FATAL_ERROR "CHECKSUMS and GENERATE_CHECKSUMS cannot be used together. Use CHECKSUMS for an explicit algorithm list.")
   endif()
 
-  set(options COMPONENT_GROUPS ENABLE_COMPONENT_INSTALL NO_DEFAULT_GENERATORS)
-  set(oneValueArgs
-      PACKAGE_NAME
-      PACKAGE_VERSION
-      PACKAGE_VENDOR
-      PACKAGE_CONTACT
-      PACKAGE_DESCRIPTION
-      PACKAGE_HOMEPAGE_URL
-      PACKAGE_LICENSE
-      LICENSE_FILE
-      ARCHIVE_FORMAT
-      GPG_SIGNING_KEY
-      GPG_PASSPHRASE_FILE
-      SIGNING_METHOD
-      GPG_KEYSERVER
-      GENERATE_CHECKSUMS
-      CONTAINER_NAME
-      CONTAINER_TAG
-      CONTAINER_RUNTIME
-      CONTAINER_ENTRYPOINT
-      CONTAINER_ARCHIVE_FORMAT)
-  set(multiValueArgs GENERATORS COMPONENTS DEFAULT_COMPONENTS CHECKSUMS CONTAINER_COMPONENTS CONTAINER_ROOTFS_OVERLAYS)
-  cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${_tip_cpack_parse_args})
+  set(_tip_compression_level_explicit FALSE)
+  set(_tip_archive_compression_level_explicit FALSE)
+  set(_tip_debian_compression_type_explicit FALSE)
+  set(_tip_debian_compression_level_explicit FALSE)
+  foreach(_tip_compression_argument COMPRESSION_LEVEL ARCHIVE_COMPRESSION_LEVEL DEBIAN_COMPRESSION_TYPE DEBIAN_COMPRESSION_LEVEL)
+    string(TOLOWER "${_tip_compression_argument}" _tip_compression_argument_lower)
+    if(_tip_compression_argument IN_LIST _tip_cpack_parse_args)
+      set("_tip_${_tip_compression_argument_lower}_explicit" TRUE)
+    endif()
+  endforeach()
+
+  set(_tip_archive_uid_overridden FALSE)
+  set(_tip_archive_gid_overridden FALSE)
+  set(_tip_cpack_generator_overridden FALSE)
+  set(_tip_cpack_generator_override "")
   if(_tip_additional_cpack_vars_seen)
-    set(ARG_ADDITIONAL_CPACK_VARS "${_tip_additional_cpack_vars}")
+    foreach(_tip_additional_cpack_var_index RANGE ${_tip_additional_cpack_vars_max_index})
+      _tip_get_additional_cpack_pair(${_tip_additional_cpack_var_index} _tip_additional_cpack_var_name _tip_additional_cpack_var_value)
+      if(_tip_additional_cpack_var_name STREQUAL "CPACK_ARCHIVE_UID")
+        set(_tip_archive_uid_overridden TRUE)
+      elseif(_tip_additional_cpack_var_name STREQUAL "CPACK_ARCHIVE_GID")
+        set(_tip_archive_gid_overridden TRUE)
+      elseif(_tip_additional_cpack_var_name STREQUAL "CPACK_GENERATOR")
+        set(_tip_cpack_generator_overridden TRUE)
+        set(_tip_cpack_generator_override "${_tip_additional_cpack_var_value}")
+      endif()
+    endforeach()
   endif()
-  if(ARG_UNPARSED_ARGUMENTS)
-    project_log(FATAL_ERROR "Unknown arguments for export_cpack(): ${ARG_UNPARSED_ARGUMENTS}")
+
+  if((_tip_archive_uid_explicit OR _tip_archive_gid_explicit) AND CMAKE_VERSION VERSION_LESS "4.3")
+    project_log(FATAL_ERROR "ARCHIVE_UID and ARCHIVE_GID require CMake 4.3 or newer because older CPack versions cannot control archive ownership.")
+  endif()
+  if(_tip_archive_uid_explicit)
+    if(NOT _tip_archive_uid_overridden)
+      _tip_validate_archive_owner_id(ARCHIVE_UID "${ARG_ARCHIVE_UID}")
+    endif()
+  endif()
+  if(_tip_archive_gid_explicit)
+    if(NOT _tip_archive_gid_overridden)
+      _tip_validate_archive_owner_id(ARCHIVE_GID "${ARG_ARCHIVE_GID}")
+    endif()
   endif()
 
   set(_tip_supported_checksum_algorithms
@@ -1010,29 +1314,29 @@ function(_execute_deferred_cpack_config)
   endif()
 
   # Set default package metadata from project properties
-  if(NOT ARG_PACKAGE_NAME)
+  if(NOT "PACKAGE_NAME" IN_LIST _tip_cpack_parse_args)
     set(ARG_PACKAGE_NAME "${_tip_cpack_config_project_name}")
   endif()
 
-  if(NOT ARG_PACKAGE_VERSION)
+  if(NOT "PACKAGE_VERSION" IN_LIST _tip_cpack_parse_args)
     set(ARG_PACKAGE_VERSION "${_tip_cpack_config_project_version}")
     if(NOT ARG_PACKAGE_VERSION)
       set(ARG_PACKAGE_VERSION "1.0.0")
     endif()
   endif()
 
-  if(NOT ARG_PACKAGE_DESCRIPTION)
+  if(NOT "PACKAGE_DESCRIPTION" IN_LIST _tip_cpack_parse_args)
     set(ARG_PACKAGE_DESCRIPTION "${_tip_cpack_config_project_description}")
     if(NOT ARG_PACKAGE_DESCRIPTION)
       set(ARG_PACKAGE_DESCRIPTION "Package created with target_install_package")
     endif()
   endif()
 
-  if(NOT ARG_PACKAGE_HOMEPAGE_URL)
+  if(NOT "PACKAGE_HOMEPAGE_URL" IN_LIST _tip_cpack_parse_args)
     set(ARG_PACKAGE_HOMEPAGE_URL "${_tip_cpack_config_project_homepage_url}")
   endif()
 
-  if(NOT ARG_PACKAGE_VENDOR)
+  if(NOT "PACKAGE_VENDOR" IN_LIST _tip_cpack_parse_args)
     if(ARG_PACKAGE_HOMEPAGE_URL)
       # Extract domain from homepage URL as vendor
       string(REGEX REPLACE "^https?://([^/]+).*" "\\1" ARG_PACKAGE_VENDOR "${ARG_PACKAGE_HOMEPAGE_URL}")
@@ -1041,7 +1345,7 @@ function(_execute_deferred_cpack_config)
     endif()
   endif()
 
-  if(NOT ARG_PACKAGE_CONTACT)
+  if(NOT "PACKAGE_CONTACT" IN_LIST _tip_cpack_parse_args)
     set(ARG_PACKAGE_CONTACT "maintainer@${ARG_PACKAGE_VENDOR}")
   endif()
 
@@ -1064,14 +1368,20 @@ function(_execute_deferred_cpack_config)
     endforeach()
   endif()
 
-  # Auto-detect components from global properties if not specified
-  if(NOT ARG_COMPONENTS)
+  # Registered components define the automatic package set. Manual install rules
+  # are discoverable after export finalization, but must not silently disappear.
+  get_cmake_property(_tip_install_components COMPONENTS)
+  if(NOT _tip_components_explicit)
     get_property(detected_components GLOBAL PROPERTY "_TIP_DETECTED_COMPONENTS")
     if(detected_components)
-      set(ARG_COMPONENTS ${detected_components})
+      set(ARG_COMPONENTS "${detected_components}")
+      set(_tip_omitted_components "${_tip_install_components}")
+      list(REMOVE_ITEM _tip_omitted_components ${ARG_COMPONENTS})
+      if(_tip_omitted_components)
+        project_log(WARNING "export_cpack() omits manual install components: ${_tip_omitted_components}. Use COMPONENTS to explicitly select all components to package.")
+      endif()
     else()
-      # Fallback to common components
-      set(ARG_COMPONENTS "Runtime;Development")
+      set(ARG_COMPONENTS "${_tip_install_components}")
     endif()
   endif()
 
@@ -1098,21 +1408,45 @@ function(_execute_deferred_cpack_config)
     endif()
   endforeach()
 
-  # Auto-detect generators based on platform if not specified
-  if(NOT ARG_GENERATORS AND NOT ARG_NO_DEFAULT_GENERATORS)
-    set(ARG_GENERATORS "TGZ") # Always include TGZ as universal format
-
+  # The default archive needs no native packaging tools. ARCHIVE_FORMAT is a
+  # shorthand for selecting one archive; GENERATORS supplies the complete list.
+  if("ARCHIVE_FORMAT" IN_LIST _tip_cpack_parse_args)
+    if("GENERATORS" IN_LIST _tip_cpack_parse_args)
+      project_log(FATAL_ERROR "ARCHIVE_FORMAT and GENERATORS cannot be used together. Select archive formats in GENERATORS when specifying a generator list.")
+    endif()
+    if(NOT ARG_ARCHIVE_FORMAT MATCHES "^(7Z(_(BZ2|DEFLATE|LZMA|LZMA2|PPMD|STORE|ZSTD))?|STGZ|TAR|TBZ2|TGZ|TXZ|TZ|TZST|ZIP(_(BZ2|DEFLATE|LZMA|LZMA2|STORE|ZSTD))?)$")
+      project_log(FATAL_ERROR "ARCHIVE_FORMAT must name a CPack archive generator, got: ${ARG_ARCHIVE_FORMAT}")
+    endif()
+    set(ARG_GENERATORS "${ARG_ARCHIVE_FORMAT}")
+  elseif(NOT ARG_GENERATORS AND NOT ARG_NO_DEFAULT_GENERATORS)
     if(WIN32)
-      list(APPEND ARG_GENERATORS "ZIP")
-      # Add WIX if available
-      find_program(WIX_CANDLE_EXECUTABLE candle)
-      if(WIX_CANDLE_EXECUTABLE)
-        list(APPEND ARG_GENERATORS "WIX")
+      set(ARG_GENERATORS ZIP)
+    else()
+      set(ARG_GENERATORS TGZ)
+    endif()
+  endif()
+
+  set(_tip_effective_binary_generators ${ARG_GENERATORS})
+  if(NOT _tip_effective_binary_generators AND DEFINED CPACK_GENERATOR)
+    set(_tip_effective_binary_generators ${CPACK_GENERATOR})
+  endif()
+  if(_tip_cpack_generator_overridden)
+    set(_tip_effective_binary_generators ${_tip_cpack_generator_override})
+  endif()
+
+  if(_tip_archive_uid_explicit OR _tip_archive_gid_explicit)
+    set(_tip_ignored_archive_ownership_generators "")
+    foreach(_tip_generator IN LISTS _tip_effective_binary_generators)
+      string(TOUPPER "${_tip_generator}" _tip_generator_upper)
+      if(_tip_generator_upper MATCHES "^7Z($|_)" OR _tip_generator_upper STREQUAL "FREEBSD")
+        list(APPEND _tip_ignored_archive_ownership_generators "${_tip_generator}")
       endif()
-    elseif(UNIX AND NOT APPLE)
-      list(APPEND ARG_GENERATORS "DEB" "RPM")
-    elseif(APPLE)
-      list(APPEND ARG_GENERATORS "DragNDrop")
+    endforeach()
+    if(_tip_ignored_archive_ownership_generators)
+      list(REMOVE_DUPLICATES _tip_ignored_archive_ownership_generators)
+      string(JOIN ", " _tip_ignored_archive_ownership_generators_display ${_tip_ignored_archive_ownership_generators})
+      project_log(WARNING
+                  "ARCHIVE_UID and ARCHIVE_GID do not affect CPack generator(s): ${_tip_ignored_archive_ownership_generators_display}. Use a tar or ZIP archive generator to encode numeric ownership.")
     endif()
   endif()
 
@@ -1124,6 +1458,7 @@ function(_execute_deferred_cpack_config)
   set(_tip_generators_upper "")
   set(_tip_has_deb_generator FALSE)
   set(_tip_has_rpm_generator FALSE)
+  set(_tip_has_appimage_generator FALSE)
   set(_tip_has_non_rpm_generator FALSE)
   foreach(_tip_generator IN LISTS ARG_GENERATORS)
     string(TOUPPER "${_tip_generator}" _tip_generator_upper)
@@ -1133,10 +1468,363 @@ function(_execute_deferred_cpack_config)
       set(_tip_has_non_rpm_generator TRUE)
     elseif(_tip_generator_upper STREQUAL "RPM")
       set(_tip_has_rpm_generator TRUE)
+    elseif(_tip_generator_upper STREQUAL "APPIMAGE")
+      set(_tip_has_appimage_generator TRUE)
+      set(_tip_has_non_rpm_generator TRUE)
     else()
       set(_tip_has_non_rpm_generator TRUE)
     endif()
   endforeach()
+
+  set(_tip_appimage_managed_cpack_vars CPACK_APPIMAGE_DESKTOP_FILE CPACK_PACKAGE_ICON CPACK_APPIMAGE_TOOL_EXECUTABLE CPACK_APPIMAGE_PATCHELF_EXECUTABLE)
+  if(_tip_additional_cpack_vars_seen)
+    foreach(_tip_appimage_additional_var_pair RANGE ${_tip_additional_cpack_vars_max_index})
+      _tip_get_additional_cpack_pair(${_tip_appimage_additional_var_pair} _tip_appimage_additional_var_name _tip_appimage_additional_var_value)
+      if(_tip_has_appimage_generator AND _tip_appimage_additional_var_name IN_LIST _tip_appimage_managed_cpack_vars)
+        project_log(FATAL_ERROR "ADDITIONAL_CPACK_VARS cannot override AppImage-managed variable '${_tip_appimage_additional_var_name}'. Use the corresponding APPIMAGE_* argument instead.")
+      endif()
+      if(_tip_appimage_additional_var_name STREQUAL "CPACK_GENERATOR")
+        foreach(_tip_appimage_additional_generator IN LISTS _tip_appimage_additional_var_value)
+          string(TOUPPER "${_tip_appimage_additional_generator}" _tip_appimage_additional_generator_upper)
+          if(_tip_appimage_additional_generator_upper STREQUAL "APPIMAGE" AND NOT _tip_has_appimage_generator)
+            project_log(FATAL_ERROR "Select AppImage with export_cpack(GENERATORS AppImage), not ADDITIONAL_CPACK_VARS CPACK_GENERATOR. This enables AppImage prerequisite validation.")
+          endif()
+        endforeach()
+      endif()
+    endforeach()
+  endif()
+
+  set(_tip_appimage_arguments_requested FALSE)
+  foreach(_tip_appimage_argument IN ITEMS APPIMAGE_DESKTOP_FILE APPIMAGE_ICON_FILE APPIMAGE_TOOL_EXECUTABLE APPIMAGE_PATCHELF_EXECUTABLE)
+    if(NOT "${ARG_${_tip_appimage_argument}}" STREQUAL "")
+      set(_tip_appimage_arguments_requested TRUE)
+    endif()
+  endforeach()
+  if(_tip_appimage_arguments_requested AND NOT _tip_has_appimage_generator)
+    project_log(FATAL_ERROR "APPIMAGE_* arguments require explicit opt-in with export_cpack(GENERATORS AppImage). AppImage is never a default generator.")
+  endif()
+
+  if(_tip_has_appimage_generator)
+    if(CMAKE_VERSION VERSION_LESS "4.2")
+      project_log(FATAL_ERROR "The AppImage CPack generator requires CMake 4.2 or newer, got CMake ${CMAKE_VERSION}.")
+    endif()
+    if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+      project_log(FATAL_ERROR "The AppImage CPack generator requires a Linux host, got ${CMAKE_HOST_SYSTEM_NAME}.")
+    endif()
+    if(NOT ARG_APPIMAGE_DESKTOP_FILE)
+      project_log(FATAL_ERROR "GENERATORS AppImage requires APPIMAGE_DESKTOP_FILE pointing to the desktop file source that is installed by the project.")
+    endif()
+    if(NOT ARG_APPIMAGE_ICON_FILE)
+      project_log(FATAL_ERROR "GENERATORS AppImage requires APPIMAGE_ICON_FILE pointing to the icon source that is installed by the project.")
+    endif()
+
+    _tip_resolve_appimage_metadata_file(_tip_appimage_desktop_path _tip_appimage_desktop_name APPIMAGE_DESKTOP_FILE "${ARG_APPIMAGE_DESKTOP_FILE}" "${_tip_cpack_config_source_dir}" DESKTOP)
+    _tip_resolve_appimage_metadata_file(_tip_appimage_icon_path _tip_appimage_icon_name APPIMAGE_ICON_FILE "${ARG_APPIMAGE_ICON_FILE}" "${_tip_cpack_config_source_dir}" ICON)
+    _tip_validate_appimage_desktop_file("${_tip_appimage_desktop_path}" "${_tip_appimage_icon_name}")
+
+    _tip_resolve_appimage_program(_tip_appimage_tool APPIMAGE_TOOL_EXECUTABLE "${ARG_APPIMAGE_TOOL_EXECUTABLE}" appimagetool "${_tip_cpack_config_source_dir}")
+    _tip_resolve_appimage_program(_tip_appimage_patchelf APPIMAGE_PATCHELF_EXECUTABLE "${ARG_APPIMAGE_PATCHELF_EXECUTABLE}" patchelf "${_tip_cpack_config_source_dir}")
+
+    _tip_store_cpack_var(CPACK_APPIMAGE_DESKTOP_FILE "${_tip_appimage_desktop_name}")
+    _tip_store_cpack_var(CPACK_PACKAGE_ICON "${_tip_appimage_icon_name}")
+    _tip_store_cpack_var(CPACK_APPIMAGE_TOOL_EXECUTABLE "${_tip_appimage_tool}")
+    _tip_store_cpack_var(CPACK_APPIMAGE_PATCHELF_EXECUTABLE "${_tip_appimage_patchelf}")
+    project_log(VERBOSE "AppImage generation configured as one monolithic package; CPack does not split AppImages by component.")
+  endif()
+  set(_tip_compression_generators ${ARG_GENERATORS})
+  if(NOT _tip_compression_generators AND DEFINED CPACK_GENERATOR)
+    set(_tip_compression_generators ${CPACK_GENERATOR})
+  endif()
+
+  set(_tip_binary_selector_suffixes
+      7Z
+      BUNDLE
+      CYGWIN
+      DEB
+      DRAGNDROP
+      FREEBSD
+      IFW
+      NSIS
+      INNOSETUP
+      NUGET
+      PRODUCTBUILD
+      RPM
+      STGZ
+      TBZ2
+      TGZ
+      TXZ
+      TZ
+      WIX
+      ZIP)
+  set(_tip_source_selector_suffixes
+      7Z
+      CYGWIN
+      RPM
+      TBZ2
+      TGZ
+      TXZ
+      TZ
+      ZIP)
+  set(_tip_binary_selector_var_names "")
+  foreach(_tip_selector_suffix IN LISTS _tip_binary_selector_suffixes)
+    list(APPEND _tip_binary_selector_var_names "CPACK_BINARY_${_tip_selector_suffix}")
+  endforeach()
+  set(_tip_source_selector_var_names "")
+  foreach(_tip_selector_suffix IN LISTS _tip_source_selector_suffixes)
+    list(APPEND _tip_source_selector_var_names "CPACK_SOURCE_${_tip_selector_suffix}")
+  endforeach()
+  set(_tip_default_binary_selector_generators "")
+  if(CYGWIN)
+    set(_tip_default_binary_selector_generators CYGWINBINARY)
+  elseif(UNIX)
+    set(_tip_default_binary_selector_generators STGZ TGZ)
+    if(NOT APPLE)
+      list(APPEND _tip_default_binary_selector_generators TZ)
+    endif()
+  else()
+    set(_tip_default_binary_selector_generators NSIS)
+  endif()
+  set(_tip_default_source_selector_generators "")
+  if(CYGWIN)
+    set(_tip_default_source_selector_generators CYGWINSOURCE)
+  elseif(UNIX)
+    set(_tip_default_source_selector_generators TBZ2 TGZ TXZ TZ)
+  else()
+    set(_tip_default_source_selector_generators 7Z ZIP)
+  endif()
+
+  foreach(_tip_selector_suffix IN LISTS _tip_binary_selector_suffixes)
+    set(_tip_selector_generator "${_tip_selector_suffix}")
+    if(_tip_selector_suffix STREQUAL "CYGWIN")
+      set(_tip_selector_generator CYGWINBINARY)
+    endif()
+    set(_tip_selector_var_name "CPACK_BINARY_${_tip_selector_suffix}")
+    if(DEFINED ${_tip_selector_var_name})
+      set("_tip_effective_${_tip_selector_var_name}" "${${_tip_selector_var_name}}")
+    elseif(_tip_selector_generator IN_LIST _tip_default_binary_selector_generators)
+      set("_tip_effective_${_tip_selector_var_name}" ON)
+    else()
+      set("_tip_effective_${_tip_selector_var_name}" OFF)
+    endif()
+  endforeach()
+  foreach(_tip_selector_suffix IN LISTS _tip_source_selector_suffixes)
+    set(_tip_selector_generator "${_tip_selector_suffix}")
+    if(_tip_selector_suffix STREQUAL "CYGWIN")
+      set(_tip_selector_generator CYGWINSOURCE)
+    endif()
+    set(_tip_selector_var_name "CPACK_SOURCE_${_tip_selector_suffix}")
+    if(DEFINED ${_tip_selector_var_name})
+      set("_tip_effective_${_tip_selector_var_name}" "${${_tip_selector_var_name}}")
+    elseif(_tip_selector_generator IN_LIST _tip_default_source_selector_generators)
+      set("_tip_effective_${_tip_selector_var_name}" ON)
+    else()
+      set("_tip_effective_${_tip_selector_var_name}" OFF)
+    endif()
+  endforeach()
+
+  set(_tip_compression_level_overridden FALSE)
+  set(_tip_archive_compression_level_overridden FALSE)
+  set(_tip_debian_compression_type_overridden FALSE)
+  set(_tip_debian_compression_level_overridden FALSE)
+
+  set(_tip_effective_archive_compression_level "")
+  if(DEFINED CPACK_ARCHIVE_COMPRESSION_LEVEL)
+    set(_tip_effective_archive_compression_level "${CPACK_ARCHIVE_COMPRESSION_LEVEL}")
+  endif()
+  if(_tip_archive_compression_level_explicit)
+    set(_tip_effective_archive_compression_level "${ARG_ARCHIVE_COMPRESSION_LEVEL}")
+  endif()
+  set(_tip_effective_debian_compression_level "")
+  if(DEFINED CPACK_DEBIAN_COMPRESSION_LEVEL)
+    set(_tip_effective_debian_compression_level "${CPACK_DEBIAN_COMPRESSION_LEVEL}")
+  endif()
+  if(_tip_debian_compression_level_explicit)
+    set(_tip_effective_debian_compression_level "${ARG_DEBIAN_COMPRESSION_LEVEL}")
+  endif()
+  if(DEFINED CPACK_DEBIAN_COMPRESSION_TYPE)
+    set(_tip_effective_debian_compression_type "${CPACK_DEBIAN_COMPRESSION_TYPE}")
+  else()
+    set(_tip_effective_debian_compression_type gzip)
+  endif()
+  if(_tip_debian_compression_type_explicit)
+    set(_tip_effective_debian_compression_type "${ARG_DEBIAN_COMPRESSION_TYPE}")
+  endif()
+
+  set(_tip_source_generators "")
+  if(DEFINED CPACK_SOURCE_GENERATOR)
+    set(_tip_source_generators ${CPACK_SOURCE_GENERATOR})
+  endif()
+  if(_tip_additional_cpack_vars_seen)
+    foreach(_tip_additional_cpack_var_index RANGE ${_tip_additional_cpack_vars_max_index})
+      _tip_get_additional_cpack_pair(${_tip_additional_cpack_var_index} _tip_additional_cpack_var_name _tip_additional_cpack_var_value)
+      if(_tip_additional_cpack_var_name STREQUAL "CPACK_GENERATOR")
+        set(_tip_compression_generators ${_tip_additional_cpack_var_value})
+      elseif(_tip_additional_cpack_var_name STREQUAL "CPACK_SOURCE_GENERATOR")
+        set(_tip_source_generators ${_tip_additional_cpack_var_value})
+      elseif(_tip_additional_cpack_var_name STREQUAL "CPACK_COMPRESSION_LEVEL")
+        set(_tip_compression_level_overridden TRUE)
+      elseif(_tip_additional_cpack_var_name STREQUAL "CPACK_ARCHIVE_COMPRESSION_LEVEL")
+        set(_tip_archive_compression_level_overridden TRUE)
+        set(_tip_effective_archive_compression_level "${_tip_additional_cpack_var_value}")
+      elseif(_tip_additional_cpack_var_name STREQUAL "CPACK_DEBIAN_COMPRESSION_TYPE")
+        set(_tip_debian_compression_type_overridden TRUE)
+        set(_tip_effective_debian_compression_type "${_tip_additional_cpack_var_value}")
+      elseif(_tip_additional_cpack_var_name STREQUAL "CPACK_DEBIAN_COMPRESSION_LEVEL")
+        set(_tip_debian_compression_level_overridden TRUE)
+        set(_tip_effective_debian_compression_level "${_tip_additional_cpack_var_value}")
+      elseif(_tip_additional_cpack_var_name IN_LIST _tip_binary_selector_var_names OR _tip_additional_cpack_var_name IN_LIST _tip_source_selector_var_names)
+        set("_tip_effective_${_tip_additional_cpack_var_name}" "${_tip_additional_cpack_var_value}")
+      endif()
+    endforeach()
+  endif()
+  if(NOT _tip_compression_generators)
+    set(_tip_compression_generators "")
+    foreach(_tip_selector_suffix IN LISTS _tip_binary_selector_suffixes)
+      set(_tip_selector_generator "${_tip_selector_suffix}")
+      if(_tip_selector_suffix STREQUAL "CYGWIN")
+        set(_tip_selector_generator CYGWINBINARY)
+      endif()
+      set(_tip_selector_var_name "CPACK_BINARY_${_tip_selector_suffix}")
+      if(_tip_effective_${_tip_selector_var_name})
+        list(APPEND _tip_compression_generators "${_tip_selector_generator}")
+      endif()
+    endforeach()
+  endif()
+  if(NOT _tip_source_generators)
+    set(_tip_source_generators "")
+    foreach(_tip_selector_suffix IN LISTS _tip_source_selector_suffixes)
+      set(_tip_selector_generator "${_tip_selector_suffix}")
+      if(_tip_selector_suffix STREQUAL "CYGWIN")
+        set(_tip_selector_generator CYGWINSOURCE)
+      endif()
+      set(_tip_selector_var_name "CPACK_SOURCE_${_tip_selector_suffix}")
+      if(_tip_effective_${_tip_selector_var_name})
+        list(APPEND _tip_source_generators "${_tip_selector_generator}")
+      endif()
+    endforeach()
+  endif()
+  _tip_cpack_option_value_is_set(_tip_effective_archive_compression_level_set "${_tip_effective_archive_compression_level}")
+  _tip_cpack_option_value_is_set(_tip_effective_debian_compression_level_set "${_tip_effective_debian_compression_level}")
+  set(_tip_compression_generators_upper "")
+  set(_tip_has_effective_binary_deb_generator FALSE)
+  foreach(_tip_compression_generator IN LISTS _tip_compression_generators)
+    string(TOUPPER "${_tip_compression_generator}" _tip_compression_generator_upper)
+    list(APPEND _tip_compression_generators_upper "${_tip_compression_generator_upper}")
+    if(_tip_compression_generator_upper STREQUAL "DEB")
+      set(_tip_has_effective_binary_deb_generator TRUE)
+    endif()
+  endforeach()
+  set(_tip_source_generators_upper "")
+  set(_tip_has_effective_deb_generator ${_tip_has_effective_binary_deb_generator})
+  foreach(_tip_source_generator IN LISTS _tip_source_generators)
+    string(TOUPPER "${_tip_source_generator}" _tip_source_generator_upper)
+    list(APPEND _tip_source_generators_upper "${_tip_source_generator_upper}")
+    if(_tip_source_generator_upper STREQUAL "DEB")
+      set(_tip_has_effective_deb_generator TRUE)
+    endif()
+  endforeach()
+
+  set(_tip_archive_generators
+      7Z
+      7Z_BZ2
+      7Z_DEFLATE
+      7Z_LZMA
+      7Z_LZMA2
+      7Z_PPMD
+      7Z_STORE
+      7Z_ZSTD
+      TAR
+      TBZ2
+      TGZ
+      TXZ
+      TZ
+      TZST
+      STGZ
+      ZIP
+      ZIP_BZ2
+      ZIP_DEFLATE
+      ZIP_LZMA
+      ZIP_LZMA2
+      ZIP_STORE
+      ZIP_ZSTD
+      CYGWINBINARY
+      CYGWINSOURCE
+      FREEBSD)
+  set(_tip_archive_zstd_generators 7Z_ZSTD TZST)
+  set(_tip_archive_neutral_generators TAR TZ)
+  set(_tip_has_binary_archive_generator FALSE)
+  foreach(_tip_generator_upper IN LISTS _tip_compression_generators_upper)
+    if(_tip_generator_upper IN_LIST _tip_archive_generators)
+      set(_tip_has_binary_archive_generator TRUE)
+    endif()
+  endforeach()
+
+  set(_tip_has_effective_archive_generator FALSE)
+  set(_tip_archive_max_compression_level 19)
+  set(_tip_all_generators_upper ${_tip_compression_generators_upper} ${_tip_source_generators_upper})
+  foreach(_tip_generator_upper IN LISTS _tip_all_generators_upper)
+    if(_tip_generator_upper IN_LIST _tip_archive_generators)
+      set(_tip_has_effective_archive_generator TRUE)
+      if(NOT _tip_generator_upper IN_LIST _tip_archive_zstd_generators AND NOT _tip_generator_upper IN_LIST _tip_archive_neutral_generators)
+        set(_tip_archive_max_compression_level 9)
+      endif()
+    endif()
+  endforeach()
+
+  if(_tip_compression_level_explicit
+     OR _tip_archive_compression_level_explicit
+     OR _tip_debian_compression_level_explicit)
+    if(CMAKE_VERSION VERSION_LESS "4.3")
+      project_log(FATAL_ERROR "Compression level controls require CMake 4.3 or newer (running ${CMAKE_VERSION})")
+    endif()
+  endif()
+
+  if(_tip_debian_compression_type_explicit AND NOT _tip_debian_compression_type_overridden)
+    if(NOT _tip_has_effective_deb_generator)
+      project_log(FATAL_ERROR "DEBIAN_COMPRESSION_TYPE requires the DEB generator")
+    endif()
+    string(TOLOWER "${ARG_DEBIAN_COMPRESSION_TYPE}" ARG_DEBIAN_COMPRESSION_TYPE)
+    set(_tip_debian_compression_types gzip bzip2 xz lzma zstd)
+    if(NOT ARG_DEBIAN_COMPRESSION_TYPE IN_LIST _tip_debian_compression_types)
+      project_log(FATAL_ERROR "Unsupported DEBIAN_COMPRESSION_TYPE '${ARG_DEBIAN_COMPRESSION_TYPE}'. Supported values: ${_tip_debian_compression_types}")
+    endif()
+  endif()
+
+  string(TOLOWER "${_tip_effective_debian_compression_type}" _tip_effective_debian_compression_type)
+  if(_tip_effective_debian_compression_type STREQUAL "zstd")
+    set(_tip_debian_max_compression_level 19)
+  else()
+    set(_tip_debian_max_compression_level 9)
+  endif()
+
+  if(_tip_archive_compression_level_explicit AND NOT _tip_archive_compression_level_overridden)
+    if(NOT _tip_has_binary_archive_generator)
+      project_log(FATAL_ERROR "ARCHIVE_COMPRESSION_LEVEL requires an archive generator")
+    endif()
+    _tip_validate_cpack_compression_level(ARCHIVE_COMPRESSION_LEVEL "${ARG_ARCHIVE_COMPRESSION_LEVEL}" "${_tip_archive_max_compression_level}")
+  endif()
+
+  if(_tip_debian_compression_level_explicit AND NOT _tip_debian_compression_level_overridden)
+    if(NOT _tip_has_effective_deb_generator)
+      project_log(FATAL_ERROR "DEBIAN_COMPRESSION_LEVEL requires the DEB generator")
+    endif()
+    _tip_validate_cpack_compression_level(DEBIAN_COMPRESSION_LEVEL "${ARG_DEBIAN_COMPRESSION_LEVEL}" "${_tip_debian_max_compression_level}")
+  endif()
+
+  if(_tip_compression_level_explicit AND NOT _tip_compression_level_overridden)
+    set(_tip_generic_max_compression_level 19)
+    if(_tip_has_effective_archive_generator
+       AND NOT _tip_effective_archive_compression_level_set
+       AND _tip_archive_max_compression_level EQUAL 9)
+      set(_tip_generic_max_compression_level 9)
+    endif()
+    if(_tip_has_effective_deb_generator
+       AND NOT _tip_effective_debian_compression_level_set
+       AND _tip_debian_max_compression_level EQUAL 9)
+      set(_tip_generic_max_compression_level 9)
+    endif()
+    _tip_validate_cpack_compression_level(COMPRESSION_LEVEL "${ARG_COMPRESSION_LEVEL}" "${_tip_generic_max_compression_level}")
+  endif()
 
   if(_tip_signing_key_for_validation AND ARG_SIGNING_METHOD STREQUAL "embedded")
     if(NOT _tip_has_rpm_generator OR _tip_has_non_rpm_generator)
@@ -1144,13 +1832,11 @@ function(_execute_deferred_cpack_config)
     endif()
   endif()
 
-  # Set archive format
-  if(NOT ARG_ARCHIVE_FORMAT)
-    if(WIN32)
-      set(ARG_ARCHIVE_FORMAT "ZIP")
-    else()
-      set(ARG_ARCHIVE_FORMAT "TGZ")
-    endif()
+  if(_tip_archive_uid_explicit AND NOT _tip_archive_uid_overridden)
+    _tip_store_cpack_var(CPACK_ARCHIVE_UID "${ARG_ARCHIVE_UID}")
+  endif()
+  if(_tip_archive_gid_explicit AND NOT _tip_archive_gid_overridden)
+    _tip_store_cpack_var(CPACK_ARCHIVE_GID "${ARG_ARCHIVE_GID}")
   endif()
 
   # Configure basic CPack variables using GLOBAL properties
@@ -1160,7 +1846,7 @@ function(_execute_deferred_cpack_config)
   _tip_store_cpack_var(CPACK_PACKAGE_CONTACT "${ARG_PACKAGE_CONTACT}")
   _tip_store_cpack_var(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${ARG_PACKAGE_DESCRIPTION}")
 
-  if(ARG_PACKAGE_HOMEPAGE_URL)
+  if(DEFINED ARG_PACKAGE_HOMEPAGE_URL)
     _tip_store_cpack_var(CPACK_PACKAGE_HOMEPAGE_URL "${ARG_PACKAGE_HOMEPAGE_URL}")
   endif()
 
@@ -1449,28 +2135,26 @@ function(_execute_deferred_cpack_config)
     _tip_store_cpack_var(CPACK_RPM_PACKAGE_RELEASE "1")
   endif()
 
+  if(_tip_compression_level_explicit)
+    _tip_store_cpack_var(CPACK_COMPRESSION_LEVEL "${ARG_COMPRESSION_LEVEL}")
+  endif()
+  if(_tip_archive_compression_level_explicit)
+    _tip_store_cpack_var(CPACK_ARCHIVE_COMPRESSION_LEVEL "${ARG_ARCHIVE_COMPRESSION_LEVEL}")
+  endif()
+  if(_tip_debian_compression_type_explicit)
+    _tip_store_cpack_var(CPACK_DEBIAN_COMPRESSION_TYPE "${ARG_DEBIAN_COMPRESSION_TYPE}")
+  endif()
+  if(_tip_debian_compression_level_explicit)
+    _tip_store_cpack_var(CPACK_DEBIAN_COMPRESSION_LEVEL "${ARG_DEBIAN_COMPRESSION_LEVEL}")
+  endif()
+
   # Set additional variables if provided
   if(_tip_additional_cpack_vars_seen)
-    list(LENGTH ARG_ADDITIONAL_CPACK_VARS vars_length)
-    math(EXPR pairs_count "${vars_length} / 2")
-    math(EXPR remainder "${vars_length} % 2")
-
-    if(vars_length EQUAL 0)
-      project_log(FATAL_ERROR "ADDITIONAL_CPACK_VARS must contain key/value pairs, got no arguments.")
-    endif()
-    if(NOT remainder EQUAL 0)
-      project_log(FATAL_ERROR "ADDITIONAL_CPACK_VARS must contain key/value pairs, got an odd number of arguments.")
-    else()
-      math(EXPR max_index "${pairs_count} - 1")
-      foreach(i RANGE ${max_index})
-        math(EXPR key_index "${i} * 2")
-        math(EXPR value_index "${key_index} + 1")
-        list(GET ARG_ADDITIONAL_CPACK_VARS ${key_index} var_name)
-        list(GET ARG_ADDITIONAL_CPACK_VARS ${value_index} var_value)
-        _tip_store_cpack_var("${var_name}" "${var_value}")
-        _tip_mark_user_cpack_var("${var_name}")
-      endforeach()
-    endif()
+    foreach(_tip_additional_cpack_var_index RANGE ${_tip_additional_cpack_vars_max_index})
+      _tip_get_additional_cpack_pair(${_tip_additional_cpack_var_index} _tip_additional_cpack_var_name _tip_additional_cpack_var_value)
+      _tip_store_cpack_var("${_tip_additional_cpack_var_name}" "${_tip_additional_cpack_var_value}")
+      _tip_mark_user_cpack_var("${_tip_additional_cpack_var_name}")
+    endforeach()
   endif()
 
   if(ARG_COMPONENTS)
@@ -1531,28 +2215,28 @@ function(_execute_deferred_cpack_config)
     set(_tip_post_build_checksum_algorithms "")
   endif()
 
-  set(_tip_gpg_signing_args
-      SIGNING_KEY
-      "${ARG_GPG_SIGNING_KEY}"
-      PASSPHRASE_FILE
-      "${ARG_GPG_PASSPHRASE_FILE}"
-      SIGNING_METHOD
-      "${ARG_SIGNING_METHOD}"
-      KEYSERVER
-      "${ARG_GPG_KEYSERVER}"
-      PACKAGE_NAME
-      "${ARG_PACKAGE_NAME}"
-      PACKAGE_VERSION
-      "${ARG_PACKAGE_VERSION}"
-      PACKAGE_CONTACT
-      "${ARG_PACKAGE_CONTACT}")
-  if(_tip_post_build_checksum_algorithms)
-    list(APPEND _tip_gpg_signing_args CHECKSUMS ${_tip_post_build_checksum_algorithms})
-  endif()
+  set(_tip_gpg_signing_options "")
   if(_tip_gpg_requires_rpmsign)
-    list(APPEND _tip_gpg_signing_args REQUIRE_RPMSIGN)
+    list(APPEND _tip_gpg_signing_options REQUIRE_RPMSIGN)
   endif()
-  _configure_gpg_signing(${_tip_gpg_signing_args})
+  _configure_gpg_signing(
+    SIGNING_KEY
+    "${ARG_GPG_SIGNING_KEY}"
+    PASSPHRASE_FILE
+    "${ARG_GPG_PASSPHRASE_FILE}"
+    SIGNING_METHOD
+    "${ARG_SIGNING_METHOD}"
+    KEYSERVER
+    "${ARG_GPG_KEYSERVER}"
+    PACKAGE_NAME
+    "${ARG_PACKAGE_NAME}"
+    PACKAGE_VERSION
+    "${ARG_PACKAGE_VERSION}"
+    PACKAGE_CONTACT
+    "${ARG_PACKAGE_CONTACT}"
+    CHECKSUMS
+    ${_tip_post_build_checksum_algorithms}
+    ${_tip_gpg_signing_options})
 
   # Set all CPack variables from GLOBAL properties just before including CPack This avoids cache persistence between CMake runs
   get_property(all_cpack_vars GLOBAL PROPERTY "_TIP_CPACK_ALL_VARS")
@@ -1590,7 +2274,48 @@ function(_execute_deferred_cpack_config)
     project_log(STATUS "CPack components: ${ARG_COMPONENTS}")
   endif()
 
-  # Include CPack after all variables are set This ensures CPack sees all the deferred configuration
+  # Native packages are opt-in. Warn early if the selected backend cannot run
+  # here, while still allowing generation of metadata for a packaging host.
+  foreach(_tip_generator IN LISTS CPACK_GENERATOR)
+    string(TOUPPER "${_tip_generator}" _tip_generator_upper)
+    set(_tip_required_programs "")
+    set(_tip_program_hints "")
+    if(_tip_generator_upper STREQUAL "RPM")
+      set(_tip_required_programs rpmbuild)
+    elseif(_tip_generator_upper STREQUAL "WIX")
+      if(CPACK_WIX_VERSION VERSION_GREATER_EQUAL "4")
+        set(_tip_required_programs wix)
+      else()
+        set(_tip_required_programs candle light)
+      endif()
+      if(DEFINED ENV{WIX})
+        list(APPEND _tip_program_hints "$ENV{WIX}" "$ENV{WIX}/bin")
+      endif()
+    elseif(_tip_generator_upper STREQUAL "DRAGNDROP")
+      set(_tip_required_programs hdiutil)
+    elseif(_tip_generator_upper STREQUAL "DEB")
+      get_cmake_property(_tip_config_variables VARIABLES)
+      foreach(_tip_config_variable IN LISTS _tip_config_variables)
+        if(_tip_config_variable MATCHES "^CPACK_DEBIAN_(.*_)?PACKAGE_SHLIBDEPS$" AND ${_tip_config_variable})
+          set(_tip_required_programs dpkg-shlibdeps)
+        endif()
+      endforeach()
+    endif()
+
+    foreach(_tip_program IN LISTS _tip_required_programs)
+      unset(_tip_program_path)
+      find_program(
+        _tip_program_path
+        NAMES "${_tip_program}"
+        HINTS ${_tip_program_hints} NO_CACHE)
+      if(NOT _tip_program_path)
+        project_log(WARNING "CPack generator ${_tip_generator} requires '${_tip_program}' on the packaging host; it was not found. Install it before running cpack.")
+      endif()
+    endforeach()
+  endforeach()
+
+  # CPack emits a second CMake program. Escape metadata for that serialization.
+  set(CPACK_VERBATIM_VARIABLES TRUE)
   include(CPack)
 
 endfunction(_execute_deferred_cpack_config)
@@ -1612,9 +2337,20 @@ function(_configure_gpg_signing)
       PACKAGE_VERSION
       PACKAGE_CONTACT)
   set(multiValueArgs CHECKSUMS)
-  cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
-  if(ARG_UNPARSED_ARGUMENTS)
-    project_log(FATAL_ERROR "Unknown arguments for GPG signing configuration: ${ARG_UNPARSED_ARGUMENTS}")
+  # Empty values are unset before CMP0174, so use a separate parse namespace
+  # before assigning every ARG_* variable consumed here and by the signing template.
+  # The private policy scope keeps empty forwarded values without an author warning or leaking the policy to callers.
+  cmake_policy(PUSH)
+  if(POLICY CMP0174)
+    cmake_policy(SET CMP0174 NEW)
+  endif()
+  cmake_parse_arguments(PARSE_ARGV 0 _tip_signing_arg "${options}" "${oneValueArgs}" "${multiValueArgs}")
+  cmake_policy(POP)
+  foreach(_tip_signing_keyword IN LISTS options oneValueArgs multiValueArgs)
+    set(ARG_${_tip_signing_keyword} "${_tip_signing_arg_${_tip_signing_keyword}}")
+  endforeach()
+  if(_tip_signing_arg_UNPARSED_ARGUMENTS)
+    project_log(FATAL_ERROR "Unknown arguments for GPG signing configuration: ${_tip_signing_arg_UNPARSED_ARGUMENTS}")
   endif()
 
   # Set defaults with environment variable fallbacks

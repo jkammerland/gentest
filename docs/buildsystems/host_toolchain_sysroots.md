@@ -325,7 +325,10 @@ For gentest's own install/export flow, the packaging helper itself is vendored
 under `third_party/target_install_package` and resolved with a strict
 `find_package(... EXACT CONFIG REQUIRED)` path. Packaging the gentest developer
 surface should therefore be a no-network configure path; host compiler/toolchain
-selection remains a separate concern.
+selection remains a separate concern. To use a separately installed helper
+instead, for example where packaging rules forbid bundled copies, configure with
+`-DGENTEST_USE_INSTALLED_PACKAGE_HELPER=ON`; CMake's normal package search then
+looks for `target_install_package` 7.5 or newer.
 
 So the clean packaging model is:
 

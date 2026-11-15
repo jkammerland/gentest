@@ -72,6 +72,7 @@ option(${PROJECT_NAME}_INSTALL "Install ${PROJECT_NAME} configuration" OFF)
 option(${PROJECT_NAME}_BUILD_TESTING "Build the testing tree" OFF)
 option(GENTEST_ENABLE_CPS "Install experimental Common Package Specification metadata (requires CMake 4.3+)" OFF)
 option(GENTEST_ENABLE_SBOM "Install experimental SPDX 3.0.1 SBOM metadata (requires CMake 4.3+)" OFF)
+option(GENTEST_USE_INSTALLED_PACKAGE_HELPER "Use a normally installed packaging helper instead of the bundled copy" OFF)
 option(GENTEST_REQUIRE_PACKAGE_SIGNING "Fail package configuration unless a GPG signing key is provided" OFF)
 option(GENTEST_RELEASE_HOST_DEVELOPER_KIT "Label CPack output as the transitional host-bound developer kit" OFF)
 set(GENTEST_GPG_SIGNING_KEY "" CACHE STRING "GPG fingerprint or key ID used to sign release packages")
@@ -176,12 +177,16 @@ if(${PROJECT_NAME}_INSTALL)
     # next to them must use the same root.
     include(GNUInstallDirs)
 
-    # This vendored helper runs in CMake on the host, outside any target sysroot.
-    set(_gentest_target_install_package_root "${PROJECT_SOURCE_DIR}/third_party/target_install_package")
-    find_package(target_install_package 7.1.0 EXACT CONFIG REQUIRED
-        PATHS "${_gentest_target_install_package_root}"
-        NO_DEFAULT_PATH
-        NO_CMAKE_FIND_ROOT_PATH)
+    # This helper runs in CMake on the host, outside any target sysroot.
+    if(GENTEST_USE_INSTALLED_PACKAGE_HELPER)
+        find_package(target_install_package 7.5 CONFIG REQUIRED)
+    else()
+        set(_gentest_target_install_package_root "${PROJECT_SOURCE_DIR}/third_party/target_install_package")
+        find_package(target_install_package 7.5.0 EXACT CONFIG REQUIRED
+            PATHS "${_gentest_target_install_package_root}"
+            NO_DEFAULT_PATH
+            NO_CMAKE_FIND_ROOT_PATH)
+    endif()
     set(_gentest_fmt_public_dependency "fmt ${GENTEST_FMT_VERSION} EXACT CONFIG REQUIRED")
 
     # Imported module BMIs must use the same CRT as the installed carrier.

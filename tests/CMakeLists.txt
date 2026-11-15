@@ -5654,6 +5654,13 @@ if(GENTEST_ENABLE_PACKAGE_TESTS)
         package
         -DBUILD_CONFIG=${_gentest_package_test_config})
 
+    # GENTEST_USE_INSTALLED_PACKAGE_HELPER configures against an installed target_install_package.
+    _gentest_add_cmake_helper_test(
+        gentest_package_installed_helper
+        ${PROJECT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckInstalledPackageHelper.cmake
+        package)
+
     _gentest_add_cmake_helper_test(
         gentest_third_party_mock_package_consumers
         ${PROJECT_SOURCE_DIR}/tests/cmake/third_party_mock_consumers
