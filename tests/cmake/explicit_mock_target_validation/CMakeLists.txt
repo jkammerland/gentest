@@ -68,6 +68,51 @@ elseif(TEST_CASE STREQUAL "defs_named_header_name")
             ${CMAKE_CURRENT_SOURCE_DIR}/defs_a.hpp
         OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated"
         HEADER_NAME "defs_a.hpp")
+elseif(TEST_CASE STREQUAL "defs_include_collision")
+    # BASE_DIRS make both targets spell their DEFS file as <defs.hpp>.
+    foreach(_collision_name IN ITEMS a b)
+        gentest_add_mocks(explicit_validation_collision_${_collision_name}
+            DEFS collision/${_collision_name}/defs.hpp
+            BASE_DIRS collision/${_collision_name}
+            OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_${_collision_name}")
+    endforeach()
+    add_executable(explicit_validation_collision_consumer third_party_consumer.cpp)
+    if(TEST_COLLISION_LINK STREQUAL "attach_codegen")
+        target_link_libraries(explicit_validation_collision_consumer PRIVATE
+            explicit_validation_collision_a explicit_validation_collision_b)
+        gentest_attach_codegen(explicit_validation_collision_consumer)
+    else()
+        gentest_link_mocks(explicit_validation_collision_consumer PRIVATE
+            explicit_validation_collision_a explicit_validation_collision_b)
+    endif()
+elseif(TEST_CASE STREQUAL "defs_same_include_in_target")
+    gentest_add_mocks(explicit_validation_same_include
+        DEFS collision/a/defs.hpp collision/b/defs.hpp
+        BASE_DIRS collision/a collision/b
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+elseif(TEST_CASE STREQUAL "defs_outside_default_base_dirs")
+    gentest_add_mocks(explicit_validation_outside_defs
+        DEFS "${CMAKE_CURRENT_SOURCE_DIR}/../outside_defs.hpp"
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+elseif(TEST_CASE STREQUAL "defs_outside_base_dirs")
+    gentest_add_mocks(explicit_validation_outside_base_dirs
+        DEFS defs_a.hpp
+        BASE_DIRS collision
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+elseif(TEST_CASE STREQUAL "nested_base_dirs")
+    gentest_add_mocks(explicit_validation_nested_base_dirs
+        DEFS collision/a/defs.hpp
+        BASE_DIRS collision collision/a
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+elseif(TEST_CASE STREQUAL "filesystem_root_base_dir")
+    cmake_path(GET CMAKE_CURRENT_SOURCE_DIR ROOT_PATH _filesystem_root)
+    gentest_add_mocks(explicit_validation_root_base_dir
+        DEFS defs_a.hpp
+        BASE_DIRS "${_filesystem_root}"
+        OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+elseif(TEST_CASE STREQUAL "defs_in_nested_source_and_binary_dirs")
+    # A build directory inside the source directory, with DEFS in both.
+    add_subdirectory(nested_build "${CMAKE_CURRENT_SOURCE_DIR}/nested_build/out")
 elseif(TEST_CASE STREQUAL "reserved_header_name")
     _gentest_make_codegen_target_id("explicit_validation_reserved_header" _reserved_header_target_id)
     gentest_add_mocks(explicit_validation_reserved_header

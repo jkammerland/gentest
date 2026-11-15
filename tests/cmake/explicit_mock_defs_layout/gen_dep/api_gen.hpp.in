@@ -1,0 +1,10 @@
+#pragma once
+
+namespace layout_gen_dep {
+
+struct Api {
+    virtual ~Api()      = default;
+    virtual int value() = 0;
+};
+
+} // namespace layout_gen_dep
