@@ -3737,6 +3737,19 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
     return command;
 }
 
+// Everything that determines a precompile's result: its working directory and every
+// argument except the output path. Two precompiles with the same identity build the same PCM.
+std::string precompile_identity(const clang::tooling::CommandLineArguments &command_line, std::string_view working_directory,
+                                const std::filesystem::path &pcm_path) {
+    const std::string output = pcm_path.string();
+    std::string       identity{working_directory};
+    for (const auto &arg : command_line) {
+        identity.push_back('\0');
+        identity += arg == output ? std::string_view{"<output>"} : std::string_view{arg};
+    }
+    return identity;
+}
+
 bool execute_module_precompile(const clang::tooling::CommandLineArguments &command_line, std::string_view module_name,
                                std::string_view source_file, const std::filesystem::path &pcm_path, std::string_view working_directory) {
     if (command_line.empty()) {
@@ -5624,7 +5637,10 @@ int run_codegen_tool(int argc, const char **argv) {
         };
         std::vector<ModuleBuildState>                      module_build_states(named_module_sources.size(), ModuleBuildState::NotStarted);
         std::map<ExternalModuleCacheKey, ModuleBuildState> external_module_build_states;
-        bool                                               external_scan_deps_hard_failure = false;
+        // External modules are resolved per importing source; when several importers lead
+        // to the same precompile, they share its PCM.
+        std::map<std::string, std::filesystem::path> external_pcm_by_identity;
+        bool                                         external_scan_deps_hard_failure = false;
 
         auto note_external_scan_deps_failure = [&](std::string_view module_name, const std::filesystem::path &candidate,
                                                    std::string_view detail) {
@@ -6032,11 +6048,18 @@ int run_codegen_tool(int argc, const char **argv) {
                                             explicit_host_clang_path, module_source->resolution_context.forced_compiler_path);
             const auto precompile_command = build_module_precompile_command(adjusted_command, module_source->source_path.string(),
                                                                             external_working_directory, module_source->pcm_path, true);
+            const std::string identity    = precompile_identity(precompile_command, external_working_directory, module_source->pcm_path);
+            if (const auto built = external_pcm_by_identity.find(identity); built != external_pcm_by_identity.end()) {
+                external_named_module_sources.at(cache_key).pcm_path = built->second;
+                state                                                = ModuleBuildState::Built;
+                return true;
+            }
             if (!execute_module_precompile(precompile_command, module_name, module_source->source_path.string(), module_source->pcm_path,
                                            external_working_directory)) {
                 state = ModuleBuildState::Failed;
                 return false;
             }
+            external_pcm_by_identity.emplace(identity, module_source->pcm_path);
 
             state = ModuleBuildState::Built;
             return true;

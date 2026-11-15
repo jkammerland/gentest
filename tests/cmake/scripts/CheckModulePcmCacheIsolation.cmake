@@ -279,4 +279,38 @@ file(GLOB _leftover_cache_dirs LIST_DIRECTORIES TRUE "${_cleanup_dir}/.gentest_c
 list(LENGTH _leftover_cache_dirs _leftover_cache_dir_count)
 _gentest_expect_equal("${_leftover_cache_dir_count}" "0" "module cache directories left after a run")
 
+# Both consumers import the external module `gentest` with the same flags, so one run
+# builds its PCM once and both parses share it.
+set(_shared_dir "${_work_dir}/inspect_shared_import")
+file(MAKE_DIRECTORY "${_shared_dir}")
+execute_process(
+  COMMAND
+    "${CMAKE_COMMAND}" -E env GENTEST_CODEGEN_LOG_PRECOMPILE=1
+    "${_codegen_exe}"
+    inspect-mocks
+    --mock-manifest-output "${_generated_dir}/inspect_shared_import.mock_manifest.json"
+    --compdb "${_build_dir}"
+    --clang-scan-deps "${_clang_scan_deps}"
+    --host-clang "${_clangxx}"
+    --source-root "${_src_dir}"
+    "${_src_dir}/alpha_dot_provider.cppm"
+    "${_src_dir}/alpha_dot_consumer.cppm"
+    "${_src_dir}/alpha_underscore_provider.cppm"
+    "${_src_dir}/alpha_underscore_consumer.cppm"
+    --
+    -std=c++20
+    -x
+    c++-module
+    -DGENTEST_CODEGEN=1
+  WORKING_DIRECTORY "${_shared_dir}"
+  RESULT_VARIABLE _shared_rc
+  OUTPUT_VARIABLE _shared_out
+  ERROR_VARIABLE _shared_err)
+if(NOT _shared_rc EQUAL 0)
+  message(FATAL_ERROR "mock inspection with two importers of 'gentest' failed (${_shared_rc}):\n${_shared_out}\n${_shared_err}")
+endif()
+string(REGEX MATCHALL "module precompile command for 'gentest':" _gentest_precompiles "${_shared_err}")
+list(LENGTH _gentest_precompiles _gentest_precompile_count)
+_gentest_expect_equal("${_gentest_precompile_count}" "1" "precompiles of the external module 'gentest' shared by two importers")
+
 message(STATUS "Shared-build-tree PCM cache isolation regression passed")
