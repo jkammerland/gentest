@@ -61,6 +61,7 @@
 - Linux first-use guide and developer build measurements (#237, #241).
 - `RunConfiguration::suspendProgressInterval` limits framework progress records per subject (1 ms default).
 - `gentest_add_mocks(... DEPENDS ...)` is documented for ordering mock codegen after generated inputs.
+- `gentest_link_mocks()` is public API: it links mock targets into a test target before or after `gentest_attach_codegen()`.
 - Allure results carry `uuid`, `historyId`, `fullName`, `stage`, `start` / `stop`, and framework, language, and tag labels, so reports show durations, timelines, tags, and history.
 - Allure results are named after their program (`<program>:<case>`, plus a `parentSuite` label), so same-named cases of different programs stay apart.
 - `GENTEST_USE_INSTALLED_PACKAGE_HELPER` installs with a separately installed `target_install_package` instead of the bundled copy.

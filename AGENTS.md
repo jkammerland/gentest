@@ -96,7 +96,7 @@ editing.
   - See `docs/modules.md` for the supported named-module flows (`import gentest;`, `import gentest.mock;`, `import gentest.bench_util;`).
   - `import gentest;` consumers should link `gentest::gentest`; test executables typically link both `gentest::gentest` and `gentest::gentest_main` (or `gentest::gentest_runtime` if they provide their own `main()`).
   - Set `GENTEST_ENABLE_PUBLIC_MODULES` to `ON` (or `AUTO` for toolchain-driven fallback) when you test public modules.
-  - Link mock targets before calling `gentest_attach_codegen()`, so the codegen scan sees the generated mock headers. `gentest_link_mocks()` handles in-tree targets that link them afterwards.
+  - Link mock targets with the public `gentest_link_mocks()`, before or after `gentest_attach_codegen()`, or with `target_link_libraries()` before `gentest_attach_codegen()`, so the codegen scan sees the generated mock headers. A `target_link_libraries()` call after `gentest_attach_codegen()` misses the codegen ordering and the `DEFS` include-path check.
 - `gentest_attach_codegen()` without `MODULE_REGISTRATION` uses header registration. Use Ninja or Ninja Multi-Config.
 - `OUTPUT_DIR` must be a concrete path without generator expressions in every mode, and unique per target; multi-config generators add their configuration subdirectory automatically.
 - Cross-compiling (target = arm/riscv/etc, host runs codegen):
