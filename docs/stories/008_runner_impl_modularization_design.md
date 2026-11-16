@@ -1,5 +1,12 @@
 # Design: `runner_impl` Modularization (Execution + Fixtures + Reporting)
 
+> **Status:** Implemented in 1.0.0. `src/runner_impl.cpp` is a short entry point over
+> modules such as `runner_orchestrator`, `runner_fixture_runtime`,
+> `runner_measured_executor` and `runner_reporting`. Accepted decision 2 was reversed
+> in 2.0.0: suite and global fixtures are set up when a selected case first needs
+> them, so `get_shared_fixture()` activates fixtures instead of only looking them up
+> ([CHANGELOG.md](../../CHANGELOG.md)). Current docs: [Fixtures](../fixtures.md).
+
 ## Status
 
 This design starts from the current branch state:

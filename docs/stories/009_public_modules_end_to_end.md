@@ -1,5 +1,14 @@
 # Story: Public Modules End-to-End
 
+> **Status:** Partly superseded before 1.0.0. The public modules (`gentest`,
+> `gentest.mock`, `gentest.bench_util`) shipped in 1.0.0; registering module tests
+> through generated module wrappers did not. Module tests use module registration
+> (`MODULE_REGISTRATION`,
+> [issue #114](https://github.com/jkammerland/gentest/issues/114)), which needs exported
+> cases. Module mocks come from mock targets
+> ([story 014](014_explicit_mock_target_codegen.md)), and module registration rejects
+> mocks owned by a named module. Current docs: [Named modules](../modules.md).
+
 ## Goal
 
 Deliver a downstream `find_package(gentest)` workflow that can:

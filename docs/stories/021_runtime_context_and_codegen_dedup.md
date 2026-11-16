@@ -1,5 +1,10 @@
 # Closed Story Record: dedup runtime test-context plumbing and generated output naming
 
+> **Status:** Implemented in 1.0.0 (PR #77). An internal change with no
+> user-facing docs; the shared context helpers live in
+> `src/runner_context_scope.h`. The output-naming follow-up is
+> [story 029](029_codegen_output_naming_contract_unification.md).
+
 ## Goal
 
 Remove low-value duplication in two internal areas without changing user-facing behavior:
@@ -90,4 +95,3 @@ Remove local test-side duplication of codegen backend resolution in `tests/CMake
 
 1. build `debug-system`
 2. run focused runtime + codegen tests
-3. run batch Codex review on diff before commit

@@ -1,10 +1,16 @@
 # Story: Codegen-Owned Artifact Manifest and Same-Module Registration
 
-> Historical design record: the same-module visibility decision in this story
-> was superseded by issue #114. Current `MODULE_REGISTRATION` emits ordinary
-> importer TUs and intentionally requires exported cases and fixture types. See
-> [`docs/modules.md`](../modules.md) and
-> [`docs/codegen_artifact_protocols.md`](../codegen_artifact_protocols.md).
+> **Status:** Partly superseded before 1.0.0. Its first implementation step
+> landed in April 2026 (PR #82). The artifact manifest
+> (`gentest.artifact_manifest.v1`), the mock manifest
+> (`gentest.mock_manifest.v1`) and the `inspect-mocks` / `emit-mocks` phases
+> shipped in 1.0.0. Issue #114 replaced the same-module
+> registration units with module registration (`MODULE_REGISTRATION`): the
+> generated registration translation units import the module, so cases and
+> fixture types must be exported. Issues #107 and #115 replaced the textual
+> wrapper artifacts with header registration. Current docs:
+> [Codegen artifact protocols](../codegen_artifact_protocols.md) and
+> [Named modules](../modules.md).
 
 ## Goal
 

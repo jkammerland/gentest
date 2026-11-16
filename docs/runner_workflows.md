@@ -1,121 +1,146 @@
 # Running, debugging, and replaying tests
 
-Use an exact case name to focus a failing test. Quote parameterized names when
-passing them through a shell:
+This page covers the everyday loop after a test fails: rerun the failing case,
+stop in a debugger at the failing assertion, cut the console output down to the
+failures, replay a shuffled run, and repeat cases through CTest. Every option
+used here is listed on [Command-line options](command_line.md).
 
-```sh
-./my_tests --run='math/add[value=2, label="two words"]' --kind=test
+## Rerun a failing case
+
+At the end of a run, the runner prints a `Rerun:` command on stderr for each
+case in the summary's `Failed tests:` list:
+
+```text
+Rerun: './my_tests' '--run=math/fails' '--kind=test' '--no-color'
 ```
 
-The runner prints a `Rerun:` command for each uniquely named failing selected
-case, using its full inventory name and kind. These commands use POSIX shell
-quoting on Unix and PowerShell quoting on Windows, including executable paths with spaces and
-apostrophes. They select one case without repeating it. An embedding program
-using `run_cases` or the span overload of `run_all_tests` should pass its
-executable path as the optional first argument to enable these commands.
+The command selects that one case by its full name and kind and runs it once.
+It adds `--include-death` for a death test. A case whose name another case
+shares gets no command, because `--run` can't select it alone.
 
-Windows commands use `Start-Process` with a single encoded argument string so
-embedded quotes also survive Windows PowerShell's native argument handling.
-They set `$LASTEXITCODE` to the executable's exit code.
+To focus on a case yourself, pass its exact name. Quote parameterized names so
+the shell passes them unchanged:
 
-## Debugger breaks
-
-```sh
-gdb --args ./my_tests --run='math/add[value=2]' --break-on-failure
+```bash
+./my_tests --run='math/add(2, "two words")' --kind=test
 ```
 
-`--break-on-failure` traps while recording a failing assertion or expectation,
-before its failure is stored or a fatal assertion unwinds the test. The test's
-assertion call remains on the stack. Continue in the debugger to finish normal
-failure recording and reporting. Assertions in expected-failure cases also
-trap; the option responds to the assertion, rather than the final case outcome.
+The printed commands use POSIX shell quoting on Unix. On Windows they are
+PowerShell commands that run the executable through `Start-Process`, so
+embedded quotes survive, and set `$LASTEXITCODE` to its exit code.
+
+The runner needs the executable path to build these commands.
+`gentest::gentest_main` passes it; your own `main()` should pass it as the
+first argument (see [Embedding the runner](runner_api.md)).
+
+## Stop in a debugger
+
+```bash
+gdb --args ./my_tests --run='math/add(2, "two words")' --break-on-failure
+```
+
+`--break-on-failure` traps when an assertion or expectation fails, before a
+fatal assertion unwinds the test, so the assertion call is on the stack.
+Continue in the debugger to finish normal failure reporting. Assertions in
+expected-failure cases trap too.
 
 MSVC-compatible Windows builds use `__debugbreak()`. Platforms with `SIGTRAP`,
-including Linux and macOS, raise that signal. Other platforms reject the option.
-A trap may terminate the process when no debugger or signal handler handles it.
+including Linux and macOS, raise that signal. Other platforms reject the option
+with `error: --break-on-failure is unsupported on this platform`. Without a
+debugger or a signal handler, the trap may end the process.
 
-## Output and captured logs
+## Control console output
 
-```sh
+```bash
 ./my_tests --output=compact
 ./my_tests --output=failures-only
 ./my_tests --log-output=failures
 ```
 
-`--output` controls ordinary test output:
+`--output` controls what the runner prints for each case:
 
 | Mode | Output |
 | --- | --- |
-| `full` | Named result lines, failure details, and the final summary; the default. |
-| `compact` | Progress symbols (`.` pass, `s` skip, `x` expected failure, `F` failure/blocked/unexpected pass), failure details, and the summary. |
-| `failures-only` | Failure, blocked, and unexpected-pass details, followed by the summary. |
+| `full` | A result line for every case, failure details, and the final summary. The default. |
+| `compact` | One progress symbol per case (`.` pass, `s` skip, `x` expected failure, `F` failure, blocked or unexpected pass), failure details, and the summary. |
+| `failures-only` | Details of failed, blocked and unexpectedly passing cases, followed by the summary. |
 
-Compact and failures-only modes default to `--log-output=failures`. This buffers
-`gentest::log()` messages for the default sink and prints a failed case's captured
-messages to stderr. Successful, skipped, and expected-failure cases keep their
-messages out of the console. Fixture failures and failed measured cases also
-print their captured lifecycle messages. Adopted workers' logs belong to their
-owning case. Each repeated occurrence has its own capture.
+`compact` and `failures-only` default to `--log-output=failures`. The runner
+then holds the `gentest::log()` messages that the default log sink would print,
+and writes them to stderr under `Captured logs:` only when a case, fixture or
+measured case fails, is blocked or passes unexpectedly. Messages logged by a
+worker that [adopted](logging_and_threads.md) a case's context belong to that
+case. Each [occurrence](command_line.md#running-cases) has its own capture.
 
-Use `--log-output=all` to stream every message to the default sink, including
-with compact or failures-only output. Application-installed log sinks receive
-every message immediately under either policy. Runner policies are restored
-when an invocation ends, including after failure. Console policies preserve the
-case data exported by JUnit, Allure, and runtime records. When Allure is enabled,
-its log attachments include successful cases' captured messages.
+Use `--log-output=all` to print every message as it happens, also with
+`compact` or `failures-only`. Either way:
 
-Async live rendering is disabled for compact/failures-only output or failure
-log capture. Measured tables remain controlled by `--report-format`. JSON/CSV
-stdout contains only the report; failure details and captured logs use stderr.
-Capture covers `gentest::log()`, so application writes to stdout/stderr and
-application-installed sinks should choose their own destinations accordingly.
+- Log sinks that your program installs receive every message immediately.
+- JUnit, Allure and runtime records are unaffected; Allure log attachments
+  include the messages of cases that passed.
+- Capture covers `gentest::log()` only, not your program's own writes to stdout
+  or stderr.
+- The live output for coroutine cases is off with `compact`, `failures-only` or
+  `--log-output=failures`; see [Logging and threads](logging_and_threads.md).
 
-## Shuffle and repeat replay
+With `--report-format=json` or `csv`, stdout contains only the measured report,
+and failure details and captured logs go to stderr; see
+[Benchmarks](benchmarks.md).
 
-```sh
+## Shuffle and repeat
+
+```bash
 ./my_tests --kind=test --filter='math/*' --shuffle --repeat=20
 ./my_tests --kind=test --filter='math/*' --shuffle --seed=123 --repeat=20
 ```
 
-`--shuffle` chooses a random base seed unless `--seed` supplies one. Every test
-iteration prints its seed, its iteration number, the base seed, and a
-`Replay iteration:` command. Repeating the same base seed and selection
-reproduces the same sequence of orders. Each iteration rebuilds the plan with
-a distinct seed, while retaining the fixture groups: free/local tests first,
-then each suite fixture group, then each global fixture group, without
-interleaving groups. Small groups can have the same order for different seeds.
+`--repeat=N` runs the selected tests `N` times in one process; each pass is an
+iteration. `--shuffle` picks a random base seed unless `--seed`
+gives one. With `--shuffle`, every iteration prints its seed, its number, the
+base seed and a `Replay iteration:` command. For example,
+`./my_tests --kind=test --filter='math/*' --shuffle --seed=123 --repeat=2`
+prints these lines among its results:
 
-The first iteration uses the base seed. For zero-based iteration `i`, the seed
-is `base + 0x9e3779b97f4a7c15 * i`, modulo `2^64`. A printed iteration seed works
-directly with `--shuffle --seed=<iteration-seed> --repeat=1`. The printed replay
-command preserves the original selection and execution options, replacing
-only seed and repetition.
+```text
+Shuffle seed: 123 (iteration 1/2; base seed 123)
+Replay iteration: './my_tests' '--kind=test' '--filter=math/*' '--shuffle' '--seed=123' '--repeat=1'
+Shuffle seed: 11400714819323198608 (iteration 2/2; base seed 123)
+Replay iteration: './my_tests' '--kind=test' '--filter=math/*' '--shuffle' '--seed=11400714819323198608' '--repeat=1'
+```
 
-Replay reproduces ordering for the same inventory. Runner repetitions share
-the run's suite/global fixtures; replaying one iteration starts a new run and
-does not recreate state accumulated in earlier iterations. To investigate a
-stateful failure, retain the original base seed and repeat count. Use CTest
-repetition when each repetition should start a fresh process.
+The same base seed and selection reproduce the same sequence of orders. Each
+iteration shuffles with its own seed but keeps the fixture groups: within each
+suite, the tests without a shared fixture run first, then each suite fixture
+group, then each global fixture group, and groups never interleave.
+
+The first iteration uses the base seed. A printed iteration seed replays that
+iteration alone with `--shuffle --seed=<iteration-seed> --repeat=1`; the printed
+`Replay iteration:` command does that and keeps the other selection and
+execution options.
+
+A replay reproduces the order for the same inventory, but not the state. All
+iterations of one invocation share its suite and global fixtures; replaying one
+iteration starts a separate run without the state that earlier iterations built
+up. To investigate a failure that depends on such state, keep the original base
+seed and repeat count. Use CTest repetition when each repetition should start a
+fresh process.
 
 ## CTest workflows
 
-After [discovering cases](discover_tests.md), CTest can schedule each case as a
-separate process:
+After [registering the cases with CTest](discover_tests.md), CTest can run each
+case as a separate process:
 
-```sh
+```bash
 ctest --test-dir build --parallel 8 --output-on-failure
 ctest --test-dir build --rerun-failed --output-on-failure
 ctest --test-dir build --repeat until-fail:50 --output-on-failure
 ```
 
-`--rerun-failed` uses CTest's most recent failed-test log for that build
-directory. `--parallel` schedules independent CTest entries concurrently;
-choose a level appropriate for the tests' resource requirements.
-`--repeat until-fail:N` runs each selected CTest entry up to `N` times, stopping its
-repetitions when it fails. Add `-R '<CTest-name-regex>'` to select entries for a
-parallel or repeated run. CTest uses regular expressions for `-R`; the runner's
-`--filter` uses wildcard patterns.
+`--repeat until-fail:N` runs each selected entry up to `N` times and stops
+repeating an entry once it fails. Add `-R '<regex>'` (a regular expression, not
+a wildcard pattern like `--filter`) or `-L <label>` to pick entries; every case
+tag is a label.
 
-CTest repeats launch a fresh executable for each occurrence. The runner's
-`--repeat=N` repeats the selected tests inside one invocation, using fresh
-per-case contexts and retaining the run's shared fixtures.
+A CTest repeat starts a fresh executable for each occurrence. The runner's
+`--repeat=N` stays in one process, with a fresh context for each occurrence and
+the same shared fixtures.

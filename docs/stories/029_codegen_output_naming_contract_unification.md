@@ -1,5 +1,10 @@
 # Story: Unify Tool And CMake Codegen Output Naming Contracts
 
+> **Status:** Implemented in 1.0.0 (PR #77). CMake passes every generated file
+> path to `gentest_codegen` explicitly (`cmake/gentest/TuMode.cmake`); module
+> wrappers remain only inside named-module mock targets. Current docs:
+> [Codegen artifact protocols](../codegen_artifact_protocols.md).
+
 ## Goal
 
 Make generated output naming a single cross-layer contract instead of a
@@ -123,8 +128,7 @@ Closure audit and acceptance validation on `2026-04-14` confirm the remaining
 cross-layer contract is now explicit rather than duplicated:
 
 - audit result:
-  `results/story029_audit_r1.md`
-  -> no remaining generated filename family that matters to the CMake/tool
+  no remaining generated filename family that matters to the CMake/tool
   contract is still independently synthesized in both layers
 - fresh local acceptance slice from a clean `debug-system` worktree build:
   `ctest --preset=debug-system --output-on-failure -R '^(gentest_codegen_output_collision|gentest_tu_header_case_collision|gentest_codegen_tu_depfile_aggregation|gentest_codegen_tu_depfile_escaped_paths|gentest_explicit_mock_target_surface|gentest_explicit_mock_target_validation|gentest_explicit_mock_target_staging|gentest_explicit_mock_target_install_export|gentest_module_mock_long_domain_outputs)$'`

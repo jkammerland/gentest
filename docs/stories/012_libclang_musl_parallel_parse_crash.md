@@ -1,5 +1,12 @@
 # Libclang musl parallel parse crash
 
+> **Status:** Fixed in 1.0.0. On Linux, `gentest_codegen` links with an 8 MiB default
+> thread stack; the CMake cache variable `GENTEST_CODEGEN_DEFAULT_THREAD_STACK_SIZE`
+> sets the size, and `0` drops the link flag. `GENTEST_CODEGEN_FORCE_SERIAL_PARSE=1`
+> forces serial parsing. Commit `4e86d43` and the repro commands below come from the
+> March 2026 development branch; that commit is not in this repository's history.
+> Current docs: [Parallel `gentest_codegen` scan slots](005_codegen_parallelism_jobs.md).
+
 ## Status
 
 - Reproduced locally on Alpine 3.23 with system LLVM/Clang 21.
@@ -177,7 +184,7 @@ Expected result:
 `gentest_codegen` now requests an 8 MiB default Linux thread stack via its link
 flags:
 
-- [tools/CMakeLists.txt](/home/ai-dev1/repos/gentest/.wt/modules-v5/tools/CMakeLists.txt)
+- [tools/CMakeLists.txt](../../tools/CMakeLists.txt)
 
 That keeps the normal parallel per-TU parse path enabled on Alpine/musl while
 still allowing an emergency serial fallback via

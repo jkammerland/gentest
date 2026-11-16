@@ -1,5 +1,11 @@
 # Story: runtime regression hardening + CMake check script updates
 
+> **Status:** Implemented in 1.0.0. The three regressions below run in CTest under
+> the same names. The scripts' arguments changed later; each script under
+> `tests/cmake/scripts/` lists its current arguments in its header comment. Current
+> docs: [Fixtures](../fixtures.md), [Benchmarks and jitter](../benchmarks.md),
+> [CONTRIBUTING.md](../../CONTRIBUTING.md).
+
 ## Goal
 
 Capture the recent runtime correctness fixes and the regression harness updates so behavior and test intent stay explicit in docs.

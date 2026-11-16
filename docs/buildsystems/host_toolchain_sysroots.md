@@ -1,338 +1,364 @@
-# Host Clang, Sysroots, and `gentest_codegen`
+# Host toolchains and cross-compiling
 
-This page describes the toolchain contract for downstream builds that use
-`gentest_codegen`, especially when the target sysroot/toolchain differs from the
-host machine that runs code generation.
+`gentest_codegen` runs on the machine that runs your build, and it uses a Clang
+executable from that machine. This page shows how codegen finds that Clang, how
+to choose a different one, and how to build your tests for another target or
+against a sysroot.
 
-If you are looking for copy-paste downstream consumer examples first, start at
-[downstream_consumers.md](downstream_consumers.md) and come back here for the
-host-tool and cross-build details.
+## Two compilers
 
-## Core rule
+Your project's compiler builds the tests; it can be Clang, GCC, MSVC or a
+cross compiler. `gentest_codegen` parses your sources with the Clang libraries
+it was built with, and runs a Clang executable from the build machine, the host
+Clang, to find Clang's built-in headers and to precompile named-module
+interfaces. For named modules it also runs `clang-scan-deps`.
 
-Treat these as separate things:
+In a native build you usually set nothing: if your compiler is Clang, codegen
+uses it, and otherwise it looks for a Clang on `PATH`. A cross build also needs
+a `gentest_codegen` built for the build machine, because one built for the
+target can't run there.
 
-- the **host Clang toolchain** used to run `gentest_codegen`
-- the **target sysroot / target triple / target flags** used to compile the
-  final test binary
+## Cross-compile a CMake project
 
-`gentest_codegen` does more than parse source text. For module flows it also
-needs a real host Clang executable for steps such as:
+This example builds tests for 64-bit Arm Linux on an x86-64 Linux machine. It
+uses the GNU cross compiler (`aarch64-linux-gnu-g++`, for example from Ubuntu's
+`g++-aarch64-linux-gnu` package) and runs the tests under QEMU (Ubuntu's
+`qemu-user` package). It takes three builds: `gentest_codegen` for the build
+machine, the gentest runtime for the target, and your project. Run the commands
+from your project directory, with a gentest source checkout in its `gentest`
+subdirectory.
 
-- built-in header/resource-dir lookup
-- named-module precompile
-- `clang-scan-deps`
+### Build gentest_codegen for the build machine
 
-So the stable contract is:
+Build only the code generator, with the `host-codegen` preset of the gentest
+checkout:
 
-1. configure or pass an exact host `clang` / `clang++` path
-2. optionally pass an exact host `clang-scan-deps` path
-3. pass target sysroot / target flags through the normal build-system compile
-   surface or the compile database
-4. when cross-compiling, provide a **host-built** `gentest_codegen`
+```bash
+cd gentest
+cmake --preset=host-codegen
+cmake --build --preset=host-codegen
+cd ..
+```
 
-For background on why the exact host Clang path matters, see
-[codegen_compiler_selection.md](../codegen_compiler_selection.md).
+This writes `gentest/build/host-codegen/tools/gentest_codegen`. The build needs
+Ninja and the LLVM/Clang development packages, version 19 or newer. If CMake
+can't find them, add `-DLLVM_DIR=...` and `-DClang_DIR=...` to the first
+`cmake` command (see [Install gentest on Linux](../install/linux.md)). The
+`bin/gentest_codegen` of a native gentest install works as well. Either way,
+use the same gentest version as the runtime you build next, because generated
+code relies on gentest's internal headers.
 
-## Support matrix
+### Build gentest for the target
 
-| Build system | Current downstream status | Module path | What users should configure |
-| --- | --- | --- | --- |
-| CMake | primary / packaged | supported | set `GENTEST_CODEGEN_HOST_CLANG`; in cross builds also set `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` to an imported executable target |
-| Bazel | official Bzlmod / source-package support | supported but toolchain-sensitive | register an exec-platform `gentest_codegen_toolchain` with packaged codegen/Clang executable labels; keep target flags in Bazel/C++ toolchain config |
-| Xmake | official xrepo / installed-helper support | supported but toolchain-sensitive | set `codegen = { exe, clang, scan_deps }` or the matching env fallbacks; keep Xmake `cc` / `cxx` for the final target toolchain |
-| Meson | official wrap/subproject textual support | intentionally unsupported | pass `-Dcodegen_path=...` and `-Dcodegen_host_clang=...`; textual-only today |
-
-## CMake
-
-CMake is still the cleanest path, but the stable codegen-host contract is now
-explicit: use `GENTEST_CODEGEN_HOST_CLANG` for the host parser/compiler and use
-the normal CMake compiler/toolchain surface for the final target build.
-
-Installed-package consumers also need the exact matching `fmt` CMake package to
-be discoverable. The simplest setup is to install `gentest` and `fmt` into the
-same prefix and point `CMAKE_PREFIX_PATH` at that prefix.
-
-Project `CMakeLists.txt`:
+Write a toolchain file for the target:
 
 ```cmake
+# toolchains/aarch64-linux-gnu.cmake
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+
+set(CMAKE_C_COMPILER aarch64-linux-gnu-gcc)
+set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)
+# GCC ignores these. gentest passes them to codegen as --target.
+set(CMAKE_C_COMPILER_TARGET aarch64-linux-gnu)
+set(CMAKE_CXX_COMPILER_TARGET aarch64-linux-gnu)
+
+# Look for target libraries and packages only under the target roots.
+list(APPEND CMAKE_FIND_ROOT_PATH /usr/aarch64-linux-gnu)
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+
+# Lets the build and CTest run aarch64 executables on this machine.
+set(CMAKE_CROSSCOMPILING_EMULATOR qemu-aarch64 -L /usr/aarch64-linux-gnu)
+```
+
+Build the gentest runtime with it and install it into a prefix for the target:
+
+```bash
+cmake -S gentest -B gentest-aarch64-build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/toolchains/aarch64-linux-gnu.cmake" \
+  -Dgentest_INSTALL=ON \
+  -DCMAKE_INSTALL_PREFIX="$HOME/.local/gentest-aarch64"
+cmake --build gentest-aarch64-build
+cmake --install gentest-aarch64-build
+```
+
+A cross build doesn't build `gentest_codegen` (`GENTEST_BUILD_CODEGEN` defaults
+to `OFF`), and configure prints
+`gentest: installing runtime without codegen; consumers must select a host tool`.
+If CMake finds no fmt package for the target, the gentest build fetches fmt and
+installs it into the same prefix.
+
+### Build and run your tests
+
+Your project's files are the same as for a native build. `CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.31)
+project(my_tests LANGUAGES CXX)
+
+include(CTest)
+set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(gentest CONFIG REQUIRED)
 
-add_executable(my_tests
-  main.cpp
-  cases.cppm)
+add_executable(my_tests cases.hpp)
+target_compile_features(my_tests PRIVATE cxx_std_20)
+target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
-target_link_libraries(my_tests PRIVATE
-  gentest::gentest
-  gentest::gentest_main)
-
-gentest_attach_codegen(my_tests
-  CLANG_ARGS
-    "--sysroot=/opt/sdk/targets/aarch64-sysroot")
-
+gentest_attach_codegen(my_tests)
 gentest_discover_tests(my_tests)
 ```
 
-Cross-compiling toolchain file:
+`cases.hpp`:
+
+```cpp
+#pragma once
+
+#include "gentest/test.h"
+
+using namespace gentest::asserts;
+
+[[using gentest: test("demo/addition")]]
+inline void addition() {
+    EXPECT_EQ(2 + 2, 4);
+}
+```
+
+Configure with the same toolchain file. Add the target prefix to
+`CMAKE_FIND_ROOT_PATH` so `find_package()` finds gentest and fmt there, and
+pass the host code generator:
+
+```bash
+cmake -S . -B build-aarch64 -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/toolchains/aarch64-linux-gnu.cmake" \
+  -DCMAKE_FIND_ROOT_PATH="$HOME/.local/gentest-aarch64" \
+  -DGENTEST_CODEGEN_EXECUTABLE="$PWD/gentest/build/host-codegen/tools/gentest_codegen" \
+  -DGENTEST_CODEGEN_HOST_CLANG=/usr/lib/llvm-23/bin/clang++
+cmake --build build-aarch64
+ctest --test-dir build-aarch64 --output-on-failure
+```
+
+The compile commands name a GCC, so codegen would look for a Clang itself;
+`GENTEST_CODEGEN_HOST_CLANG` names the Clang of the LLVM that you built
+`gentest_codegen` with. Without
+`GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET`, a cross build stops
+at configure with `cross-compiling requires a host gentest_codegen`.
+
+`gentest_discover_tests()` and CTest run the test executable through
+`CMAKE_CROSSCOMPILING_EMULATOR`. With the default `POST_BUILD` discovery, the
+build itself runs it once to list the cases; `DISCOVERY_MODE PRE_TEST` moves
+that step to `ctest` (see [CTest integration](../discover_tests.md)).
+
+### What CMake passes to codegen
+
+`gentest_attach_codegen()` gives codegen:
+
+- each source's compile command from `compile_commands.json`, run with the
+  host Clang when the command names another compiler;
+- in a cross build, `--target=` from `CMAKE_CXX_COMPILER_TARGET` (or
+  `CMAKE_C_COMPILER_TARGET`), `--sysroot=` from `CMAKE_SYSROOT`, and
+  `--gcc-toolchain=` set to the parent of the compiler's directory (`/usr` for
+  `/usr/bin/aarch64-linux-gnu-g++`);
+- `-isystem` for each of the compiler's implicit include directories, so codegen
+  sees the target's standard library headers;
+- `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS`, then the `CLANG_ARGS` of
+  `gentest_attach_codegen()`. The default arguments are
+  `-Wno-unknown-attributes;-Wno-attributes;-Wno-unknown-warning-option`; set
+  the variable empty to drop them.
+
+Don't repeat `--target` or `--sysroot` in `CLANG_ARGS`; because `CLANG_ARGS`
+come last, you can use them to override one. With a Clang cross compiler, the
+compile commands name that Clang and codegen uses it, so you rarely need
+`GENTEST_CODEGEN_HOST_CLANG`.
+
+### Use an imported target for the code generator
+
+Instead of a path, you can name an imported executable target in
+`GENTEST_CODEGEN_TARGET`. Set it before `gentest_attach_codegen()`:
 
 ```cmake
-# toolchains/aarch64-clang.cmake
-set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_SYSROOT "/opt/sdk/targets/aarch64-sysroot")
-
-set(CMAKE_C_COMPILER "/opt/sdk/host-llvm/bin/clang")
-set(CMAKE_CXX_COMPILER "/opt/sdk/host-llvm/bin/clang++")
-
-set(CMAKE_C_COMPILER_TARGET "aarch64-linux-gnu")
-set(CMAKE_CXX_COMPILER_TARGET "aarch64-linux-gnu")
+add_executable(host_gentest_codegen IMPORTED)
+set_target_properties(host_gentest_codegen PROPERTIES
+    IMPORTED_LOCATION /opt/gentest-host/bin/gentest_codegen)
+set(GENTEST_CODEGEN_TARGET host_gentest_codegen)
 ```
 
-Configure:
+A cross build rejects a target that isn't imported, because a target built in
+the cross build can't run on the build machine.
 
-```bash
-cmake -S . -B build \
-  -DCMAKE_TOOLCHAIN_FILE=toolchains/aarch64-clang.cmake \
-  -DGENTEST_CODEGEN_EXECUTABLE=/opt/sdk/host-tools/bin/gentest_codegen \
-  -DGENTEST_CODEGEN_HOST_CLANG=/opt/sdk/host-llvm/bin/clang++ \
-  -DGENTEST_CODEGEN_CLANG_SCAN_DEPS=/opt/sdk/host-llvm/bin/clang-scan-deps
+## How codegen finds the host Clang
+
+When `gentest_codegen` needs a Clang executable, it takes the first of:
+
+1. `--host-clang <path>`, which the build system integrations pass from their
+   host Clang setting (see [Set the host Clang](#set-the-host-clang)).
+2. The `GENTEST_CODEGEN_HOST_CLANG` environment variable of the build (not of
+   configure).
+3. The compiler in the source's compile command, if it is a Clang. A bare
+   `clang`, `clang++` or `clang-cl` without a path goes through steps 4 and 5
+   first, and is used as written only if they find no Clang.
+4. `CXX`, then `CC`, from the environment, if either names a Clang.
+5. The first of `clang++-<N>`, `clang++`, `clang-<N>` and `clang` on `PATH`,
+   where `<N>` is the LLVM major version that `gentest_codegen` was built with.
+   On Windows the order is `clang++.exe`, `clang++`, `clang.exe`, `clang`, then
+   the same names with `-<N>`.
+6. Otherwise, `clang++`.
+
+A value in steps 1 and 2 must name the Clang driver itself: a file named
+`clang`, `clang++`, `clang-cl`, `clang-<N>` or `clang++-<N>`, with or without
+`.exe`, as a full path or a name on `PATH`. For any other value, such as `c++`
+or a compiler launcher, codegen prints for example
+`gentest_codegen: warning: ignoring GENTEST_CODEGEN_HOST_CLANG='<value>' because it is not clang-like`
+and continues with step 3. Use a Clang from the LLVM that `gentest_codegen` was
+built with.
+
+## Set the host Clang
+
+| Build system | Setting |
+| --- | --- |
+| CMake | `-DGENTEST_CODEGEN_HOST_CLANG=<path>`. gentest passes it to every codegen command as `--host-clang`. |
+| Meson | The `codegen_host_clang` option of the gentest subproject, as an absolute path. See [Meson](meson.md). |
+| Xmake | `codegen = { clang = ... }` in `gentest_configure()`, or the `GENTEST_CODEGEN_HOST_CLANG` environment variable. See [Xmake](xmake.md). |
+| Bazel | The `clang` label of your `gentest_codegen_toolchain`, or `GENTEST_BAZEL_LOCAL_CLANG` for the local fallback; Bazel ignores `GENTEST_CODEGEN_HOST_CLANG`. See [Bazel](bazel.md#exec-toolchain-contract). |
+
+Outside Bazel the setting is optional. Set it when the lookup would pick the
+wrong Clang: your compiler isn't Clang, several LLVM versions are installed, or
+you want codegen to use another Clang than the one that compiles your tests.
+
+## Find clang-scan-deps
+
+Module registration and named-module mock targets also run `clang-scan-deps`.
+`gentest_codegen` uses
+`--clang-scan-deps <path>` or the `GENTEST_CODEGEN_CLANG_SCAN_DEPS` environment
+variable. Without either, it tries `clang-scan-deps-<N>` when the host Clang's
+name ends in `-<N>`, then `clang-scan-deps`, each first next to the host Clang
+and then on `PATH`.
+
+CMake passes `--clang-scan-deps` for named-module targets. It uses the first
+of:
+
+1. `GENTEST_CODEGEN_CLANG_SCAN_DEPS`, as a CMake variable or else as an
+   environment variable. A path you set is used as given, even if it doesn't
+   exist.
+2. `CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS`, the scanner CMake uses for C++
+   modules.
+3. Next to `GENTEST_CODEGEN_HOST_CLANG`, then next to `CMAKE_CXX_COMPILER`:
+   `clang-scan-deps-<N>` when that executable's name ends in a version number
+   `<N>`, then `clang-scan-deps`.
+4. `clang-scan-deps` in `LLVM_TOOLS_BINARY_DIR`, when LLVM's CMake package is
+   loaded.
+5. On `PATH`: `clang-scan-deps-<N>` for the loaded LLVM version, then
+   `clang-scan-deps-23` down to `clang-scan-deps-19`, then `clang-scan-deps`.
+
+When it finds none, configure stops with
+`named-module codegen requires clang-scan-deps`.
+
+In Xmake, set `codegen = { scan_deps = ... }` or
+`GENTEST_CODEGEN_CLANG_SCAN_DEPS`; otherwise the helper looks next to the host
+Clang. In Bazel, set the `clang_scan_deps` label of the toolchain.
+[Named modules](../modules.md#requirements) lists the other module
+requirements.
+
+## Cross-compile with Meson, Xmake or Bazel
+
+CI tests cross builds only with CMake (see
+[Cross-testing gentest under QEMU](../cross_compile/linux_qemu.md)). The other
+build systems follow the same rules: a `gentest_codegen` built for the build
+machine, a gentest runtime built for the target, and target flags that you pass
+to codegen yourself.
+
+### Meson
+
+Your cross file picks the compiler for your tests and gentest's runtime, but
+codegen doesn't see it. Repeat the target flags in the `clang_args` of each
+`gentest_textual_suites` and `gentest_textual_mocks` entry, and point
+`codegen_path` at a `gentest_codegen` built for the build machine:
+
+```meson
+gentest_sp = subproject(
+  'gentest',
+  default_options: [
+    'build_self_tests=false',
+    'codegen_path=/opt/gentest-host/bin/gentest_codegen',
+    'codegen_host_clang=/usr/lib/llvm-23/bin/clang++',
+  ],
+)
+
+gentest_textual_suites = [
+  {
+    'name': 'my_tests',
+    'declaration_headers': ['tests/cases.hpp'],
+    'source_includes': ['tests'],
+    'clang_args': ['--target=aarch64-linux-gnu', '--sysroot=/opt/sysroots/aarch64-linux-gnu'],
+  },
+]
+
+subdir('subprojects/gentest/meson/textual')
 ```
 
-Notes:
+### Xmake
 
-- Even when the final target compiler is GCC or another non-Clang toolchain,
-  keep `GENTEST_CODEGEN_HOST_CLANG` pointed at the host `clang++` that should
-  drive `gentest_codegen`.
-- In native packaged CMake use, `gentest_attach_codegen()` can resolve an
-  installed `gentest_codegen` automatically from the same prefix.
-- When you set `GENTEST_CODEGEN_EXECUTABLE` explicitly, point it at a current
-  `gentest_codegen` binary from the same feature generation. Most
-  `gentest_attach_codegen()` module classification now comes from CMake
-  metadata, but explicit module mock definitions still use that executable for
-  configure-time module-surface checks.
-- In cross builds, the host code generator is not inferred; set
-  `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` to an imported
-  executable target that resolves to the host-built tool.
-- Extra parsing flags for codegen can be passed through
-  `gentest_attach_codegen(... CLANG_ARGS ...)` or
-  `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS`.
-
-## Bazel
-
-Bazel code generation resolves its parser and generator only from an
-exec-platform `gentest_codegen_toolchain`. Package `gentest_codegen`, `clang`,
-optional `clang-scan-deps`, Clang resource headers, and shared-library/runtime
-closures as declared executable labels, then register that toolchain from the
-root module. This lets the target C++ toolchain use another compiler or target
-triple without making host tools target dependencies.
-
-Do not supply `codegen_host_clang` or `GENTEST_CODEGEN_HOST_CLANG`: the former
-is retained only to give an actionable migration error and the latter is not
-read by codegen actions. The source-package fallback
-`GENTEST_BAZEL_LOCAL_CLANG=/path/to/clang++` is for local testing only; it is
-not a portable tool bundle. Gentest marks its actions `no-remote`, so they
-cannot use remote execution or any action cache, including local and disk
-caches. Register a packaged exec toolchain when cache reuse is required. See
-[bazel.md](bazel.md#exec-toolchain-contract) for the
-registered-toolchain example, full runfiles/runtime closure requirements, and
-cache behavior.
-
-Keep target sysroot and target-triple flags in the C++ toolchain where possible,
-or pass them through `clang_args`. The codegen parser remains the exec tool,
-while those flags describe the target source being parsed.
-
-## Xmake
-
-The Xmake downstream surface is install/xrepo based, and module builds still
-require a Clang target toolchain. The stable codegen-host contract, however, is
-the explicit `codegen = { ... }` block or the matching env fallbacks, not the
-target `CC` / `CXX` pair.
-
-Example `xmake.lua`:
+Codegen gets `gentest_common_cxxflags` and each call's `clang_args`. Both also
+go to the compiler, so put the target flags there. Point `gentest_root` at a
+gentest install built for the target and `codegen.exe` at a `gentest_codegen`
+built for the build machine:
 
 ```lua
-includes("xmake/gentest.lua")
-
 gentest_configure({
     project_root = os.projectdir(),
-    incdirs = {"include", "tests", "third_party/include"},
-    gentest_common_defines = {"FMT_HEADER_ONLY"},
+    gentest_root = "/opt/gentest-aarch64",
+    incdirs = {"tests"},
+    gentest_common_defines = {},
     gentest_common_cxxflags = {
-        "--sysroot=/opt/sdk/targets/aarch64-sysroot",
         "--target=aarch64-linux-gnu",
+        "--sysroot=/opt/sysroots/aarch64-linux-gnu",
     },
     codegen = {
-        exe = "/opt/sdk/host-tools/bin/gentest_codegen",
-        clang = "/opt/sdk/host-llvm/bin/clang++",
-        scan_deps = "/opt/sdk/host-llvm/bin/clang-scan-deps",
+        exe = "/opt/gentest-host/bin/gentest_codegen",
+        clang = "/usr/lib/llvm-23/bin/clang++",
     },
 })
-
-target("my_module_mocks")
-    set_kind("static")
-    set_toolchains("llvm")
-    gentest_add_mocks({
-        name = "my_module_mocks",
-        kind = "modules",
-        defs = {"tests/service.cppm", "tests/mock_defs.cppm"},
-        defs_modules = {"demo.service", "demo.mock_defs"},
-        module_name = "demo.service_mocks",
-        output_dir = "build/gen/mocks",
-        deps = {"gentest"},
-    })
-
-target("my_tests")
-    set_kind("binary")
-    set_toolchains("llvm")
-    gentest_attach_codegen({
-        name = "my_tests",
-        kind = "modules",
-        module_name = "demo.cases",
-        source = "tests/cases.cppm",
-        main = "tests/main.cpp",
-        output_dir = "build/gen/tests",
-        deps = {"gentest_main", "gentest", "my_module_mocks"},
-    })
 ```
 
-Configure:
+Select the target compiler with `xmake f` as usual. [Xmake](xmake.md) covers
+the remaining keys, named modules and the macOS `--sdk` setting.
 
-```bash
-xmake f -c -y \
-  --toolchain=llvm \
-  --cc=/opt/sdk/host-llvm/bin/clang \
-  --cxx=/opt/sdk/host-llvm/bin/clang++
-xmake b my_tests
-```
+### Bazel
 
-The module suite attaches `tests/cases.cppm` directly and appends an ordinary
-generated importer registration. Module mock definitions are a temporary
-exception: their compatibility wrappers remain until codegen provides a
-non-transforming exported mock-provider protocol. Do not model those wrappers
-as the long-term suite registration contract.
+Bazel takes codegen's tools from the exec-platform `gentest_codegen_toolchain`,
+never from the target C++ toolchain, so a cross build runs codegen on the build
+machine without extra settings (see the
+[exec toolchain contract](bazel.md#exec-toolchain-contract)). Codegen actions
+don't see your C++ toolchain's flags; pass target-specific flags or macros with
+`clang_args` or `defines`. Both also go to the compiler, so use flags that your
+target compiler accepts.
 
-On macOS, if Homebrew LLVM or another non-default LLVM prefix is used for the
-module lane, also pass `--sdk=<llvm-prefix>` so Xmake does not fall back to the
-Apple compiler/toolchain path.
+## Sysroots without cross-compiling
 
-Notes:
+A native CMake build that sets `CMAKE_SYSROOT` needs nothing else: the compile
+commands carry `--sysroot`, and codegen reads them. With Meson, Xmake or Bazel,
+pass `--sysroot` to codegen as in the cross examples above.
 
-- Prefer the Lua-side `codegen = { exe, clang, scan_deps }` block when the
-  project owns its `xmake.lua`; use `GENTEST_CODEGEN`,
-  `GENTEST_CODEGEN_HOST_CLANG`, and `GENTEST_CODEGEN_CLANG_SCAN_DEPS` only when
-  shell-level overrides are more convenient.
-- If `codegen.exe` points into a CMake build tree, the helper can also reuse
-  the adjacent `compile_commands.json`.
-- Module consumers should treat explicit Clang selection as required, not
-  best-effort.
-- The checked-in downstream proof stages an install prefix and consumes it
-  through a fixture-local xrepo repository.
+On macOS, when neither the compile command nor the extra Clang arguments name
+a sysroot (`-isysroot` or `--sysroot`), codegen adds `-isysroot` with the SDK
+from the `SDKROOT` environment variable, or else from
+`xcrun --sdk macosx --show-sdk-path`. Bazel's codegen actions get `SDKROOT`
+from the toolchain's `macos_sdk_root`.
 
-## Meson
+## Troubleshooting
 
-The Meson downstream surface is wrap/subproject based and textual-only.
-Named-module targets are intentionally unsupported today, so Meson is only a
-fit for classic or textual flows right now.
+To see which Clang and flags codegen uses, set
+`GENTEST_CODEGEN_LOG_PARSE_COMMANDS=1` in the build's environment, for example
+`GENTEST_CODEGEN_LOG_PARSE_COMMANDS=1 cmake --build build`. Codegen then prints
+each parse command, starting with the Clang it chose and its `-resource-dir=`.
 
-Native file:
-
-```ini
-[binaries]
-c = '/opt/sdk/host-llvm/bin/clang'
-cpp = '/opt/sdk/host-llvm/bin/clang++'
-
-[built-in options]
-c_args = ['--sysroot=/opt/sdk/targets/aarch64-sysroot']
-cpp_args = ['--sysroot=/opt/sdk/targets/aarch64-sysroot']
-```
-
-Downstream setup:
-
-```bash
-meson setup build/meson path/to/downstream \
-  --native-file clang.ini \
-  -Dgentest_codegen_path=/opt/sdk/host-tools/bin/gentest_codegen \
-  -Dgentest_codegen_host_clang=/opt/sdk/host-llvm/bin/clang++
-meson compile -C build/meson
-meson test -C build/meson --print-errorlogs
-```
-
-Notes:
-
-- `-Dgentest_codegen_path=...` and `-Dgentest_codegen_host_clang=...` are the
-  downstream fixture hooks that pass `codegen_path` and `codegen_host_clang`
-  into the gentest subproject.
-- If you configure the gentest Meson subproject directly, use the lower-level
-  `-Dcodegen_path=...` and `-Dcodegen_host_clang=...` option names.
-- Keep target `c` / `cpp` compiler selection in the Meson native file or
-  cross file. Do not use it as a substitute for the codegen-host contract.
-- Gentest's Meson integration is textual-only, so it neither discovers nor
-  accepts a `clang-scan-deps` option.
-- The checked-in downstream proof consumes `gentest` as a subproject with
-  `build_self_tests=false` and runs a textual mock + suite consumer end to end.
-
-## Packaging guidance
-
-If this project is promoted to official downstream support across more build
-systems, the clean direction is:
-
-- CMake:
-  install the runtime, public modules, `GentestCodegen.cmake`, and
-  `gentest_codegen` in the same developer prefix. Native
-  `gentest_INSTALL=ON` configurations default `GENTEST_BUILD_CODEGEN=ON` for
-  that reason; source-tree explicit module mock definitions still need either
-  an installed codegen tool or an explicit `GENTEST_CODEGEN_EXECUTABLE` because
-  build-tree executable targets are not runnable during CMake configure.
-- Bazel:
-  publish a Bzlmod package / rule set that acquires a host `gentest_codegen`
-  hermetically and takes toolchain inputs through Bazel configuration rather
-  than ambient shell state.
-- Xmake / xrepo:
-  package the runtime, helper Lua layer, and host code generator together, or
-  split the runtime and host-tool package explicitly.
-- Meson:
-  package the runtime first; add codegen helper packaging only after the Meson
-  helper API is stabilized.
-
-## About `target_install_package`
-
-`target_install_package` is a good fit for packaging the `gentest` developer
-surface itself.
-
-That includes FHS-style installs such as:
-
-- runtime and interface targets
-- public modules and CMake helper files
-- `gentest_codegen`
-- supporting scripts, package metadata, and installers
-
-That is different from trying to use package-install rules to solve the user's
-compiler toolchain selection.
-
-The boundary should be:
-
-- `target_install_package` installs the `gentest` developer package, including
-  host tools like `gentest_codegen`
-- the consuming build system points at that installed host tool
-- Clang / `clang-scan-deps` remain part of the user's configured host toolchain
-
-Why that split still matters:
-
-- `gentest_codegen` is a **host executable**
-- Clang / `clang-scan-deps` are **host toolchain dependencies**
-- cross-builds often need different host and target environments
-
-For gentest's own install/export flow, the packaging helper itself is vendored
-under `third_party/target_install_package` and resolved with a strict
-`find_package(... EXACT CONFIG REQUIRED)` path. Packaging the gentest developer
-surface should therefore be a no-network configure path; host compiler/toolchain
-selection remains a separate concern. To use a separately installed helper
-instead, for example where packaging rules forbid bundled copies, configure with
-`-DGENTEST_USE_INSTALLED_PACKAGE_HELPER=ON`; CMake's normal package search then
-looks for `target_install_package` 7.5 or newer.
-
-So the clean packaging model is:
-
-- package `gentest_codegen`, helper scripts, exports, and install metadata as
-  part of the `gentest` install surface
-- do not try to hide host compiler/toolchain setup inside target runtime
-  package installation
+| Message | Fix |
+| --- | --- |
+| `cross-compiling requires a host gentest_codegen` | Set `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET`. |
+| `GENTEST_CODEGEN_EXECUTABLE='<path>' does not exist or is not a file` | Point it at the `gentest_codegen` executable itself. |
+| `named-module codegen requires clang-scan-deps` | Install `clang-scan-deps` with the host LLVM, or set `GENTEST_CODEGEN_CLANG_SCAN_DEPS`. |
+| `gentest_codegen: warning: ignoring ... because it is not clang-like` | Name the Clang executable itself, not a wrapper or a `c++` alias. |
+| Parse errors in standard headers in a cross build | Check that `--target` and the sysroot reach codegen: set `CMAKE_CXX_COMPILER_TARGET` with a GCC cross compiler, or repeat the flags in `clang_args` with the other build systems. |

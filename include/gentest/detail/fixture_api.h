@@ -6,9 +6,9 @@ namespace gentest {
 //
 // Implement these in your fixture type if you need explicit hooks that may
 // fail (avoid throwing from destructors). The generated runner detects these
-// interfaces at compile-time and invokes them around each local fixture use
-// (ephemeral fixtures) or once for suite/global fixtures at the start/end of
-// the test run.
+// interfaces at compile-time and invokes them around each use of a local
+// fixture. Suite/global fixtures are set up once, when a selected
+// case first needs them, and torn down at the end of the test run.
 struct FixtureSetup {
     virtual ~FixtureSetup() = default;
     virtual void setUp()    = 0;

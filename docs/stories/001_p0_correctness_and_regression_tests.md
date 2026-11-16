@@ -1,5 +1,11 @@
 # Story: P0 correctness fixes + regression tests
 
+> **Status:** Implemented in 1.0.0. The runner code it names (`dump_logs_on_failure`,
+> `parse_szt_c()`) was later rewritten, and the `results/` review notes it cites were
+> never committed. Current docs: [Assertions](../assertions.md),
+> [Failure diagnostics](../failure_diagnostics.md) (string matchers),
+> [Mocks](../mock_generation.md) (`returns_ref()`).
+
 ## Goal
 
 Eliminate the highest-risk correctness issues (data races/UB and known logic bugs) and add regression tests so they cannot silently return.

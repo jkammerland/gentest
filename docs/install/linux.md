@@ -1,36 +1,52 @@
-# Install and run your first test on Linux
+# Install gentest on Linux
 
-This walkthrough builds Gentest from source, installs it in a user-owned prefix,
-and runs a separate consumer. It uses ordinary C++ headers; named modules have a
-separate [toolchain and setup guide](../modules.md).
+This page takes you from source to a passing test in your own CMake project.
+You build gentest and its code generator, install them into a folder you own,
+write a first test, make it fail, and rerun just that case.
 
 ## Requirements
 
 | Component | Requirement |
 | --- | --- |
-| Application compiler | A C++20 compiler and standard library, including `std::stop_token`. Ordinary header-based tests can use Clang or GCC. |
-| Build tools | CMake 3.31 or newer, Ninja, and Git. Both Ninja and Ninja Multi-Config are supported. |
-| Code generator | Matching LLVM and Clang development packages, major version 19 or newer, plus a real host `clang++` executable and its builtin headers. The generator runs on the build host. |
-| Formatting dependency | A CMake-discoverable fmt development package. If absent, the source build fetches fmt 12.1.0, which requires network access unless `FETCHCONTENT_SOURCE_DIR_FMT` or the `GENTEST_FMT_SOURCE_DIR` environment variable names an existing fmt 12.1.0 source tree. |
+| Compiler for your tests | A C++20 compiler and standard library that provide `std::stop_token`. Clang and GCC both work. |
+| Build tools | CMake 3.31 or newer, Ninja (or Ninja Multi-Config), and Git. |
+| Code generator | LLVM and Clang development packages of one major version, 19 or newer, plus that version's `clang++` with its builtin headers. `gentest_codegen` links these libraries and runs on your build machine. |
+| fmt | An installed fmt CMake package. Without one, the build downloads fmt 12.1.0. |
 
-The compiler that builds your application and the host Clang used by
-`gentest_codegen` have separate roles. The commands below use one LLVM
-installation for both to make the first build straightforward. Use a compatible
-C++ runtime/standard-library ABI when linking the installed Gentest runtime into
-your application. See [host toolchain and target sysroots](../buildsystems/host_toolchain_sysroots.md)
-for separate compilers and cross builds.
+The commands below use one LLVM installation both to build your tests and as
+the host Clang for `gentest_codegen`. If you build your tests with another
+compiler, its C++ standard library must be ABI-compatible with the one that
+built gentest. [Host toolchains and cross-compiling](../buildsystems/host_toolchain_sysroots.md)
+covers separate compilers and cross builds. Named modules have extra
+[requirements](../modules.md#requirements): a module-capable compiler, Ninja
+1.11 or newer and `clang-scan-deps`.
 
-Repository maintainers use LLVM 23 for formatting and static analysis. That lint
-policy does not raise the LLVM/Clang 19 minimum for building the generator.
-For module-authored tests, follow the [modules guide](../modules.md): it adds a
-module-capable compiler, `clang-scan-deps`, Ninja 1.11 or newer, and an explicit
-`GENTEST_ENABLE_PUBLIC_MODULES=ON` provider build.
+### Install the packages
 
-Install the requirements with your distribution's package manager, or select an
-existing LLVM installation. For example, Fedora calls the development packages
-`llvm-devel`, `clang-devel`, and `fmt-devel`; Debian/Ubuntu use versioned
-`llvm-<major>-dev` and `libclang-<major>-dev` packages and `libfmt-dev`.
-Check that `llvm-config`, `clang`, and `clang++` select the same installation:
+Install the requirements with your package manager. `<N>` is the LLVM major
+version.
+
+| Distribution | Packages |
+| --- | --- |
+| Fedora | `clang`, `clang-devel`, `llvm-devel`, `fmt-devel`, `cmake`, `ninja-build`, `git` |
+| Debian, Ubuntu | `build-essential`, `clang-<N>`, `clang-tools-<N>`, `libclang-<N>-dev`, `libclang-cpp<N>-dev`, `llvm-<N>-dev`, `libfmt-dev`, `zlib1g-dev`, `libzstd-dev`, `libxml2-dev`, `libffi-dev`, `cmake`, `ninja-build`, `git` |
+| Alpine | `build-base`, `clang<N>`, `clang<N>-dev`, `clang<N>-extra-tools`, `clang<N>-static`, `llvm<N>`, `llvm<N>-dev`, `llvm<N>-gtest`, `llvm<N>-static`, `fmt-dev`, `zlib-dev`, `zstd-dev`, `libxml2-dev`, `libffi-dev`, `linux-headers`, `cmake`, `ninja`, `git` |
+
+Some releases ship an older CMake (Ubuntu 24.04 has 3.28); install a newer
+one with, for example, `python3 -m pip install cmake`. On Debian and Ubuntu,
+[apt.llvm.org](https://apt.llvm.org/) provides LLVM majors that your release
+doesn't ship.
+
+Debian, Ubuntu and Alpine install versioned commands such as `llvm-config-<N>`
+and `clang++-<N>`. Put that LLVM's `bin` folder first on `PATH` before you run
+the commands below, which also picks one of several installed versions:
+
+```bash
+export PATH="/usr/lib/llvm-<N>/bin:$PATH"   # Debian, Ubuntu
+export PATH="/usr/lib/llvm<N>/bin:$PATH"    # Alpine
+```
+
+Check that `llvm-config` and `clang++` report the same major version:
 
 ```bash
 llvm-config --version
@@ -39,14 +55,16 @@ cmake --version
 ninja --version
 ```
 
-If multiple LLVM versions are installed, put the chosen installation's `bin`
-directory first on `PATH`, or replace `llvm-config` below with its versioned
-executable. Do not mix LLVM and Clang CMake packages from different majors.
+Don't mix LLVM and Clang packages from different majors: configure stops with
+`gentest requires matching LLVM and Clang package majors`. While CMake loads
+LLVM, it can print `Could NOT find` lines for optional libraries such as ZLIB
+or LibXml2; they are harmless unless configure stops, in which case install
+that library's development package.
 
-## Build and install Gentest
+## Build and install gentest
 
-Run these commands from a directory where you keep source checkouts. The prefix
-is explicit and needs no administrator privileges:
+Run these commands from the folder where you keep source checkouts. The
+install prefix is in your home folder, so you don't need administrator rights.
 
 ```bash
 git clone https://github.com/jkammerland/gentest.git
@@ -62,31 +80,41 @@ cmake -S "$gentest_source" -B "$gentest_source/build/install" -G Ninja \
   -DLLVM_DIR="$llvm_cmake_dir" \
   -DClang_DIR="$llvm_cmake_dir/../clang" \
   -Dgentest_INSTALL=ON \
-  -Dgentest_BUILD_TESTING=OFF \
-  -DGENTEST_ENABLE_PUBLIC_MODULES=OFF \
   -DCMAKE_INSTALL_PREFIX="$gentest_prefix"
 cmake --build "$gentest_source/build/install" --parallel 2
 cmake --install "$gentest_source/build/install"
-"$gentest_prefix/bin/gentest_codegen" --version
+"$gentest_prefix/bin/gentest_codegen" --help
 ```
 
-When CMake finds system fmt, the installed consumer also needs that fmt package.
-If Gentest fetched fmt, its install rules place fmt in the same prefix. The
-installed generator still needs the LLVM/Clang runtime libraries from the chosen
-host installation. Portable codegen binary distribution is tracked in
-[#136](https://github.com/jkammerland/gentest/issues/136).
+This installs the headers, the runtime libraries, the CMake package and
+`gentest_codegen`. The last command prints `OVERVIEW: gentest clang code
+generator`, which shows that the tool and its LLVM libraries load.
+`gentest_codegen --version` prints only LLVM's version; a test executable's
+`--help` prints the gentest version on its first line (`gentest v<version>`).
 
-## Write a header-only consumer
+Keep these points in mind:
 
-Before writing a case, choose its header. Ordinary textual code generation
-registers **annotated declarations reachable through headers**. List a header as
-a target source for a header-only target, or include it from an authored `.cpp`.
-Generated registration sources include that header. Use `inline` for
-non-template function definitions in it; split declarations and definitions are
-shown below. Case declarations need external linkage, so keep them out of
-anonymous namespaces and avoid `static`.
+- If CMake found an installed fmt, the gentest package requires exactly that
+  fmt version, so your project must find the same fmt package. If the build
+  downloaded fmt, it installs fmt into the gentest prefix.
+- To build offline without an installed fmt, set the `GENTEST_FMT_SOURCE_DIR`
+  environment variable (or the CMake variable `FETCHCONTENT_SOURCE_DIR_FMT`)
+  to an fmt 12.1.0 source checkout.
+- `gentest_codegen` loads the LLVM and Clang libraries from the installation it
+  was built with, so keep that installation in place.
+- Releases contain source archives, which you can build instead of a clone;
+  [Packaging](../packaging.md) explains how to verify them. Prebuilt
+  `gentest_codegen` binaries are tracked in
+  [issue #136](https://github.com/jkammerland/gentest/issues/136).
 
-Create a new directory beside the Gentest checkout and enter it:
+## Write your first test project
+
+You put annotated test declarations in headers that your test target lists or
+includes, and `gentest_codegen` generates their registration at build time.
+Define cases in a header as `inline` functions, not `static` and not in an
+anonymous namespace. [Writing tests](../writing_tests.md) has the full rules.
+
+Create a folder next to the gentest checkout:
 
 ```bash
 mkdir gentest-first-test
@@ -100,10 +128,7 @@ cmake_minimum_required(VERSION 3.31)
 project(first_test LANGUAGES CXX)
 
 include(CTest)
-enable_testing()
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-
 find_package(gentest CONFIG REQUIRED)
 
 add_executable(first_tests cases.hpp)
@@ -114,9 +139,15 @@ gentest_attach_codegen(first_tests)
 gentest_discover_tests(first_tests)
 ```
 
-`find_package` loads the codegen and CTest helpers. `gentest::gentest_main`
-supplies the runtime and `main()`. The compile database records the consumer's
-actual include paths, defines, and compiler options for the generator.
+- `set(CMAKE_CXX_EXTENSIONS OFF)` compiles in ISO C++ mode. In GNU mode, GCC
+  and Clang define `linux` as a macro, which breaks the `linux` tag (see
+  [Writing tests](../writing_tests.md)).
+- `find_package(gentest)` provides the `gentest::` targets and the CMake
+  functions.
+- `gentest::gentest_main` links the runtime and supplies `main()`.
+- `gentest_attach_codegen()` runs `gentest_codegen` during the build and adds
+  the generated sources to the target.
+- `gentest_discover_tests()` registers each case as its own CTest test.
 
 Create `cases.hpp`:
 
@@ -132,7 +163,8 @@ inline void addition() {
 }
 ```
 
-Configure with the prefix and compiler selected above, then build and run:
+Configure in the same shell, which keeps `$llvm_prefix` and `$gentest_prefix`
+from the previous step. Then build and run:
 
 ```bash
 cmake -S . -B build -G Ninja \
@@ -141,10 +173,11 @@ cmake -S . -B build -G Ninja \
   -DCMAKE_PREFIX_PATH="$gentest_prefix"
 cmake --build build --parallel 2
 ctest --test-dir build --output-on-failure
-./build/first_tests --list-tests --no-color
+./build/first_tests --list-tests
 ```
 
-CTest reports one passing test; the inventory prints `demo/addition`.
+CTest runs one passing test named `demo/addition`, and `--list-tests` prints
+the same name.
 
 ## See a failure and rerun one case
 
@@ -154,28 +187,42 @@ In `cases.hpp`, change the expected value to `5`:
     gentest::expect_eq(value, 5, "addition result");
 ```
 
-Rebuild and rerun that exact case:
+Rebuild and run only that case:
 
 ```bash
 cmake --build build --parallel 2
-./build/first_tests --run=demo/addition --no-color
+./build/first_tests --run=demo/addition
 ```
 
-The command returns a nonzero status and reports the case name, assertion source
-location, actual value `4`, expected value `5`, and the message `addition result`.
-The full name from `--list-tests` is accepted directly by `--run`. To select the
-same case through CTest:
+The command exits with a nonzero status. The output looks like this, with
+`<project>` standing for your project folder:
+
+```text
+[ FAIL ] demo/addition :: 1 issue(s) (0 ms)
+EXPECT_EQ    failed at <project>/cases.hpp:8: addition result; lhs=4, rhs=5
+
+Rerun: './build/first_tests' '--run=demo/addition' '--kind=test' '--no-color'
+Summary: passed 0/1; failed 1; skipped 0; blocked 0; xfail 0; xpass 0.
+Failed tests:
+  demo/addition (cases.hpp:6):
+    EXPECT_EQ    failed at <project>/cases.hpp:8: addition result; lhs=4, rhs=5
+```
+
+The `Rerun:` line runs just this case again. `--run` accepts any full name
+that `--list-tests` prints; [Command-line options](../command_line.md) lists
+the other options. To run the same case through CTest:
 
 ```bash
 ctest --test-dir build -R '^demo/addition$' --output-on-failure
 ```
 
-Restore the expected value to `4`, rebuild, and run CTest again to return to a
-passing project.
+Change the expected value back to `4`, rebuild, and run CTest again to return
+to a passing project.
 
-## Split header and source
+## Keep definitions in a source file
 
-For out-of-line implementations, keep the attribute on the header declaration.
+A case defined in a header must be `inline`. To keep the definition in a
+`.cpp` file instead, leave only the annotated declaration in the header.
 Replace `cases.hpp` with:
 
 ```cpp
@@ -200,22 +247,23 @@ void addition() {
 }
 ```
 
-Change the target declaration to
-`add_executable(first_tests cases.cpp cases.hpp)`, then run the same configure,
-build, and CTest commands. The authored `.cpp` compiles normally alongside the
-generated registration sources.
+Change the target to `add_executable(first_tests cases.cpp cases.hpp)`, then
+run the same configure, build and CTest commands. Keep the attribute on the
+declaration in the header: codegen rejects gentest attributes in a `.cpp`
+file.
 
-## Try matrices, fixtures, and mocks
+## Try the examples
 
-The installed package also builds these small, complete consumer projects:
+The gentest checkout contains small, complete projects that build against the
+installed package:
 
-| Example | What to try |
+| Example | What it shows |
 | --- | --- |
 | [Parameter matrices](../../examples/parameterized/) | Independent value axes, paired input/expected rows, and type/container matrices. |
-| [Fixtures](../../examples/fixtures/) | Fresh local state, shared suite setup, and multiple fixture parameters inferred from a free-function signature. |
-| [Generated mocks](../../examples/mocking/) | An explicit mock target, argument matching, return values, and call counts. |
+| [Fixtures](../../examples/fixtures/) | Fresh local state, shared suite setup, and several fixture parameters inferred from a free function's signature. |
+| [Mocks](../../examples/mocking/) | A mock target, argument matching, return values and call counts. |
 
-For example, build the generated-mock walkthrough without changing its sources:
+For example, build the mocking example without changing it:
 
 ```bash
 cmake -S "$gentest_source/examples/mocking" -B build-mocking -G Ninja \
@@ -225,32 +273,47 @@ cmake --build build-mocking --parallel 2
 ctest --test-dir build-mocking --output-on-failure
 ```
 
-Use the default Gentest mock backend for Gentest's runner and reports. The
-[mock-generation guide](../mock_generation.md) explains GMock and Trompeloeil
-backends and their framework-specific execution/reporting.
+The example uses gentest mocks (`BACKEND gentest`, the default).
+[Mocks](../mock_generation.md) also covers the gMock and Trompeloeil backends.
+The [examples index](../../examples/README.md) lists every example.
 
-## Runtime-only packages
+## Install the runtime without the code generator
 
-A native install includes `gentest_codegen` by default. To install only the
-runtime, set `-Dgentest_INSTALL=ON -DGENTEST_BUILD_CODEGEN=OFF`. This build does not
-require the LLVM development libraries needed to compile the generator.
+To install only the headers, runtime and CMake package, add
+`-DGENTEST_BUILD_CODEGEN=OFF` to the configure command (with
+`-Dgentest_INSTALL=ON`). This build doesn't need the LLVM and Clang
+development packages.
 
-Consumers of a runtime-only package select a compatible host tool before calling
-`gentest_attach_codegen()` or `gentest_add_mocks()`:
+Projects that use such an install must name a `gentest_codegen` that runs on
+the build machine and comes from the same gentest version:
 
-```cmake
-find_package(gentest CONFIG REQUIRED)
-set(GENTEST_CODEGEN_EXECUTABLE "/path/to/host/gentest_codegen")
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_PREFIX_PATH="$gentest_prefix" \
+  -DGENTEST_CODEGEN_EXECUTABLE=/path/to/gentest_codegen
 ```
 
-`GENTEST_CODEGEN_TARGET` can instead name an executable target. Cross builds
-require that target to be imported. The host tool and installed headers must
-come from the same Gentest version.
+You can also set `GENTEST_CODEGEN_EXECUTABLE` in `CMakeLists.txt` after
+`find_package(gentest)` and before `gentest_attach_codegen()` or
+`gentest_add_mocks()`. `GENTEST_CODEGEN_TARGET` can name an executable target
+instead; cross builds need an imported target. Without either, configure stops
+with `gentest_attach_codegen: no gentest code generator available.`
+
+## Named modules
+
+Public named modules (`import gentest;`) are off by default. To install them,
+add `-DGENTEST_ENABLE_PUBLIC_MODULES=ON` to the configure command, then build
+and install again. Configure stops with an error if the toolchain can't build
+them; `-DGENTEST_ENABLE_PUBLIC_MODULES=AUTO` turns them on only when it can.
+[Named modules](../modules.md) covers `import gentest;`, cases in module
+interface units (`MODULE_REGISTRATION`) and module mocks.
 
 ## Cross-compiling
 
-Build `gentest_codegen` for the host and select it with
-`GENTEST_CODEGEN_EXECUTABLE` in the target build. Follow the complete
-[Linux aarch64 QEMU](../cross_compile/linux_aarch64_qemu.md) or
-[Linux riscv64 QEMU](../cross_compile/linux_riscv64_qemu.md) walkthrough for the
-host/target build split and test execution.
+A cross build can't run the `gentest_codegen` built for the target. Build
+gentest for the build machine first, then pass that tool to the target build
+with `-DGENTEST_CODEGEN_EXECUTABLE=<path>`. In cross builds, gentest builds no
+code generator by default and never picks up an installed one.
+[Host toolchains and cross-compiling](../buildsystems/host_toolchain_sysroots.md)
+describes the full setup. [Cross-testing gentest under QEMU](../cross_compile/linux_qemu.md)
+walks through a complete cross build of gentest's own tests.

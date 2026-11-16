@@ -1,5 +1,12 @@
 # Native Windows Inventory For Story 022
 
+> **Status:** Historical snapshot of one native Windows test run on 2026-04-14
+> (501 tests, 5 failures). [Story 025](025_codegen_cmake_logic_reduction.md),
+> [story 028](028_windows_helper_path_depth_portability.md) and
+> [story 031](031_public_module_scan_deps_mode_contract.md) fixed all five
+> failures before 1.0.0. Current docs:
+> [Windows troubleshooting](../windows_troubleshooting.md).
+
 ## Purpose
 
 This file is the authoritative checked-in inventory artifact for
@@ -19,12 +26,12 @@ Latest checked native-Windows evidence in this repo is a fresh full
 Run summary:
 
 - checkout root:
-  `C:\Users\ai-dev1.DESKTOP-NMRV6E3\repos\gentest-b1ce47da`
+  `C:\Users\<user>\repos\gentest-b1ce47da`
 - configure: passed
 - build: passed
 - ctest: `501` total, `5` failed, `10` skipped, `486` passed
 - log root:
-  `C:\Users\ai-dev1.DESKTOP-NMRV6E3\repos\gentest-story022-logs-b1ce47da`
+  `C:\Users\<user>\repos\gentest-story022-logs-b1ce47da`
 
 Still failing:
 

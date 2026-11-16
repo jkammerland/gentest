@@ -1,5 +1,9 @@
 # Story: Separate Core Reporting From Optional Allure And Format Sinks
 
+> **Status:** Implemented in 1.0.0 (PR #77). Allure output lives in
+> `src/runner_reporting_allure.cpp`, apart from the core reporting in
+> `src/runner_reporting.cpp`. Current docs: [Reports](../reports.md).
+
 ## Goal
 
 Split core runtime reporting from optional Allure-specific machinery and other

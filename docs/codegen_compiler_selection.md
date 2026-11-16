@@ -1,5 +1,10 @@
 # `gentest_codegen` compiler selection
 
+> **Status:** Historical. This note was written after a regression in how
+> `gentest_codegen` picked a Clang executable, and explains why it needs a real
+> one. The current lookup order and the settings that control it are in
+> [Host toolchains and cross-compiling](buildsystems/host_toolchain_sysroots.md#how-codegen-finds-the-host-clang).
+
 `gentest_codegen` does more than parse source text. In a few places it launches
 the compiler itself for extra steps:
 

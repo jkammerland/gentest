@@ -1,8 +1,14 @@
 # Story: replace module-wrapper mock injection with split mock registration
 
-> Historical design record: issue #114 replaced same-module registration with
-> ordinary importer TUs. Direct module-owned mock attachment is now rejected;
-> module tests use explicit exported mock-provider targets instead.
+> **Status:** Superseded before 1.0.0. Implemented in April 2026 (PR #82), then
+> replaced when issue #114 moved named-module cases to module registration
+> (`MODULE_REGISTRATION`), whose generated registration translation units import
+> the module. Codegen rejects direct module-owned mock attachment; module tests
+> link a mock target and import its generated mock module instead.
+> `--mock-registration-manifest` remains as the input codegen reads to reject
+> that attachment (`tools/src/codegen_tool.cpp`). Module wrappers remain only
+> inside named-module mock targets. Current docs:
+> [Named modules](../modules.md) and [Mocks](../mock_generation.md).
 
 ## Status
 
@@ -39,7 +45,7 @@ passes the generated manifest back to `gentest_codegen` with
 ## Protocol
 
 The current command shape and schema contract live in
-[`docs/codegen_artifact_protocols.md#named-module-importer-registration`](../codegen_artifact_protocols.md#named-module-importer-registration).
+[`docs/codegen_artifact_protocols.md`](../codegen_artifact_protocols.md).
 
 ## Acceptance Criteria
 

@@ -1,5 +1,11 @@
 # Story: Move Source Transformation Logic Out Of GentestCodegen.cmake
 
+> **Status:** Implemented in 1.0.0 (PR #77). After this story, CMake still ran
+> source inspection at configure time through a compiled helper; before 1.0.0,
+> wave 1 of [story 037](037_codegen_contract_cleanup_campaign.md) removed that
+> step. The CMake helpers read no C++ source text; `gentest_codegen` does all
+> source inspection. An internal change with no user-facing docs.
+
 ## Goal
 
 Reduce `cmake/GentestCodegen.cmake` to build orchestration and contract wiring,

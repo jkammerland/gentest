@@ -1,24 +1,14 @@
 # Async tests
 
-An async case returns `gentest::awaitable<>`; a helper can return
-`gentest::awaitable<T>`. Gentest runs and resumes these coroutines on its runner
-thread. Other ready cases in the same fixture group can run while a case is
-suspended.
-
-Start with the runnable [async examples](../examples/async/). The eight stages
-cover coroutines, composition, cancellation, fixtures, events, and complete user
-backends. Each case works independently and with repeat and shuffle enabled.
-The normal `gentest::gentest_main` entry point is sufficient. Fixtures own the
-infrastructure; no event-loop registration or application runner is required.
-
-## 1. Awaitables and yield
-
-[01_awaitables.hpp](../examples/async/01_awaitables.hpp) starts with a helper that
-returns a value:
+An async test is a coroutine. It can `co_await` timers, events and your own
+asynchronous operations instead of blocking a thread, and gentest runs other
+ready cases while it waits. Async tests are experimental.
 
 ```cpp
 #include "gentest/async.h"
 #include "gentest/test.h"
+
+namespace async_examples::cases {
 
 using namespace gentest;
 using namespace gentest::async;
@@ -28,26 +18,50 @@ inline auto answer() -> awaitable<int> {
     co_return 42;
 }
 
-[[gentest::test("uses_answer")]]
-inline auto usesAnswer() -> awaitable<> {
+[[gentest::test("yield_and_return")]]
+inline auto yieldAndReturn() -> awaitable<> {
     const int value = co_await answer();
     expect_eq(value, 42);
 }
+
+} // namespace async_examples::cases
 ```
 
-`awaitable<>` means `awaitable<void>`. Its coroutine starts when awaited. Awaiting
-a helper propagates its value or exception. Top-level return values are discarded.
-Parameterized and template cases use the same return type. One awaitable object
-supports one active waiter; concurrent waits on the same object are rejected.
+A case is async when it returns `gentest::awaitable<>`. Include
+`gentest/async.h` (or use `import gentest;`) and build the test target as
+usual: `gentest::gentest_main` runs async cases, and fixtures own any event loop
+or service that cases share. The async API needs no other coroutine library.
+
+The example is stage 1 of the [async examples](../examples/async/), one
+runnable project in eight stages; each section below follows one stage.
+
+Only test cases can be async. Codegen rejects a bench or jitter case that
+returns `awaitable<T>` with
+`gentest::awaitable<T> return types are supported only for test cases, not bench or jitter cases`.
+
+## 1. Awaitables and yield
+
+[01_awaitables.hpp](../examples/async/01_awaitables.hpp) is the example above.
+
+`awaitable<>` means `awaitable<void>`; a helper can return `awaitable<T>`. A
+coroutine starts when it is awaited, and awaiting a helper returns its value or
+rethrows its exception. A case's own return value is discarded, so a case
+(including a parameterized or template case) can return any `awaitable<T>`.
+
+An awaitable has one waiter at a time. Await a gentest `awaitable` only from the
+case's own coroutines (the case and the helpers it awaits). Awaiting it from two
+coroutines at once, or from another coroutine type, throws `std::logic_error`.
+To wait for another library's operations, wrap them in an ordinary awaiter
+(stage 7).
 
 `yield()` queues the current coroutine behind other ready work. `sleep_for()`
-and `sleep_until()` suspend until a scheduler timer expires. Neither needs a
-user event loop. Time points use `std::chrono::steady_clock`.
+and `sleep_until()` suspend until a scheduler timer expires; neither needs an
+event loop of your own. Time points use `std::chrono::steady_clock`.
 
 ## 2. Collect results or race operations
 
 [02_composition.hpp](../examples/async/02_composition.hpp) runs independent
-coroutines together:
+coroutines together. With `answer()` from stage 1:
 
 ```cpp
 auto [left, right] = co_await when_all(answer(), answer());
@@ -57,24 +71,23 @@ expect_eq(left + right, 84);
 `when_all()` starts its operations and waits for every one to finish. The result
 is an owning `std::tuple` in input order, even if completion order differs. A
 void operation contributes `std::monostate`. If an operation throws, the others
-still finish before the first exception is rethrown.
+run to completion before the first exception is rethrown.
 
 `when_any()` selects the first value or exception, requests stop for the other
 operations, and waits for all of them to finish. It then returns an owning
-`std::variant`, whose index identifies the winning input, or rethrows the winning
+`std::variant` whose index identifies the winning input, or rethrows the winning
 exception. A void result contributes `std::monostate`. Losing operations never
 continue detached after the call returns.
 
-Both capture the caller's source location for blocked-case diagnostics and
-suspension events, as `wait_for()` and `wait_until()` do. They are class
-templates used through deduction, so call them as shown rather than naming
-their template arguments or taking their address.
+Call both as shown, without naming template arguments or taking their address:
+they are class templates that record the caller's source location for
+suspension events and failure messages, as `wait_for()` and `wait_until()` do.
 
-Both functions accept ordinary C++ awaitables, including member and free
-`operator co_await`. Lvalue inputs are borrowed; keep them alive through the
-await. Rvalue inputs are owned. Result references are copied into the owning
-tuple or variant, so their referred-to values must be copyable. Move-only values
-returned by value remain move-only.
+Both accept any C++ awaitable, including member and free `operator co_await`.
+Lvalue inputs are borrowed, so keep them alive through the await; rvalue inputs
+are owned. Result references are copied into the owning tuple or variant, so
+their values must be copyable; move-only values returned by value stay
+move-only.
 
 ## 3. Cancellation and deadlines
 
@@ -95,24 +108,22 @@ if (result.timed_out()) {
 expect_eq(result.value(), 42);
 ```
 
-A timeout is a returned status; the case chooses whether to fail, skip, or
-continue. `wait_result<T>` provides `ready()`, `timed_out()`, `status()`, and a
-boolean conversion. Call `value()` only when ready. It preserves references
-from operations such as event waits; `std::move(result).value()` extracts an
-owned value. A void operation returns `wait_result<void>`.
+A timeout is a returned status; the case chooses whether to fail, skip or
+continue. `wait_result<T>` provides `ready()`, `timed_out()`, `status()` and a
+boolean conversion. Call `value()` only when the result is ready; after a timeout
+it throws `std::logic_error`. `value()` preserves references from operations
+such as event waits (keep their source alive while you use them), and
+`std::move(result).value()` extracts an owned value. A void operation returns
+`wait_result<void>`.
 
-A reference result borrows its source. Keep that source alive while using the
-reference; a timed wait does not extend the lifetime of a temporary's members.
-
-Timed waits accept ordinary awaitables without an extra subscription method.
-On timeout, Gentest requests stop and joins the operation before returning the
-timeout result. This can take longer than the requested duration when a backend
-needs time to stop or ignores cancellation. A deadline cannot preempt running
-code. An already-ready value wins even when the deadline has expired.
+Timed waits accept any awaitable. On timeout, gentest requests stop and joins
+the operation before it returns, which can take longer than the requested
+duration if a backend is slow to stop or ignores cancellation. A deadline can't
+preempt running code, and an already-ready value wins even after the deadline.
 
 Cancellation flows through nested coroutines and compositions. Event, future,
-sleep, and yield waits inherit that stop request and throw `operation_cancelled`
-when cancelled. An explicit `std::stop_token` overrides the inherited token:
+sleep and yield waits inherit that stop request and throw `operation_cancelled`
+when cancelled. An explicit `std::stop_token` overrides the inherited one:
 
 ```cpp
 std::stop_source stop;
@@ -126,80 +137,86 @@ co_await yield(std::stop_token{}); // Cleanup may need an uncancelled wait.
 ```
 
 The token overloads are `event.wait(name, token)`, `future.wait(token)`,
-`sleep_for(duration, token)`, `sleep_until(deadline, token)`, and `yield(token)`.
-An explicit empty token permits cleanup to finish after a coroutine has been stopped;
-use it only for work that must complete. A timeout or cancellation retires that
-wait, leaving a shared event, future, or executor available to other operations.
+`sleep_for(duration, token)`, `sleep_until(deadline, token)` and `yield(token)`.
+Use an explicit empty token only for cleanup that must finish after a stop. A
+timeout or cancellation retires only that wait; a shared event, future or
+executor stays usable.
 
-`when_any()`, `wait_for()`, and `wait_until()` require exceptions for cooperative
-cancellation and joining. The explicit stop-token overloads require them too,
-because a cancelled wait reports through `operation_cancelled`. Using any of
-these in an exception-disabled build is a compile-time error. Such builds can
-still use `awaitable<T>`, `when_all()`, and the waits without a token; no
-additional cancellation-status API is provided.
+`when_any()`, `wait_for()`, `wait_until()` and the stop-token overloads need
+exceptions, and using them in a build without exceptions is a compile-time
+error. Such builds can use `awaitable<T>`, `when_all()` and the waits without a
+token; there is no separate cancellation-status API.
 
 ## 4. Fixtures own shared infrastructure
 
-[04_fixtures.hpp](../examples/async/04_fixtures.hpp) shows a local connection with
-async setup/teardown and a shared server with async setup.
+[04_fixtures.hpp](../examples/async/04_fixtures.hpp) shows a local connection
+with async setup and teardown, and a shared server with async setup.
 
-Implement `gentest::AsyncFixtureSetup::setUp()` and/or
-`gentest::AsyncFixtureTearDown::tearDown()`, returning `awaitable<>`. An unannotated
-fixture is local to a case. `[[gentest::fixture(suite)]]` shares a fixture with
-consumers in its namespace and descendants; `[[gentest::fixture(global)]]`
-gives it run lifetime.
+Implement `gentest::AsyncFixtureSetup::setUp()`,
+`gentest::AsyncFixtureTearDown::tearDown()` or both, returning `awaitable<>`.
+A fixture without an attribute is local to a case.
+`[[gentest::fixture(suite)]]` shares a fixture with the cases in its namespace
+and its child namespaces, and `[[gentest::fixture(global)]]` keeps it until the
+end of the run. [Fixtures](fixtures.md) covers lifetimes and scoping.
 
-Use these fixtures to own an Asio `io_context`, an executor, or another shared
-service. Shut down backend work and join owned worker threads before destroying
-the infrastructure. The later stages show a complete polled loop and a complete
-worker loop with this ownership model.
+Two rules apply to async cases:
+
+- An async case can take at most one suite or global fixture parameter. Codegen
+  rejects more: `async tests may depend on at most one suite/global fixture parameter; multiple shared fixture parameters would make execution order parameter-dependent`.
+- A local fixture's async `setUp()` and `tearDown()` run only for async cases.
+  A synchronous case that takes the same fixture doesn't call them; give such a
+  fixture `gentest::FixtureSetup` or `gentest::FixtureTearDown` instead.
+
+Use these fixtures to own an Asio `io_context`, an executor or another shared
+service, and shut down backend work and join owned threads before the fixture is
+destroyed. Stages 6 and 7 show this.
 
 ## 5. Named typed events and one-shot futures
 
-[05_events.hpp](../examples/async/05_events.hpp) puts an `event<Connected>` channel
-in a suite fixture. Cases await `wait("primary")` and receive a `Connected&`.
-Each case observes fixture state without depending on another case running first.
+[05_events.hpp](../examples/async/05_events.hpp) puts an `event<Connected>`
+channel in a suite fixture. Cases await `wait("primary")` and receive a
+`Connected&`. Each case observes fixture state without depending on another case
+running first.
 
 | Operation | Meaning |
 | --- | --- |
 | `event<T>::set(name, value)` | Store a value and wake every current observer of that name |
 | `event<T>::wait(name)` | Observe the stored `T&`, waiting if necessary |
 | `event<T>::is_set(name)` | Check whether the name is ready |
-| `event<T>::reset(name)` / `reset_all()` | Clear readiness, retaining payload slots |
+| `event<T>::reset(name)` / `reset_all()` | Clear readiness, keeping payload slots |
 | `promise<T>::get_future()` | Obtain a single-consumer, one-shot result |
-| `promise<T>::set_value(value)` | Complete that result, including a move-only value |
+| `promise<T>::set_value(value)` | Complete that result, including with a move-only value |
 
-An event is latched: a later waiter sees the value too. Waiting does not consume
-it. `set(name)` stores `T{}` when supported. `manual_event` aliases
-`event<std::any>`. Reset clears readiness; it does not retract already queued
-resumes or destroy the payload. The slot stays at a stable address, but another
-`set()` can replace its contents. Synchronize application access to a shared
-payload when writers and readers can overlap.
+An event is latched: waiting doesn't consume the value, so a later waiter sees
+it too. `set(name)` stores `T{}` when `T` supports it, and `manual_event` is
+`event<std::any>`. Reset doesn't take back resumes already queued or destroy the
+payload. The slot keeps a stable address, but another `set()` can replace its
+contents, so synchronize access when writers and readers can overlap.
 
-A future returns its value by value. Only one active wait and one consumption
-are supported. A timed-out or dropped wait does not consume the result.
-`set_exception()` propagates an exception; `set_blocked(reason)` reports an
-impossible dependency as `BLOCKED`. Dropping an unfinished promise also produces
-a blocked result. `try_set_value()`, `try_set_exception()`, and
-`try_set_blocked()` report whether they completed it first.
+A future returns its value by value and supports one active wait and one
+consumption; a timed-out or dropped wait doesn't consume it. `set_exception()`
+propagates an exception. `set_blocked(reason)`, or dropping an unfinished
+promise, ends the waiting case as blocked (see [Reports](reports.md)).
+`try_set_value()`, `try_set_exception()` and `try_set_blocked()` return whether
+they completed the promise first.
 
 ## 6. Drive a user loop
 
-[06_polling.hpp](../examples/async/06_polling.hpp) contains a complete small loop.
-Its suite fixture owns the queue. The case calls `pollOne()` explicitly and uses
-`yield()` to give other ready cases a turn. Replace that progress function with
-`io_context::poll_one()`, an engine tick, or another executor's operation.
+[06_polling.hpp](../examples/async/06_polling.hpp) contains a complete small
+loop owned by a suite fixture. The case calls `pollOne()` itself and uses
+`yield()` to give other ready cases a turn. In your code, call
+`io_context::poll_one()`, an engine tick or another executor's operation.
 
 A callback that resumes an awaiter may run while a different case is polling the
-loop. Use a guarded continuation for that handoff so Gentest restores the owning
-case's context. Calling a raw coroutine handle from the loop does not provide
-that context boundary.
+loop. Use a guarded continuation (stage 7) for that handoff, so gentest restores
+the owning case's context. Calling a raw coroutine handle from the loop doesn't
+restore it.
 
 ## 7. Adapt a worker callback with an ordinary awaiter
 
 [07_worker.hpp](../examples/async/07_worker.hpp) contains a complete worker loop
-and a `Read` awaiter. Its fixture drains queued work and joins the worker at
-destruction. The awaiter uses only `await_ready()`, `await_suspend(handle)`, and
+and a `Read` awaiter. Its fixture drains queued work and joins the worker when it
+is destroyed. The awaiter uses only `await_ready()`, `await_suspend(handle)` and
 `await_resume()`. The same `Read` works directly and inside `wait_for()`.
 
 The callback handoff has four steps:
@@ -209,129 +226,133 @@ The callback handoff has four steps:
 2. Bind a `noexcept` result receiver with
    `bind_continuation<Args...>(next, receiver)`. The receiver stores the result
    for `await_resume()`.
-3. Give the bound callback to the backend. The backend can invoke it on any
-   thread, including inline during registration. Gentest owns the arguments
-   and delivers the receiver on the runner with the owning case's context.
+3. Give the bound callback to the backend, which can call it on any thread,
+   even inline during registration. The runner takes the arguments and calls the
+   receiver on its own thread with the case's context.
 4. Return a value or throw an application exception from `await_resume()`.
    Make assertions in the resumed case.
 
-The worker example passes a status and `std::unique_ptr<int>` through this
-handoff. It also passes `next.stop_token()` to the worker. If stop is requested,
-the worker reports a cancelled completion rather than dropping the callback.
-No adopted test context is needed for this result handoff.
+The worker example passes a status and a `std::unique_ptr<int>` through this
+handoff, and passes `next.stop_token()` to the worker so that a stop produces a
+cancelled completion instead of a dropped callback. The handoff doesn't need an
+[adopted context](logging_and_threads.md).
 
-Backends choose their callback storage, such as `std::function<bool(Reply)>` or
-`std::function<void()>`. A bound callback returns whether it was queued; a void
-callback wrapper may discard that boolean. The backend still owns its queue,
-synchronization, cancellation, and shutdown policy.
+The backend stores the callback however it likes (for example as
+`std::function<bool(Reply)>` or `std::function<void()>`) and keeps its own
+queue, synchronization and shutdown policy. A bound callback returns whether it
+was queued; a `void` wrapper may discard that value.
 
 ## 8. Acknowledge stop, then release the registration
 
 [08_callback_cancellation.hpp](../examples/async/08_callback_cancellation.hpp)
-models a read with no incoming reply. It registers a `std::stop_callback` on the
-continuation's token. A stop request makes the backend complete the read; the
-resumed awaiter throws `operation_cancelled`. Its destructor then removes the
-registration. The case verifies this cleanup has finished when `when_any()`
-returns. It also uses the unchanged awaiter with an expired `wait_for()`.
+models a read that never gets a reply. It registers a `std::stop_callback` on
+the continuation's token, so a stop request makes the backend complete the read
+and the resumed awaiter throws `operation_cancelled`. The awaiter's destructor
+then removes the registration before `when_any()` returns. With an expired
+deadline, `wait_for()` times out without registering the read at all.
 
-Cancellation must let the operation finish. Merely clearing the callback leaves
-its coroutine suspended, so a composition cannot join it. There is no required
-`cancel_wait()` method: ordinary scoped ownership handles registration cleanup.
-Cancel one operation; do not stop an executor shared with other cases.
+Cancellation must let the operation finish: clearing the callback alone leaves
+its coroutine suspended, so a composition can't join it. Cancel one operation;
+don't stop an executor shared with other cases.
 
-The example backend runs on the runner thread. A threaded backend must also
-synchronize callback storage and keep buffers alive until its I/O has stopped.
-A late guarded callback can safely submit owned arguments, but it cannot publish
-into an abandoned coroutine. Rejected arguments may be destroyed on the producer
-thread.
+A threaded backend must also synchronize callback storage and keep buffers alive
+until its I/O has stopped. A late guarded callback can safely submit owned
+arguments but can't resume an abandoned coroutine; rejected arguments may be
+destroyed on the producer thread.
+
+## Scheduling and output
+
+Ready continuations resume in FIFO order. Timers are checked before ready work
+is resumed and while the runner waits for progress; they can't preempt a running
+case. Each fixture group finishes all its async cases before the next group
+starts, so don't make a case depend on a later group.
+
+A case that is suspended with no ready work, timers, live continuations or
+adopted work can never resume. It fails with `cannot resume async test`,
+followed by where it is suspended and what it waits for. For example, an event
+that nothing will set fails this way. Use `promise::set_blocked()` when the case
+should end as blocked instead.
+
+Assertions, failures, skips and mock configuration belong to the case's own
+coroutines. A worker thread needs an [adopted context](logging_and_threads.md)
+only to log, to observe the case's stop or to publish progress with
+`gentest::currentNotifier()`; guarded continuations need none.
+
+In a terminal, runs with async cases show a live view; see
+[Live output for async runs](logging_and_threads.md#live-output-for-async-runs).
+When a progress watchdog is configured, each suspension of an async case can
+renew the case's progress (see [Notifications](notifications.md)); the deadlines
+on this page are independent of it.
+
+The async API is in `gentest/async.h`, which `gentest/runner.h` includes, and in
+`import gentest;`.
 
 ## Advanced: continuation lifetime
 
 A `continuation_handle` represents one suspended operation. Each
-`make_continuation()` call starts a fresh generation and invalidates earlier
-handles. Copy one handle when multiple callbacks compete to complete the same
-operation. Repeated calls and competing copies queue at most one completion.
-The returned boolean means queued, not delivered or successful.
+`make_continuation()` call invalidates earlier handles. Copy one handle when
+several callbacks compete to complete the same operation; at most one
+completion is queued. The returned boolean means queued, not delivered or
+successful.
 
-An awaiter owns its handle's lifetime. If `await_suspend()` returns `false`,
-cancel the handle first because there is no suspension to resume. If registration
-throws, cancel before rethrowing and release any backend resources it acquired.
-Keep a local copy until registration succeeds, as the worker example does.
-Ordinary awaiters returning a coroutine handle from `await_suspend()` need no
-Gentest-specific hook.
+The awaiter owns its handle. If `await_suspend()` returns `false`, or
+registration throws, cancel the handle first (and release any backend resources
+before rethrowing). Keep a local copy until registration succeeds, as the worker
+example does. Awaiters that return a coroutine handle from `await_suspend()`
+need no gentest-specific hook.
 
-`continuation_handle::cancel()` retires that handle and its copies. It does not
-cancel the backend or resume the coroutine. Backend cancellation still needs a
-completion path if an enclosing operation is waiting to join it. Cancelling
-after a successful `try_invoke()` also drops that queued completion when the
-runner has not delivered it yet: its publisher does not run and it resumes
-nothing. Do not cancel a handle whose completion the coroutine still needs.
+`continuation_handle::cancel()` retires that handle and its copies. It doesn't
+cancel the backend or resume the coroutine, so backend cancellation needs its
+own completion path. Cancelling after a successful `try_invoke()` also drops a
+completion the runner hasn't delivered yet, so don't cancel a handle whose
+completion the coroutine needs.
 
-Callback arguments are stored by value; reference parameters are copied into
-owned storage. Move-only arguments work. `std::reference_wrapper` explicitly
-borrows its referent, which must outlive delivery. Binding and registration may
-allocate and throw. An exception during nonthrowing callback dispatch, including
-payload transport or queue allocation, terminates.
+Callback arguments, including reference parameters, are copied or moved into
+owned storage; `std::reference_wrapper` borrows its referent, which must outlive
+delivery. Binding and registration may allocate and throw. An exception during
+callback dispatch, including queue allocation, terminates the process.
 
-A live guarded continuation keeps Gentest waiting for external work. Completing,
-cancelling, or dropping the last handle wakes the runner. A promise or event alone
-does not register external worker liveness. Retain a continuation while external
-work exists, or bound the wait with a deadline. A suspended case with no ready
-work, timers, live external continuations, or adopted work is unresumable.
+A live guarded continuation keeps gentest waiting for external work; completing,
+cancelling or dropping the last handle wakes the runner. A promise or event
+alone doesn't: keep a continuation alive while external work runs, or bound the
+wait with a deadline.
 
 ## Advanced: an application-owned executor
 
-A fixture can borrow an executor that already belongs to the application. Expose
-a static setter, call it from `main()` before `run_all_tests()`, and keep the
-executor alive until that call returns:
+A fixture can borrow an executor that already belongs to the application. Give
+the fixture a static setter:
 
 ```cpp
+struct ApplicationExecutor; // The executor type your application already has.
+
+namespace app {
+
 struct [[gentest::fixture(global)]] Infrastructure {
     static void setExecutor(ApplicationExecutor &value) { executor = &value; }
     inline static ApplicationExecutor *executor = nullptr;
 };
 
+} // namespace app
+```
+
+Call the setter from your own `main()` before `run_all_tests()`, and keep the
+executor alive until that call returns:
+
+```cpp
+// main.cpp: also include the headers that define ApplicationExecutor and app::Infrastructure.
+#include "gentest/runner.h"
+
 int main(int argc, char **argv) {
     ApplicationExecutor executor;
-    Infrastructure::setExecutor(executor);
+    app::Infrastructure::setExecutor(executor);
     return gentest::run_all_tests(argc, argv);
 }
 ```
 
-Here `ApplicationExecutor` is the application's existing type. Cases receive
-`Infrastructure&` as a fixture parameter. Link `gentest::gentest_runtime` when
-providing this `main()`, instead of linking `gentest::gentest_main`. This is an
-optional ownership arrangement, not a registration requirement for async tests.
+Cases in `app` and its child namespaces receive `app::Infrastructure&` as a
+fixture parameter. Because you provide `main()`, link `gentest::gentest`
+instead of `gentest::gentest_main`:
 
-## Execution and output
-
-Ready continuations use FIFO order. Timers are checked before ready work is
-pumped and when waiting for progress; they cannot preempt a running case.
-Fixture groups drain before the next group starts. Do not make a case depend on
-a later group. An event with no possible producer fails as unresumable;
-`promise::set_blocked()` explicitly produces a `BLOCKED` outcome instead.
-
-Assertions, failures, skips, and mock configuration belong to the owning case.
-Use `gentest::log()` for output. A worker needs an adopted context only when it
-wants to log or observe that context's cooperative stop; guarded continuations
-alone need no context adoption. See the
-[context adoption contract](../README.md#threadscoroutines--logging).
-
-Live output distinguishes `RUNNING`, `YIELDED`, and `SUSPENDED` cases.
-`--async-log-tail=N` controls its recent log lines. `GENTEST_ASYNC_LIVE=0` selects
-plain output; CI and captured output already use that mode.
-
-All public async APIs are available from `gentest/async.h` or `import gentest;`.
-The implementation is native Gentest code under BSL-1.0; consuming these APIs
-does not require another coroutine library.
-
-## Progress observation
-
-A configured `FrameworkEventVisitor` observes framework suspension registration
-points, including ready races and custom continuation registration followed by
-`await_suspend(false)` or an exception. Its default `onSuspend` publishes progress
-on that coroutine's owning case subject. Ready operations that skip
-`await_suspend` do not publish an event, and ordinary logging does not renew
-progress. See [notifications and progress watchdogs](notifications.md) for custom
-filtering, context adoption, and explicit finite allowances for intended quiet
-periods. Operation deadlines and cooperative cancellation remain independent.
+```cmake
+target_link_libraries(my_tests PRIVATE gentest::gentest gentest::gentest_runtime)
+```

@@ -1,9 +1,13 @@
 # Story: Preserve Explicit Scan-Deps Mode In Installed Public-Module Consumers
 
-> Historical note: this configurable policy was removed after module
-> registration became an explicit importer-only path. Named-module codegen now
-> requires `clang-scan-deps`; textual registration never invokes it. The
-> `OFF`/`ON`/`AUTO` surface and source-scan fallback are no longer supported.
+> **Status:** Superseded. The regression-check fix below landed in April 2026
+> (PR #77). Then module registration (`MODULE_REGISTRATION`) became the only,
+> explicitly selected way to register named-module cases, and 1.0.0 removed the
+> setting this story protected: `GENTEST_CODEGEN_SCAN_DEPS_MODE` (CMake variable
+> and environment variable), `--scan-deps-mode`, the `OFF`/`ON`/`AUTO` values
+> and the source-scan fallback. Codegen for named modules always runs
+> `clang-scan-deps`; header registration never runs it. Current docs:
+> [Named modules: requirements](../modules.md#requirements).
 
 ## Goal
 
@@ -118,7 +122,7 @@ build-graph-inspection mismatch, not a dropped scan-deps flag:
     `gentest_codegen` command text
 - native Windows deep path:
   `ctest --preset=debug-system --output-on-failure -R '^gentest_codegen_public_module_imports$'`
-  from `C:\Users\ai-dev1.DESKTOP-NMRV6E3\repos\gentest-story028-wip`
+  from `C:\Users\<user>\repos\gentest-story028-wip`
   -> passed with the same harness update
 
 The current evidence says the installed public-module consumer path still

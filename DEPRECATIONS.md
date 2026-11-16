@@ -1,47 +1,61 @@
-# gentest deprecations
+# Deprecated and removed features
 
-This file tracks gentest surfaces that are deprecated, removed, or scheduled
-for removal. It is intentionally short: detailed design and rollout context
-lives in the linked story.
+This page lists the gentest features to stop using and what replaces each one.
+Other changes in each release are in [CHANGELOG.md](CHANGELOG.md).
 
-Version fields mean:
+- A **deprecated** feature still works, but a later release may remove it.
+- A **removed** feature is gone. Using it fails with an error that names the
+  replacement, unless the table says otherwise.
 
-- `Deprecated since`: the first version whose docs classify the surface as
-  discouraged.
-- `Warn since`: the first version that emits a runtime, configure, or build
-  warning. `N/A` means the item is internal or already absent from the current
-  supported package surface.
-- `Removal target`: the earliest version or gated release window where removal
-  may hard-fail or delete the old path.
+## Deprecated
 
-## User-facing deprecations
+| Feature | Deprecated in | Status | Use instead |
+| --- | --- | --- | --- |
+| Member tests: annotated member functions of a fixture class | 2.0.0 | Works, without a warning. Removal is not scheduled. | Free-function tests, benchmarks, and jitters that take their fixtures as parameters. See [Fixtures](docs/fixtures.md). |
+| The `GENTEST_STRICT_FIXTURE` environment variable, read by `gentest_codegen` | 1.0.0 | Works, without a warning. Removal is not scheduled. | `gentest_codegen --strict-fixture`, or the `STRICT_FIXTURE` option of `gentest_attach_codegen()`. |
 
-| Feature | Status | Deprecated since | Warn since | Removal target | Replacement | Owner |
-| --- | --- | --- | --- | --- | --- | --- |
-| `gentest_codegen --output <file>` legacy single-TU manifest mode | Removed; hard-fails with migration guidance | `1.0.0` | `1.0.0` | Removed in `2.0.0` | Additive registration with `--tu-out-dir` and explicit per-input outputs | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| `gentest_attach_codegen(... OUTPUT <file>)` legacy single-TU manifest mode | Removed; configure hard-fails with migration guidance | `1.0.0` | `1.0.0` | Removed in `2.0.0` | Default additive registration, or `OUTPUT_DIR <dir>` when a concrete generated-output directory is needed | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| `NO_INCLUDE_SOURCES` / `--no-include-sources` / `GENTEST_NO_INCLUDE_SOURCES` legacy manifest-mode escape hatch | Removed with legacy manifest mode | `1.0.0` | `1.0.0` | Removed in `2.0.0` | No replacement; additive registration already keeps owner sources in normal compilation units | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| `GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY`, `--textual-wrapper-output`, and `--artifact-owner-source` | Removed completely; no compatibility parser, manifest variant, or backend remains | Internal | N/A | Removed by issue #115 | Put annotated declarations and adapter-visible fixtures in headers; compile authored sources and append generated registration sources | [issue #115](https://github.com/jkammerland/gentest/issues/115) |
-| `gentest_codegen --template <file>` legacy manifest-mode template override | Removed with legacy manifest mode | `1.0.0` | N/A | Removed in `2.0.0` | No replacement; use the built-in additive registration-source protocol | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| Member tests (annotated member functions; the class is treated as a suite-level fixture) | Deprecated; still supported, no warning yet | `2.0.0` | N/A | Not scheduled | Free-function tests/benches/jitters with fixture parameters inferred from the signature | N/A |
-| `GENTEST_STRICT_FIXTURE` environment variable read by `gentest_codegen` | Deprecated; still honoured, no warning yet | `2.0.0` | N/A | Not scheduled | `gentest_codegen --strict-fixture`, or `gentest_attach_codegen(... STRICT_FIXTURE)` in CMake | N/A |
-| Runner flag `--run-test=<name>` | Removed; exits with a usage error naming the replacement | N/A | N/A | Removed before `2.0.0` | `--run=<name>` | N/A |
-| Runner flags `--run-bench=<name>` and `--bench-filter=<pattern>` | Removed; exit with a usage error naming the replacement | N/A | N/A | Removed before `2.0.0` | `--run=<name> --kind=bench` and `--filter=<pattern> --kind=bench` | N/A |
-| Runner flags `--run-jitter=<name>` and `--jitter-filter=<pattern>` | Removed; exit with a usage error naming the replacement | N/A | N/A | Removed before `2.0.0` | `--run=<name> --kind=jitter` and `--filter=<pattern> --kind=jitter` | N/A |
-| `GENTEST_USE_BOOST_JSON` CMake option and the `allure-boost-json` vcpkg feature | Removed; setting the option emits a configure deprecation message | `2.0.0` | `2.0.0` | Removed in `2.0.0` | None needed: the Allure writer is always built and uses the runtime's own JSON encoder | N/A |
-| `EXPECT_SUBSTRING` in `gentest_discover_tests(...)` | Removed; configure hard-fails with replacement guidance | `1.0.0` | `1.0.0` | Removed in `2.0.0` | `DEATH_EXPECT_SUBSTRING` | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
+Strict-fixture mode makes codegen reject member tests in classes marked
+`fixture(suite)` or `fixture(global)`.
 
-## Removed or internal cleanup inventory
+## Removed
 
-These rows are not public compatibility promises. They are tracked here so
-cleanup work is visible and regression coverage can prevent old implementation
-shapes from returning.
+"Removed in" is the first release without the feature.
 
-| Item | Status | Deprecated since | Warn since | Removal target | Replacement | Owner |
-| --- | --- | --- | --- | --- | --- | --- |
-| Legacy installed `share/cmake/gentest/scan_inspector/` helper directory | Removed from the source package; guarded by package-consumer install smoke | `1.0.0` | N/A | Guarded in story 037 wave 4 | Tool-owned source inspection through `gentest_codegen --inspect-source` and mock/artifact manifest validation | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| Configure-time source-inspector probe helpers in CMake | Removed in story 037 wave 1 | `1.0.0` | N/A | Removed after story 033 closed | Tool-owned source/module classification, mock-manifest module metadata, codegen-emitted explicit mock aggregate modules, and additive registration manifests | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| CMake scan include-dir and macro collection helpers | Removed in story 037 wave 1 | `1.0.0` | N/A | Removed after story 033 closed | Tool-side `compile_commands.json` scans | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| `meson/*.in` generated-source skeletons | Removed in story 037 wave 2 | `1.0.0` | N/A | Removed after story 015 closed | Direct `--textual-registration-output` / `--mock-public-header` outputs | [story 037](docs/stories/037_codegen_contract_cleanup_campaign.md) |
-| `xmake/templates/*.in` generated-source skeletons | Removed by issue #115 | `1.0.0` | N/A | Removed | Direct generated registration sources | [issue #115](https://github.com/jkammerland/gentest/issues/115) |
-| Ordinary textual-wrapper planning in Xmake/Bazel | Removed by issue #115 | `1.0.0` | N/A | Removed | Compile authored sources and append additive generated registrations | [issue #115](https://github.com/jkammerland/gentest/issues/115) |
+| Feature | Removed in | What happens if you use it | Use instead |
+| --- | --- | --- | --- |
+| `gentest::async_test<T>` | 2.0.0 | Compile error. | `gentest::awaitable<T>`. See [Async tests](docs/async.md). |
+| Timed-wait hooks on gentest's 1.x awaitables: the `gentest_async_wait_supported` member type and the `await_suspend_with_token` and `cancel_wait` members | 2.0.0 | Compile error. | Nothing. `wait_for` and `wait_until` take ordinary C++ awaiters. |
+| The `GENTEST_USE_BOOST_JSON` CMake option and the `allure-boost-json` vcpkg feature | 2.0.0 | The option prints a deprecation message and has no effect. The vcpkg feature doesn't exist. | Nothing. The Allure writer is always built and doesn't need Boost.JSON. |
+| The `time` field in Allure results | 2.0.0 | Allure results don't contain it. | The `start` and `stop` fields. See [Reports](docs/reports.md). |
+| `gentest_attach_codegen(... OUTPUT <file>)` | 1.0.0 | Configure fails. | Omit it; header registration is the default. Pass `OUTPUT_DIR <dir>` to choose where generated files go. |
+| `gentest_attach_codegen(... NO_INCLUDE_SOURCES)` | 1.0.0 | Configure fails. | Nothing. Header registration compiles your sources unchanged. |
+| `gentest_codegen --output <file>` and `--template <file>` | 1.0.0 | Codegen exits with an error. | `--tu-out-dir` with one registration output per input. See [Codegen artifact protocols](docs/codegen_artifact_protocols.md). |
+| `gentest_codegen --no-include-sources` and the `GENTEST_NO_INCLUDE_SOURCES` environment variable | 1.0.0 | Codegen exits with an error. | Nothing. Header registration compiles your sources unchanged. |
+| `EXPECT_SUBSTRING` in `gentest_discover_tests()` | 1.0.0 | Configure fails. | `DEATH_EXPECT_SUBSTRING`. See [CTest integration](docs/discover_tests.md). |
+| The `fixtures(...)` attribute | 1.0.0 | Codegen fails with `'fixtures(...)' was removed; infer fixtures from function parameters instead`. | Fixture parameters in the function signature. See [Fixtures](docs/fixtures.md). |
+| Runner option `--run-test=<name>` | 1.0.0 | Usage error; the runner exits with code 1. | `--run=<name>`. See [Command-line options](docs/command_line.md). |
+| Runner options `--run-bench=<name>` and `--bench-filter=<pattern>` | 1.0.0 | Usage error; the runner exits with code 1. | `--run=<name> --kind=bench` and `--filter=<pattern> --kind=bench`. |
+| Runner options `--run-jitter=<name>` and `--jitter-filter=<pattern>` | 1.0.0 | Usage error; the runner exits with code 1. | `--run=<name> --kind=jitter` and `--filter=<pattern> --kind=jitter`. |
+| `gentest_codegen --scan-deps-mode` and the `GENTEST_CODEGEN_SCAN_DEPS_MODE` CMake and environment variable | 1.0.0 | Codegen rejects the option as unknown. The variable is ignored. | Nothing. Named-module codegen always uses `clang-scan-deps`. |
+| Internal wrapper options: `gentest_codegen --textual-wrapper-output` and `--artifact-owner-source`, and `GENTEST_INTERNAL_TEXTUAL_WRAPPER_COMPATIBILITY` | 1.0.0 | Codegen rejects the options as unknown. The variable is ignored. | Header registration: annotate declarations in headers, and codegen adds registration sources to the target. |
+
+The error messages for `OUTPUT`, `NO_INCLUDE_SOURCES`, `--output`, `--template`,
+`--no-include-sources`, and `EXPECT_SUBSTRING` say the feature was removed in
+gentest 2.0.0. Every release since 1.0.0 rejects them with those messages.
+
+## Internal cleanup
+
+These internal helpers were removed before 1.0.0. They were never public API.
+They are listed here so that maintainers keep them from coming back.
+
+| Removed item | Replaced by |
+| --- | --- |
+| The installed `share/cmake/gentest/scan_inspector/` helper directory | `gentest_codegen --inspect-source`, and validation of mock and artifact manifests. The package-consumer test fails if an install contains this directory (`tests/cmake/scripts/CheckPackageConsumer.cmake`). |
+| Configure-time source-inspection probes in CMake | Codegen classifies sources and named modules itself. Mock manifests carry module data, and codegen writes the mock aggregate modules and the artifact manifests. |
+| CMake helpers that collected include directories and macros for scans | Codegen reads `compile_commands.json`. |
+| The `meson/*.in` generated-source skeletons | Codegen writes the `--textual-registration-output` and `--mock-public-header` files directly. `meson/textual/mock_anchor.cpp.in`, a one-line source that includes the generated mock header, remains. |
+| The `xmake/templates/*.in` generated-source skeletons | Codegen writes the registration sources directly. |
+| Wrapper-source planning in Xmake and Bazel | Both compile your sources unchanged and add the generated registration sources. |
+
+Design history: the [codegen cleanup notes](docs/stories/037_codegen_contract_cleanup_campaign.md)
+and [issue #115](https://github.com/jkammerland/gentest/issues/115).

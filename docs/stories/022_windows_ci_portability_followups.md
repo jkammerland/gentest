@@ -1,5 +1,13 @@
 # Story: Refresh Native Windows Failure Inventory And Split Concrete Follow-Ups
 
+> **Status:** Done before 1.0.0. The 2026-04-14
+> [inventory](022_windows_ci_portability_followups_inventory.md) gave each
+> failure to [story 025](025_codegen_cmake_logic_reduction.md),
+> [story 028](028_windows_helper_path_depth_portability.md) or
+> [story 031](031_public_module_scan_deps_mode_contract.md), and those stories
+> fixed them. Current docs:
+> [Windows troubleshooting](../windows_troubleshooting.md).
+
 ## Goal
 
 Produce a fresh checked-in native Windows failure inventory after the earlier

@@ -1,153 +1,148 @@
-# Coverage Hygiene
+# Coverage hygiene and reporting
 
-This repo has two repo-owned coverage helpers:
+The coverage gate checks that every implementation file of gentest produces
+usable coverage data, and that line and branch coverage stay above fixed
+thresholds. Two scripts implement it:
 
-- [`scripts/coverage_hygiene.py`](../scripts/coverage_hygiene.py) for artifact and scope sanity checks
-- [`scripts/coverage_report.py`](../scripts/coverage_report.py) for aggregate metrics, threshold gating, and report artifacts
+- [`scripts/coverage_hygiene.py`](../scripts/coverage_hygiene.py) checks each
+  file under `src/` and `tools/src/`: was it compiled, did it produce coverage
+  data, and did any of its lines run?
+- [`scripts/coverage_report.py`](../scripts/coverage_report.py) measures
+  aggregate line, branch and function coverage with gcovr, fails below the
+  thresholds, and writes Markdown, JSON and HTML reports.
 
-`scripts/coverage_hygiene.py` is not a general coverage-reporting tool. Its job
-is to sanity-check the repo's own implementation files under `src/` and
-`tools/src/` and answer:
+Both read their policy from
+[`scripts/coverage_hygiene.toml`](../scripts/coverage_hygiene.toml). The CI
+coverage job fails when either script fails.
 
-- did this source file appear in the build's compilation database
-- did it produce usable coverage artifacts
-- did it get executable hits
-- is it intentionally exempt from the coverage gate
+## Run the gate
 
-The repo-specific policy for that check lives in
-[`scripts/coverage_hygiene.toml`](../scripts/coverage_hygiene.toml).
-
-`scripts/coverage_report.py` reads the same policy file, generates scoped line /
-function / branch coverage summaries, writes a Markdown report for the GitHub
-job summary, and emits a per-file HTML report artifact. Its aggregate totals are
-directory-scoped to repo-owned files in the implementation trees under `src/`
-and `tools/src/`, including internal headers in those trees.
-
-## What It Checks
-
-The script uses the active build tree to:
-
-1. read `compile_commands.json`
-2. find tracked source files under the configured roots
-3. map each source to object files and candidate `.gcda` files
-4. run a `gcov`-compatible tool on those coverage artifacts
-5. classify each file into a repo-specific status
-
-Common statuses include:
-
-- `ok`: coverage data was found and the file had hits
-- `zero_hits`: the file had executable lines but no hits
-- `missing_obj`: no object-file mapping was available for the source; its compile
-  command was absent or its object path could not be resolved
-- `missing_gcda`: the source compiled but no coverage data file was found
-- `stamp_mismatch`: stale coverage data did not match the notes file
-- `no_match`: a coverage tool ran but could not match the output back to the source
-- `gcov_error`: the coverage tool failed in a way that prevented classification
-- `intentional`: the file is deliberately treated as exempt by repo policy
-
-## Policy File
-
-[`scripts/coverage_hygiene.toml`](../scripts/coverage_hygiene.toml) is the
-repo policy layer.
-
-It defines:
-
-- `roots`: source trees to inspect
-- `exclude_prefix`: source subtrees to skip
-- `intentional`: files that are intentionally exempt
-- `no_exec`: files expected to have no executable lines
-- `fail_on`: statuses that should fail the script
-- `warn_on`: statuses that should be reported as actionable but not fail
-- `[report]`: aggregate coverage thresholds and report-generation policy
-
-Change the TOML when you are updating repo policy.
-Change the Python scripts when you are changing collection, classification, or
-report-generation logic.
-
-## Local Use
-
-Typical local Linux/POSIX-shell usage:
+[Coverage in CONTRIBUTING.md](../CONTRIBUTING.md#coverage) has the whole
+sequence: install gcovr 8.6, build the `coverage-system` preset, delete old
+coverage data, and run CTest serially. Then run the two scripts on the build
+tree:
 
 ```bash
-python3 -m pip install --upgrade gcovr==8.6
-# On distro-managed Python, add --break-system-packages or use a virtualenv.
-cmake --preset=coverage-system -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-cmake --build --preset=coverage-system
-find build/coverage-system -name '*.gcda' -delete
-rm -rf build/coverage-system/coverage-report
-ctest --preset=coverage-system --output-on-failure --parallel 1
-python3 scripts/coverage_hygiene.py \
-  --build-dir build/coverage-system \
-  --ignore-statuses stamp_mismatch \
-  --gcov llvm-cov gcov
-python3 scripts/coverage_report.py --build-dir build/coverage-system
+llvm_cov="$(python3 scripts/llvm_tools.py resolve llvm-cov)"
+python3 scripts/coverage_hygiene.py --build-dir build/coverage-system --ignore-statuses stamp_mismatch --gcov "$llvm_cov" gcov
+python3 scripts/coverage_report.py --build-dir build/coverage-system --gcov "$llvm_cov" gcov
 ```
 
-Notes:
+- `--build-dir` is the coverage-instrumented build tree (default
+  `build/coverage-system`).
+- `--gcov` is the gcov-compatible command. Without it, both scripts use
+  `llvm-cov gcov` for Clang builds and `gcov` for GCC builds, taking whichever
+  `llvm-cov` or `gcov` is first on `PATH`. Pass the LLVM 23 `llvm-cov` so that
+  its version matches the compiler.
+- `--ignore-statuses stamp_mismatch` keeps stale-data mismatches from failing
+  the hygiene check, as in CI.
+- `--config <path>` reads another policy file.
 
-- `--build-dir` points at the coverage-instrumented build tree.
-- `--ignore-statuses stamp_mismatch` matches the current CI behavior.
-- `scripts/coverage_report.py` auto-selects `llvm-cov gcov` for Clang builds and `gcov` for GCC builds.
-- The report script writes `summary.md`, `summary.json`, and `index.html` under `build/<preset>/coverage-report/`.
-- If you need a non-default policy file, pass `--config <path>`.
+## What the hygiene check reports
 
-## How CI Uses It
+For the build tree you give it, `scripts/coverage_hygiene.py`:
 
-The Linux coverage lane in
-[`.github/workflows/coverage.yml`](../.github/workflows/coverage.yml)
-does eight things:
+1. reads `compile_commands.json`;
+2. finds the `.cpp` files under the policy's `roots`, minus `exclude_prefix`;
+3. maps each source to its object files and their `.gcda` files;
+4. runs the gcov command on them, which also reports the implementation
+   headers under the roots that those sources include;
+5. gives each file a status.
 
-1. configures and builds the `coverage-system` preset with Clang
-2. deletes old `.gcda` files from `build/coverage-system`
-3. deletes any stale `coverage-report/` directory from the same build tree
-4. runs `ctest` serially for that lane
-5. runs `scripts/coverage_hygiene.py`
-6. runs `scripts/coverage_report.py`
-7. appends `coverage-report/summary.md` to the GitHub job summary
-8. uploads the HTML detail report as a workflow artifact
+It prints one table per group (`codegen` for `tools/src/`, `testlib` for
+`src/`), counts the statuses, and lists the failures:
 
-If either script exits non-zero, the coverage CI job fails. The summary step
-still runs after coverage-script failures. For threshold-failure cases where
-`coverage_report.py` writes `summary.md`/HTML before returning non-zero, the
-summary and HTML artifact still publish so those diagnostics remain visible.
+| Status | Meaning |
+| --- | --- |
+| `ok` | Coverage data found, and some lines ran |
+| `zero_hits` | The file has executable lines, but none of them ran |
+| `no_executable_lines` | gcov found no executable lines in the file |
+| `no_exec` | Same, for a file listed in `no_exec` |
+| `missing_obj` | No object file: the file has no compile command, or its object path couldn't be resolved |
+| `missing_gcda` | The file compiled, but no `.gcda` file was found |
+| `stamp_mismatch` | The `.gcda` file is stale and doesn't match the notes file |
+| `no_match` | gcov ran, but its output couldn't be matched to the file |
+| `gcov_error` | gcov failed in a way that prevents classification |
+| `intentional` | The policy exempts the file |
 
-That makes the hygiene script a coverage sanity gate and the report script the
-aggregate threshold gate.
+The script exits non-zero when a file has a status listed in `fail_on`, unless
+`--ignore-statuses` names it. Statuses in `warn_on` are counted as actionable
+in the output without failing the check. The options `--roots`,
+`--exclude-prefix`, `--intentional`, `--no-exec`, `--fail-on` and `--warn-on`
+override the matching policy entries for one run.
 
-## When To Update It
+## What the report measures
 
-Update the TOML if:
+`scripts/coverage_report.py` runs gcovr over the build tree. Its totals cover
+the repository's implementation files under `src/` and `tools/src/`, including
+internal headers in those trees, minus the files the policy exempts. It fails
+when line or branch coverage is below the thresholds in `[report]` (75% and
+45%); function coverage is reported only.
 
-- a new repo-owned source tree should be covered
-- a file is intentionally exempt
-- the fail/warn policy changes
+It writes to `<build-dir>/coverage-report/` (change it with `--output-dir`):
 
-Update the Python script if:
+- `summary.md`: the totals against the thresholds and the files with the
+  lowest branch coverage, for the GitHub job summary;
+- `summary.json`: gcovr's JSON summary;
+- `index.html` and one page per file: the detailed HTML report.
 
-- coverage artifact discovery must change
-- status classification is wrong
-- a new coverage-tool behavior must be supported
+`--fail-under-line`, `--fail-under-branch` and `--top-files` override the
+`[report]` values for one run. `--incomplete` marks the report as diagnostic
+only: `summary.md` starts with an INCOMPLETE notice, the HTML title becomes
+`INCOMPLETE coverage`, and the script fails even when the thresholds are met.
+CI passes it when the tests or the hygiene check failed.
 
-Update the report script if:
+## Policy file
 
-- aggregate threshold logic changes
-- the GitHub job summary format changes
-- the HTML/JSON artifact layout changes
+[`scripts/coverage_hygiene.toml`](../scripts/coverage_hygiene.toml) holds the
+repository's policy:
 
-Update the workflow if:
+| Key | Meaning |
+| --- | --- |
+| `roots` | Source trees to check (`src`, `tools/src`) |
+| `exclude_prefix` | Subtrees to skip |
+| `intentional` | Files exempt from the gate with every compiler |
+| `[intentional_by_compiler]` | `clang` and `gcc` lists of files that are exempt only when the build used that compiler family, as recorded by CMake |
+| `no_exec` | Files expected to have no executable lines |
+| `fail_on` | Statuses that fail the hygiene check |
+| `warn_on` | Statuses reported as actionable without failing |
+| `[report]` | `fail_under_line`, `fail_under_branch`, `top_files` (rows in the lowest-coverage table) and `gcov_ignore_parse_errors` (passed to gcovr) |
 
-- the coverage build directory changes
-- the chosen `gcov` tool override changes
-- the CI policy for ignored statuses changes
-- the GitHub job summary or artifact publishing steps change
+For example, `[intentional_by_compiler]` exempts `src/bench_util.cpp` for Clang
+and GCC. Those compilers use inline barriers and only native MSVC calls its
+opaque fallback, so their static executables don't link its coverage counters.
 
-## Important Constraint
+## How CI runs it
 
-The script is repo-specific. It assumes:
+The `coverage` workflow
+([`.github/workflows/coverage.yml`](../.github/workflows/coverage.yml)) runs in a
+Fedora 43 container with LLVM 23. It:
 
-- a CMake-generated `compile_commands.json`
-- GCC/gcov-style coverage artifacts
-- repo policy encoded in `coverage_hygiene.toml`
+1. configures and builds the `coverage-system` preset with Clang;
+2. deletes old `.gcda` files and any old `coverage-report/` directory;
+3. runs `ctest --preset=coverage-system --output-on-failure --parallel 1 --no-tests=error`;
+4. runs `scripts/coverage_hygiene.py --ignore-statuses stamp_mismatch --gcov llvm-cov gcov`
+   when the tests ran, whether they passed or failed;
+5. runs `scripts/coverage_report.py`, with `--incomplete` when the tests or the
+   hygiene check failed;
+6. appends `coverage-report/summary.md` to the GitHub job summary, after an
+   INCOMPLETE notice when the tests or the hygiene check failed;
+7. uploads `coverage-report/` as the `coverage-coverage-system` artifact
+   whenever a summary exists.
 
-If the build layout or coverage toolchain changes substantially, revisit both
-the script and the policy file together.
+The job fails if either script fails, but the summary and HTML are written
+first, so they appear in the job summary and the artifact either way. The
+workflow runs as part of full CI, or on its own from the Actions page; see
+[Continuous integration](ci_profiles.md).
+
+## When to change what
+
+| Change | Edit |
+| --- | --- |
+| Source trees to cover, exempt files, the statuses that fail or warn, the thresholds | `scripts/coverage_hygiene.toml` |
+| How coverage files are found, how statuses are classified, support for another gcov tool | `scripts/coverage_hygiene.py` |
+| Threshold logic, the job summary format, the HTML or JSON layout | `scripts/coverage_report.py` |
+| The build directory, the gcov command, the ignored statuses, the summary and artifact steps | `.github/workflows/coverage.yml` |
+
+Both scripts assume gcov-style coverage data from `--coverage` builds; the
+hygiene check also needs the CMake-generated `compile_commands.json`.

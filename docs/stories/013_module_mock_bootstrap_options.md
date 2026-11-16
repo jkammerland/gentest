@@ -1,12 +1,12 @@
 # Story: Module Mock Bootstrap Options
 
-> [!NOTE]
-> Decision update: Option 2 was chosen as the long-term direction. Follow-on
-> work is tracked in
-> [`014_explicit_mock_target_codegen.md`](014_explicit_mock_target_codegen.md).
-> That follow-on story is intentionally narrow: textual defs stay textual, and
-> module defs stay modular. Cross-surface bridge generation is not the default
-> goal.
+> **Status:** Superseded by [story 014](014_explicit_mock_target_codegen.md), which
+> took the direction of Option 2 and built it as explicit mock targets. A module test
+> imports a generated mock module and needs no bootstrap block. `gentest.mock` was not
+> made fully generic: each mock target generates its `mock<T>` specializations, as a
+> header for header `DEFS` and as a module for module `DEFS`, with no bridge between
+> the two. Current docs: [Mocks](../mock_generation.md),
+> [Named modules](../modules.md).
 
 ## Goal
 

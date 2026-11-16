@@ -1,189 +1,223 @@
-# Fixture Allocation Hooks
+# Fixture allocation hooks
 
-Gentest allocates fixtures on the heap with unique ownership by default. An
-optional static allocation hook customizes construction, allocation, deleters,
-or shared ownership. Fixture lifetime is selected separately by the local,
-suite, or global lifetime policy.
+By default gentest creates each fixture with `new T()` and owns the instance.
+Give the fixture type a static `gentest_allocate()` function when you need to
+construct it differently: pass constructor arguments, release it with your own
+deleter, or share ownership. The hook decides how an instance is created and
+released. The fixture's lifetime (local, suite or global) decides how long it
+lives; see [Fixtures](fixtures.md).
 
-This document describes the allocation hook, supported return types, and how
-fixture arguments are wired for free-function fixtures (recommended) and
-deprecated member fixtures.
+## Add a hook
 
-## Parameter-based fixture inference
+`Connection` has no default constructor, so gentest can't create it with
+`new T()`. The hook constructs it instead:
 
-- Prefer free-function tests/benches/jitters in new code. Member tests are
-  deprecated and should be avoided.
-- Fixture arguments are inferred from test/bench/jitter function signatures.
-- Any parameter not listed by `parameters(...)`, `parameters_pack(...)`,
-  `range(...)`, `linspace(...)`, `geom(...)`, or `logspace(...)` is treated as
-  a fixture argument.
-- Trailing C++ default-argument parameters are treated as normal defaulted
-  values (not fixture-inferred).
-- This rule applies to free-function cases and deprecated member test methods.
-- Legacy `[[using gentest: fixtures(...)]]` is removed and rejected by
-  `gentest_codegen`.
+```cpp
+#pragma once
 
-## API: `gentest_allocate`
+#include "gentest/runner.h"
 
-Define a static method on your fixture:
+#include <memory>
+#include <string>
+#include <utility>
 
+namespace alloc {
+
+struct Connection {
+    explicit Connection(std::string host) : host(std::move(host)) {}
+
+    static std::unique_ptr<Connection> gentest_allocate() { return std::make_unique<Connection>("localhost"); }
+
+    std::string host;
+};
+
+[[gentest::test]]
+inline void connects_to_localhost(Connection &connection) {
+    gentest::expect_eq(connection.host, "localhost");
+}
+
+} // namespace alloc
 ```
-static auto gentest_allocate();
-// Optional: suite-aware allocation for suite fixtures
-static auto gentest_allocate(std::string_view suite);
-```
 
-Supported return types:
-- `std::unique_ptr<Fixture>` (custom deleters supported)
-- `std::shared_ptr<Fixture>`
-- `Fixture*` (adopted into a `std::unique_ptr`)
+## Hook signatures
 
-If the hook is not present, gentest falls back to `std::make_unique<Fixture>()`.
-If you only provide the suite-aware overload, non-suite fixtures pass an empty
-`std::string_view` so you can reuse the same hook for all lifetimes.
+The hook is a static member function of the fixture type, in one of two forms:
 
-Returning a null pointer (empty `unique_ptr` / `shared_ptr` or `nullptr`) causes
-the test to fail with a fixture-allocation failure message.
+- `static R gentest_allocate();`
+- `static R gentest_allocate(std::string_view suite);`
 
-## How arguments are provided
+`R` is one of the return types in the next section. gentest looks the hook up by
+calling `T::gentest_allocate()` or `T::gentest_allocate(std::string_view{})`. A
+function it can't call that way, for example a non-static member function or
+one that takes a `const std::string&`, is ignored without a diagnostic: gentest
+falls back to `new T()`, which fails to compile only if `T` has no default
+constructor.
 
-Gentest uses a single internal `FixtureHandle<T>` that stores either:
-- a `std::unique_ptr<T>` (default), and
-- optionally a `std::shared_ptr<T>` (when needed).
+## Return types
 
-Fixture argument forms are:
-- `T&`
-- `T*`
-- `std::shared_ptr<T>`
+| Return type | Ownership |
+|---|---|
+| `std::unique_ptr<T>` | gentest owns the instance and deletes it. |
+| `std::unique_ptr<T, D>` | gentest owns the instance and releases it with your deleter `D`. |
+| `std::shared_ptr<T>` | gentest shares ownership with any other holder of the pointer. |
+| `T*` | The object must come from `new`. gentest adopts it and deletes it, as if the hook had returned `std::unique_ptr<T>`. |
 
-`std::unique_ptr<T>` is an allocation-hook return form, not a test-parameter
-form.
+The pointer may point to a class derived from `T`. gentest destroys the object
+through the type the hook returned, so a hook that returns `Derived*` for a
+fixture `Base` deletes a `Derived`, even if `Base` has no virtual destructor.
+Any other return type fails to compile with
+`gentest_allocate must return std::unique_ptr<T, D>, std::shared_ptr<T>, or T*`.
 
-When the test wrapper is invoked:
-- `T&` arguments receive `*handle.get()`.
-- `T*` arguments receive `handle.get()`.
-- `std::shared_ptr<T>` arguments receive `handle.shared()`, which returns the
-  existing shared pointer or promotes the unique pointer into a shared pointer.
+## Which hook gentest calls
 
-This behavior is uniform across:
-- free-function fixture arguments
-- deprecated member test method fixture arguments
-- suite fixtures (`[[gentest::fixture(suite)]]`)
-- global fixtures (`[[gentest::fixture(global)]]`)
+| Lifetime | Only `gentest_allocate()` | Only `gentest_allocate(std::string_view)` | Both |
+|---|---|---|---|
+| local | `gentest_allocate()` | called with an empty string | `gentest_allocate()` |
+| suite | `gentest_allocate()` | called with the fixture's suite name | `gentest_allocate(std::string_view)`, with the suite name |
+| global | `gentest_allocate()` | called with an empty string | `gentest_allocate()` |
+
+So a single suite-aware hook serves every lifetime. The suite name is the
+fixture's namespace path joined with `/`, for example `fx/shared` for a fixture
+in `namespace fx::shared`, or the name an enclosing `suite("...")` sets; see
+[Writing tests](writing_tests.md).
+
+## Null results and exceptions
+
+A null result (an empty `std::unique_ptr` or `std::shared_ptr`, or `nullptr`) is
+an allocation failure, and so is an exception from the hook or the constructor:
+
+- For a local fixture, the case fails with
+  `fixture allocation failed for '<type>': returned null`, or with
+  `unexpected std::exception: <message>` for an exception.
+- For a shared fixture, gentest prints
+  `gentest: fixture '<type>' fixture allocation returned null` or
+  `gentest: fixture '<type>' fixture construction threw std::exception: <message>`,
+  reports every case that needs the fixture as blocked, and fails the run.
+
+There is no instance, so nothing is torn down. [Fixtures](fixtures.md) lists
+the other ways a fixture can fail.
+
+## How parameters receive the instance
+
+Every [parameter form](fixtures.md) works with every return type:
+
+- `T&` and `T*` refer to the instance the hook created.
+- `std::shared_ptr<T>` shares ownership of it. If the hook returned unique
+  ownership (`std::unique_ptr` or `T*`), gentest converts it to shared
+  ownership the first time a `std::shared_ptr<T>` parameter needs it, and keeps
+  your deleter.
+
+This is the same for local, suite and global fixtures, and for the fixture
+class of a deprecated member test.
 
 ## Examples
 
-These ordinary textual examples are header contents, so their free-function
-definitions are `inline`.
-
-### Unique allocation (default)
+### `shared_ptr` allocation
 
 ```cpp
-struct MyFx {
-    static std::unique_ptr<MyFx> gentest_allocate() {
-        return std::make_unique<MyFx>();
-    }
-};
+#pragma once
 
-[[gentest::test("free/unique")]]
-inline void free_unique(MyFx& fx) {
-    // uses the unique instance
-}
-```
+#include "gentest/runner.h"
 
-### Shared allocation
+#include <memory>
 
-```cpp
+namespace alloc_shared {
+
 struct SharedFx {
-    static std::shared_ptr<SharedFx> gentest_allocate() {
-        return std::make_shared<SharedFx>();
-    }
+    static std::shared_ptr<SharedFx> gentest_allocate() { return std::make_shared<SharedFx>(); }
 };
 
-[[gentest::test("free/shared")]]
-inline void free_shared(std::shared_ptr<SharedFx> fx) {
-    // shared ownership of the fixture instance
+[[gentest::test]]
+inline void shared_instance(std::shared_ptr<SharedFx> fx) {
+    gentest::expect(fx != nullptr, "the case shares ownership of the instance");
 }
+
+} // namespace alloc_shared
 ```
 
-### Unique allocation with custom deleter
+### `unique_ptr` with a custom deleter
 
 ```cpp
+#pragma once
+
+#include "gentest/runner.h"
+
+#include <memory>
+
+namespace alloc_deleter {
+
 struct CustomFx {
     struct Deleter {
-        void operator()(CustomFx* ptr) const { delete ptr; }
+        // Runs when gentest releases the fixture.
+        void operator()(CustomFx *ptr) const { delete ptr; }
     };
 
     static std::unique_ptr<CustomFx, Deleter> gentest_allocate() {
         return std::unique_ptr<CustomFx, Deleter>(new CustomFx(), Deleter{});
     }
 };
+
+[[gentest::test]]
+inline void custom_deleter(CustomFx &fx) {
+    static_cast<void>(fx);
+}
+
+} // namespace alloc_deleter
 ```
 
 ### Suite-aware allocation
 
+A suite fixture must be declared in a named namespace; see
+[Fixtures](fixtures.md).
+
 ```cpp
+#pragma once
+
+#include "gentest/runner.h"
+
+#include <memory>
+#include <string>
+#include <string_view>
+
+namespace suite_fx {
+
 struct [[gentest::fixture(suite)]] SuiteFx {
+    std::string created_for;
+
     static std::unique_ptr<SuiteFx> gentest_allocate(std::string_view suite) {
-        // suite is the prefix in test names (e.g. "suite_fx")
-        return std::make_unique<SuiteFx>();
+        // suite is the fixture's suite name, here "suite_fx".
+        auto fx         = std::make_unique<SuiteFx>();
+        fx->created_for = std::string(suite);
+        return fx;
     }
 };
+
+[[gentest::test]]
+inline void knows_its_suite(SuiteFx &fx) {
+    gentest::expect_eq(fx.created_for, "suite_fx");
+}
+
+} // namespace suite_fx
 ```
 
-### Raw pointer allocation (adopted)
+### Raw pointer allocation
 
 ```cpp
+#pragma once
+
+#include "gentest/runner.h"
+
+namespace alloc_raw {
+
 struct RawFx {
-    static RawFx* gentest_allocate() {
-        return new RawFx();
-    }
+    // gentest adopts the object and deletes it.
+    static RawFx *gentest_allocate() { return new RawFx(); }
 };
 
-[[gentest::test("free/pointer")]]
-inline void free_pointer(RawFx* fx) {
-    // gentest adopts and owns the pointer
+[[gentest::test]]
+inline void raw_pointer(RawFx *fx) {
+    gentest::expect(fx != nullptr, "gentest passes the adopted instance");
 }
+
+} // namespace alloc_raw
 ```
-
-## Notes and constraints
-
-- Allocation hooks must be `static` and accept either no arguments or one
-  `std::string_view` suite argument.
-- If both overloads exist, suite fixtures use the suite-aware hook while global
-  and local fixtures use the no-arg hook. If only the suite-aware overload
-  exists, other lifetimes call it with an empty string.
-- If you return `Fixture*`, it must be heap allocated. Gentest adopts it and
-  deletes it via `std::unique_ptr` (same ownership/lifetime semantics as
-  returning `std::unique_ptr<Fixture>` yourself).
-- `std::shared_ptr<T>` arguments promote the unique ownership into shared
-  ownership on first use.
-- Fixture type aliases (e.g. `using Fx = RealFixture`, alias pointer/reference
-  forms, and `using FxPtr = std::shared_ptr<RealFixture>`) resolve to the
-  underlying fixture type.
-- Shared fixtures activate on first acquisition by a selected runnable case.
-  Unused fixture registrations perform no allocation, setup, or teardown.
-  Suite fixtures are constructed once per suite within a run; global fixtures
-  are constructed once per run. Instances persist across repeats. A later run
-  in the same process creates fresh fixtures.
-- Setup finishes before the dependent case runs, outside benchmark and jitter
-  timing loops. Activated fixtures tear down once at the end of the run, in
-  reverse activation order. Dependencies remain alive through their dependent's
-  teardown and destruction. An instance whose setup fails still tears down;
-  a failed allocation has no instance to tear down.
-- Static skips do not acquire fixtures. A runtime skip after acquisition still
-  tears down the acquired fixtures. Fixtures inferred by generated wrappers or
-  acquired through a manual case's fixture metadata follow the same rules.
-- A shared factory or setup callback can acquire another shared fixture with
-  `get_shared_fixture(...)`; that dependency activates first. Looking up the
-  fixture currently being initialized returns `nullptr` with
-  `"fixture initialization in progress"`, which also prevents dependency cycles
-  from exposing partially initialized instances. No new fixture activates during
-  teardown. A first acquisition inside a measured call is rejected; acquire
-  fixtures in setup or provide the manual case's fixture metadata before timing.
-- A fixture setup failure blocks its dependent cases and fails the run. An
-  unrelated failed or expensive fixture does not affect a selection that never
-  acquires it. Registration conflicts remain errors for the run.
-- For application environment setup required on every invocation regardless of
-  selection, perform it explicitly in the application's `main()` before calling
-  `run_all_tests()` or `run_cases()`.

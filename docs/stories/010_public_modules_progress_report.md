@@ -1,5 +1,12 @@
 # Report: Public Modules Progress
 
+> **Status:** Superseded before 1.0.0. This progress report covers the module-wrapper
+> design of [story 009](009_public_modules_end_to_end.md). Mock targets
+> ([story 014](014_explicit_mock_target_codegen.md)) replaced the mock injection into
+> generated module wrappers, and module registration rejects mocks owned by a named
+> module: a module test imports the generated mock module instead. Current docs:
+> [Named modules](../modules.md), [Mocks](../mock_generation.md).
+
 Date: March 11, 2026
 
 ## Scope Completed In This Pass

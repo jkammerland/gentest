@@ -1,11 +1,15 @@
 # Story: explicit host-Clang contract for `gentest_codegen`
 
-> Historical design note: the Bazel-specific path described below has been
-> superseded by the registered exec-platform `gentest_codegen_toolchain` in
-> [the Bazel guide](../buildsystems/bazel.md#exec-toolchain-contract). Bazel no
-> longer accepts ambient `GENTEST_CODEGEN_HOST_CLANG` or per-target absolute
-> `codegen_host_clang` values; the CMake, Xmake, and Meson portions remain
-> historical context for their respective integrations.
+> **Status:** Implemented in 1.0.0 for CMake, Meson and Xmake: `--host-clang`,
+> `GENTEST_CODEGEN_HOST_CLANG`, Meson's `codegen_host_clang` option and Xmake's
+> `codegen = { clang = ..., scan_deps = ... }`. Meson has no `codegen_clang_scan_deps`
+> option, because header registration never runs `clang-scan-deps`. The Bazel design
+> below was superseded by the registered exec-platform `gentest_codegen_toolchain`
+> ([Bazel](../buildsystems/bazel.md#exec-toolchain-contract)): Bazel rejects
+> `codegen_host_clang` and ignores `GENTEST_CODEGEN_HOST_CLANG` in the environment.
+> The first CMake sketch adds `cases.cppm` without `MODULE_REGISTRATION`, which
+> configure rejects. Current docs:
+> [Host toolchains and cross-compiling](../buildsystems/host_toolchain_sysroots.md).
 
 ## Goal
 

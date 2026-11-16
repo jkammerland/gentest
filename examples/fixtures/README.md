@@ -1,34 +1,44 @@
 # Fixtures without ordering dependencies
 
-`Cart` is inferred from each free function's parameter and allocated afresh for
-each case. `Catalog` is a suite fixture: its setup initializes shared data once
-per run, and teardown releases it. It lives in the ancestor namespace of the
-`checkout` cases. The tests read the catalog without mutating it.
+This example shows the two fixture lifetimes you use most: a local fixture
+that each case gets fresh, and a suite fixture that several cases share. Every
+case passes on its own, in any order, and when repeated.
 
-There are three cases. `fresh_cart` and `add_item` mutate their local cart;
-`empty_cart` still receives an empty one. Each case also works alone, and no
-assertion relies on another case running first or on a fixed total run count.
-CTest discovery runs individual cases in separate processes, so it does not
-share catalog instances between those processes.
+Build it against an installed gentest (see the [examples index](../README.md)
+for requirements):
 
-Fixture annotations belong on types, and test annotations belong on free
-functions. A local fixture needs no lifetime annotation. See
-[fixture allocation](../../docs/fixtures_allocation.md) for global lifetimes,
-custom allocation, and allocation failures.
-
-Build against an installed gentest package (CMake 3.31+, Ninja, C++20, and a
-working host codegen tool):
-
-```sh
-cmake -S examples/fixtures -B build/examples/fixtures -G Ninja \
-  -DCMAKE_PREFIX_PATH=/path/to/gentest/install
+```bash
+cmake -S examples/fixtures -B build/examples/fixtures -G Ninja -DCMAKE_PREFIX_PATH=/path/to/gentest/install
 cmake --build build/examples/fixtures
 ctest --test-dir build/examples/fixtures --output-on-failure
-
-./build/examples/fixtures/gentest_fixtures --list-tests
-./build/examples/fixtures/gentest_fixtures --repeat=2 --shuffle --seed 123
+build/examples/fixtures/gentest_fixtures --list-tests
+build/examples/fixtures/gentest_fixtures --repeat=2 --shuffle --seed 123
 ```
 
-[`expected_tests.txt`](expected_tests.txt) records the exact resolved case names
-checked by the repository's installed-package smoke test. All cases pass by
-default. See the [examples index](../README.md) for installation links.
+## What the cases show
+
+[cases.hpp](cases.hpp) defines two fixtures:
+
+- `Cart` has no fixture attribute, so it is a local fixture: every case that
+  takes a `Cart &` parameter gets a fresh one.
+- `Catalog` is a suite fixture (`[[gentest::fixture(suite)]]`) declared in the
+  `fixtures` namespace, the common ancestor of the `checkout` cases. Those
+  cases share one instance. It is set up when the first selected case that
+  needs it runs, and torn down at the end of the run. The cases read the
+  catalog without changing it.
+
+There are three cases. `fresh_cart` and `add_item` change their local cart;
+`empty_cart` receives an empty one anyway. No assertion relies on another case
+running first or on a fixed number of runs. CTest runs each case in its own
+process, so those processes don't share a catalog.
+
+[expected_tests.txt](expected_tests.txt) lists the exact case names, which the
+repository's installed-package test checks. All cases pass.
+
+## Learn more
+
+- [Fixtures](../../docs/fixtures.md): lifetimes, scoping to a namespace, setup
+  and teardown, and global fixtures.
+- [Fixture allocation hooks](../../docs/fixtures_allocation.md): custom
+  allocation and allocation failures.
+- [Examples](../README.md): installation links and the other examples.
