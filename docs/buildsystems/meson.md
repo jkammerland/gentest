@@ -1,225 +1,326 @@
 # Meson
 
-gentest now has an official downstream Meson wrap/subproject story for the
-textual path. Named-module support is still intentionally unsupported in Meson.
+This page shows how to use gentest in a Meson project. You add gentest as a
+subproject, describe your test executables and mock targets in Meson
+dictionaries, and load a helper that runs `gentest_codegen` for them.
 
-For host Clang, sysroot, and cross-build guidance, see
-[host_toolchain_sysroots.md](host_toolchain_sysroots.md).
+Meson supports header registration only (see
+[Writing tests](../writing_tests.md)); named modules are not supported. In
+gentest's Meson API, `textual` (as in `gentest_textual_suites`) means header
+registration. To compare Meson with the other integrations, see
+[Choosing a build system](downstream_consumers.md).
 
-## Supported contract
+## Quick start
 
-Meson support is textual-only. The downstream contract is:
+You need:
 
-- consume gentest as a subproject / wrap
-- pass explicit host-tool paths:
-  - `gentest_codegen_path`
-  - `gentest_codegen_host_clang`
-- describe textual mocks and suites with Meson dictionaries
-- load the helper with `subdir('subprojects/gentest/meson/textual')`
+- a gentest source checkout at `subprojects/gentest`;
+- a `gentest_codegen` built from that checkout, which needs CMake and the
+  LLVM/Clang development packages (see [Install gentest on Linux](../install/linux.md));
+- a host Clang for `gentest_codegen` to use. Your test code can use any
+  C++20 compiler.
 
-The gentest subproject now exports:
+Add gentest and build its code generator with the `host-codegen` CMake preset:
 
-- `gentest_dep`
-- `gentest_main_dep`
-- `gentest_runtime_dep`
-- `gentest_codegen`
-- `gentest_codegen_tool_args`
-- `gentest_public_include`
-- `gentest_public_include_path`
-- `gentest_third_party_include`
-- `gentest_third_party_include_path`
+```bash
+git clone https://github.com/jkammerland/gentest.git subprojects/gentest
+cd subprojects/gentest
+cmake --preset=host-codegen
+cmake --build --preset=host-codegen
+cd ../..
+```
 
-Meson does not support user-defined functions, so the public helper is a
-declarative `subdir()` fragment rather than a `gentest_add_mocks()` function.
-A suite lists its annotated headers in `declaration_headers`; codegen appends
-the generated `tu_*_*.header_registration.gentest.cpp` sources, which are the
-suite's translation units. A header-only suite omits `source` entirely; a suite
-with out-of-line definitions also passes `source`, which is compiled directly
-and exactly once and must include the self-contained annotated declaration
-header. Textual mock discovery scans a header-only aggregate and the mock
-library compiles a normal generated anchor that includes the public mock
-header. The custom targets emit depfiles for generated mock and registration
-outputs so Meson/Ninja can rebuild when codegen inputs change.
+The preset writes `subprojects/gentest/build/host-codegen/tools/gentest_codegen`.
+That is where gentest's Meson build looks when you don't set `codegen_path`. If
+CMake can't find LLVM, pass `-DLLVM_DIR=...` and `-DClang_DIR=...` to the first
+`cmake` command.
 
-## Downstream wrap example
+`meson.build`:
 
 ```meson
-project('gentest_downstream_wrap_consumer', 'cpp', default_options: ['cpp_std=c++20'])
+project('my_tests', 'cpp', default_options: ['cpp_std=c++20'])
 
-gentest_sp = subproject(
-  'gentest',
-  default_options: [
-    'build_self_tests=false',
-    'codegen_path=/abs/path/to/gentest_codegen',
-    'codegen_host_clang=/opt/llvm/bin/clang++',
-  ],
-)
-
-gentest_textual_mocks = [
-  {
-    'name': 'gentest_downstream_textual_mocks',
-    'id': 'downstream_textual_mocks',
-    'defs': 'tests/header_mock_defs.hpp',
-    'public_header': 'gentest_downstream_mocks.hpp',
-    'source_includes': ['tests'],
-  },
-]
+gentest_sp = subproject('gentest', default_options: ['build_self_tests=false'])
 
 gentest_textual_suites = [
   {
-    'name': 'gentest_downstream_textual',
-    'id': 'downstream_textual',
-    'source': 'tests/cases.cpp',
+    'name': 'my_tests',
     'declaration_headers': ['tests/cases.hpp'],
-    'main': files('tests/main.cpp'),
     'source_includes': ['tests'],
-    'mocks': ['gentest_downstream_textual_mocks'],
-    'test_name': 'meson_downstream_textual',
-  },
-  {
-    'name': 'gentest_downstream_header_only',
-    'id': 'downstream_header_only',
-    'declaration_headers': ['tests/header_only_cases.hpp'],
-    'source_includes': ['tests'],
-    'test_name': 'meson_downstream_header_only',
   },
 ]
 
 subdir('subprojects/gentest/meson/textual')
 ```
 
-`source` and `defs` are source-root-relative strings used by `gentest_codegen`.
-A header-only suite omits `source` and lists its annotated headers in
-`declaration_headers`, which are explicit codegen dependencies; a suite with
-out-of-line definitions passes `source`, which is compiled exactly once and
-must include a self-contained annotated declaration header. `source_includes`
-remains an include-search list.
-Extra executable sources such as `main` should be passed as caller-owned Meson
-file objects, for example `files('tests/main.cpp')`, because the helper itself
-lives under the gentest subproject.
+`tests/cases.hpp`:
 
-The helper accepts these textual mock fields:
+```cpp
+#pragma once
 
-- `name`
-- `id` (optional, used for generated file names)
-- `kind` (optional, defaults to `textual`; any other value fails configure)
-- `defs`
-- `public_header`
-- `source_includes` (list)
-- `clang_args` (list)
-- `cpp_args` (list)
-- `dependencies` (list)
-- `include_directories` (list)
-- `install`
-- `build_by_default`
+#include "gentest/test.h"
 
-It accepts these textual suite fields:
+using namespace gentest::asserts;
 
-- `name`
-- `id` (optional, used for generated file names)
-- `kind` (optional, defaults to `textual`; any other value fails configure)
-- `source` (optional; out-of-line definitions)
-- `declaration_headers` (list of annotated headers; the suite's only inputs
-  when `source` is omitted)
-- `main`
-- `source_includes` (list)
-- `mocks` (list)
-- `test_name`
-- `clang_args` (list)
-- `cpp_args` (list)
-- `dependencies` (list)
-- `include_directories` (list)
-- `link_with` (list)
-- `install`
-- `build_by_default`
-
-After `subdir()`, the helper exposes lookup dictionaries named
-`gentest_textual_mock_targets`, `gentest_textual_mock_codegen_targets`,
-`gentest_textual_mock_public_headers`, `gentest_textual_suite_targets`, and
-`gentest_textual_suite_codegen_targets`.
-
-The checked-in downstream fixture in
-[`tests/downstream/meson_wrap_consumer`](../../tests/downstream/meson_wrap_consumer)
-shows the full textual mock + suite flow.
-
-Minimal downstream layout:
-
-```text
-your_project/
-  meson.build
-  meson_options.txt
-  subprojects/
-    gentest/
-      meson.build
-      meson_options.txt
-      include/
-      src/
-      meson/
-      third_party/include/
-  tests/
-    main.cpp
-    cases.hpp
-    cases.cpp
-    header_only_cases.hpp
-    header_mock_defs.hpp
-    service.hpp
+[[using gentest: test("demo/addition")]]
+inline void addition() {
+    EXPECT_EQ(2 + 2, 4);
+}
 ```
 
-The checked-in proof stages `subprojects/gentest` directly from this repo. A
-real wrap package can provide the same subproject shape.
-
-## Configure and build
-
-These commands are for a downstream project that already has the layout shown
-above, including `subprojects/gentest`. The checked-in fixture is not built
-directly from its source directory; the CTest proof stages it into a temporary
-workspace first.
+Build and run:
 
 ```bash
-meson setup build/meson-downstream . \
-  -Dgentest_codegen_path=/abs/path/to/gentest_codegen \
-  -Dgentest_codegen_host_clang=/opt/llvm/bin/clang++
-
-meson compile -C build/meson-downstream
-meson test -C build/meson-downstream --print-errorlogs
-build/meson-downstream/subprojects/gentest/meson/textual/gentest_downstream_textual --list
+meson setup build
+meson compile -C build
+meson test -C build --print-errorlogs
+build/subprojects/gentest/meson/textual/my_tests --list
 ```
 
-The final Meson compiler can remain non-Clang. The explicit host Clang contract
-only applies to `gentest_codegen`.
+`meson test` runs each test executable as one Meson test. The helper builds its
+targets in `build/subprojects/gentest/meson/textual/`; run an executable from
+that directory directly to pass runner options such as `--list` or
+`--run=demo/addition` (see [Command-line options](../command_line.md)).
 
-To run the checked-in proof instead of a prepared downstream project:
+## How the helper works
+
+Meson has no user-defined functions, so gentest's Meson API is a `subdir()`
+fragment. Before `subdir('subprojects/gentest/meson/textual')`, your
+`meson.build` defines these variables:
+
+| Variable | Contents |
+| --- | --- |
+| `gentest_sp` | The result of `subproject('gentest', ...)`. The name is fixed: the helper reads gentest's variables from it. |
+| `gentest_textual_suites` | A list with one dictionary per test executable. Optional. |
+| `gentest_textual_mocks` | A list with one dictionary per mock target. Optional. |
+
+Without `gentest_sp`, configuration stops with:
+
+```text
+gentest Meson textual helper requires gentest_sp = subproject('gentest', ...) before subdir('subprojects/gentest/meson/textual')
+```
+
+Rules for the dictionaries:
+
+- Call `subdir()` once, after you have defined every entry. Meson doesn't enter
+  the same directory twice.
+- Paths in `source`, `declaration_headers`, `defs` and `source_includes` are
+  strings, relative to your project's source root or absolute.
+- Pass `main` and other extra sources as `files()` objects created in your own
+  `meson.build`, for example `files('tests/main.cpp')`. The helper runs in a
+  directory of the gentest subproject, so a plain string would name a file
+  there.
+- All generated files land in one directory,
+  `<builddir>/subprojects/gentest/meson/textual/`. Give each entry its own
+  `name` (or `id`) and each mock its own `public_header`.
+
+## gentest's Meson options
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `codegen_path` | empty | Path to `gentest_codegen`. Empty means `build/host-codegen/tools/gentest_codegen` inside the gentest subproject (`gentest_codegen.exe` on Windows). A relative path is resolved against the gentest subproject's directory, so prefer an absolute path. |
+| `codegen_host_clang` | empty | Host Clang for `gentest_codegen`, passed as `--host-clang`. Empty lets `gentest_codegen` find one; [Host toolchains and cross-compiling](host_toolchain_sysroots.md) lists the order. |
+| `build_self_tests` | `true` | Builds gentest's own Meson tests. Set it to `false` in your project. |
+
+Set them in the `default_options` of your `subproject()` call, or on the
+command line with the subproject prefix, for example
+`meson setup build -Dgentest:codegen_path=/opt/gentest/bin/gentest_codegen`.
+
+```meson
+gentest_sp = subproject(
+  'gentest',
+  default_options: [
+    'build_self_tests=false',
+    'codegen_path=/opt/gentest/bin/gentest_codegen',
+    'codegen_host_clang=/usr/lib/llvm-23/bin/clang++',
+  ],
+)
+```
+
+Use a `gentest_codegen` built from the same gentest version as the subproject.
+To build for another target, see
+[Host toolchains and cross-compiling](host_toolchain_sysroots.md). The options
+`gentest_codegen_path` and `gentest_codegen_host_clang` in
+[`tests/downstream/meson_wrap_consumer`](../../tests/downstream/meson_wrap_consumer)
+are that example's own, forwarded to the two options above.
+
+### fmt
+
+gentest's Meson build compiles fmt header-only (`FMT_HEADER_ONLY`). It takes
+the fmt include directory from pkg-config (`fmt`), else from the fmt sources
+that the `host-codegen` preset fetched (`_deps/fmt-src/include` next to
+`tools/`), else from the compiler's default include path.
+
+## Test executables
+
+Each dictionary in `gentest_textual_suites` creates one executable. It needs
+`source`, `declaration_headers`, or both:
+
+- **Header-only.** List the annotated headers in `declaration_headers` and
+  leave out `source`. Codegen scans each header on its own.
+- **Out-of-line definitions.** Also pass one `source` file, which must include
+  the annotated headers. It is the only file codegen scans; keep the headers in
+  `declaration_headers` so editing them reruns codegen.
+
+For example, a test executable with its definitions in `tests/cases.cpp` and
+its own `main()`:
+
+```meson
+gentest_textual_suites = [
+  {
+    'name': 'service_tests',
+    'source': 'tests/cases.cpp',
+    'declaration_headers': ['tests/cases.hpp'],
+    'main': files('tests/main.cpp'),
+    'source_includes': ['tests'],
+  },
+]
+```
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `name` | required | Executable name, and the key in the lookup dictionaries. |
+| `id` | `name` | Used in generated file names and in the codegen target name `gen_<id>`. |
+| `kind` | `'textual'` | Any other value stops configuration. |
+| `declaration_headers` | `[]` | Annotated headers. |
+| `source` | none | One `.cpp` file with out-of-line definitions. |
+| `main` | none | Extra sources as `files()` objects, such as your own `main()`. Without them, the executable takes `main()` from gentest's `gentest_main` library. |
+| `source_includes` | `[]` | Include directories for codegen and for the compiler. |
+| `mocks` | `[]` | Names of entries in `gentest_textual_mocks` to use. |
+| `clang_args` | `[]` | Extra arguments for codegen only. |
+| `cpp_args` | `[]` | Extra arguments for the compiler only. |
+| `include_directories` | `[]` | `include_directories()` objects for the compiler. Codegen doesn't see them. |
+| `dependencies` | `[]` | Meson dependencies for the executable. Codegen doesn't see their include paths. |
+| `link_with` | `[]` | Libraries to link. |
+| `test` | `true` | Registers the executable as a Meson test. |
+| `test_name` | `name` | Name of that Meson test. |
+| `install` | `false` | Installs the executable. |
+| `build_by_default` | `true` | Applies to the codegen step only; the executable itself is built by default either way. |
+
+Codegen doesn't use a compile database in Meson builds. It parses with
+`-std=c++20`, `-DGENTEST_CODEGEN=1`, `-DFMT_HEADER_ONLY`, gentest's include
+directories, the helper's build directory and `source_includes`. If your
+headers need other include paths or definitions, pass them through
+`source_includes` (both codegen and the compiler) or `clang_args` (codegen
+only).
+
+The executable links gentest through `gentest_main_dep` and
+`gentest_runtime_dep`, so it doesn't need a `dependencies` entry for gentest.
+
+## Mocks
+
+Each dictionary in `gentest_textual_mocks` creates a static library from one
+mock definitions header (`defs`). A test executable uses it by listing its
+`name` in `mocks`: the executable links the library, and its codegen runs after
+the mock codegen. The Meson helper generates gentest mocks only; the gMock and
+Trompeloeil backends need CMake. See [Mocks](../mock_generation.md) for
+writing mock definitions and expectations.
+
+```meson
+gentest_textual_mocks = [
+  {
+    'name': 'app_mocks',
+    'defs': 'tests/mock_defs.hpp',
+    'public_header': 'app_mocks.hpp',
+    'source_includes': ['tests'],
+  },
+]
+
+gentest_textual_suites = [
+  {
+    'name': 'my_tests',
+    'declaration_headers': ['tests/cases.hpp'],
+    'source_includes': ['tests'],
+    'mocks': ['app_mocks'],
+  },
+]
+
+subdir('subprojects/gentest/meson/textual')
+```
+
+Write the mock definitions header and the test as in
+[Mocks](../mock_generation.md). The test includes the generated header by its
+`public_header` name, for example `#include "app_mocks.hpp"`.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `name` | required | Static library name, and the name that `mocks` refers to. |
+| `id` | `name` | Used in generated file names and in the codegen target name `gen_<id>`. |
+| `kind` | `'textual'` | Any other value stops configuration. |
+| `defs` | required | The mock definitions header, one file. |
+| `public_header` | `<name>.hpp` | File name of the generated header that tests include. |
+| `source_includes` | `[]` | Include directories for codegen and for the compiler. |
+| `clang_args` | `[]` | Extra arguments for codegen only. |
+| `cpp_args` | `[]` | Extra arguments for the compiler only. |
+| `include_directories` | `[]` | `include_directories()` objects for the compiler. |
+| `dependencies` | `[]` | Meson dependencies for the library. |
+| `install` | `false` | Installs the static library. |
+| `build_by_default` | `true` | Applies to the codegen step only. |
+
+Codegen scans the `defs` header with `gentest/mock.h` included first.
+
+## Variables you can use
+
+After `subdir()`, the helper leaves these dictionaries, keyed by `name`, in
+your project's scope:
+
+| Variable | Value for each entry |
+| --- | --- |
+| `gentest_textual_suite_targets` | The test executable. |
+| `gentest_textual_suite_codegen_targets` | The codegen custom target that writes the registration sources and the artifact manifest. |
+| `gentest_textual_mock_targets` | The mock static library. |
+| `gentest_textual_mock_codegen_targets` | The mock codegen custom target. |
+| `gentest_textual_mock_codegen_dependencies` | A dependency that orders compilation after the mock codegen. Add it to your own targets that include a generated mock header. |
+| `gentest_textual_mock_public_headers` | The generated public header. |
+
+The gentest subproject also defines variables that you can read with
+`gentest_sp.get_variable('<name>')`:
+
+| Variable | Contents |
+| --- | --- |
+| `gentest_dep` | The runtime plus gentest's `main()`. `dependency('gentest')` returns it once the subproject is configured. |
+| `gentest_runtime_dep` | The runtime library. |
+| `gentest_main_dep` | gentest's `main()` (`gentest_main`); use it together with `gentest_runtime_dep`. |
+| `gentest_codegen` | The resolved path of `gentest_codegen`. |
+| `gentest_codegen_tool_args` | Extra codegen arguments: `--host-clang <path>` when `codegen_host_clang` is set. |
+| `gentest_public_include`, `gentest_public_include_path` | gentest's `include` directory, as an `include_directories()` object and as an absolute path. |
+| `gentest_third_party_include`, `gentest_third_party_include_path` | gentest's bundled `third_party/include` directory, in the same two forms. |
+
+## Providing the subproject
+
+A full gentest checkout works as the subproject, and so does a Meson wrap that
+places gentest in `subprojects/gentest`. A trimmed copy needs `meson.build`,
+`meson_options.txt`, `meson/`, `include/`, `src/` and `third_party/include/`.
+It also needs a `tests/` directory, which may be empty: gentest's `meson.build`
+names it as an include directory even when `build_self_tests` is `false`.
+
+## Generated files and rebuilds
+
+The codegen target `gen_<id>` writes the registration sources
+(`*.header_registration.gentest.cpp`), a depfile and the artifact manifest
+`<name>.artifact_manifest.json` (see
+[Codegen artifact protocols](../codegen_artifact_protocols.md)). The
+registration sources never include your `source`; the linker resolves your
+definitions.
+
+Codegen writes depfiles, so Meson and Ninja rerun it when a header it read
+changes. The helper also passes the header files (`.h`, `.hh`, `.hpp`, `.hxx`,
+`.inc`) in the directories of `defs`, `source`, `declaration_headers` and
+`source_includes` to codegen as inputs. That list is fixed at `meson setup`:
+run `meson setup --reconfigure` after you add header files.
+
+## Limitations and tested example
+
+A `kind` other than `'textual'` stops configuration with
+`gentest Meson helper is textual-only; named modules are intentionally unsupported`.
+Meson on Windows is untested: the consumer test skips there.
+
+[`tests/downstream/meson_wrap_consumer`](../../tests/downstream/meson_wrap_consumer)
+is a complete consumer project with a mock target, an out-of-line test
+executable and a header-only one. The CTest test `gentest_meson_wrap_consumer`
+builds and runs it, and CI runs it on Ubuntu 24.04 and Fedora 43. To run that
+test in a gentest build tree:
 
 ```bash
 ctest --preset=debug-system --output-on-failure -R '^gentest_meson_wrap_consumer$'
 ```
-
-## Checked-in proofs
-
-The downstream proof in
-[`tests/cmake/scripts/CheckMesonWrapConsumer.cmake`](../../tests/cmake/scripts/CheckMesonWrapConsumer.cmake):
-
-- creates a real downstream workspace with `subprojects/gentest`
-- configures gentest with `build_self_tests=false`
-- builds the textual mock target + textual consumer
-- verifies the authored source is compiled directly, header-only suites build
-  from generated registrations only, no generated source includes `cases.cpp`,
-  and depfile/manifest outputs use the additive protocol
-- runs the consumer test/mock/bench/jitter surface
-
-## Validated platforms
-
-CI validates the Meson downstream wrap path on Ubuntu 24.04 and Fedora 43. The
-checked-in wrap proof intentionally skips Windows today.
-
-## Limitations
-
-- Meson support is textual-only.
-- The helper is a declarative `subdir()` API because Meson does not provide
-  user-defined functions.
-- Set `kind` to `textual` or omit it. `kind = 'modules'` intentionally fails
-  at configure time.
-- Windows is currently skipped for the downstream wrap proof.
-- Named-module support remains intentionally unsupported.
-- Support headers/fragments are snapshotted at configure time, so adding new
-  included support files requires `meson setup --reconfigure`.

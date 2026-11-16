@@ -1,147 +1,125 @@
-# Downstream Consumers
+# Choosing a build system
 
-This page is the shortest path to consuming `gentest` outside this repository.
-Use it to choose the right integration, then jump into the backend-specific
-guide for the exact files and commands.
+gentest works with CMake, Meson, Xmake and Bazel. This page compares what each
+integration supports and how each one spells the same settings, so you can pick
+one and go to its guide.
 
-For host Clang, sysroot, and cross-build guidance, see
-[host_toolchain_sysroots.md](host_toolchain_sysroots.md).
+CMake is the primary integration: it supports every feature, and the
+[README quick start](../../README.md) and the install guides for
+[Linux](../install/linux.md), [macOS](../install/macos.md) and
+[Windows](../install/windows.md) use it.
 
-## Pick a backend
+## What each build system supports
 
-| Build system | Downstream status | What you consume | Module support |
-| --- | --- | --- | --- |
-| CMake | primary / packaged | installed package + discoverable exact-match `fmt` package + `gentest_attach_codegen()` | supported |
-| Bazel | official Bzlmod source-package | `@gentest//bazel:defs.bzl` | supported |
-| Xmake / xrepo | official installed-helper / xrepo story | staged install prefix + `share/gentest/xmake/gentest.lua` | supported |
-| Meson | official wrap/subproject textual story | subproject / wrap + exported Meson variables | textual only |
+| | CMake | Meson | Xmake | Bazel |
+| --- | --- | --- | --- | --- |
+| Guide | [README](../../README.md) and the install guides | [Meson](meson.md) | [Xmake](xmake.md) | [Bazel](bazel.md) |
+| How you add gentest | Install it and call `find_package(gentest CONFIG REQUIRED)`, or add the source tree with `add_subdirectory()` | Put the gentest source tree in `subprojects/gentest`, directly or through a wrap | Install it and load `share/gentest/xmake/gentest.lua` from the install | `bazel_dep(name = "gentest")` with an override that points at the gentest source, such as `local_path_override` |
+| Header registration | Yes | Yes | Yes | Yes |
+| Module registration | Yes (`MODULE_REGISTRATION`) | No | Yes, with a Clang target toolchain | Yes, with Clang and `--experimental_cpp_modules` |
+| Attach codegen with | `gentest_attach_codegen()` | An entry in `gentest_textual_suites` | `gentest_attach_codegen({...})` | `gentest_attach_codegen_textual()`, `gentest_attach_codegen_modules()` |
+| Add a mock target with | `gentest_add_mocks()` | An entry in `gentest_textual_mocks` | `gentest_add_mocks({...})` | `gentest_add_mocks_textual()`, `gentest_add_mocks_modules()` |
+| Mock backends | gentest, gMock, Trompeloeil | gentest | gentest | gentest |
+| Mock definitions in a named module | Yes | No | Yes | Yes |
+| Run the tests with | `gentest_discover_tests()` and `ctest` | `meson test` | `xmake run <target>` | `bazel test` |
+| Tested in CI on | Linux, macOS, Windows | Linux | Linux | Linux (macOS: codegen action-cache test only) |
 
-## Common contract
+[Header registration](../writing_tests.md) (the default) reads annotated
+declarations from headers; [module registration](../modules.md) puts cases in
+named-module interface units. The Meson, Xmake and Bazel APIs call header
+registration "textual", as in `gentest_textual_suites`, `kind = "textual"` and
+`gentest_attach_codegen_textual()`. The gMock and Trompeloeil backends are
+CMake-only; [Mocks](../mock_generation.md) describes them.
 
-For installed-package CMake consumers, the runtime package also requires the
-exact matching `fmt` CMake package to be discoverable. The simplest setup is to
-install `gentest` and `fmt` into the same prefix and set `CMAKE_PREFIX_PATH`
-once; otherwise, pass both the `gentest` package path and the matching
-`fmt_DIR`.
+A few more limits:
 
-All non-CMake downstream consumers need the same host-side codegen tools:
+- A Meson mock entry and Bazel's `gentest_add_mocks_textual()` take exactly one
+  mock definitions header per mock target.
+- Bazel on Windows needs a packaged exec toolchain; the local development
+  fallback doesn't run there (see [Bazel](bazel.md#exec-toolchain-contract)).
+- Named modules in CMake have their own
+  [compiler and generator requirements](../modules.md#requirements).
 
-- `gentest_codegen`
-- a host `clang++`
-- `clang-scan-deps` for named-module codegen
+## What every build needs
 
-Keep these separate from the final target compiler:
+On the machine that runs the build, every integration needs:
 
-- `gentest_codegen` runs on the host machine
-- the final test binary can use a different target compiler/toolchain
+- `gentest_codegen`, built for that machine against LLVM/Clang 19 or newer,
+  from the same gentest version as the runtime you link;
+- a Clang executable on that machine, the host Clang, which codegen runs for
+  Clang's built-in headers and for named modules. It can differ from the
+  compiler that builds your tests;
+- `clang-scan-deps`, when you use named modules.
 
-The stable rule is:
+Codegen also needs the target flags, such as `--target` and `--sysroot`, that
+your tests are compiled with. CMake passes them to codegen for you. With Meson,
+Xmake and Bazel you repeat them as extra Clang arguments.
+[Host toolchains and cross-compiling](host_toolchain_sysroots.md) explains how
+codegen finds the host Clang and how to build for another target.
 
-1. configure or pass the host `gentest_codegen`
-2. configure or pass the host `clang++`
-3. make `clang-scan-deps` available when using named modules
-4. keep target sysroot / target flags in the normal build-system toolchain flow
+## Settings by build system
 
-## Quickstarts
+| Setting | CMake | Meson | Xmake | Bazel |
+| --- | --- | --- | --- | --- |
+| `gentest_codegen` | Found in the installed package. Set `GENTEST_CODEGEN_EXECUTABLE` or `GENTEST_CODEGEN_TARGET` when you cross-compile or when your gentest has no code generator. | `codegen_path` option; a relative path is resolved against the gentest subproject directory. Default: `build/host-codegen/tools/gentest_codegen` there. | `codegen.exe` in `gentest_configure()`, or the `GENTEST_CODEGEN` environment variable. Set one with an installed gentest; without them the helper tries to build `gentest_codegen` with CMake from a gentest checkout. | The `codegen` label of the registered `gentest_codegen_toolchain` |
+| Host Clang | `GENTEST_CODEGEN_HOST_CLANG` (optional) | `codegen_host_clang` option (optional) | `codegen.clang`, or the `GENTEST_CODEGEN_HOST_CLANG` environment variable (optional) | The `clang` label of the toolchain (required) |
+| `clang-scan-deps` | `GENTEST_CODEGEN_CLANG_SCAN_DEPS` (optional) | Not used | `codegen.scan_deps`, or the `GENTEST_CODEGEN_CLANG_SCAN_DEPS` environment variable (optional) | The `clang_scan_deps` label of the toolchain |
+| Extra Clang arguments for codegen | `CLANG_ARGS` of `gentest_attach_codegen()` or `gentest_add_mocks()`; `GENTEST_CODEGEN_DEFAULT_CLANG_ARGS` for every target | `clang_args` of an entry; codegen only | `clang_args` of a call, or `gentest_common_cxxflags` in `gentest_configure()`; both also go to the compiler | `clang_args`; also goes to the compiler |
+| Target compiler and sysroot | A toolchain file; gentest forwards the target and sysroot to codegen | A native or cross file; repeat the target flags in `clang_args` | `xmake f` options; repeat the target flags in `gentest_common_cxxflags` | Your C++ toolchain and platforms; repeat the target flags in `clang_args` |
+| Generated files | `OUTPUT_DIR` of `gentest_attach_codegen()`, a concrete path without generator expressions. Default: `gentest/<target id>` in the current binary directory. | The helper's build directory, `subprojects/gentest/meson/textual` in your build tree | `output_dir` of each call (required) | `gen/<name>` in the package's output directory |
 
-### Bazel / Bzlmod
+"Optional" means codegen finds the tool itself when you don't set it.
+[Host toolchains and cross-compiling](host_toolchain_sysroots.md) lists the
+lookup order for each tool and explains when to set them.
 
-Use Bazel when you want a source-package integration and can register an
-exec-platform `gentest_codegen_toolchain` with declared packaged Gentest and
-Clang executable labels. The target C++ toolchain remains independent; see the
-[Bazel exec-toolchain contract](bazel.md#exec-toolchain-contract).
+## CMake
 
-Minimal files:
+The installed package provides the `gentest::gentest`, `gentest::gentest_main`
+and `gentest::gentest_runtime` targets and the CMake functions
+`gentest_attach_codegen()`, `gentest_add_mocks()` and `gentest_discover_tests()`.
+A native build finds `gentest_codegen` in the same install.
 
-- `MODULE.bazel`
-- `BUILD.bazel`
-- `tests/main.cpp`
-- `tests/cases.hpp` (the whole target), optionally `tests/cases.cpp` for
-  out-of-line definitions, and optionally `tests/cases.cppm`
-- private suite headers listed in `source_hdrs`, plus header libraries listed in
-  `deps` when codegen parses their public/transitive headers
-- mock defs such as `tests/header_mock_defs.hpp` or `tests/module_mock_defs.cppm`
+The package also needs the fmt CMake package of exactly the version gentest was
+built with. The simplest setup installs gentest and fmt into the same prefix
+and points `CMAKE_PREFIX_PATH` at it; a gentest build that fetched fmt itself
+installs it there. Otherwise, pass `fmt_DIR` as well.
 
-Load the public API from:
+You can also add the gentest source tree with `add_subdirectory()`. That builds
+the runtime only. To generate code, either set `GENTEST_BUILD_CODEGEN=ON`,
+which needs the LLVM/Clang development packages, or point
+`GENTEST_CODEGEN_EXECUTABLE` at a built `gentest_codegen`.
 
-- `@gentest//bazel:defs.bzl`
+## Meson
 
-Start here:
+You add the gentest source tree as a subproject, describe test executables and
+mock targets in the `gentest_textual_suites` and `gentest_textual_mocks` lists,
+and load the helper with `subdir('subprojects/gentest/meson/textual')`. You
+build `gentest_codegen` separately with CMake. Named modules aren't supported.
 
-- [bazel.md](bazel.md)
-- checked-in proof:
-  [tests/downstream/bazel_bzlmod_consumer](../../tests/downstream/bazel_bzlmod_consumer)
+Read [Meson](meson.md). The tested example is
+[`tests/downstream/meson_wrap_consumer`](../../tests/downstream/meson_wrap_consumer).
 
-`source_includes` supplies include-search flags only. Declare every suite input
-file through `source_hdrs`, `deps`, or a Gentest mock provider so Bazel can key
-and sandbox the codegen action correctly. The automatic local-Clang fallback is
-non-Windows only; Windows users register a packaged exec toolchain including
-the required DLL/runtime closure.
+## Xmake
 
-Ordinary suites keep annotations in the self-contained `cases.hpp`, which is the
-target's only source; codegen appends a generated header-registration source. A
-suite may instead keep an authored `cases.cpp` that includes the header; it is
-compiled directly and exactly once. Exported module suites likewise compile
-their authored `.cppm` directly and append an ordinary importer registration.
+You install gentest with CMake, load
+the helper `share/gentest/xmake/gentest.lua` from the install, call
+`gentest_configure()`, and then call `gentest_add_mocks()` and
+`gentest_attach_codegen()` in your targets. Named modules need a Clang target
+toolchain and `clang-scan-deps`.
 
-### Xmake / xrepo
+Read [Xmake](xmake.md). The tested example,
+[`tests/downstream/xmake_xrepo_consumer`](../../tests/downstream/xmake_xrepo_consumer),
+consumes an installed gentest through a project-local xrepo package.
 
-Use Xmake when you want an installed-prefix workflow with a reusable helper Lua
-layer.
+## Bazel
 
-Minimal assets:
+You add gentest as a Bzlmod dependency and load the macros from
+`@gentest//bazel:defs.bzl`. Codegen runs the tools of an exec-platform
+`gentest_codegen_toolchain` that you register, separate from your target C++
+toolchain. For local development on Linux and macOS,
+`GENTEST_BAZEL_LOCAL_CLANG` selects a fallback toolchain that builds
+`gentest_codegen` from source.
 
-- installed prefix containing:
-  - `bin/gentest_codegen`
-  - `include/gentest/...`
-  - `share/gentest/xmake/gentest.lua`
-- project-local helper copy, usually:
-  - `.gentest_support/gentest.lua`
-- `xmake.lua`
-- your `tests/cases.hpp` (or `tests/cases.cpp` for out-of-line definitions) and
-  other test sources
-
-The checked-in downstream proof stages a real install prefix, copies
-`share/gentest/xmake/` into `.gentest_support`, then consumes the staged prefix
-through a fixture-local xrepo repository.
-
-Start here:
-
-- [xmake.md](xmake.md)
-- checked-in proof:
-  [tests/downstream/xmake_xrepo_consumer](../../tests/downstream/xmake_xrepo_consumer)
-
-### Meson
-
-Use Meson when you need textual-only downstream support.
-
-Minimal assets:
-
-- `meson.build`
-- `meson_options.txt`
-- `subprojects/gentest` or an equivalent wrap/subproject source
-- your textual `cases.hpp` (or `cases.cpp` for out-of-line definitions) and mock defs
-
-The Meson downstream surface is a textual-only declarative helper: define
-`gentest_textual_mocks` / `gentest_textual_suites`, then load
-`subdir('subprojects/gentest/meson/textual')`. Meson named-module support is
-intentionally unsupported.
-
-Start here:
-
-- [meson.md](meson.md)
-- checked-in proof:
-  [tests/downstream/meson_wrap_consumer](../../tests/downstream/meson_wrap_consumer)
-
-## What to read next
-
-- CMake packaged consumer:
-  [README.md](../../README.md)
-- Bazel source-package guide:
-  [bazel.md](bazel.md)
-- Xmake / xrepo guide:
-  [xmake.md](xmake.md)
-- Meson wrap guide:
-  [meson.md](meson.md)
-- Host Clang and cross-toolchain contract:
-  [host_toolchain_sysroots.md](host_toolchain_sysroots.md)
+Read [Bazel](bazel.md), starting with its
+[exec toolchain contract](bazel.md#exec-toolchain-contract). The tested example
+is [`tests/downstream/bazel_bzlmod_consumer`](../../tests/downstream/bazel_bzlmod_consumer).
