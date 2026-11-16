@@ -5,23 +5,24 @@
 ### Upgrading
 
 - Regenerate and rebuild with matching 2.0.0 codegen, headers, and runtime; 1.x generated sources are not compatible.
-- Rename `async_test<T>` to `gentest::awaitable<T>` and replace `await_subscribe` / `cancel_wait` with ordinary C++ awaiters.
+- Rename `async_test<T>` to `gentest::awaitable<T>`. Custom awaiters passed to timed waits need no gentest-specific members.
 - Add `FILE_SET gentest_explicit_mock_defs DESTINATION include` when installing `gentest_add_mocks()` targets.
 - Review nice-mode mocks that relied on ignored extra calls, and shared fixtures expected to set up when unused.
 - Drop `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature; Allure output no longer needs them.
 - Empty `--allure-dir` before a run whose report should not include earlier results; runs no longer remove them.
+- `OUTPUT`, `NO_INCLUDE_SOURCES`, `--output`, `--template`, `--no-include-sources`, `GENTEST_NO_INCLUDE_SOURCES`, and `EXPECT_SUBSTRING` fail with an error saying they were removed in gentest 2.0.0. Every 1.x release rejected them too; [DEPRECATIONS.md](DEPRECATIONS.md) lists their replacements.
 
 ### Breaking changes
 
 - Async cases, helpers, and fixture hooks return `gentest::awaitable<T = void>` instead of `async_test<T>`.
-- Custom async operations are ordinary C++ awaiters; `await_subscribe` / `cancel_wait` and the callback-storage alias are removed.
+- Timed waits take ordinary C++ awaiters; the 1.x timed-wait hooks on gentest's awaitables (`gentest_async_wait_supported`, `await_suspend_with_token`, `cancel_wait`) are removed.
 - `when_any`, `wait_for`, and `wait_until` require exceptions; `awaitable` and `when_all` do not.
-- The generated-registration contract is version 6 (`GENTEST_CASE_API_VERSION`), up from 4 (#238, #299).
+- Generated registration code requires case API version 6 (`GENTEST_CASE_API_VERSION`), up from 4 (#238, #299).
 - Shared suite and global fixtures set up on first use by a selected case, not at the start of the run (#240).
-- Nice-mode native mocks fail calls beyond a method's expectations, including `.times(0)` (#261).
-- Changing native mock configuration after its first call or verification records a test failure (#238).
+- Nice-mode gentest mocks fail calls beyond a method's expectations, including `.times(0)` (#261).
+- Changing gentest mock configuration after its first call or verification records a test failure (#238).
 - `gentest_add_mocks()` uses `DEFS` in place as public headers of the mock target instead of copying them (#239).
-- Installing a textual mock target requires its new `gentest_explicit_mock_defs` file set.
+- Installing a mock target whose `DEFS` are headers requires its new `gentest_explicit_mock_defs` file set.
 - A `HEADER_NAME` with the same include path as a `DEFS` file is rejected.
 - `DEFS` are included by their path relative to the current source or binary directory, or to the new `BASE_DIRS` argument.
 - Two mock targets used by one test must not spell different `DEFS` files by the same include path; configure fails if they do.
@@ -43,10 +44,10 @@
 - Sixteen runnable async examples in eight stages.
 - Failure messages show formatted values and the first mismatch for containers, strings, tuples, optionals, and variants (#243).
 - `diagnostic_context(...)` scopes label failures with helper-call and loop context (#243).
-- `gentest/matchers.h` shares matchers between assertions and native mocks, with `expect_that`, `require_that`, and `ElementsAre` (#243).
-- Native mock failures name the expectation's declaration location (#243).
+- `gentest/matchers.h` shares matchers between assertions and gentest mocks, with `expect_that`, `require_that`, and `ElementsAre` (#243).
+- gentest mock failures name the expectation's declaration location (#243).
 - Tag selection with `--tag`, `--exclude-tag`, `--exclude`, and `--list-tags` (#240).
-- Discovery adds case tags to CTest `LABELS` (#240).
+- CTest discovery adds case tags to CTest `LABELS` (#240).
 - `--output=full|compact|failures-only` and `--log-output=all|failures` (#242).
 - `--break-on-failure` stops in a debugger at the failing assertion (#242).
 - Failing cases print a shell-quoted command that reruns exactly that case (#242).
@@ -73,18 +74,22 @@
 - `Approx` defines exact equality, signed zero, NaN, infinity, and zero tolerance (#238).
 - Successful runs that execute no cases write a fresh zero-test JUnit report (#238).
 - Benchmark and jitter loops call a body-only generated entrypoint (#299).
-- Full CI runs the QEMU and libassert test lanes in parallel (#300).
-- Native mock calls dispatch about twice as fast.
+- Full CI runs the QEMU and libassert test jobs in parallel (#300).
+- gentest mock calls dispatch about twice as fast.
 - JUnit `time` is written as a fixed-point decimal, independent of locale.
 - Runs that fail before executing any case replace a stale JUnit report.
 - Mock codegen is ordered after linked library targets and after the `DEFS` files.
 - `gentest_attach_codegen()` exports compile commands for its target without `CMAKE_EXPORT_COMPILE_COMMANDS`.
 - The release workflow checks for a dated changelog heading and packages once before pushing the tag.
 - The JSON encoder shared by every report is about ten times faster on ASCII text and three times faster on UTF-8.
-- Allure writer tests run in every CI lane; `GENTEST_ENABLE_ALLURE_TESTS` defaults to `ON`.
+- Allure writer tests run in every CI job; `GENTEST_ENABLE_ALLURE_TESTS` defaults to `ON`.
 - Codegen precompiles named modules into a fresh directory per run and removes it after; `GENTEST_CODEGEN_KEEP_MODULE_CACHE=1` keeps it.
 - Codegen precompiles each external module once per run instead of once per importing source.
 - The bundled `target_install_package` is updated from 7.1.0 to 7.5.0.
+
+### Deprecated
+
+- Member tests (annotated member functions) are deprecated; write free functions that take their fixtures as parameters.
 
 ### Fixed
 
@@ -98,7 +103,7 @@
 - `--fail-fast` no longer hangs when a case polls with `yield()` (#263).
 - Completed waiter tokens are pruned, bounding memory in long async cases (#264).
 - Measured runs whose matches are all excluded death tests rewrite stale reports (#252).
-- Per-TU test registrars have internal linkage, so linked codegen targets keep their cases (#260).
+- Per-translation-unit test registrars have internal linkage, so linked codegen targets keep their cases (#260).
 - Codegen no longer emits reserved identifiers into user code (#267).
 - Generated mock signatures globally qualify every nested name (#265).
 - Generated mocks keep `noexcept(expr)` on class template specializations (#266).
@@ -111,11 +116,11 @@
 - Benchmarks returning a reference no longer copy the result inside the timed loop.
 - Duplicate display names are rejected, and placeholder-like text in names or parameters is left intact.
 - Module sources with `/*` or `//` inside string literals are recognised; `.inl`, `.ipp`, and `.tpp` headers can be scanned alone.
-- Native mocks distinguish methods of different base classes instead of sharing one expectation slot.
-- Native mocks compile for parameters without `operator==`, abstract parameter types, non-default-constructible returns, overloads, and parameter packs.
+- gentest mocks distinguish methods of different base classes instead of sharing one expectation slot.
+- gentest mocks compile for parameters without `operator==`, abstract parameter types, non-default-constructible returns, overloads, and parameter packs.
 - `.with()` owns text arguments and compares `const char*` by content; stateful and out-parameter `invokes` actions work.
-- Generated native mocks compile with GCC for inherited virtual methods, and with parameters named `token`.
-- GMock and Trompeloeil default-argument overloads forward move-only and rvalue arguments.
+- Generated gentest mocks compile with GCC for inherited virtual methods, and with parameters named `token`.
+- The gMock and Trompeloeil backends' default-argument overloads forward move-only and rvalue arguments.
 - The fmt-message assertion overloads compile and report the caller's location.
 - `EXPECT_THROW` works without RTTI, byte pointers print as addresses, and `record_cbor.h` compiles without exceptions.
 - Failure paths are trimmed at path-component boundaries.
