@@ -123,6 +123,7 @@
 - The gMock and Trompeloeil backends' default-argument overloads forward move-only and rvalue arguments.
 - The fmt-message assertion overloads compile and report the caller's location.
 - `EXPECT_THROW` works without RTTI, byte pointers print as addresses, and `record_cbor.h` compiles without exceptions.
+- Public headers compile after `<windows.h>` defines the `min` and `max` macros without `NOMINMAX` (#317).
 - Failure paths are trimmed at path-component boundaries.
 - Hand-written death-tagged benchmarks report body entry instead of terminating.
 - Allure results sanitise invalid UTF-8.

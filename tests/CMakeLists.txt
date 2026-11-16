@@ -195,7 +195,7 @@ foreach(_gentest_assertion_header_test IN LISTS _gentest_assertion_header_tests)
     add_dependencies(gentest_test_suites gentest_assertion_headers_${_gentest_assertion_header_test}_tests)
     add_test(NAME assertion_headers_${_gentest_assertion_header_test}_pass
         COMMAND gentest_assertion_headers_${_gentest_assertion_header_test}_tests
-            --filter=${_gentest_assertion_header_test}/passing/* --no-color)
+            --filter=${_gentest_assertion_header_test}/passing/* --fail-on-empty --no-color)
     set_property(TEST assertion_headers_${_gentest_assertion_header_test}_pass APPEND PROPERTY LABELS "public-api;headers")
 endforeach()
 unset(_gentest_assertion_header_test)

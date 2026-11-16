@@ -2,12 +2,13 @@
 // defined its function-like min and max macros (that is, without NOMINMAX).
 // Calls are spelled (std::min)(...) and (T::max)() so the macros can't expand.
 //
-// On Windows the test includes <windows.h> itself. Elsewhere it defines
-// equivalent macros, but only after the standard and fmt headers, because
-// libstdc++ is not written to survive them (the Microsoft STL and libc++ are).
-// If a gentest header starts including a standard header that is not listed
-// below, add it here.
-#if defined(_WIN32)
+// With the Microsoft STL (MSVC, clang-cl and Clang targeting MSVC, which all
+// define _MSC_VER) the test includes <windows.h> itself. Elsewhere, MinGW
+// included, it defines equivalent macros, but only after the standard and fmt
+// headers, because libstdc++ is not written to survive them (the Microsoft STL
+// and libc++ are). If a gentest header starts including a standard header that
+// is not listed below, add it here.
+#if defined(_MSC_VER)
 #include <windows.h>
 #else
 #include <algorithm>
@@ -15,6 +16,7 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <cassert>
 #include <chrono>
 #include <cmath>
 #include <compare>
@@ -23,6 +25,8 @@
 #include <coroutine>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <exception>
@@ -92,7 +96,7 @@ namespace {
 
 using namespace gentest::asserts;
 
-void passing(void *) {
+void min_max_call_sites(void *) {
     // Long strings take the truncating branch of the diagnostic quoting.
     const std::string long_text(600, 'x');
     const auto        quoted = gentest::detail::quote_diagnostic_string(long_text);
@@ -109,7 +113,7 @@ void passing(void *) {
 
 int main(int argc, char **argv) {
     const gentest::Case cases[]{
-        {.name = "minmax_macros/passing", .fn = passing, .suite = "minmax_macros"},
+        {.name = "minmax_macros/passing/min_max_call_sites", .fn = min_max_call_sites, .suite = "minmax_macros"},
     };
     std::vector<const char *> args(argv, argv + argc);
     return gentest::run_cases(cases, args);
