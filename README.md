@@ -1,30 +1,27 @@
 # gentest
 
-Release archives, signing, CPS, and SBOM generation are documented in
-[docs/packaging.md](docs/packaging.md).
-
-Gentest is licensed under the [Boost Software License 1.0](LICENSE).
-
 [![CI](https://github.com/jkammerland/gentest/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/jkammerland/gentest/actions/workflows/ci.yml)
 
-`gentest` is an attribute-driven C++ test runner plus a clang-tools-based code generator.
-
-Write tests with standard C++ attributes. Put ordinary textual test definitions
-in a header:
+gentest is a C++20 test framework. Tests are plain functions marked with
+standard C++ attributes. At build time a Clang-based tool, `gentest_codegen`,
+reads the attributes and writes the registration code, so you don't need
+registration macros.
 
 ```cpp
 #include "gentest/test.h"
+
+#include <cstddef>
 #include <list>
 #include <vector>
+
 using namespace gentest::asserts;
 
 [[gentest::test]]
 inline void basic() {
-    EXPECT_TRUE(1 + 1 == 2); 
+    EXPECT_TRUE(1 + 1 == 2);
 }
 
-// namespaced attribute list for brevity
-// generates a 2x2 test matrix
+// Two template axes in one attribute list: four cases (int or long, vector or list).
 template <typename T, template <class...> class C>
 [[using gentest: template(T, int, long), template(C, std::vector, std::list)]]
 void emplace_matrix() {
@@ -34,85 +31,69 @@ void emplace_matrix() {
 }
 ```
 
-During the build, a codegen tool scans those declarations and generates registration adapters from their attributes. This tooling step can be registered with your favorite build system.
+## Why gentest
 
-This avoids macro-heavy registration and instead keeps test declarations closer to ordinary C++ by using standard attribute syntax. Unlike the code generation used in many test frameworks, gentest’s generator is not just a hidden registration step. It acts as a more general layer over attribute-annotated code, which makes it easier to add features without inventing a separate macro-style API for each one.
-
-Features currently include:
-- Generated mocks through explicit mock targets
-- Easy syntax for multi-dimensional parameterized and templated cases (including test matrices)
-- Support for multiple fixtures per test case
-- Sharing fixtures between test cases
-- Native syntax for tags, requirements, and custom labels
-- Unified APIs for other test kinds (for example, benchmark, jitter, and coroutine cases)
-- (Experimental) Async tests, using C++20 coroutines. Whole test case suspension.
-
->[!NOTE]
-> Start at [`docs/index.md`](docs/index.md) for the rest of the docs. See
-> [`CHANGELOG.md`](CHANGELOG.md) for user-facing changes.
+- **No registration macros.** Tests, benchmarks, parameters, templates,
+  fixture lifetimes and metadata are all declared with attributes.
+- **Matrices from one declaration.** Value axes, row tables and template
+  parameters expand into one case per combination.
+- **Fixtures from the signature.** Declare fixtures as function parameters,
+  several per case. Each has a local, suite or global lifetime and optional
+  setup and teardown.
+- **Generated mocks.** `gentest_add_mocks()` generates mock classes for your
+  types, for gentest's own expectations or for gMock and Trompeloeil.
+- **More than pass or fail.** Benchmarks, jitter measurements and death tests
+  are declared the same way. Async tests on C++20 coroutines are experimental.
+- **Fits your tooling.** Each case can be its own CTest test. Cases carry tags
+  from a fixed set (`fast`, `slow`, `linux`, `windows`, `death`), requirement
+  IDs and an owner. Runs can write JUnit XML, Allure results and GitHub Actions
+  annotations. CMake, Meson, Xmake and Bazel are supported, as are named
+  modules.
 
 ## Requirements
 
-- CMake ≥ 3.31 and Ninja or Ninja Multi-Config (see below for other build systems)
-- C++20 application compiler and standard library, including `std::stop_token`
-- Matching LLVM/Clang development packages ≥ 19 and a real host Clang executable
-  for `gentest_codegen`; the application compiler can be Clang or GCC
+- CMake 3.31 or newer with the Ninja or Ninja Multi-Config generator, or one of
+  the [other supported build systems](docs/buildsystems/downstream_consumers.md).
+- A C++20 compiler and standard library that provide `std::stop_token`: Clang,
+  GCC or MSVC. On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
+- To build `gentest_codegen`: the LLVM and Clang development packages of one
+  major version, 19 or newer. To run it: the Clang of that LLVM version on the
+  build machine, which codegen uses for Clang's built-in headers. Your tests
+  can use a different compiler.
 
-Repository formatting and static analysis use LLVM 23. Named modules add their
-own [compiler and dependency-scanning requirements](docs/modules.md#requirements).
+Named modules add [compiler and dependency-scanning requirements](docs/modules.md#requirements).
 
-On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
+## Quick start
 
->[!IMPORTANT]
-> `gentest_codegen` consumes your build’s `compile_commands.json` (`CMAKE_EXPORT_COMPILE_COMMANDS=ON`).
+Install gentest first. You build it from source: the guides for
+[Linux](docs/install/linux.md), [macOS](docs/install/macos.md) and
+[Windows](docs/install/windows.md) list the packages, install gentest to a user
+prefix and run a first project. Then build this small CMake project against
+that install. On Windows, add the configure options the Windows guide shows
+for your compiler.
 
-## Build & run this repo
-
-```bash
-cmake --preset=debug-system
-cmake --build --preset=debug-system
-ctest --preset=debug-system --output-on-failure
-```
-
-Contributor workflows, including lint, static analysis, coverage, and local CI-aligned commands, are documented in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Use in your project (CMake)
-
-For a complete source-build, user-prefix install, passing test, intentional
-failure, and exact-case rerun, follow the [Linux first-use walkthrough](docs/install/linux.md).
-
-Complete copy-paste projects live in [`examples/hello_header_only`](examples/hello_header_only),
-[`examples/hello`](examples/hello), and [`examples/hello_modules`](examples/hello_modules).
-Feature walkthroughs cover [parameter matrices](examples/parameterized/),
-[fixtures](examples/fixtures/), [generated mocks](examples/mocking/),
-[benchmark/jitter matrices](examples/measured/), and [metadata exports](examples/metadata/).
+`CMakeLists.txt`:
 
 ```cmake
 cmake_minimum_required(VERSION 3.31)
 project(my_tests LANGUAGES CXX)
 
 include(CTest)
-enable_testing()
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# Compile as ISO C++20. In GNU mode, GCC and Clang define `linux` as a macro,
+# which breaks the `linux` tag (and Clang module builds).
 set(CMAKE_CXX_EXTENSIONS OFF)
-
-# Provides `gentest::gentest` / `gentest::gentest_main` and helper functions below.
 find_package(gentest CONFIG REQUIRED)
 
-# The annotated header is the whole test target; codegen appends the generated
-# registration sources.
+# The annotated header is the whole test target; codegen adds the generated
+# registration sources to it.
 add_executable(my_tests cases.hpp)
 target_compile_features(my_tests PRIVATE cxx_std_20)
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
-# Setup codegen dependency for your target
 gentest_attach_codegen(my_tests)
-
-# Register each discovered case as its own CTest test (like gtest/catch/doctest).
-gentest_discover_tests(my_tests)
-
-# Alternative: run everything in a single process.
+# One CTest test per case. To run every case in one process instead:
 # add_test(NAME my_tests COMMAND my_tests)
+gentest_discover_tests(my_tests)
 ```
 
 `cases.hpp`:
@@ -124,7 +105,7 @@ gentest_discover_tests(my_tests)
 
 using namespace gentest::asserts;
 
-[[using gentest: test("demo/addition")]]
+[[using gentest: test("demo/addition"), fast]]
 inline void addition() {
     const auto value = 2 + 2;
     gentest::expect_true(value == 4);
@@ -132,15 +113,11 @@ inline void addition() {
 }
 ```
 
-Ordinary textual codegen discovers annotations in the target's headers and
-appends the generated registration sources, which are the target's compiled
-translation units. Header-defined cases use `inline` because the generated
-registration source and any other including translation unit share the header.
-An annotation written only in a `.cpp`, or on a `static` or anonymous-namespace
-function, is rejected because it has no stable header-reachable target-wide
-identity.
+Annotated declarations go in headers that the target lists or that its `.cpp`
+files include; see [Writing tests](docs/writing_tests.md).
 
-Configure and run the consumer project after installing gentest:
+Configure, build and test, with `CMAKE_PREFIX_PATH` pointing at the gentest
+install:
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=/path/to/gentest/install
@@ -148,877 +125,112 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-Docs: [Async tests](docs/async.md), [Notifications and watchdogs](docs/notifications.md), [Modules guide](docs/modules.md), [Codegen compiler selection](docs/codegen_compiler_selection.md), [Death tests](docs/death_tests.md), [CTest discovery options](docs/discover_tests.md), [Deprecations](DEPRECATIONS.md).
-
-Non-CMake downstream consumers:
-- [Downstream consumers overview](docs/buildsystems/downstream_consumers.md)
-- [Bazel / Bzlmod](docs/buildsystems/bazel.md)
-- [Xmake / xrepo](docs/buildsystems/xmake.md)
-- [Meson wrap/subproject](docs/buildsystems/meson.md)
-
-Run:
+Run the test executable directly for more control:
 
 ```bash
-./my_tests --list-tests
-./my_tests --list
-./my_tests --list-death
-./my_tests --list-tags
-./my_tests --run=<full-name-or-unique-suffix>
-./my_tests --filter=unit/* --kind=test
-./my_tests --tag=fast --exclude-tag=windows --exclude="*/database/*"
-./my_tests --include-death --run=death/fatal_path
-./my_tests --fail-fast --repeat=2
-./my_tests --shuffle --seed 123
-./my_tests --output=failures-only
-./my_tests --break-on-failure
-./my_tests --no-color
-./my_tests --github-annotations
-./my_tests
+./build/my_tests                               # run every case except death tests
+./build/my_tests --list                        # list cases with their tags and metadata
+./build/my_tests --run=demo/addition           # run one case by full name or unique suffix
+./build/my_tests --filter='demo/*' --tag=fast  # select by name pattern and tag
+./build/my_tests --junit=junit.xml             # also write a JUnit report
+./build/my_tests --help                        # show every option
 ```
 
-`--list-tests` prints only resolved test names (one per line).
-
-`--run` prefers a full case name. If no full name matches, it accepts a unique
-suffix among cases matching `--kind`; ambiguous suffixes are errors.
-See [runner workflows](docs/runner_workflows.md) for compact output, captured
-failure logs, debugger breaks, exact rerun commands, shuffle replay, and CTest
-parallel/repeat workflows.
-
-Use `--tag` to include cases with any requested tag, `--exclude-tag` to exclude
-tagged cases, and `--exclude` to exclude name patterns. These options are
-repeatable. Tag matching ignores ASCII case; name matching is case-sensitive.
-The tag include union intersects with the name and kind selection, then all
-exclusions apply. `--list-tags` lists available tags from the full inventory.
-
-Use `--list-selected` with the same selectors to preview selected names without
-constructing fixtures or running cases. Output is names only, in inventory
-order. `--fail-on-empty` rejects an empty execution or preview selection;
-intentionally skipped matching cases still count as selected.
-See [test selection](docs/test_selection.md) for composition, death-test and
-empty-selection rules. CTest consumers can require nonempty discovery with
-`gentest_discover_tests(my_tests TEST_FILTER "unit/*" FAIL_ON_EMPTY)`.
-
-For measured JSON/CSV reports, stdout contains only the report. The default
-`gentest::log()` sink routes diagnostics to stderr throughout fixture setup,
-execution and teardown; `--log-output=failures` prints only failed captures.
-Application-installed sinks are unchanged; applications
-must keep their own stdout writes out of machine reports.
-`--list` prints the richer listing format (name plus metadata such as tags/owner when present).
-`--kind` restricts execution/filtering to `all|test|bench|jitter` (default `all`).
-Examples below use the concise `[[gentest::...]]` spelling for single attributes and `[[using gentest: ...]]` for multi-attribute lists.
-Unless a snippet is explicitly a named-module example, treat it as header
-contents; non-template free-function definitions are therefore `inline`.
-
-Naming:
-- Any gentest function-level attribute marks the declaration as a case.
-- `test("...")` is optional; if omitted, the base name defaults to the C++ function name.
-- Member tests are deprecated and support may be removed (see [`DEPRECATIONS.md`](DEPRECATIONS.md)); prefer free functions with fixture parameters.
-
-Runtime evidence: [properties, structured records, scopes, and exporters](docs/recording.md).
-
-Tags/metadata:
-- Flag attributes are collected as tags: `fast`, `slow`, `linux`, `windows`, `death`.
-- Value attributes attach metadata: `req("BUG-123")`, `owner("team-runtime")`, `skip("reason")`.
-- `req("...")` is the requirement-to-test mapping hook for traceability workflows (see [docs/traceability_standards.md](docs/traceability_standards.md)).
-- Requirement IDs are shown in `--list` output as `requires=...` and exported in JUnit as
-  `<property name="requirement" value="...">`, so you can build a trace matrix from CI artifacts (example flow: [docs/traceability_standards.md](docs/traceability_standards.md)).
-- `death`-tagged tests are excluded from the default run; pass `--include-death` to execute them.
-- The death-test harness requires entry into the test body followed by non-zero termination; set `DEATH_EXPECT_SUBSTRING` to assert output.
-- Full death-test docs: [docs/death_tests.md](docs/death_tests.md).
-
-## Feature examples
-
-### Assertions, failures, and exceptions
-
-`gentest` provides lightweight assertion helpers in `gentest::asserts` (inline functions, not macros):
-
-```cpp
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
-using namespace gentest::asserts;
-
-namespace math {
-
-[[gentest::test]]
-inline void add() {
-    EXPECT_EQ(1 + 1, 2);
-    ASSERT_TRUE(2 + 2 == 4, "fatal: aborts the current test");
-}
-
-} // namespace math
-```
-
-See [failure diagnostics](docs/failure_diagnostics.md) for container/string output, scoped context, shared matcher assertions, and
-the optional libassert expression adapter.
-
-Include-based tests that use flow-sensitive analysis can opt into caller-visible
-fatal assertion macros. Clang-tidy recognizes `ASSERT_TRUE` and `ASSERT_FALSE`
-as guards, which avoids false positives such as an optional access after a
-fatal presence check:
-
-```cpp
-#include "gentest/analyzer_assertions.h"
-
-ASSERT_TRUE(result.has_value());
-use(*result);
-```
-
-The analyzer header intentionally defines macros and therefore cannot be
-exported by `import gentest;`. It also rejects an existing `ASSERT_TRUE` or
-`ASSERT_FALSE` definition instead of silently replacing another framework's
-macros. The ordinary `gentest::require` and `gentest::asserts` APIs remain
-macro-free.
-
-Exceptions:
-- If a test throws a `std::exception`, the runner records a failure like `unexpected std::exception: ...` and continues.
-- Include-based consumers can use the gtest-like macros. Their first argument is a *statement* that the macro executes
-  (`EXPECT_NO_THROW(risky())`, `EXPECT_NO_THROW(first(); second())`), not a callable.
-- `import gentest;` consumers should use the matching function templates from `gentest::asserts`, which take a *callable*
-  and invoke it. Macros are not exported by modules, so the two spellings never meet there.
-- In include-based code the macro shadows the function template of the same name. Passing a lambda-expression to the macro is
-  a compile-time error, because the lambda would only be created and never called. Either call it in the statement
-  (`EXPECT_NO_THROW(fn())`) or reach the function template by parenthesizing its name: `(EXPECT_NO_THROW)(fn)`.
-  `EXPECT_THROW<E>(fn)` and `ASSERT_THROW<E>(fn)` already select the function template. A named callable passed to the macro
-  (`EXPECT_NO_THROW(fn)`) is an expression statement that does nothing; the compiler's unused-value warning reports it.
-  Define `GENTEST_NO_THROW_MACROS` before including gentest to drop the macros and use only the function templates.
-
-```cpp
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
-using namespace gentest::asserts;
-
-#include <stdexcept>
-
-[[gentest::test("exceptions/macros")]]
-inline void macros() {
-    EXPECT_THROW(throw std::runtime_error("boom"), std::runtime_error);
-    EXPECT_THROW(throw 123, int);
-    EXPECT_NO_THROW((void)0);
-}
-```
-
-```cpp
-#include <stdexcept>
-import gentest;
-using namespace gentest::asserts;
-
-[[gentest::test("exceptions/module_functions")]]
-void module_functions() {
-    EXPECT_THROW<std::runtime_error>([] { throw std::runtime_error("boom"); });
-    EXPECT_NO_THROW([] {});
-}
-```
-
-- For more detailed checks (e.g. matching `what()`), use normal C++ `try`/`catch` and `gentest::fail(...)`:
-
-```cpp
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
-
-#include <exception>
-#include <string_view>
-
-[[gentest::test("exceptions/handled")]]
-inline void handled() {
-    try {
-        might_throw();
-        gentest::fail("expected might_throw() to throw");
-    } catch (const std::exception& e) {
-        gentest::expect(std::string_view(e.what()).find("boom") != std::string_view::npos, "message contains 'boom'");
-    }
-}
-```
-
-### DEATH / termination (including no-exceptions builds)
-
-With exceptions enabled (the common case), `ASSERT_*` aborts only the *current test* by throwing `gentest::assertion`
-(not derived from `std::exception`); the runner catches it and continues.
-
-With exceptions disabled (e.g. `-fno-exceptions`), fatal operations terminate the process (via `std::terminate()`):
-- `ASSERT_*` / `gentest::require*`
-- `gentest::skip(...)`
-
-Build hint (GCC/Clang):
-
-```cmake
-target_compile_options(my_tests PRIVATE -fno-exceptions)
-# fmt 11 and newer read FMT_USE_EXCEPTIONS; fmt 10 and older read FMT_EXCEPTIONS.
-target_compile_definitions(my_tests PRIVATE FMT_USE_EXCEPTIONS=0) # and on MSVC STL: _HAS_EXCEPTIONS=0
-```
-
-To test these “death” paths, tag them and run them in their own process:
-
-```cpp
-[[using gentest: test("death/fatal_path"), death]]
-inline void fatal_path() {
-    gentest::require(false, "fatal path");
-}
-```
-
-```cmake
-gentest_discover_tests(my_tests
-  # Optional: enforce expected output substring for death tests
-  # DEATH_EXPECT_SUBSTRING "fatal path"
-)
-```
-
-Manual run:
-
-```bash
-./my_tests --run=death/fatal_path --include-death
-```
-
-Note: if a death test is compiled out in a configuration (e.g. wrapped in `#ifndef NDEBUG`), it won't
-appear in discovery output, so no CTest entry is created for that config.
-
-### Outcomes (skip / xfail)
-
-`skip(...)` marks a test skipped and stops executing it. `xfail(...)` marks an expected failure: if the test fails or
-throws, it’s reported as XFAIL; if it passes, it’s reported as XPASS (failure).
-
-```cpp
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
-using namespace gentest::asserts;
-
-[[gentest::test("outcomes/skip")]]
-inline void skip_example() {
-    gentest::skip("not supported on this configuration");
-}
-
-[[gentest::test("outcomes/xfail")]]
-inline void xfail_example() {
-    gentest::xfail("BUG-123: known issue");
-    EXPECT_EQ(1, 2, "expected to fail");
-}
-```
-
-### Threads/coroutines + logging
-
-Assertions and outcomes must run in the owning test. When you spawn worker threads/coroutines, capture the current context and set it in
-the worker only for `gentest::log()` and cooperative stop checks. Report data back to the owning test, then assert there. Logs are
-captured on the active test and streamed to registered log sinks immediately. The default sink writes to stdout; add or remove sinks with
-`gentest::add_log_sink(...)`, `gentest::remove_log_sink(...)`, `gentest::remove_all_log_sinks()`, and `gentest::restore_default_log_sink()`.
-Sink handles are explicit removal tokens, not RAII guards; do not change the sink registry concurrently with `gentest::log()`.
-During async live rendering, stdout logs from active async cases are shown in the live row tail and the completed row keeps only the log
-count; additional custom sinks still receive each log immediately. Failure-focused capture and compact output are described in
-[runner workflows](docs/runner_workflows.md). The live renderer and framework color are disabled for non-TTY output,
-`TERM=dumb`, and capture-oriented environments such as `CI` or `CODEX_CI`; use `GENTEST_ASYNC_LIVE=1` to force live rendering in a
-capable terminal, or `GENTEST_ASYNC_LIVE=0` / `GENTEST_NO_ASYNC_LIVE=1` to force plain output.
-
-```cpp
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
-using namespace gentest::asserts;
-
-#include <atomic>
-#include <thread>
-
-[[gentest::test("concurrency/adopt_and_log")]]
-inline void adopt_and_log() {
-    auto context = gentest::get_current_context();
-
-    std::atomic<bool> reached{false};
-    std::thread t([context, &reached] {
-        auto adoption = gentest::set_current_context(context);
-        gentest::log("from child thread");
-        reached.store(true, std::memory_order_release);
-    });
-    t.join();
-
-    EXPECT_TRUE(reached.load(std::memory_order_acquire));
-}
-```
-
-Completion semantics are strict by design: runner phase completion waits until all context adoptions are released.
-
->[!WARNING]
-> If adopted work is detached or stuck and never releases the `gentest::CurrentContextLease`, the test/run blocks forever.
-
-### Parameters (value matrices)
-
-Use named parameter axes to generate a Cartesian product of value sets:
-
-```cpp
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
-
-[[gentest::test("params/pairs")]]
-[[gentest::parameters(a, 1, 2)]]
-[[gentest::parameters(b, 10, 20)]]
-inline void pairs(int a, int b) {
-    gentest::expect((a == 1 || a == 2) && (b == 10 || b == 20), "values from axes");
-}
-
-// “Row” style instead of a Cartesian product:
-[[using gentest: test("params/rows"), parameters_pack((a, b), (1, 10), (2, 20))]]
-inline void rows(int a, int b) {
-    gentest::expect((a == 1 && b == 10) || (a == 2 && b == 20), "row values");
-}
-```
-
-The generator also supports convenience axes like `range(...)`, `linspace(...)`, `geom(...)`, and `logspace(...)` (see
-`include/gentest/attributes.h`).
-These axes are expanded while generating code, so their bounds must be numeric literals (decimal, hex, binary, exponents,
-suffixes and digit separators are accepted) and the parameter must have an integer or floating-point type; a named constant or
-an expression is reported as an error.
-
-### Templates (including template-template packs)
-
-Generate a compact template-template pack expansion by combining parenthesized rows into a
-single `template(...)` attribute:
-
-```cpp
-#include "gentest/attributes.h"
-#include "gentest/runner.h"
-#include <list>
-#include <string>
-#include <tuple>
-#include <vector>
-
-template <template <class...> class... Cs>
-[[using gentest: template(Cs, (), (std::vector), (std::vector, std::list))]]
-void tt_pack() {
-    using tuple_t = std::tuple<Cs<int>...>;
-    const auto arity = std::tuple_size_v<tuple_t>;
-    gentest::log(std::string("template-template pack arity = ") + std::to_string(arity));
-    gentest::expect_eq(arity, sizeof...(Cs), "template-template pack arity");
-}
-```
-
-This expands to three concrete cases:
-
-```text
-[ PASS ] tt_pack<>
-template-template pack arity = 0
-[ PASS ] tt_pack<std::vector>
-template-template pack arity = 1
-[ PASS ] tt_pack<std::vector,std::list>
-template-template pack arity = 2
-```
-
-`template(NAME, ...)` applies to type, value, and template-template parameters.
-Template parameter packs use parenthesized rows inside the same attribute, as in
-`template(Cs, (), (std::vector), (std::vector, std::list))`.
-
-### Fixtures
-
-Fixture arguments are inferred from the free-function signature. If a fixture implements
-`gentest::FixtureSetup`/`gentest::FixtureTearDown`, hooks run automatically.
-
-Supported fixture argument forms:
-- `T&` (reference to the managed fixture instance)
-- `T*` (pointer to the managed fixture instance)
-- `std::shared_ptr<T>`
-
-Allocation hooks can return `std::unique_ptr<T>` (or custom-deleter unique ptr),
-`std::shared_ptr<T>`, or raw `T*`. Gentest always manages fixture ownership
-internally. Raw-pointer returns are adopted into managed ownership (same lifetime
-semantics as returning `std::unique_ptr<T>`), and the framework handles
-deallocation.
-
-`std::unique_ptr<T>` is an allocation-hook return form, not a test-parameter
-form.
-
->[!NOTE]
->This example's teardown assertions assume the three cases below run together:
->`fx/local/one`, `fx/shared/first`, and `fx/shared/second`. If you run only a
->subset, this will obviously fail the count checks.
-
-```cpp
-#include "gentest/attributes.h"
-#include "gentest/fixture.h"
-#include "gentest/runner.h"
-
-using namespace gentest::asserts;
-
-namespace fx {
-
-struct CounterBase : gentest::FixtureSetup, gentest::FixtureTearDown {
-    int set_up_calls = 0;
-    int touches      = 0;
-
-    void setUp() override { ++set_up_calls; }
-
-    void touch() { ++touches; }
-
-    void tearDown() override {
-        EXPECT_EQ(set_up_calls, 1, "fixture setup runs once");
-        EXPECT_EQ(touches, 1, "local fixture is touched once");
-    }
-};
-
-template <int ExpectedTouches>
-struct SharedCounterBase : CounterBase {
-    void tearDown() override {
-        EXPECT_EQ(this->set_up_calls, 1, "shared fixture setup runs once");
-        EXPECT_EQ(this->touches, ExpectedTouches, "shared fixture collected all touches");
-    }
-};
-
-// Declare the global fixture in the common ancestor namespace so it is visible
-// to both `fx::local` and `fx::shared`.
-struct [[gentest::fixture(global)]] GlobalCounter : SharedCounterBase<3> {};
-
-namespace local {
-
-struct LocalCounter : CounterBase {};
-
-[[gentest::test]]
-inline void one(LocalCounter& local_fx, GlobalCounter& global_fx) {
-    local_fx.touch();
-    global_fx.touch();
-}
-
-} // namespace local
-
-namespace shared {
-
-struct [[gentest::fixture(suite)]] SuiteCounter : SharedCounterBase<2> {};
-
-[[gentest::test]]
-inline void first(SuiteCounter& suite_fx, GlobalCounter& global_fx) {
-    suite_fx.touch();
-    global_fx.touch();
-}
-
-[[gentest::test]]
-inline void second(SuiteCounter& suite_fx, GlobalCounter& global_fx) {
-    suite_fx.touch();
-    global_fx.touch();
-}
-
-} // namespace shared
-
-} // namespace fx
-```
-
-See [docs/fixtures_allocation.md](docs/fixtures_allocation.md) for the full allocation and ownership model.
-
-### Mocks
-
-`gentest::mock<T>` now comes from an explicit mock target. You declare mock defs once with
-`gentest_add_mocks(...)`, then your tests include or import the generated mock surface and link the mock target.
-
-Header-defined mock example:
-
-```cmake
-gentest_add_mocks(clock_mocks
-  DEFS ${CMAKE_CURRENT_SOURCE_DIR}/clock_mocks.hpp
-  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
-  HEADER_NAME public/clock_mocks.hpp)
-
-add_executable(clock_tests cases.hpp)
-target_link_libraries(clock_tests PRIVATE gentest::gentest_main clock_mocks)
-gentest_attach_codegen(clock_tests)
-gentest_discover_tests(clock_tests)
-```
-
-Mock defs (`clock_mocks.hpp`):
-
-```cpp
-#pragma once
-
-#include "clock.h"
-
-namespace mytests::mocks {
-using ClockMock = gentest::mock<Clock>;
-}
-```
-
-Tests (`cases.hpp`):
-
-```cpp
-#pragma once
-
-#include "gentest/test.h"
-#include "public/clock_mocks.hpp"
-
-using namespace gentest::asserts;
-
-inline int read_now(const Clock* clock) { return clock->now(); }
-
-[[using gentest: test("mock/clock")]]
-inline void mock_clock() {
-    mytests::mocks::ClockMock clock;
-    gentest::expect(clock, &Clock::now).times(1).returns(123);
-    EXPECT_EQ(read_now(&clock), 123);
-}
-```
-
-After the generated surface is visible, raw `gentest::mock<T>` is also valid:
-
-```cpp
-gentest::mock<Clock> raw_clock;
-gentest::expect(raw_clock, &Clock::now).times(1).returns(456);
-```
-
-Third-party mock backends are currently exposed through CMake. Gentest is only the generator for these backends: the generated public
-header exposes native framework classes in a mirrored `mocks` namespace, and your test binary links the generated mock target plus the
-third-party framework. For a global `Clock`, use `mocks::ClockMock`.
-
-```cmake
-find_package(GTest CONFIG REQUIRED)
-
-gentest_add_mocks(clock_gmock_mocks
-  DEFS ${CMAKE_CURRENT_SOURCE_DIR}/clock_mocks.hpp
-  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/gmock_mocks"
-  HEADER_NAME public/clock_gmock_mocks.hpp
-  BACKEND gmock
-  LINK_LIBRARIES GTest::gmock)
-
-add_executable(clock_gtest_tests clock_gtest_tests.cpp)
-target_link_libraries(clock_gtest_tests PRIVATE clock_gmock_mocks GTest::gtest_main)
-```
-
-```cpp
-#include "public/clock_gmock_mocks.hpp"
-
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
-
-TEST(ClockMocks, ReadsNow) {
-    mocks::ClockMock clock;
-    EXPECT_CALL(clock, now()).WillOnce(::testing::Return(123));
-    EXPECT_EQ(read_now(&clock), 123);
-}
-```
-
-Trompeloeil is selected the same way:
-
-```cmake
-gentest_add_mocks(clock_trompeloeil_mocks
-  DEFS ${CMAKE_CURRENT_SOURCE_DIR}/clock_mocks.hpp
-  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/trompeloeil_mocks"
-  HEADER_NAME public/clock_trompeloeil_mocks.hpp
-  BACKEND trompeloeil
-  LINK_LIBRARIES trompeloeil::trompeloeil)
-
-add_executable(clock_trompeloeil_tests clock_trompeloeil_tests.cpp)
-target_link_libraries(clock_trompeloeil_tests PRIVATE clock_trompeloeil_mocks trompeloeil::trompeloeil)
-```
-
-```cpp
-#include "public/clock_trompeloeil_mocks.hpp"
-
-#include <trompeloeil/mock.hpp>
-
-int main() {
-    mocks::ClockMock clock;
-    REQUIRE_CALL(clock, now()).RETURN(123);
-    return read_now(&clock) == 123 ? 0 : 1;
-}
-```
-
-Keep the interface declaration in a separate header from the `gentest::mock<T>` marker alias; the generated third-party public header
-includes the interface header, not the marker header. If the target type is namespaced, the mock class follows that namespace:
-`myapp::Clock` becomes `myapp::mocks::ClockMock`. The generated name comes from the target type, not from the marker alias name.
-`BACKEND gmock` and `BACKEND trompeloeil` support textual/header mock targets with Ninja and Ninja Multi-Config;
-multi-config artifacts live under a configuration subdirectory of `OUTPUT_DIR`.
-Use the default `BACKEND gentest` for named-module mocks. No backend supports conversion operators, C-style variadic methods,
-volatile-qualified methods, or pure virtual assignment operators. See [docs/mock_generation.md](docs/mock_generation.md) for mock-only
-consumer examples, install/export notes, naming, and limitations. The Trompeloeil backend emits explicit-arity
-`MAKE_MOCKn` / `MAKE_CONST_MOCKn` macros for compatibility with older Trompeloeil packages.
-
-GMock tests use GoogleTest's runner, CLI, and reports. Trompeloeil supplies mocking;
-its host test framework or standalone program controls execution and reports.
-These generated classes do not install an adapter into Gentest's runner. See
-[execution and reports](docs/mock_generation.md#execution-and-reports) when combining frameworks.
-
-Named-module mock usage is the same idea, but the public surface is a generated module:
-
-```cmake
-# Build/install gentest with -DGENTEST_ENABLE_PUBLIC_MODULES=ON
-# before consuming `import gentest;` or `import gentest.mock;`.
-
-gentest_add_mocks(service_mocks
-  DEFS
-    ${CMAKE_CURRENT_SOURCE_DIR}/service.cppm
-    ${CMAKE_CURRENT_SOURCE_DIR}/mock_defs.cppm
-  OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/mocks"
-  MODULE_NAME mytests.service_mocks)
-
-add_executable(module_tests main.cpp)
-target_sources(module_tests PRIVATE
-  FILE_SET module_cases TYPE CXX_MODULES FILES
-    cases.cppm)
-target_link_libraries(module_tests PRIVATE gentest::gentest gentest::gentest_runtime service_mocks)
-gentest_attach_codegen(module_tests MODULE_REGISTRATION FILE_SET module_cases)
-gentest_discover_tests(module_tests)
-```
-
-Link explicit mock targets before `gentest_attach_codegen()`, so codegen sees the generated mock surface during the first parse.
-
-Mock defs module (`mock_defs.cppm`):
-
-```cpp
-export module mytests.mock_defs;
-
-import gentest.mock;
-
-export import mytests.service;
-
-export namespace mytests::mocks {
-using ServiceMock = gentest::mock<mytests::Service>;
-}
-```
-
-Consumer module (`cases.cppm`):
-
-```cpp
-export module mytests.cases;
-
-import gentest;
-import mytests.service_mocks;
-
-export namespace mytests::cases {
-
-[[using gentest: test("module/mock")]]
-void module_mock() {
-    mytests::mocks::ServiceMock mock_service;
-    gentest::expect(mock_service, &mytests::Service::compute).times(1).with(3).returns(9);
-}
-
-} // namespace mytests::cases
-```
-
-Safeguards:
-- Mocked target definitions may live in headers, header-like files, or named modules. Ordinary source files are still rejected by codegen.
-- Header-like files with nonstandard extensions (for example `.mpp`) are accepted when treated as headers (not as named module interfaces).
-- Generated mock-registry includes are relative when possible and fall back to absolute paths for cross-root/cross-drive headers (Windows-only path constraint).
-
-Generated mock outputs are partitioned by visibility domain. A single target can mix classic/header-defined mocks with mocks defined in multiple named modules; classic TUs pick up the header-domain shard, and each named module source picks up only its own generated module-domain shard.
-
-Header implementation to mock (`sink.h`):
-
-```cpp
-#pragma once
-
-struct Sink {
-    void write(int value) { last = value; }
-    int last = 0;
-};
-```
-
-Test header (`cases.hpp`):
-
-Assume `public/sink_mocks.hpp` is the generated header surface from an explicit mock target, for example one that publishes `demo::mocks::SinkMock` and `demo::mocks::TickerMock`.
-
-```cpp
-#include "gentest/attributes.h"
-#include "public/sink_mocks.hpp"
-using namespace gentest::asserts;
-
-template <class SinkLike>
-void emit(SinkLike* s) {
-    s->write(7);
-}
-
-[[gentest::test("mock/nonvirtual")]]
-inline void mock_nonvirtual() {
-    demo::mocks::SinkMock sink;
-    EXPECT_CALL(sink, write).times(1).with(7);
-    emit(&sink);
-}
-```
-
-Matchers (`.where(...)` with `gentest::match` helpers):
-
-```cpp
-#include "public/sink_mocks.hpp"
-using namespace gentest::match;
-
-demo::mocks::SinkMock sink;
-EXPECT_CALL(sink, write).times(2).where(InRange(10, 20));
-Sink* sink_ptr = &sink;
-sink_ptr->write(12);
-```
-
-Static member functions can be mocked too. Example type:
-
-```cpp
-struct Ticker {
-    static int add(int lhs, int rhs) noexcept { return lhs + rhs; }
-};
-
-demo::mocks::TickerMock t;
-EXPECT_CALL(t, add).times(1).returns(123);
-EXPECT_EQ(t.add(4, 5), 123);
-```
-
-Use `t.add(...)` (through the mock object). A direct `Ticker::add(...)` call bypasses the mock.
-
-### Benchmarks and jitter
-
-For source-declared one-shot execution, supplied end-to-end timing and named CPU/GPU
-timing distributions, see [benchmark measurements](docs/benchmark_measurements.md).
-
-Define microbenchmarks and jitter benchmarks (for timing variance):
-
-```cpp
-#include "gentest/attributes.h"
-#include "gentest/bench_util.h"
-#include "gentest/runner.h"
-#include "gentest/test.h"
-
-#include <cmath>
-#include <string>
-
-struct ConcatInputs : gentest::FixtureSetup, gentest::FixtureTearDown {
-    std::string left, right, result;
-
-    void setUp() override {
-        left = "hello";
-        right = " world";
-    }
-
-    void tearDown() override {
-        gentest::asserts::EXPECT_EQ(result, "hello world");
-    }
-};
-
-// One logical item is one complete concatenation, including output replacement.
-// Fixture setup and result checking happen outside the timed calls.
-[[gentest::bench("bench/concat")]]
-inline void bench_concat(ConcatInputs &inputs) {
-    inputs.result = inputs.left + inputs.right;
-    gentest::doNotOptimizeAway(inputs.result.data());
-    gentest::clobberMemory();
-}
-
-[[gentest::jitter("bench/sin")]]
-inline void jitter_sin() {
-    volatile double x = 1.2345;
-    gentest::doNotOptimizeAway(std::sin(x));
-}
-```
-
-CLI:
-
-```bash
-./my_tests --list-benches
-./my_tests --run=bench/concat --kind=bench
-./my_tests --filter=bench/* --kind=bench --bench-table
-./my_tests --bench-min-epoch-time-s=0.02 --bench-epochs=8 --bench-warmup=2 --bench-max-total-time-s=5
-./my_tests --run=bench/sin --kind=jitter --jitter-bins=20
-./my_tests --filter=bench/* --kind=jitter --jitter-bins=20
-./my_tests --filter=bench/* --kind=all --time-unit=ns
-./my_tests --filter=bench/* --kind=bench --report-format=markdown
-./my_tests --filter=bench/* --kind=jitter --report-format=json
-```
-
-Bench/jitter execution is phase-based per measured case:
-- `setup`: runs once before calibration/warmup/measurement call loops.
-- `call`: runs in loops; reported benchmark/jitter metrics come from this phase.
-- `teardown`: runs once after call loops.
-Failures are reported by phase (`setup`, `call`, or `teardown`), and the executable exits non-zero.
-
-Benchmark calls are the C++ function invocations that Gentest times. Use
-`items_per_call(N)` or its `ops_per_call(N)` alias when one timed function call
-does `N` logical operations; reports include `Items/call` and normalize the main
-timing columns per item using the selected or automatic display unit. Use
-`--time-unit=ns` when you need explicit ns/item text. Automatic time units are
-chosen per cell so mixed slow/fast tables do not hide nanosecond-scale rows
-behind a suite-wide unit.
-`N` is a positive non-zero decimal integer; prefixes, suffixes, digit
-separators, and leading-zero forms are rejected so the reported item count
-matches the source spelling.
-
-For very small workloads, perform several real operations inside one call and
-set `items_per_call` to that count to amortize invocation overhead. Do not count
-inputs as completed operations: three pieces concatenated into one string are
-one item. Timings include the call wrapper and any work left inside the body;
-the runner does not subtract a synthetic empty-loop cost.
-
-`doNotOptimizeAway` preserves the complete object supplied to it, not everything
-reachable through its pointers. Escape separately owned result storage and use
-`clobberMemory` where needed. Neither helper prevents constant folding of known
-inputs, makes a workload representative, or synchronizes threads. Native MSVC
-uses an opaque call rather than inline assembly: consumers must link the matching
-Gentest runtime (automatic with `gentest::gentest`). That call and any required
-object materialization contribute to measured time.
-
-Jitter reports identify batch averages and warn when they may hide individual-call
-latency spikes. See [jitter sampling](docs/jitter_sampling.md) for measurement
-and export details.
-
-`--report-format=json` emits one JSON document for the measured selection. JSON
-uses stable, typed fields such as `median_ns_per_item`, `items_per_call`, and
-`baseline_delta_pct` rather than display headers. `--report-format=csv` emits a
-strict long-form CSV schema: `report,table,row,field,type,value`.
-Machine formats require a measured-only selection (`--kind=bench`, `--kind=jitter`,
-or a filter that selects only measured cases); human test output is not mixed into
-JSON or CSV stdout.
-
-Compare a current measured report against a saved JSON or CSV baseline with:
-
-```bash
-python3 scripts/compare_measured_reports.py \
-  --baseline baseline.json \
-  --current current.json \
-  --fail-regression-pct 10 \
-  --markdown-out measured-compare.md
-```
-
-The comparison matches bench/jitter rows by name, checks metrics such as
-`median_ns_per_item`, `p95_ns_per_item`, and `stddev_ns_per_item`, reports new
-or missing benchmarks, and writes a Markdown summary. Measurements with different
-execution, timing or sampling semantics (including jitter batch widths) appear under
-**Not Comparable**, without invented performance deltas. Compatible measurements
-are still compared. Exit codes are `0` for no detected regression, `1` for regressions
-over the configured threshold (or `--fail-on-new`/`--fail-on-missing` violations), and
-`2` for invalid inputs or no comparable metric values.
-
-### Out-of-line definitions
-
-The header-only layout above is the ordinary way to write a test. A target can
-instead keep an authored `.cpp` (`add_executable(my_tests cases.cpp cases.hpp)`):
-put the case's annotated external-linkage declaration in the header and its
-definition in the `.cpp`, which includes the header. The declaration, fixture
-types, and parameter types must still be header-reachable so codegen can build
-the registration adapter. An annotation written only on the `.cpp` definition
-is not supported.
-
-### Reporting (JUnit / Allure / GitHub annotations)
-
-```bash
-./my_tests --junit=./junit.xml
-./my_tests --allure-dir=./allure-results
-./my_tests --github-annotations
-```
-
-`--allure-dir` writes Allure 2 result files (`uuid`, `historyId`, `fullName`, `start`/`stop`, labels, parameters, and attachments) that the Allure report generator reads directly; no optional library is needed. Results are named after their program: `fullName` is `<program>:<case>` and a `parentSuite` label holds the program, so same-named cases of different programs in one report stay separate tests, while reruns of one program link into one history. Every file a run writes there starts with that run's random token, so any number of executables, shards or per-case CTest runs can share one directory; gentest never removes a file from it, so empty the directory before a run whose report should not include earlier results. Blocked cases are reported as JUnit `<error>` / Allure `broken`; see [report outcome mapping](docs/runner_api.md). Measured cases emit richer native artifacts:
-- bench metrics as TSV plus an SVG summary plot
-- jitter metrics/histogram as TSV plus an SVG histogram plot and sampled raw JSON
-
-Minimal CDash dashboard support is available through `ctest -S`:
-
-```bash
-ctest -S cmake/cdash/Experimental.cmake -VV
-GENTEST_CDASH_ENABLE_ALLURE_TESTS=ON ctest -S cmake/cdash/Experimental.cmake -VV
-GENTEST_CDASH_SUBMIT_URL='https://cdash.example/submit.php?project=gentest' ctest -S cmake/cdash/Experimental.cmake -VV
-```
-
-Useful overrides are read from the environment:
-- `GENTEST_CDASH_SOURCE_DIR`
-- `GENTEST_CDASH_BINARY_DIR`
-- `GENTEST_CDASH_GENERATOR`
-- `GENTEST_CDASH_PARALLEL_LEVEL`
-- `GENTEST_CDASH_CONFIGURATION`
-- `GENTEST_CDASH_ENABLE_ALLURE_TESTS`
-- `GENTEST_CDASH_BUILD_TARGETS`
-- `GENTEST_CDASH_TEST_REGEX`
-- `GENTEST_CDASH_SUBMIT_URL`
-- `GENTEST_CDASH_DRY_RUN=ON`
-
->[!WARNING]
-> Cross-compiling requires a *host* `gentest_codegen` executable. See
-> [`docs/cross_compile/linux_aarch64_qemu.md`](docs/cross_compile/linux_aarch64_qemu.md),
-> [`docs/cross_compile/linux_riscv64_qemu.md`](docs/cross_compile/linux_riscv64_qemu.md), and the install templates under
-> [`docs/install/`](docs/install/).
-
-## Docs
-
-- Docs index: [`docs/index.md`](docs/index.md)
-- Install templates: [`Linux`](docs/install/linux.md), [`macOS`](docs/install/macos.md), [`Windows`](docs/install/windows.md)
-- Non-CMake downstream guides: [`Meson`](docs/buildsystems/meson.md), [`Xmake`](docs/buildsystems/xmake.md), [`Bazel`](docs/buildsystems/bazel.md)
+[Command-line options](docs/command_line.md) describes every option and exit
+code, and [Test selection](docs/test_selection.md) explains how the selectors
+combine.
+
+## Named modules
+
+Cases can also live in named-module interface units that use
+`import gentest;`. Build gentest with `-DGENTEST_ENABLE_PUBLIC_MODULES=ON` and
+attach codegen with
+`gentest_attach_codegen(<target> MODULE_REGISTRATION FILE_SET <name>)`.
+[examples/hello_modules](examples/hello_modules) is a complete project, and
+[Named modules](docs/modules.md) covers the requirements, what to export and
+link, and module mocks.
+
+## Documentation
+
+The [docs index](docs/index.md) lists every page, including reference,
+contributor and design-history pages.
+
+### Write tests
+
+| Page | What it covers |
+| --- | --- |
+| [Writing tests](docs/writing_tests.md) | Where cases live, attribute spelling, case names, tags and metadata, out-of-line definitions |
+| [Assertions](docs/assertions.md) | `EXPECT_*` and `ASSERT_*` checks, exceptions, analyzer assertions, skip and xfail |
+| [Failure diagnostics](docs/failure_diagnostics.md) | Scoped failure context, matchers, mock failure locations, libassert expression assertions |
+| [Formatting values](docs/value_formatting.md) | How values are printed in failure messages |
+| [Parameters and templates](docs/parameters.md) | Value axes, rows, numeric ranges, template matrices |
+| [Fixtures](docs/fixtures.md) | Local, suite and global lifetimes, setup and teardown, activation order |
+| [Fixture allocation hooks](docs/fixtures_allocation.md) | Custom construction and ownership with `gentest_allocate` |
+| [Death tests](docs/death_tests.md) | Cases that must terminate the process, and how CTest runs them |
+| [Mocks](docs/mock_generation.md) | Mock targets, mock definitions headers, gentest mocks, the gMock and Trompeloeil backends |
+| [Logging and threads](docs/logging_and_threads.md) | `gentest::log()`, log sinks, worker threads, live output |
+| [Benchmarks and jitter](docs/benchmarks.md) | Measured cases, timing reports, comparing two reports |
+| [Runtime properties and structured records](docs/recording.md) | Facts and data recorded during a run, and their exports |
+| [Named modules](docs/modules.md) | `import gentest;`, `MODULE_REGISTRATION`, module mocks, toolchain requirements |
+| [Async tests](docs/async.md) (experimental) | Coroutine cases that return `gentest::awaitable<>` |
+
+### Run tests
+
+| Page | What it covers |
+| --- | --- |
+| [Command-line options](docs/command_line.md) | Every runner option, exit codes, environment variables |
+| [Test selection](docs/test_selection.md) | Selecting by name, kind and tag; previews; empty selections |
+| [Running, debugging, and replaying tests](docs/runner_workflows.md) | Rerun commands, debugger breaks, captured output, shuffle replay, CTest workflows |
+| [CTest integration](docs/discover_tests.md) | `gentest_discover_tests()` and its options |
+| [Reports](docs/reports.md) | JUnit, Allure, GitHub annotations, how outcomes map to each |
+| [Test inventory](docs/test_inventory.md) | `--list-json` output for IDEs, dashboards and CI tools |
+| [Requirements traceability](docs/traceability_standards.md) | Requirement-to-test trace matrices from `req(...)` |
+| [Notifications and progress watchdogs](docs/notifications.md) | Progress notifications, watchdogs, framework events |
+
+### Integrate with your build
+
+| Page | What it covers |
+| --- | --- |
+| [Install gentest on Linux](docs/install/linux.md) | Build and install gentest from source, then run a first project |
+| [Install gentest on macOS](docs/install/macos.md) | The same with Homebrew LLVM, which codegen always needs; tests can also build with AppleClang 17 (Xcode 26) |
+| [Install gentest on Windows](docs/install/windows.md) | The same with an LLVM release package, using Clang or MSVC |
+| [Choosing a build system](docs/buildsystems/downstream_consumers.md) | Support matrix and settings for CMake, Meson, Xmake and Bazel |
+| [Meson](docs/buildsystems/meson.md) | gentest as a Meson wrap or subproject, without named modules |
+| [Xmake](docs/buildsystems/xmake.md) | An installed gentest from Xmake, with the installed helper functions |
+| [Bazel](docs/buildsystems/bazel.md) | The Bzlmod source package and its codegen toolchain |
+| [Host toolchains and cross-compiling](docs/buildsystems/host_toolchain_sysroots.md) | Host Clang selection, sysroots, cross builds of your project |
+| [Embedding the runner](docs/runner_api.md) | Your own `main()` (`gentest::run_all_tests`), hand-written cases (`gentest::Case`, `gentest::run_cases`) |
+| [Packaging](docs/packaging.md) | Release archives and signatures, Common Package Specification (CPS) and software bill of materials (SBOM) metadata, installed package helper |
+| [Windows troubleshooting](docs/windows_troubleshooting.md) | LLVM discovery and codegen problems on Windows |
+
+Release notes are in [CHANGELOG.md](CHANGELOG.md), and removed or deprecated
+features with their replacements are in [DEPRECATIONS.md](DEPRECATIONS.md).
+
+## Examples
+
+The [examples](examples/README.md) are small CMake projects that build against
+an installed gentest:
+
+- [examples/hello_header_only](examples/hello_header_only): a test target whose only source is a header.
+- [examples/hello](examples/hello): declarations in a header, definitions in a `.cpp`.
+- [examples/hello_modules](examples/hello_modules): cases in a named module that uses `import gentest;`.
+- Feature walkthroughs: [parameters](examples/parameterized/), [fixtures](examples/fixtures/),
+  [mocks](examples/mocking/), [benchmarks and jitter](examples/measured/),
+  [recording](examples/recording/), [metadata](examples/metadata/) and [async](examples/async/).
+
+## Cross-compiling
+
+`gentest_codegen` runs on the build machine, so a cross build needs a host
+build of it; in CMake, pass its path as `-DGENTEST_CODEGEN_EXECUTABLE=<path>`.
+See [Host toolchains and cross-compiling](docs/buildsystems/host_toolchain_sysroots.md).
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers building this repository, tests,
+lint, static analysis, coverage, CI and pull requests.
+
+## License
+
+gentest is licensed under the [Boost Software License 1.0](LICENSE). Release
+archives, their signatures, and the optional CPS and SBOM metadata are
+described in [Packaging](docs/packaging.md).
