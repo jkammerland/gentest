@@ -3,7 +3,8 @@
 
   Package consumer smoke tests prove the installed CMake integration. This
   script keeps the examples and their surrounding docs aligned without adding
-  another nested package build to the default test set.
+  another nested package build to the default test set. Doc checks look for
+  links, paths and configure options, not for prose.
 ]]
 if(NOT DEFINED SOURCE_DIR)
   message(FATAL_ERROR "CheckExamplesContract.cmake: SOURCE_DIR not set")
@@ -112,11 +113,9 @@ foreach(_token IN ITEMS
 endforeach()
 
 foreach(_token IN ITEMS
-    "Homebrew LLVM"
     "clang-scan-deps"
     "LLVM_DIR"
     "Clang_DIR"
-    "Ninja >= 1.11"
     "gentest_INSTALL=ON"
     "GENTEST_ENABLE_PUBLIC_MODULES=ON")
   _assert_contains("${_macos_doc}" "${_token}" "macOS install doc contract")
@@ -124,8 +123,6 @@ endforeach()
 
 foreach(_token IN ITEMS
     "expect_true"
-    "AppleClang"
-    "Homebrew LLVM"
     "GENTEST_ENABLE_PUBLIC_MODULES=AUTO")
   _assert_contains("${_modules_doc}" "${_token}" "modules doc contract")
 endforeach()

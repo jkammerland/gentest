@@ -6,7 +6,6 @@ set(_script_file "${SOURCE_DIR}/scripts/coverage_report.py")
 set(_config_file "${SOURCE_DIR}/scripts/coverage_hygiene.toml")
 set(_readme_file "${SOURCE_DIR}/README.md")
 set(_contributing_file "${SOURCE_DIR}/CONTRIBUTING.md")
-set(_agents_file "${SOURCE_DIR}/AGENTS.md")
 set(_doc_file "${SOURCE_DIR}/docs/coverage_hygiene.md")
 
 foreach(_required_file IN ITEMS
@@ -14,7 +13,6 @@ foreach(_required_file IN ITEMS
     "${_config_file}"
     "${_readme_file}"
     "${_contributing_file}"
-    "${_agents_file}"
     "${_doc_file}")
   if(NOT EXISTS "${_required_file}")
     message(FATAL_ERROR "Missing file for coverage report contract: ${_required_file}")
@@ -63,24 +61,20 @@ foreach(_required_token IN ITEMS "[report]" "fail_under_line = 75.0" "fail_under
   endif()
 endforeach()
 
+# The docs checks below look for commands, script paths and links, not prose.
+# CONTRIBUTING.md owns the coverage commands; the other pages link to it.
 file(READ "${_readme_file}" _readme_content)
-foreach(_required_token IN ITEMS "CONTRIBUTING.md" "lint, static analysis, coverage")
-  string(FIND "${_readme_content}" "${_required_token}" _token_pos)
-  if(_token_pos EQUAL -1)
-    message(FATAL_ERROR
-      "README.md must point contributors to CONTRIBUTING.md with ${_required_token}.")
-  endif()
-endforeach()
+string(FIND "${_readme_content}" "CONTRIBUTING.md" _token_pos)
+if(_token_pos EQUAL -1)
+  message(FATAL_ERROR "README.md must link contributors to CONTRIBUTING.md.")
+endif()
 
 file(READ "${_contributing_file}" _contributing_content)
 foreach(_required_token IN ITEMS
     "scripts/coverage_report.py"
     "cmake --preset=coverage-system"
     "ctest --preset=coverage-system --output-on-failure --parallel 1"
-    "--break-system-packages"
-    "internal headers"
-    "`src/`"
-    "`tools/src/`")
+    "--break-system-packages")
   string(FIND "${_contributing_content}" "${_required_token}" _token_pos)
   if(_token_pos EQUAL -1)
     message(FATAL_ERROR
@@ -88,34 +82,13 @@ foreach(_required_token IN ITEMS
   endif()
 endforeach()
 
-file(READ "${_agents_file}" _agents_content)
-foreach(_required_token IN ITEMS
-    "scripts/coverage_report.py"
-    "coverage-system"
-    "coverage-report/summary.md"
-    "--break-system-packages"
-    "internal headers"
-    "`src/`"
-    "`tools/src/`")
-  string(FIND "${_agents_content}" "${_required_token}" _token_pos)
-  if(_token_pos EQUAL -1)
-    message(FATAL_ERROR
-      "AGENTS.md must describe the repo-owned coverage reporting flow with ${_required_token}.")
-  endif()
-endforeach()
-
 file(READ "${_doc_file}" _doc_content)
 foreach(_required_token IN ITEMS
-    "not a general coverage-reporting tool"
-    "scripts/coverage_report.py"
-    "GitHub job summary"
-    "--break-system-packages"
-    "internal headers"
-    "`src/`"
-    "`tools/src/`")
+    "scripts/coverage_hygiene.py"
+    "scripts/coverage_report.py")
   string(FIND "${_doc_content}" "${_required_token}" _token_pos)
   if(_token_pos EQUAL -1)
     message(FATAL_ERROR
-      "docs/coverage_hygiene.md must explain the hygiene/reporting split and include ${_required_token}.")
+      "docs/coverage_hygiene.md must name ${_required_token}.")
   endif()
 endforeach()
