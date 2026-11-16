@@ -1,15 +1,31 @@
-# Header-only hello example
+# Hello: a header-only test target
 
-Build this example against an installed gentest package:
+This example shows the common layout. The test target's only source is
+[cases.hpp](cases.hpp), a header of `inline` cases, and codegen adds the
+generated registration sources to the target. No `.cpp` file is needed.
+
+Build it against an installed gentest and run it:
 
 ```bash
 cmake -S examples/hello_header_only -B build/examples/hello_header_only -G Ninja -DCMAKE_PREFIX_PATH=/path/to/gentest/install
 cmake --build build/examples/hello_header_only
 ctest --test-dir build/examples/hello_header_only --output-on-failure
+build/examples/hello_header_only/gentest_hello_header_only
 ```
 
-The whole test target is `cases.hpp`: the annotated `inline` definitions are the
-target's only source, and codegen appends the generated registration sources.
-No `.cpp` is needed.
+The last command prints:
 
-The example links `gentest::gentest_main`, so no handwritten `main()` is needed.
+```text
+[ PASS ] hello/addition (0 ms)
+[ PASS ] hello/greeting (0 ms)
+Summary: passed 2/2; failed 0; skipped 0; blocked 0; xfail 0; xpass 0.
+```
+
+The namespace `hello` is the suite, so the cases are named `hello/addition` and
+`hello/greeting`. [CMakeLists.txt](CMakeLists.txt) links
+`gentest::gentest_main`, which provides `main()`, then calls
+`gentest_attach_codegen()` and `gentest_discover_tests()`.
+
+To declare cases in a header and define them in a `.cpp` file, see the
+[hello example](../hello/). For the rules on where cases live, see
+[Writing tests](../../docs/writing_tests.md).

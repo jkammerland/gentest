@@ -1,61 +1,52 @@
 # Async cases, one step at a time
 
-This is one runnable project. Each numbered header adds one concept; every case
-also works on its own, in a shuffled run, and across repetitions.
+This is one runnable project of coroutine cases. Each numbered header adds one
+concept. Every case also passes on its own, in a shuffled run and when
+repeated.
 
-Build against Gentest installed from this checkout, with a C++20 compiler and host Clang:
+Build it against an installed gentest (see the [examples index](../README.md)
+for requirements):
 
-```sh
-cmake -S examples/async -B build/examples/async -G Ninja \
-  -DCMAKE_PREFIX_PATH=/path/to/gentest/install
+```bash
+cmake -S examples/async -B build/examples/async -G Ninja -DCMAKE_PREFIX_PATH=/path/to/gentest/install
 cmake --build build/examples/async
 ctest --test-dir build/examples/async --output-on-failure
 build/examples/async/gentest_async --repeat=2 --shuffle --seed 123 --no-color
 ```
 
-Use the usual `gentest::gentest_main` entry point. Fixtures own each service or
-loop; no application runner or event-loop registration is required.
+The example uses the usual `gentest::gentest_main` entry point. Fixtures own
+each service or loop; no application runner or event-loop registration is
+needed.
 
-| Stage | Source | What it shows |
-| --- | --- | --- |
-| 1 | [Awaitables](01_awaitables.hpp) | `awaitable<T>`, a returned value, and `yield()` |
-| 2 | [Composition](02_composition.hpp) | `when_all()` results and `when_any()` stopping and joining a loser |
-| 3 | [Cancellation](03_cancellation.hpp) | Deadlines, explicit stop tokens, and cleanup waits |
-| 4 | [Fixtures](04_fixtures.hpp) | Async setup/teardown and suite-owned infrastructure |
-| 5 | [Events and futures](05_events.hpp) | Named typed events, latched observations, and move-only one-shot values |
-| 6 | [Polling](06_polling.hpp) | A complete user loop with explicit progress and cooperative yield |
-| 7 | [Worker callbacks](07_worker.hpp) | A complete worker loop and an ordinary awaiter, including bounded waits |
-| 8 | [Callback cancellation](08_callback_cancellation.hpp) | Acknowledging stop, finishing the wait, and scoped registration cleanup |
+## Stages
 
-For a focused run:
+Each stage's cases share a suite, named after the header's namespace. Use the
+suite to run one stage with `--filter`, for example
+`--filter=async_examples/waits/*`.
 
-```sh
+| Stage | Source | Suite | What it shows |
+| --- | --- | --- | --- |
+| 1 | [Awaitables](01_awaitables.hpp) | `async_examples/cases` | `awaitable<T>`, a returned value, and `yield()` |
+| 2 | [Composition](02_composition.hpp) | `async_examples/composition` | `when_all()` results, and `when_any()` stopping and joining the loser |
+| 3 | [Cancellation](03_cancellation.hpp) | `async_examples/waits` | Deadlines, explicit stop tokens and cleanup waits |
+| 4 | [Fixtures](04_fixtures.hpp) | `async_examples/fixtures` | Async setup and teardown, and suite-owned infrastructure |
+| 5 | [Events and futures](05_events.hpp) | `async_examples/events` | Named typed events, latched observations and move-only one-shot values |
+| 6 | [Polling](06_polling.hpp) | `async_examples/polling` | A complete user loop with explicit progress and cooperative yield |
+| 7 | [Worker callbacks](07_worker.hpp) | `async_examples/worker` | A complete worker loop and an ordinary awaiter, including bounded waits |
+| 8 | [Callback cancellation](08_callback_cancellation.hpp) | `async_examples/cancellation` | Acknowledging stop, finishing the wait and cleaning up the registration |
+
+To run one case, or one stage:
+
+```bash
 build/examples/async/gentest_async --run=async_examples/composition/first_result_joins_loser --no-color
-build/examples/async/gentest_async --filter=async_examples/worker/* --no-color
+build/examples/async/gentest_async --filter='async_examples/worker/*' --no-color
 ```
 
-`when_all()` returns an owning tuple in input order. `when_any()` returns an
-owning variant for the first completed input, after requesting stop for the
-others and waiting for them to finish. Both accept ordinary awaitables; lvalue
-inputs are borrowed and rvalues are owned. Void results use `std::monostate`.
+[expected_tests.txt](expected_tests.txt) lists all 16 case names.
 
-`wait_for()` and `wait_until()` also accept ordinary awaitables. They request
-stop and join before returning a timeout, so a backend that needs time to stop
-can extend the wait beyond the deadline. An already-ready value still wins an
-expired deadline. Event, future, sleep, and yield waits inherit cancellation;
-an explicit token overrides it, and an empty token permits cleanup waits.
+## Learn more
 
-The worker awaiter uses the standard `await_ready`, `await_suspend`, and
-`await_resume` methods. `make_continuation()` and `bind_continuation<Args...>()`
-hand results back to the runner with the owning case's context. Backend status
-is an ordinary callback argument; `await_resume()` interprets it. The same
-awaiter works with a deadline without extra methods.
-
-A cancellation callback must let the operation finish. Stage 8 completes its
-read when stop is requested, then releases the registration after resumption.
-It does not stop a shared executor. Backend callback storage and borrowed
-arguments must remain alive until backend access ends; these examples send
-owned arguments through callbacks.
-
-See [the async guide](../../docs/async.md) for the complete contract, advanced
-continuation lifetime rules, and an optional application-owned executor pattern.
+[Async tests](../../docs/async.md) walks through the same eight stages and
+gives the full rules: composition results and ownership, deadlines and
+cancellation, handing callback results back to the runner, continuation
+lifetimes, and an optional application-owned executor.

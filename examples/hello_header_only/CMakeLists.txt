@@ -3,7 +3,6 @@ project(gentest_hello_header_only LANGUAGES CXX)
 
 include(CTest)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(gentest CONFIG REQUIRED)

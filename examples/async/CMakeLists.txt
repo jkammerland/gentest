@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.31)
 project(gentest_async LANGUAGES CXX)
 
 include(CTest)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(gentest CONFIG REQUIRED)

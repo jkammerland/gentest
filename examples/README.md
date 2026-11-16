@@ -1,41 +1,61 @@
-# gentest examples
+# Examples
 
-These examples are intentionally small downstream projects. Build them after installing gentest, or point `CMAKE_PREFIX_PATH`
-at a gentest install prefix.
+Each directory here is a small CMake project that builds a test executable
+against an installed gentest. Start with a hello example, then open the feature
+you need.
+
+## Build an example
+
+The examples need CMake 3.31 or newer, Ninja, a C++20 compiler, a gentest
+install that includes `gentest_codegen` (a native install does by default), and
+a host Clang that codegen can find (see
+[Host toolchains and cross-compiling](../docs/buildsystems/host_toolchain_sysroots.md)).
+Install gentest first ([Linux](../docs/install/linux.md),
+[macOS](../docs/install/macos.md), [Windows](../docs/install/windows.md)).
+Then, from the repository root, point `CMAKE_PREFIX_PATH` at the install prefix:
 
 ```bash
-cmake -S examples/hello -B build/examples/hello -G Ninja -DCMAKE_PREFIX_PATH=/path/to/gentest/install
-cmake --build build/examples/hello
-ctest --test-dir build/examples/hello --output-on-failure
+cmake -S examples/hello_header_only -B build/examples/hello_header_only -G Ninja -DCMAKE_PREFIX_PATH=/path/to/gentest/install
+cmake --build build/examples/hello_header_only
+ctest --test-dir build/examples/hello_header_only --output-on-failure
 ```
 
-Use `examples/hello_header_only/` for the ordinary case — a test target whose only source is a header — and
-`examples/hello/` for the split-header/source layout; use `examples/hello_modules/` for `import gentest;` tests. The module
-example requires a gentest install configured with `-DGENTEST_ENABLE_PUBLIC_MODULES=ON`, a module-capable compiler,
-`clang-scan-deps`, and Ninja >= 1.11.
+The same commands build the other examples; change the directory name. Each
+example's README adds the commands specific to it.
 
-## Feature walkthroughs
+## Hello examples
 
-| Example | Learn | Cases |
+| Example | What it shows |
+| --- | --- |
+| [`examples/hello_header_only/`](hello_header_only/) | The common layout: the test target's only source is a header of `inline` cases. |
+| [`examples/hello/`](hello/) | Declarations in a header, definitions in a `.cpp` file. |
+| [`examples/hello_modules/`](hello_modules/) | Cases in a named-module interface unit, with `import gentest;` and module registration (`MODULE_REGISTRATION`). |
+
+The module example needs a gentest install configured with
+`-DGENTEST_ENABLE_PUBLIC_MODULES=ON`, Ninja 1.11 or newer, a compiler that CMake
+can scan for module dependencies, and `clang-scan-deps` for codegen (with any
+compiler). See [Named modules: requirements](../docs/modules.md#requirements).
+
+## Feature examples
+
+| Example | What it shows | Cases |
 | --- | --- | --- |
-| [parameterized](parameterized/) | Value axes, paired rows, and type/container matrices | 18 |
-| [fixtures](fixtures/) | Fresh local state and shared suite setup with free-function tests | 3 |
-| [mocking](mocking/) | Generated payment gateway mock, argument checks, and call counts | 4 |
-| [measured](measured/) | Benchmark/jitter runs and a type × direction template matrix | 12 |
-| [recording](recording/) | Runtime properties, raw payloads, and optional JSON/CBOR snapshots | 3 |
-| [metadata](metadata/) | Declared metadata, JSON inventory, and JUnit requirements | 3 |
-| [async](async/) | Awaitables, composition, cancellation, fixtures, events, and user-owned loops | 16 |
+| [parameterized](parameterized/) | Value axes, paired rows, and type and container template matrices | 18 |
+| [fixtures](fixtures/) | A fresh local fixture for each case and a shared suite fixture | 3 |
+| [mocking](mocking/) | A generated payment gateway mock, argument checks and call counts | 4 |
+| [measured](measured/) | Benchmark and jitter cases over a type × direction template matrix | 12 |
+| [recording](recording/) | Runtime properties, raw payloads, and optional JSON or CBOR snapshots | 3 |
+| [metadata](metadata/) | Requirements, owners and tags; the JSON inventory and JUnit requirements | 3 |
+| [async](async/) | Coroutine cases: awaitables, composition, cancellation, fixtures, events and user-owned loops | 16 |
+| [notifications](notifications/) | Linux only: a standalone program that supervises a child process with a progress watchdog | none |
 
-Each directory is an independent CMake consumer with build commands and a
-checked case inventory. Start with the header-only hello, then pick a feature.
-Install instructions: [Linux](../docs/install/linux.md),
-[macOS](../docs/install/macos.md), [Windows](../docs/install/windows.md).
+Every feature example except notifications has an `expected_tests.txt` file
+with its exact case names. The notifications example has no test cases and
+builds only inside the gentest source tree; its README shows how to run it.
 
-With `GENTEST_ENABLE_PACKAGE_TESTS=ON`, the
-`gentest_package_consumer_include_only` CTest check builds all seven feature
-examples against the same installed package. It checks their exact case names,
-runs discovered cases individually, and runs each executable with repeat and
-shuffle enabled. For measured cases it uses short smoke settings and validates
-JSON report structure without imposing timing thresholds. It also parses metadata
-inventory and JUnit exports. The lightweight examples documentation contract remains a
-separate check; it does not compile the examples.
+## How the examples are tested
+
+With `GENTEST_ENABLE_PACKAGE_TESTS=ON`, the repository's
+`gentest_package_consumer_include_only` test builds the seven feature examples
+that have test cases against an installed gentest and checks their case names,
+CTest runs and reports.
