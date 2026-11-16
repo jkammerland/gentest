@@ -90,6 +90,15 @@ the runtime only. To generate code, either set `GENTEST_BUILD_CODEGEN=ON`,
 which needs the LLVM/Clang development packages, or point
 `GENTEST_CODEGEN_EXECUTABLE` at a built `gentest_codegen`.
 
+Gentest's CMake helpers must come from one source tree or installation per
+configure. Loading helpers from another copy is an error, including during a
+`QUIET` package lookup.
+`add_subdirectory()` does not redirect later `find_package(gentest)` calls.
+When nested dependencies request Gentest as a package, the parent must arrange
+for those requests to reuse its source copy, for example with FetchContent's
+`OVERRIDE_FIND_PACKAGE`. Parent-provided package redirects, version checks and
+component requirements retain their normal CMake behavior.
+
 ## Meson
 
 You add the gentest source tree as a subproject, describe test executables and

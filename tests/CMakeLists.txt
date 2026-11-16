@@ -5335,6 +5335,23 @@ _gentest_add_cmake_helper_test(
     cmake
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 
+# Exercise ordinary package fallback, including a parent-owned version rejection.
+foreach(_gentest_selection_case IN ITEMS
+        source_only installed_only installed_then_source mixed_required mixed_quiet
+        parent_required parent_quiet parent_reject_required parent_reject_quiet
+        parent_reject_basic_required parent_reject_basic_quiet
+        parent_component_required parent_component_quiet)
+    _gentest_add_cmake_helper_test(
+        gentest_source_package_selection_${_gentest_selection_case}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/source_package_selection
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckSourcePackageSelection.cmake
+        cmake
+        -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+        -DCASE=${_gentest_selection_case})
+    set_property(TEST gentest_source_package_selection_${_gentest_selection_case} APPEND PROPERTY LABELS "package")
+endforeach()
+unset(_gentest_selection_case)
+
 _gentest_add_cmake_helper_test(
     gentest_plain_additive_no_module_scan
     ${PROJECT_SOURCE_DIR}

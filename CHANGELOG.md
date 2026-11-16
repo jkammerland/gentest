@@ -97,6 +97,7 @@
 
 ### Fixed
 
+- CMake rejects helpers from a second Gentest copy before they can replace the selected helpers, preventing mixed source runtime and installed-package integration (#320).
 - Codegen depfiles escape literal dollar signs (#213).
 - Stale and competing async callbacks can no longer publish into a later suspension.
 - Coroutine frames and composition inputs stay alive during reentrant stop callbacks.
