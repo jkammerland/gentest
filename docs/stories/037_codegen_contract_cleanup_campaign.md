@@ -1,7 +1,27 @@
 # Story: Codegen Contract Cleanup Campaign
 
-> Historical campaign record. Its rejection of declaration-only registration and preservation of ordinary textual wrappers were superseded by
-> issue #107 and the wrapper-removal cleanup in issue #115. Current ordinary textual targets use additive header-declaration registration.
+> **Status:** Done for header registration, except that the line-count targets
+> were not met.
+>
+> - Waves 1, 3 and 4 shipped in 1.0.0. The removed CMake arguments (`OUTPUT`,
+>   `NO_INCLUDE_SOURCES`, `EXPECT_SUBSTRING`), codegen options (`--output`,
+>   `--template`, `--no-include-sources`) and the `GENTEST_NO_INCLUDE_SOURCES`
+>   environment variable hard-fail in 1.0.0, although their error messages say
+>   they were removed "in gentest 2.0.0".
+> - Wave 2 removed the Meson and Xmake `.in` templates. Measured on 2.0.0, the
+>   CMake helpers (`cmake/GentestCodegen.cmake` plus `cmake/gentest/*.cmake`)
+>   have 3,812 lines (target 2,200), `xmake/gentest.lua` 1,748 (target 600) and
+>   `build_defs/gentest.bzl` 1,159 (target 400).
+> - Issue #107 and the wrapper removal in issue #115 reversed this page's
+>   rejection of declaration-only registration and its keeping of textual
+>   wrappers: header registration is the default. Generated mocks stay
+>   separate; per-translation-unit module wrappers remain inside named-module
+>   mock targets.
+> - `STATUS.md`, which this page mentions, was folded into the
+>   [design history index](README.md).
+>
+> Current docs: [DEPRECATIONS.md](../../DEPRECATIONS.md) and
+> [Codegen artifact protocols](../codegen_artifact_protocols.md).
 
 ## Goal
 

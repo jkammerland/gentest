@@ -1,5 +1,14 @@
 # Story: Exported Library Mock Packages For Downstream Consumers
 
+> **Status:** Partly implemented. Mock targets can be installed and exported with
+> their file sets, as `tests/cmake/explicit_mock_target_install_export` tests. The
+> library-owned layout and the two producer/consumer fixtures proposed here were not
+> built. Since 2.0.0, installing a header mock target also needs
+> `FILE_SET gentest_explicit_mock_defs`, which the textual producer snippet below
+> lacks. The module consumer snippet also lacks the `MODULE_REGISTRATION FILE_SET`
+> that module tests need. Current docs: [Mocks](../mock_generation.md),
+> [Named modules](../modules.md).
+
 ## Goal
 
 Make it straightforward for an application or library repository to keep its

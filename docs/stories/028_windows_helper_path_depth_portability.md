@@ -1,5 +1,9 @@
 # Story: Make Windows Path-Depth And Short-Root Behavior Robust
 
+> **Status:** Implemented in 1.0.0 (PR #77). The two failures that the
+> 2026-04-14 Windows inventory reopened were fixed before that release.
+> Current docs: [Windows troubleshooting](../windows_troubleshooting.md).
+
 ## Goal
 
 Make native Windows helper, module-scan, and downstream-harness builds reliable

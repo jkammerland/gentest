@@ -1,5 +1,11 @@
 # Story: Separate Generated-Code Devkit Boundary From Installed Runtime Detail
 
+> **Status:** Implemented in 1.0.0 (PRs #85 and #86). The header layout below
+> matches 2.0.0: generated code includes `detail/generated_runtime.h` or
+> `detail/registration_runtime.h` (`tools/src/templates.hpp`). These are
+> unstable internal headers with no user docs; the public runner API is on
+> [Embedding the runner](../runner_api.md).
+
 ## Goal
 
 Split the remaining installed generated-code/runtime compatibility surface from

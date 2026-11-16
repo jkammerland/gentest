@@ -1,5 +1,10 @@
 # Story: Simplify Test Helper Infrastructure And Derive Inventory Expectations
 
+> **Status:** Implemented in 1.0.0 (PR #77). The seven audited suites take their
+> cases and expected outcomes from `tests/expected/<suite>.list`, as listed in
+> `_gentest_suite_inventory_checks` in `tests/CMakeLists.txt`. Current docs:
+> [Contributing to gentest](../../CONTRIBUTING.md).
+
 ## Goal
 
 Reduce the test-helper layer to a smaller set of reusable drivers and eliminate
@@ -155,9 +160,6 @@ Validation for the current slice:
 - `clang-tidy` lane:
   `./scripts/check_clang_tidy.sh build/debug-system`
   -> passed
-- final batch review:
-  `results/story026_review_inventory_slice_r5.md`
-  -> no findings
 
 Helper-driver consolidation slice on `2026-04-14` then reduced the remaining
 thin run/assert wrappers:
@@ -185,9 +187,6 @@ Validation for the helper-driver slice:
 - `clang-tidy` lane:
   `./scripts/check_clang_tidy.sh build/debug-system`
   -> passed
-- final batch review:
-  `results/story026_review_helper_slice_r2.md`
-  -> no findings
 
 At the current story scope, this closes `026`: audited inventory slices now
 have one canonical source of truth, and the generic run/assert helper behavior

@@ -1,5 +1,12 @@
 # Story: Reduce Installed Public API Leakage Of Runtime Internals
 
+> **Status:** Implemented in 1.0.0 (PR #77). In 2.0.0, `gentest/runner.h` also
+> includes `async.h`, `diagnostics.h`, `format_value.h` and `record.h`; none of
+> them pulls in the registration or runtime-detail headers that this story took
+> off the `runner.h` path. The generated-code follow-up is
+> [story 032](032_generated_runtime_devkit_boundary_cleanup.md). Current docs:
+> [Embedding the runner](../runner_api.md).
+
 ## Goal
 
 Shrink the installed public `gentest` surface so consumers get a smaller, more
@@ -235,9 +242,6 @@ Validation for the current slice:
 - `clang-tidy` lane:
   `./scripts/check_clang_tidy.sh build/debug-system`
   -> passed
-- batch review:
-  `results/story023d_review_final6.md`
-  -> no findings
 
 This closes story `023` at the current simplified public-surface scope. The
 normal `gentest/runner.h` path is now narrow, and the legacy detail surface is

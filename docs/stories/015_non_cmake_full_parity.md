@@ -1,5 +1,14 @@
 # Story: non-CMake parity for explicit mocks and supported module paths
 
+> **Status:** Implemented in 1.0.0 for the supported scope. Meson supports header
+> registration and header mocks only; Xmake and Bazel also support named modules and
+> module mocks. Bazel later gained the exec-platform `gentest_codegen_toolchain`, so a
+> project can register its own packaged `gentest_codegen`
+> ([Bazel](../buildsystems/bazel.md#exec-toolchain-contract)). Current docs:
+> [Choosing a build system](../buildsystems/downstream_consumers.md),
+> [Meson](../buildsystems/meson.md), [Xmake](../buildsystems/xmake.md),
+> [Bazel](../buildsystems/bazel.md).
+
 ## Goal
 
 Build on the already-shipped classic per-TU non-CMake baseline and bring the

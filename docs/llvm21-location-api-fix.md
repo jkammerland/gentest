@@ -1,5 +1,12 @@
 # LLVM 21 Location API Compatibility Fix
 
+> **Status:** Historical. This records a November 2025 fix for LLVM 21, and its
+> code and CI excerpts are out of date. `collect_gentest_attributes_for()` in
+> [tools/src/parse.cpp](../tools/src/parse.cpp) starts member functions at their
+> declared type as described here, but it maps macro locations with
+> `getSpellingLoc` and steps back over declaration specifiers. CI rows are
+> defined in [scripts/ci_matrix.json](../scripts/ci_matrix.json).
+
 ## Problem Summary
 
 LLVM 21 introduced a breaking change in how source locations are reported for inline C++ member functions. This caused `gentest_codegen` to fail discovering test case attributes on class member functions, resulting in only 2 out of 8 fixture tests being generated.

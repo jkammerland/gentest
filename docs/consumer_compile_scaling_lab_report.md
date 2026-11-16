@@ -1,5 +1,13 @@
 # Consumer Compile Scaling Lab Report
 
+> **Status:** Historical. These numbers were measured on 2026-04-21 on a pre-1.0
+> branch, when codegen replaced the authored test sources with generated
+> translation units. gentest 1.0.0 replaced that design with header
+> registration, so the numbers don't describe current gentest. The scripts
+> listed under "Source Files" measure the current design;
+> [Measure adoption and edit/build/test costs](developer_build_measurements.md)
+> lists them and shows how to measure build costs.
+
 Date: 2026-04-21
 
 Branch: `perf/consumer-generated-tu-compile`

@@ -1,5 +1,13 @@
 # Story: Windows LLVM 20 MatchFinder Traversal Crash In Module Codegen
 
+> **Status:** Unresolved for Windows LLVM 20. Windows CI dropped LLVM 20.1.8 when this
+> story was written and tests LLVM 21, 22 and 23. In
+> [PR #96](https://github.com/jkammerland/gentest/pull/96), codegen discovery stopped
+> calling `ASTContext::setTraversalScope`: it hands each source declaration to the
+> matcher, including the declaration inside each template. No Windows LLVM 21+
+> requirement is documented or enforced. Commit `d6c4bd7` is not in this repository's
+> history. Internal design; no user docs.
+
 ## Goal
 
 Identify and fix the real Windows LLVM 20 codegen failure without regressing

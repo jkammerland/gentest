@@ -1,5 +1,10 @@
 # Public API Surface Inventory For Story 023
 
+> **Status:** Historical classification from April and May 2026. It matches the
+> 2.0.0 headers, except that `gentest::CurrentContext` is a class that holds the
+> context pointer (`include/gentest/context.h`), not a `std::shared_ptr` type.
+> Current docs: [Embedding the runner](../runner_api.md).
+
 ## Purpose
 
 This file is the authoritative classification artifact for

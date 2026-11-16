@@ -1,5 +1,10 @@
 # Story: runtime `skip()` + `xfail()` (expected failure)
 
+> **Status:** Implemented in 1.0.0. The functions are declared in `gentest/context.h`,
+> which `gentest/runner.h` includes; `XFailScope` was not added. Current docs:
+> [Assertions](../assertions.md) (skip and xfail), [Reports](../reports.md) (JUnit and
+> Allure outcomes).
+
 ## Goal
 
 Allow tests to dynamically skip or declare expected failures from inside the test body, with correct semantics, clear console output, and correct report mappings.

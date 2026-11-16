@@ -1,8 +1,12 @@
 # Story: per-TU registration wrappers (CMake)
 
-> Historical design record. Ordinary textual wrappers and source replacement were removed by the cleanup tracked in issue #115. Current textual
-> targets compile authored sources directly and append generated header-declaration registration sources. The separate generated named-module mock
-> provider path is not described here.
+> **Status:** Superseded before the 1.0.0 release. Header registration
+> ([story 036](036_textual_declaration_only_registration.md)) replaced the shim TUs, and
+> [issue #115](https://github.com/jkammerland/gentest/issues/115) removed source
+> replacement ([story 037](037_codegen_contract_cleanup_campaign.md)). Targets compile
+> their authored sources, and codegen adds generated registration sources. Named-module
+> mock targets use a separate generated path that this story does not describe.
+> Current docs: [Writing tests](../writing_tests.md).
 
 ## Goal
 

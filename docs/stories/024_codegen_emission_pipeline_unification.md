@@ -1,5 +1,14 @@
 # Story: Unify Manifest And TU-Wrapper Codegen Emission Pipelines
 
+> **Status:** Implemented in 1.0.0 (PR #77). Manifest mode was removed before
+> 1.0.0 ([story 037](037_codegen_contract_cleanup_campaign.md)), and header
+> registration replaced the per-translation-unit (TU) wrappers for test targets
+> ([story 036](036_textual_declaration_only_registration.md)); TU wrappers
+> remain only inside named-module mock targets. The shared render core,
+> `render_registration_core()` in `tools/src/emit.cpp`, renders the
+> registration code for both header and module registration. An internal
+> change with no user-facing docs.
+
 ## Goal
 
 Collapse the duplicated tool-side emission logic for manifest mode and TU-wrapper
@@ -134,8 +143,7 @@ Closure audit on `2026-04-14` found the current branch already satisfies the
 story's unification question:
 
 - audit result:
-  `results/story024_audit_r1.md`
-  -> shared registration/body fragment assembly is centralized through
+  shared registration/body fragment assembly is centralized through
   `render_registration_core()` / `apply_registration_core()` in `emit.cpp`
   plus the shared render helpers in `render.cpp`; remaining manifest-vs-TU
   differences are shell/orchestration level

@@ -1,16 +1,16 @@
 # Story: deprecate manifest mode + port non-CMake builds to per‑TU generation
 
->[!NOTE]
-> Phase 1 of this story is implemented: the repo-local Meson, Xmake, and Bazel
-> classic suites now use per-TU generation instead of legacy manifest mode.
-> Repo-local Xmake and Bazel module support has since landed too, while Meson
-> remains textual-only with explicit fail-fast module entrypoints. The
-> remaining packaging/API/CI parity work is tracked in
-> [`docs/stories/015_non_cmake_full_parity.md`](015_non_cmake_full_parity.md).
-> Legacy manifest mode itself was later removed in the `2.0.0` cleanup tracked
-> by
-> [`docs/stories/037_codegen_contract_cleanup_campaign.md`](037_codegen_contract_cleanup_campaign.md);
-> this story is a historical migration record.
+> **Status:** Phase 1 implemented in 1.0.0; the later phases moved to
+> [story 015](015_non_cmake_full_parity.md). Meson, Xmake and Bazel moved off manifest
+> mode, and later from shim TUs to header registration, like CMake. Xmake and Bazel
+> also support named modules; Meson supports header registration only and rejects
+> modules. Manifest mode was removed before the 1.0.0 release: 1.0.0 already rejects
+> `OUTPUT` and `--output`, with an error that says "removed in gentest 2.0.0"
+> ([story 037](037_codegen_contract_cleanup_campaign.md),
+> [DEPRECATIONS.md](../../DEPRECATIONS.md)). Current docs:
+> [Choosing a build system](../buildsystems/downstream_consumers.md),
+> [Meson](../buildsystems/meson.md), [Xmake](../buildsystems/xmake.md),
+> [Bazel](../buildsystems/bazel.md).
 
 ## Goal
 

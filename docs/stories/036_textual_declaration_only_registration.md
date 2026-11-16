@@ -1,5 +1,13 @@
 # Story: additive textual header-declaration registration
 
+> **Status:** Implemented in 1.0.0 as header registration, the default
+> (issue #107, PR #111; issue #115 then removed the wrapper backend). This file
+> first recorded, on 2026-04-21, the rejection of an opt-in declaration-only
+> mode; it was rewritten in August 2026 to record the reversal. The original
+> text is in git history (commit c9144bc). Current docs:
+> [Writing tests](../writing_tests.md) and
+> [Codegen artifact protocols](../codegen_artifact_protocols.md).
+
 ## Status
 
 Superseded by the issue #107 next-major decision on 2026-08-13.

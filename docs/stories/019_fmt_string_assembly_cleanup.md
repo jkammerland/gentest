@@ -1,5 +1,11 @@
 # Story: Replace chained `std::string::append()` assembly with `fmt`
 
+> **Status:** Partly implemented in 1.0.0.
+> [PR #74](https://github.com/jkammerland/gentest/pull/74) moved the runtime's
+> (`src/`) append chains and part of the code generator's to `fmt`. Chained
+> `.append()` assembly of generated code remains in `tools/src/emit.cpp` and
+> `tools/src/render_mocks.cpp`. Internal code style; no user docs.
+
 ## Problem
 
 The codebase still has a lot of string-building logic that grows output step by

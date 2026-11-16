@@ -1,10 +1,15 @@
 # Story: modularize `runner_impl` and harden pre-refactor regression coverage
 
+> **Status:** Implemented in 1.0.0. The extraction landed in February 2026, and every
+> regression in the backlog below exists in `tests/` (for example
+> `regression_outcome_consistency_matrix`). [Story 008](008_runner_impl_modularization_design.md)
+> has the module design. Internal design; no user docs.
+
 ## Goal
 
 Capture a concrete modularization plan for `src/runner_impl.cpp` based on 5 independent reviews, then define the regression tests we should add before large refactors.
 
-## Independent review synthesis (5 subagents)
+## Independent review synthesis (5 reviews)
 
 ### Most frequent problem clusters
 

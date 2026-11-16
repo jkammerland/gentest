@@ -1,5 +1,11 @@
 # Story: Official Downstream Support For Bazel, Xmake/xrepo, and Meson
 
+> **Status:** Implemented in 1.0.0. Meson, Xmake (xrepo) and Bazel (Bzlmod)
+> each have a consumer fixture under `tests/downstream/` with its own CTest
+> check; Meson supports header registration only. Mock and named-module parity
+> continued in [story 015](015_non_cmake_full_parity.md). Current docs:
+> [Choosing a build system](../buildsystems/downstream_consumers.md).
+
 ## Goal
 
 Define and then implement the downstream support contract outside CMake.

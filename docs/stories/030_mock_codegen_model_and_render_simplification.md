@@ -1,5 +1,8 @@
 # Story: Simplify Mock Codegen Model, Discovery, And Render Helpers
 
+> **Status:** Implemented in 1.0.0 (PR #77). An internal change with no
+> user-facing docs; for using mocks, see [Mocks](../mock_generation.md).
+
 ## Goal
 
 Reduce duplicated mock-specific codegen logic by normalizing parameter metadata,
@@ -113,8 +116,7 @@ Closure audit on `2026-04-14` found no remaining implementation gap inside the
 story scope:
 
 - audit result:
-  `results/story030_audit_r1.md`
-  -> `MockParamInfo` now uses one `PassStyle` enum, constructor and method
+  `MockParamInfo` now uses one `PassStyle` enum, constructor and method
   discovery share `capture_callable_parameters(...)`, and qualifier
   normalization plus dispatch emission are already centralized in shared render
   helpers

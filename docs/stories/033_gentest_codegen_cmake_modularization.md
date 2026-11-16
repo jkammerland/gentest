@@ -1,5 +1,13 @@
 # Story: Split `GentestCodegen.cmake` Into Focused Modules
 
+> **Status:** Implemented in 1.0.0 (PR #86). In 2.0.0,
+> `cmake/GentestCodegen.cmake` is a short facade that includes
+> `CodegenToolchain`, `ScanDeps`, `MockBackends`, `TuMode`, `ExplicitMocks` and
+> `DiscoverTests` from `cmake/gentest/`; wave 1 of
+> [story 037](037_codegen_contract_cleanup_campaign.md) deleted the transitional
+> `CodegenInspector.cmake`. An internal change with no user-facing docs; the
+> public CMake functions keep their names.
+
 ## Goal
 
 Reduce `cmake/GentestCodegen.cmake` from a ~3360-line universal integration file

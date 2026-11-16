@@ -1,5 +1,11 @@
 # Story: Explicit Mock Target Codegen
 
+> **Status:** Implemented in 1.0.0 as `gentest_add_mocks()`;
+> [story 015](015_non_cmake_full_parity.md) brought mock targets to Meson, Xmake and
+> Bazel. Later changes: the gMock and Trompeloeil backends (`BACKEND`), and in 2.0.0
+> the mock target uses `DEFS` in place as public headers instead of copying them
+> ([CHANGELOG.md](../../CHANGELOG.md)). Current docs: [Mocks](../mock_generation.md).
+
 ## Goal
 
 Replace the current implicit mock-generation path with an explicit mock-target
