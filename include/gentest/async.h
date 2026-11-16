@@ -484,18 +484,18 @@ template <typename Rep, typename Period>
 [[nodiscard]] constexpr auto saturating_clock_duration(std::chrono::duration<Rep, Period> duration) noexcept -> Clock::duration {
     using Target           = Clock::duration;
     using TRep             = Target::rep;
-    constexpr auto max_rep = std::numeric_limits<TRep>::max();
-    constexpr auto min_rep = std::numeric_limits<TRep>::min();
+    constexpr auto max_rep = (std::numeric_limits<TRep>::max)();
+    constexpr auto min_rep = (std::numeric_limits<TRep>::min)();
     if constexpr (std::is_floating_point_v<Rep>) {
         const auto ticks = std::chrono::duration<long double, Target::period>(duration).count();
         if (ticks != ticks) { // NaN: no meaningful deadline; treat as already due.
             return Target::zero();
         }
         if (ticks >= static_cast<long double>(max_rep)) {
-            return Target::max();
+            return (Target::max)();
         }
         if (ticks <= static_cast<long double>(min_rep)) {
-            return Target::min();
+            return (Target::min)();
         }
         return Target{static_cast<TRep>(ticks)};
     } else {
@@ -506,11 +506,11 @@ template <typename Rep, typename Period>
             constexpr auto min_count = min_rep / ToTarget::num;
             const auto     count     = duration.count();
             if (std::cmp_greater(count, max_count)) {
-                return Target::max();
+                return (Target::max)();
             }
             if constexpr (std::is_signed_v<Rep>) {
                 if (std::cmp_less(count, min_count)) {
-                    return Target::min();
+                    return (Target::min)();
                 }
             }
         }
@@ -520,11 +520,11 @@ template <typename Rep, typename Period>
 }
 
 [[nodiscard]] constexpr auto saturating_add(Clock::time_point base, Clock::duration delta) noexcept -> Clock::time_point {
-    if (delta > Clock::duration::zero() && base > Clock::time_point::max() - delta) {
-        return Clock::time_point::max();
+    if (delta > Clock::duration::zero() && base > (Clock::time_point::max)() - delta) {
+        return (Clock::time_point::max)();
     }
-    if (delta < Clock::duration::zero() && base < Clock::time_point::min() - delta) {
-        return Clock::time_point::min();
+    if (delta < Clock::duration::zero() && base < (Clock::time_point::min)() - delta) {
+        return (Clock::time_point::min)();
     }
     return base + delta;
 }
