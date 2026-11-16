@@ -1,141 +1,178 @@
-# CI and on-demand validation
+# Continuous integration
 
-Pull requests and pushes to `master` automatically run Clang Format and Clang
-Tidy with the LLVM 23 toolchain selected by `scripts/llvm_toolchain.json`.
-PR lint runs on open, synchronization, reopening, and becoming ready for review,
-including draft and documentation-only changes. It has no path filter.
+Lint runs automatically on every pull request and on every push to `master`.
+Full CI, which builds and tests gentest on every supported platform and
+toolchain, runs only when a maintainer requests it. This page shows how to
+request full CI, what it runs, and how requests are checked. Full CI results
+are informational: they don't change branch protection or merge requirements.
 
-Full CI runs **only on demand**, for both PRs and `master`. There is one complete
-suite; routine profiles and path-based suite selection have been removed.
-Results are informational. These workflows do not alter branch protection or
-merge requirements. Public releases continue to publish source archives only.
+## What runs automatically
 
-## Request full CI for a PR
+The `lint` workflow (`.github/workflows/lint.yml`) runs Clang Format
+(`scripts/check_clang_format.sh`) and Clang Tidy (`scripts/check_clang_tidy.sh`
+on a `debug-system` build tree) with the LLVM 23 toolchain from
+`scripts/llvm_toolchain.json`. It runs on pushes to `master` and when a pull
+request is opened, updated, reopened or marked ready for review. Drafts and
+documentation-only changes are included; there is no path filter.
+[CONTRIBUTING.md](../CONTRIBUTING.md) shows how to run both checks locally.
 
-The PR comment controller becomes active after its workflow files reach the
-default branch. Before that merge, use the manual Actions entry point on the
-candidate branch; a `/full-ci` comment cannot activate an unmerged controller.
+Apart from the two workflows that handle full-CI requests (described next),
+no other workflow starts on its own.
 
-A metadata-only workflow maintains one GitHub Actions bot comment on each PR.
-It shows the current head and base commits and offers this task checkbox:
+## Request full CI for a pull request
 
-- [ ] Run full CI for this revision
+A bot comment on each pull request shows the current head and base commits and
+a checkbox labelled "Run full CI for this revision". To start full CI, a
+maintainer either:
 
-A maintainer can click the checkbox or post a comment whose complete text is:
+- ticks that checkbox, or
+- posts a comment whose whole text is `/full-ci`.
 
-```text
-/full-ci
-```
+Only users with `write`, `maintain` or `admin` permission on the repository can
+start a run; author association doesn't count. Edits by bots and edits to other
+comments are ignored. If ticking the box doesn't start a run, post `/full-ci`.
 
-The controller queries the sender's live repository permission. Only `write`,
-`maintain`, or `admin` access authorizes a run; author association is not used.
-The checkbox additionally requires an unchecked-to-checked edit of the marked
-bot comment with its original comment ID and revision metadata. Other comments,
-bot edits, and stale events do not authorize execution.
+Full CI tests GitHub's merge commit of the pull request into its base, so pull
+requests from forks work the same way. The controller freezes the head, base
+and merge commits when it accepts a request. It refuses the request when:
 
-The command uses the live PR snapshot when the request is handled. Both entry
-points freeze the current head, base, and synthetic merge commit. The controller
-checks the merge commit's parents and rechecks the live PR before starting work.
-Conflicts, unavailable mergeability, and revisions that change during validation
-are refused; retry the command after GitHub has a conflict-free merge revision.
-Fork PRs use the same flow and test the base repository's pinned merge commit.
+- the pull request has conflicts, or GitHub hasn't computed a conflict-free
+  merge commit yet. The bot comment says so; retry `/full-ci` later.
+- the checkbox belongs to an older revision. Every push resets the bot comment
+  and asks you to request again, so tick the box again.
+- the head or base changes while the request is being checked.
 
-A duplicate request while that revision is active returns the existing run link.
-A newly authorized revision supersedes the previous full bundle. Concurrency
-keys include the validated PR number, with distinct prefixes for every suite,
-so requests for different PRs cannot cancel one another. Completed or cancelled
-runs can be requested again.
+The summary of the "Requested full CI" workflow run states the reason for each
+refusal.
 
-Completion is driven by workflow dependencies. The final comment update checks
-both live commits and the latest request's run ID; an older run cannot overwrite
-a newer request or prompt. Failed, skipped, and cancelled suites all prevent a
-successful full-CI aggregate.
+A request for a revision whose full CI is already running links to that run
+instead of starting another. Full CI for a newer revision of the same pull
+request cancels the run for the older one; runs for different pull requests
+never cancel each other. You can request a finished or cancelled revision
+again.
 
-The checkbox event path has payload-level tests. Hosted UI acceptance remains a
-separate check after these controller definitions land on the default branch:
-click the bot comment's checkbox as a maintainer and verify GitHub delivers an
-`issue_comment.edited` event and starts the displayed merge SHA. The permanent
-`/full-ci` fallback is available if the UI does not deliver that edit event.
-No hosted execution is claimed by the local controller tests.
+When the run ends, the bot comment shows its result, unless a newer request or
+a change to the head or base has replaced it. The final job, "Full
+CI result (informational)", fails if any called workflow failed, was skipped
+or was cancelled.
 
-## Trust and permissions
+## Run full CI on a branch or on master
 
-PR metadata workflows execute controller code from the default branch and never
-run candidate code. The `issue_comment` coordinator calls local reusable
-workflow definitions directly, keeping those definitions at its trusted default
-branch revision. Each worker explicitly checks out the frozen candidate SHA
-with `persist-credentials: false`. Matrix selection and LLVM provisioning use
-the trusted workflow revision before candidate execution.
-
-Only metadata jobs can update the PR comment. Workers have `contents: read`,
-receive no inherited secrets, and use restore-only cache actions. GitHub's
-low-trust `issue_comment` cache token also restricts writes; called workflows do
-not opt into a more privileged cache mode. No GitHub App, dispatch token, or
-`actions: write` permission is required. See GitHub's
-[reusable-workflow permission and concurrency rules](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)
-and [cache action's restore-only usage](https://github.com/actions/cache/blob/main/restore/README.md).
-
-## Manual master validation and full coverage
-
-Run the complete bundle for a master commit with:
+Start the `CI` workflow by hand to validate a branch, or a commit on `master`:
 
 ```bash
 gh workflow run ci.yml --ref master -f base_ref=<comparison-base-commit>
 ```
 
-The Actions UI has the same entry point. Its run title remains
-`CI (full) — master`, which the signed source-release gate requires along with
-the exact successful master commit and run ID. Standalone suites retain manual
-entry points for diagnosis.
+`base_ref` (default `master`) is the branch, tag or commit that the
+measured-report comparison uses as its baseline. The Actions page offers the
+same entry point. A run started this way on `master` gets the title
+`CI (full) — master`; the release workflow signs and publishes a tag only when
+its exact `master` commit has such a successful run, and public releases
+publish signed source archives only (see [Packaging](packaging.md)).
 
-The full CMake matrix contains 33 Linux, three Windows, and eight macOS rows.
-Older LLVM/compiler and distribution rows remain compatibility coverage.
-Every row declares its host LLVM major and checks the selected compiler,
-scanner, llvm-config, and LLVM/Clang packages together. Older host LLVM versions
-are explicitly labelled compatibility lanes, including GCC targets linked to
-an older host SDK. Repository tools otherwise default to LLVM 23. Target
-compilers remain separate inputs; selecting host LLVM does not replace GCC,
-MSVC, AppleClang, or a cross compiler.
-Windows rows that produced identical `RelWithDebInfo` builds are consolidated;
-all retained LLVM versions still run both Clang and MSVC with explicit build and
-CTest configuration selection, including representative package consumers.
+Each workflow in the next section (`cmake.yml`, `coverage.yml`,
+`cross_qemu.yml` and the others) can also be started on its own for diagnosis.
 
-Every lane runs the Allure writer tests. Primary LLVM 23 coverage includes full Debug CTest,
-ASan/LSan/UBSan, TSan, and a separate libassert configuration without exceptions.
-TSan death tests run normally. The guard on the configured CTest inventory fails
-if the death inventory is empty or any death test is disabled.
-The complete bundle also includes the package workflow, lint, coverage,
-aarch64/riscv64 QEMU, Bazel/Meson/Xmake, measured comparisons against the frozen
-base, recording with real serializers, and strict Clang 20 leak diagnostics.
-No native worker uses the former `ci-smoke` label filter.
+## What full CI runs
 
-The QEMU jobs build every configured target and run the complete configured CTest
-inventory with the `aarch64-qemu-full` and `riscv64-qemu-full` build/test presets.
-They provision Meson, system fmt headers, Bazelisk, and Xmake so backend consumer
-checks execute as well. Missing optional tools are reported as CTest skips in
-local environments. Manual smoke presets remain available for focused diagnosis.
-Native workers also run their complete configured CTest inventory.
+`ci.yml` freezes the candidate and base commits, then calls all of these
+workflows. There are no partial profiles and no selection by changed paths:
+every full CI run covers the whole set.
 
-Installed-package consumers use CTest setup/required/cleanup fixtures. Consumers
-with identical producer inputs share one immutable installed prefix during a
-CTest invocation. Link mode and an external host-codegen path do not create new
-producers. Separate module policies, compiler/toolchain inputs, and actual build
-configurations do. Each invocation rebuilds from source, including `ctest -R`
-selection, and cleanup runs after dependent consumers, even on failure. Windows
-native package validation uses RelWithDebInfo; Linux and macOS additionally
-exercise exact MinSizeRel imports.
+| Workflow | What it checks |
+| --- | --- |
+| `cmake.yml` | The build matrix on Linux, Windows and macOS (below), the package workflow, and an LLVM 23 build with libassert and without exceptions |
+| `lint.yml` | Clang Format and Clang Tidy |
+| `coverage.yml` | The coverage gate, see [Coverage hygiene and reporting](coverage_hygiene.md) |
+| `cross_qemu.yml` | aarch64 and riscv64 cross builds tested under QEMU |
+| `buildsystems_linux.yml` | Bazel, Meson and Xmake consumers |
+| `measured_reports.yml` | Benchmark and jitter reports compared against the base commit |
+| `recording.yml` | Runtime recording with the real Glaze and cbor_tags serializers |
+| `clang_leaks.yml` | Two strict expected-failure probes for known libclang leaks in Clang 20 |
 
-Coverage hygiene and reporting run after completed tests even when tests or
-hygiene fail. Such reports and HTML artifacts are marked incomplete and remain
-failing diagnostics. The aggregate thresholds remain 75% lines and 45% branches.
+### Build matrix
 
-Clang 20 ASan integration remains a documented upstream coverage gap. Its two
-isolated strict XFAIL probes reproduce specific libclang ownership leaks; they
-do not replace end-to-end Clang 20 sanitizer coverage. Leak detection remains
-enabled. See the [diagnostic ownership leak](issues/libclang_dependent_diagnostic_leak.md)
-and [deduction-failure ownership leak](issues/libclang_deduction_failure_leak.md).
+`scripts/ci_matrix.json` lists the rows of `cmake.yml`: 33 Linux rows, three
+Windows LLVM versions (each built with Clang and with MSVC) and eight macOS
+rows. Before any job starts, `scripts/ci_matrix.py` checks that:
 
-Local validation remains available through the commands in
-[local validation](local_validation.md). Local results are not uploaded by those
-scripts. A changed head or base requires fresh evidence for the resulting merge
-revision.
+- every row names its host LLVM major, 19 or newer;
+- rows whose host LLVM isn't 23 are marked as compatibility rows;
+- the primary rows use LLVM 23, and on Windows the pinned 23.1.0 release;
+- no two Windows rows build the same configuration (LLVM version, variant and
+  C++ standard).
+
+Each job then checks with `scripts/llvm_tools.py check-toolchain` that its host
+LLVM tools and CMake packages belong to the row's LLVM major. The host LLVM
+doesn't replace the compiler under test: GCC, MSVC, AppleClang and cross
+compilers stay separate inputs.
+
+- The primary Linux rows (LLVM 23) run the full Debug CTest inventory,
+  ASan/LSan/UBSan (`alusan-system`) and TSan (`tsan-system`). TSan builds run
+  the death tests too; their `tsan_death_tests_enabled` check fails if no death
+  test is configured or any is disabled.
+- Windows rows build only `RelWithDebInfo`, with explicit `--config` and `-C`
+  arguments. Every LLVM version runs both Clang and MSVC, and the rows of one
+  LLVM version also run the installed-package tests.
+- The Allure writer tests are on by default (`GENTEST_ENABLE_ALLURE_TESTS`), so
+  every row runs them.
+- Every native job runs its complete configured CTest inventory.
+
+### Installed-package tests
+
+Rows that enable `GENTEST_ENABLE_PACKAGE_TESTS` build, install and consume
+gentest within one CTest run. CTest fixtures build one installed prefix for
+each distinct set of producer inputs (module policy, compiler and toolchain,
+build configuration), and the consumer tests with those inputs share it. Every
+CTest run rebuilds the producers from source, even with `ctest -R`. Windows
+uses `RelWithDebInfo`; Linux and macOS also check exact `MinSizeRel` imports.
+
+### QEMU, coverage and leak probes
+
+- The QEMU jobs build every configured target with the `aarch64-qemu-full` and
+  `riscv64-qemu-full` presets and run the complete configured CTest inventory.
+  They install Meson, the system fmt headers, Bazelisk and Xmake, so the
+  build-system consumer checks run as well; on a local machine without those
+  tools, those checks are reported as CTest skips. The `aarch64-qemu` and
+  `riscv64-qemu` presets run a smaller smoke set for diagnosis. See
+  [Cross-testing gentest under QEMU](cross_compile/linux_qemu.md).
+- The coverage job is described in
+  [Coverage hygiene and reporting](coverage_hygiene.md#how-ci-runs-it).
+- No row runs Clang 20 under AddressSanitizer end to end, because libclang 20
+  leaks in two known places. `clang_leaks.yml` instead keeps two isolated
+  probes, with leak detection on, that must reproduce exactly those leaks: they
+  fail if the leak disappears or anything else goes wrong. See the
+  [dependent-diagnostic leak](issues/libclang_dependent_diagnostic_leak.md) and
+  the [deduction-failure leak](issues/libclang_deduction_failure_leak.md).
+
+## Trust and permissions
+
+- The pull-request metadata workflows (`full_ci_prompt.yml`,
+  `full_ci_request.yml`) run controller code (`scripts/full_ci.py`) from the
+  default branch and never run candidate code. A change to the controller in a
+  pull request takes effect only after it is merged.
+- The `issue_comment` workflow, `full_ci_request.yml`, calls `ci.yml` and,
+  through it, the workflows under [What full CI runs](#what-full-ci-runs) as
+  local reusable workflows, so their definitions also come from the trusted
+  default-branch revision.
+- Each called workflow checks out the frozen candidate commit explicitly, with
+  `persist-credentials: false`. Matrix selection and LLVM provisioning run from
+  the trusted workflow revision before any candidate code.
+- Only the metadata jobs can update the pull-request comment. The called
+  workflows' jobs have `contents: read`, inherit no secrets, and only restore caches. GitHub's
+  low-trust `issue_comment` cache token also restricts writes, and the called
+  workflows don't ask for a more privileged cache mode.
+- No GitHub App, dispatch token or `actions: write` permission is needed.
+
+See GitHub's
+[reusable-workflow permission and concurrency rules](https://docs.github.com/en/actions/reference/workflows-and-actions/reusing-workflow-configurations)
+and the
+[cache action's restore-only usage](https://github.com/actions/cache/blob/main/restore/README.md).
+
+## Local validation
+
+[Private local validation](local_validation.md) runs the same kinds of checks
+on your own Linux, Windows and macOS machines. Its results stay local; nothing
+uploads them. Validate again after the head or base changes, because that
+changes the merge result.
