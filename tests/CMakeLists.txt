@@ -4840,6 +4840,15 @@ set_property(TEST gentest_module_mock_imported_sibling APPEND PROPERTY LABELS "m
 
 gentest_add_fixture_prefix_test(
     MODULES
+    gentest_module_file_names
+    ${PROJECT_SOURCE_DIR}/tests/cmake/module_file_names
+    ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleFileNames.cmake
+    cmake
+    -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+set_property(TEST gentest_module_file_names APPEND PROPERTY LABELS "modules")
+
+gentest_add_fixture_prefix_test(
+    MODULES
     gentest_module_mock_multi_imported_sibling
     ${PROJECT_SOURCE_DIR}/tests/cmake/module_mock_multi_imported_sibling
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleMockMultiImportedSibling.cmake

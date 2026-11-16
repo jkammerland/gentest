@@ -106,10 +106,12 @@ if(_generated_registration_count EQUAL 0)
 endif()
 
 # A target may consist only of annotated headers: its generated registration
-# sources are then its translation units. Two headers prove distinct scan slots.
+# sources are then its translation units. Several headers prove distinct scan
+# slots; dotted.cases.hpp proves a name with more than one dot is still scanned.
 add_executable(header_declaration_header_only_tests
     header_only_cases.hpp
-    inline_cases.hpp)
+    inline_cases.hpp
+    dotted.cases.hpp)
 target_link_libraries(header_declaration_header_only_tests PRIVATE gentest::gentest_main)
 target_compile_features(header_declaration_header_only_tests PRIVATE cxx_std_20)
 gentest_attach_codegen(header_declaration_header_only_tests

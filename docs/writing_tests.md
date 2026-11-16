@@ -90,11 +90,6 @@ Codegen stops the build when a case breaks one of these rules:
 | A `static` case, or one in an anonymous namespace | `header-declared Gentest cases require external linkage; static and anonymous-namespace cases are not supported` |
 | A non-inline case definition in a header | `a Gentest case definition in a header must be inline; put a declaration in the header and the definition in a normally compiled .cpp` |
 
-Give the files that the target lists names with a single dot, such as
-`more_cases.hpp`. `gentest_attach_codegen()` sorts files by everything after
-the first dot of the name, so it skips a listed file such as `more.cases.hpp`
-unless a scanned source file includes it.
-
 Annotated fixture types also belong in headers; see [Fixtures](fixtures.md).
 Cases in named-module interface units use module registration
 (`MODULE_REGISTRATION`) instead; see [Named modules](modules.md).

@@ -521,7 +521,7 @@ generated mocks.
 
 | Argument | Meaning |
 |---|---|
-| `DEFS` | Required. The mock definitions headers or, for [named-module mocks](#named-module-mocks), the module interface units (`.cppm`, `.ccm`, `.cxxm`, `.ixx`, `.mxx`). One mock target takes headers or modules, not both. A file is a module only when everything after the first dot of its name is one of those extensions: `my.service.cppm` counts as a header. |
+| `DEFS` | Required. The mock definitions headers or, for [named-module mocks](#named-module-mocks), the module interface units (`.cppm`, `.ccm`, `.cxxm`, `.ixx`, `.mxx`). One mock target takes headers or modules, not both. A file is a module when its last extension is one of those. |
 | `HEADER_NAME` | The path of the generated header, relative to `OUTPUT_DIR`; tests include it by this path. Without it, the name is the target name plus a hash, such as `clock_mocks_8ad56ebb45c0.hpp`, so set it to get a stable include path. Header `DEFS` only. |
 | `OUTPUT_DIR` | Where the generated files go; a relative path is relative to `CMAKE_CURRENT_BINARY_DIR`. Default: `${CMAKE_CURRENT_BINARY_DIR}/gentest_mocks/<target>_<hash>`. Each mock target needs its own directory. With a multi-config generator, the files go to a subdirectory per configuration. |
 | `BACKEND` | `gentest` (the default), `gmock` or `trompeloeil`. |

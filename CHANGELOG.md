@@ -93,6 +93,8 @@
 
 ### Fixed
 
+- `gentest_attach_codegen()` and `gentest_add_mocks()` no longer skip or misclassify files with more than one dot in their names, such as `more.cases.hpp` or `my.tests.cppm`.
+- A mock target with module `DEFS` in the source directory configures when the build directory is inside the source tree (`cmake -S . -B build`), instead of failing with "Base directories in file set cannot be subdirectories of each other".
 - Codegen depfiles escape literal dollar signs (#213).
 - Stale and competing async callbacks can no longer publish into a later suspension.
 - Coroutine frames and composition inputs stay alive during reentrant stop callbacks.
