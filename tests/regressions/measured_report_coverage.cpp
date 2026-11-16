@@ -7,11 +7,13 @@
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <initializer_list>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -136,12 +138,29 @@ void expect(bool condition, std::string_view message) {
     }
 }
 
+// Each timing statistic in an Allure metrics attachment has a <statistic>_ns_per_call and a <statistic>_ns_per_item
+// row; 2.0.0 removed the <statistic>_ns_per_op copies of the per-call values. Each pair names a statistic and its
+// expected per-call value. Values are written in shortest round-trip form, so parsing one gives back the exact number.
+void expect_per_call_metrics(std::string_view metrics, std::initializer_list<std::pair<std::string_view, double>> expected,
+                             std::string_view kind) {
+    expect(!contains(metrics, "_ns_per_op"), std::string(kind) + " metrics must not contain the removed *_ns_per_op keys");
+    for (const auto &[statistic, ns] : expected) {
+        const std::string key = std::string(statistic) + "_ns_per_call";
+        const auto        row = metrics.find('\n' + key + '\t');
+        expect(row != std::string_view::npos, std::string(kind) + " metrics must contain " + key);
+        const auto value_start = row + key.size() + 2;
+        const auto value       = metrics.substr(value_start, metrics.find('\n', value_start) - value_start);
+        expect(std::stod(std::string(value)) == ns, std::string(kind) + " metrics have the wrong " + key);
+    }
+}
+
 void check_bench_attachments() {
     const auto baseline_case = make_case("regressions/measured_report/bench_baseline", "measured_suite", true, false, true, 2);
     const auto delta_case    = make_case("regressions/measured_report/bench_zero_calls", "other_suite", true, false, false);
 
-    const auto baseline_attachments =
-        gentest::runner::make_bench_allure_attachments(baseline_case, make_bench_result(10.0, 11.0, 0.015, 300));
+    auto baseline_result            = make_bench_result(10.0, 11.0, 0.015, 300);
+    baseline_result.stddev_ns       = 3.0;
+    const auto baseline_attachments = gentest::runner::make_bench_allure_attachments(baseline_case, baseline_result);
     expect(baseline_attachments.size() == 2, "expected two bench attachments");
     expect(contains(*find_attachment(baseline_attachments, "metrics").contents, "calls_per_sec\t20000"),
            "bench metrics should include non-zero calls/sec");
@@ -152,10 +171,18 @@ void check_bench_attachments() {
     expect(contains(*find_attachment(baseline_attachments, "metrics").contents, "median_ns_per_item\t5"),
            "bench metrics should normalize item timing");
 
-    // Existing per_op keys retain invocation timing even when one call handles multiple items.
+    // Per-call keys report invocation timing even when one call handles multiple items.
     const auto &metrics = *find_attachment(baseline_attachments, "metrics").contents;
-    expect(line_containing(metrics, "median_ns_per_op\t") == "median_ns_per_op\t10", "bench per_op should retain per-call timing");
     expect(line_containing(metrics, "median_ns_per_call\t") == "median_ns_per_call\t10", "bench per_call should report invocation timing");
+    expect_per_call_metrics(metrics,
+                            {{"best", baseline_result.best_ns},
+                             {"median", baseline_result.median_ns},
+                             {"mean", baseline_result.mean_ns},
+                             {"stddev", baseline_result.stddev_ns},
+                             {"p05", baseline_result.p05_ns},
+                             {"p95", baseline_result.p95_ns},
+                             {"worst", baseline_result.worst_ns}},
+                            "bench");
 
     expect(contains(*find_attachment(baseline_attachments, "metrics").contents, "is_baseline\ttrue"),
            "bench metrics should record baseline status");
@@ -186,9 +213,17 @@ void check_jitter_histogram_recompute_and_truncation() {
     expect(attachments.size() == 4, "expected four jitter attachments");
     expect(contains(metrics, "items_per_call\t4"), "jitter metrics should include item count");
     expect(contains(metrics, "median_ns_per_item\t256.125"), "jitter metrics should normalize item timing");
-    expect(line_containing(metrics, "median_ns_per_op\t") == "median_ns_per_op\t1024.5", "jitter per_op should retain per-call timing");
     expect(line_containing(metrics, "median_ns_per_call\t") == "median_ns_per_call\t1024.5",
            "jitter per_call should report invocation timing");
+    expect_per_call_metrics(metrics,
+                            {{"min", jitter.min_ns},
+                             {"max", jitter.max_ns},
+                             {"median", jitter.median_ns},
+                             {"mean", jitter.mean_ns},
+                             {"stddev", jitter.stddev_ns},
+                             {"p05", jitter.p05_ns},
+                             {"p95", jitter.p95_ns}},
+                            "jitter");
     expect(std::count(histogram.begin(), histogram.end(), '\n') == 8, "histogram TSV should contain seven recomputed bins plus header");
     expect(contains(histogramSvg, "bins 7  peak count"), "histogram SVG should reflect recomputed bin count");
     expect(contains(samplesJson, "\"sample_count\":2050"), "samples JSON should report original sample count");

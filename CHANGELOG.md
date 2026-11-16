@@ -37,6 +37,7 @@
 - The namespace attribute `suite("...")` is removed and codegen rejects it; a case's suite and name prefix are always its namespace path.
 - `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature are removed; `--allure-dir` always writes results.
 - Allure results drop the non-standard `time` field; use `start` and `stop`.
+- Allure `metrics` attachments of bench and jitter cases drop the `*_ns_per_op` keys; read `*_ns_per_call` (the same values) or `*_ns_per_item` instead.
 - Allure file names start with a per-run token, and a run no longer removes results that earlier runs left in `--allure-dir`.
 
 ### Added
