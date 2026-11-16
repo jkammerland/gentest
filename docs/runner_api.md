@@ -1,115 +1,336 @@
-# Embedding the Gentest runner
+# Embedding the runner
 
-Use `gentest::run_cases` when an embedding program owns a `gentest::Case` table and wants Gentest's normal CLI selection,
-execution, reporting, fixture, benchmark, and jitter behavior without adding those cases to the global registry.
+Run gentest from your own program: write your own `main()` around the
+generated cases, or give the runner a table of hand-written cases instead of
+generated ones.
+
+## Write your own main()
+
+`gentest::gentest_main` provides a `main()` that calls
+`gentest::run_all_tests(argc, argv)`. To run your own code before or after the
+tests, link `gentest::gentest` instead and write `main()` yourself:
 
 ```cpp
 #include "gentest/runner.h"
 
-#include <cstddef>
-#include <span>
-#include <vector>
-
-void check_service(void *) {
-    // The Gentest assertion APIs are available while this callable runs.
-}
-
-static const gentest::Case cases[] = {{
-    .name = "embedded/check_service",
-    .fn = &check_service,
-    .file = __FILE__,
-    .line = __LINE__,
-    .fixture_lifetime = gentest::FixtureLifetime::None,
-    .suite = "embedded",
-}};
-
 int main(int argc, char **argv) {
-    std::vector<const char *> args;
-    args.reserve(static_cast<std::size_t>(argc));
-    for (int i = 0; i < argc; ++i)
-        args.push_back(argv[i]);
-    return gentest::run_cases(cases, args);
+    // Process-wide setup that every invocation needs goes here.
+    return gentest::run_all_tests(argc, argv);
 }
 ```
 
-`run_cases` is also exported by `import gentest;`. Its argument parsing is identical to `run_all_tests`: an optional first program
-name is ignored, null pointers are skipped, and an empty argument span requests the default run.
+```cmake
+add_executable(my_tests main.cpp cases.hpp)
+target_compile_features(my_tests PRIVATE cxx_std_20)
+target_link_libraries(my_tests PRIVATE gentest::gentest)
+gentest_attach_codegen(my_tests)
+```
 
-The runner makes a private, shallow copy of the descriptors and sorts it by name, file, and line, matching registered-case order.
-It never mutates the caller's table or adds it to `registered_cases()`. Keep the callables and all storage referenced by `Case`
-string views and spans alive until `run_cases` returns.
+Link `gentest::gentest`, not just `gentest::gentest_runtime`: it also adds the
+compile options that keep the compiler from warning about the unknown `gentest`
+attributes on your cases. With `import gentest;`, see
+[Named modules](modules.md) for the targets to link.
 
-Return codes match `run_all_tests` for the same cases and arguments: `0` means the requested operation completed successfully
-(including an ordinary filter that selects no cases), `1` reports invalid CLI input or a test/runtime failure, and `3` means an
-`--run` case was not found. `--run` prefers a full name, then accepts a unique suffix among cases matching `--kind`;
-ambiguous suffixes are errors. Benchmark- or jitter-only filters that match nothing retain their existing failure semantics.
+`run_all_tests()` parses the [command line](command_line.md), runs the
+generated cases and returns the exit code. Setup that only some cases need
+belongs in a [fixture](fixtures.md).
 
-Options that take one value (`--run`, `--filter`, `--kind`, `--seed`, `--repeat`, `--output`, `--log-output`, `--time-unit`,
-`--report-format`, `--junit`, `--allure-dir`, `--records`, `--skip-return-code`, `--async-log-tail`, the `--bench-*` settings and
-`--jitter-bins`) may appear once; a repeated one is rejected as a CLI error (exit `1`) instead of choosing a winner. Only
-`--tag`, `--exclude-tag` and `--exclude` accumulate. Out-of-range counts are rejected too, not adjusted: `--repeat` accepts
-1–1000000, `--bench-epochs` requires at least 1, and `--jitter-bins` accepts 1–10000.
+## Run hand-written cases
 
-`--skip-return-code=N` (4–255) returns `N` when every selected case skips and the run has no failures. Expected failures (XFAIL)
-retain success status. Discovered ordinary CTest entries use `--skip-return-code=77` with `SKIP_RETURN_CODE=77`, so runtime and
-attribute skips appear as skipped. Fixture teardown and report-write errors return failure even when the case skips.
-
-A successful execution with `--junit=<path>` writes a report for that invocation, including zero-test selections and empty case
-tables. Use `--fail-on-empty` when CI requires a nonempty selection. Listing and preview operations do not write reports.
-
-An execution that fails before any case runs (an unknown, ambiguous, kind-mismatched or death-excluded `--run` name, a
-bench/jitter filter that matches nothing, `--fail-on-empty`, a machine report format with an unmeasured selection, or invalid
-manual benchmark metadata) also writes the requested reports: a JUnit report with no test cases that records the diagnostic as
-one runner error, so a report left by an earlier run is never mistaken for the current one, and one Allure result for that
-error. Invalid command lines are rejected before any report path is used and leave existing files alone.
-
-Report outcome mapping:
-
-| Outcome | JUnit | Allure `status` |
-| --- | --- | --- |
-| pass | no child element | `passed` |
-| fail, unexpected pass | `<failure>`, counted in `failures` | `failed` |
-| skip, expected failure | `<skipped>`, counted in `skipped` | `skipped` (expected failures add an `xfail` label) |
-| blocked | `<error type="blocked">`, counted in `errors` | `broken`, with `blocked` and `blocked_reason` labels |
-| runner or fixture infrastructure error | `<system-err>`, counted in `errors` | separate `failed` result under `gentest/infra` |
-
-A blocked case did not run and makes the run exit `1`, so it is reported as an error, never as a skip. JUnit `time` values are
-seconds in fixed-point decimal notation and, like the counts, do not depend on the process locale. Text that is not valid UTF-8
-is replaced in both formats (`?` in JUnit, U+FFFD in Allure).
-
-`--allure-dir=<dir>` writes one `<token>-<n>-result.json` per case and per runner error, each after the attachments it
-references (`<token>-<n>-<name>-attachment.<ext>`, plus `<token>-record-*` and `<token>-case-<id>-index.json` for runtime
-records). The token is a random UUID made once per run, so any number of executables, shards, per-case CTest runs or
-`run_all_tests` calls can share a directory. The runner never removes or rewrites a file it did not write in that run; empty
-the directory first when a report should hold only the current run, as Allure's own adapters expect.
-
-Allure treats results with the same `historyId` as retries of one test. Each result's `fullName` is `<program>:<case>`,
-where the program is the executable's name without directory or extension; its `historyId` is a hash of that, and a
-`parentSuite` label holds the program. Same-named cases of different programs therefore stay separate tests, while reruns of
-one program link into one history.
-
-Manual benchmarks may set source-level execution policy with the
-`Case::benchmark` field:
+A **hand-written case** is a `gentest::Case` descriptor that you write yourself
+instead of letting `gentest_codegen` generate it from an attribute. Pass a
+table of them, together with the command-line arguments, to
+`gentest::run_cases()`. This `main.cpp` runs one hand-written case:
 
 ```cpp
-.benchmark = {
-    .execution = gentest::BenchmarkExecution::Once,
-    .time_source = gentest::BenchmarkTimeSource::Supplied,
-    .warmup_epochs = 0,
-},
+#include "gentest/runner.h"
+
+#include <string_view>
+#include <vector>
+
+using namespace gentest::asserts;
+
+namespace {
+
+void check_sum(void *) {
+    EXPECT_EQ(2 + 2, 4);
+}
+
+constexpr std::string_view kTags[]         = {"fast"};
+constexpr std::string_view kRequirements[] = {"SSR-010"};
+
+const gentest::Case kCases[] = {
+    {
+        .name             = "embedded/check_sum",
+        .fn               = &check_sum,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .tags             = kTags,
+        .requirements     = kRequirements,
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "embedded",
+    },
+};
+
+} // namespace
+
+int main(int argc, char **argv) {
+    std::vector<const char *> args(argv, argv + argc);
+    return gentest::run_cases(kCases, args);
+}
 ```
 
-Omit the field for ordinary calibrated runner timing. Invalid combinations are
-rejected before fixture setup. See [benchmark measurements](benchmark_measurements.md)
-for publication, count normalization and snapshot contracts.
+The program needs no code generation:
 
-## Notifications and source events
+```cmake
+add_executable(embedded_runner main.cpp)
+target_compile_features(embedded_runner PRIVATE cxx_std_20)
+target_link_libraries(embedded_runner PRIVATE gentest::gentest)
+```
 
-Pass a `RunConfiguration` as the final argument to `run_cases` or either
-`run_all_tests` overload to install a notifier and an optional shared
-`FrameworkEventVisitor`. Existing overloads remain available. The configuration
-covers shared fixtures, case occurrences, adopted work, and final cleanup;
-notification infrastructure failures make the run fail even for an expected
-test failure. See [notifications and progress watchdogs](notifications.md) for
-complete setup, source-hook semantics, explicit quiet periods, and Linux process
-supervision.
+`./embedded_runner` runs `embedded/check_sum`, and every runner option works
+as it does for a generated test executable. Assertions, `gentest::log()`,
+`gentest::skip()` and the other case APIs work inside `fn`.
+
+## Arguments and exit codes
+
+`run_cases()` and the span overload of `run_all_tests()` read their arguments
+like a test executable reads its command line:
+
+- When the first argument doesn't start with `-`, the runner takes it as the
+  program name and skips it. Pass it: the runner uses it for the `Rerun:`
+  commands it prints for failed cases (see
+  [Running, debugging, and replaying tests](runner_workflows.md)) and to name
+  Allure results (see [Reports](reports.md)).
+- Null pointers are skipped. An empty span is the same as starting a test
+  executable without options.
+
+The return value is the exit code a test executable returns for the same cases
+and arguments; see [Exit codes](command_line.md#exit-codes).
+
+## How run_cases() uses your table
+
+- The runner sorts a private, shallow copy of the table by name, then file and
+  line, the same order as generated cases. It never changes your table.
+- The cases are not registered: `gentest::registered_cases()`, which returns a
+  sorted copy of the program's generated cases, doesn't include them.
+- Each call restores the runner's log settings when it returns, so a program
+  can call the runner more than once.
+- Keep the functions and all storage that the `Case` string views and spans
+  refer to alive until `run_cases()` returns.
+- `gentest::Case` is a source-level interface, not a stable binary interface.
+  Rebuild hand-written tables with the gentest version you link against.
+
+## The gentest::Case fields
+
+Designated initializers must follow the field order of this table, a C++20
+rule. The fields without a default are the ones in the example above. If you
+leave any of them out, it is value-initialized, but `-Wextra` warns about the
+missing initializer.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `name` | none | Full case name, as `--run`, `--filter` and the reports use it. |
+| `fn` | none | `void(void *)` function that runs the case. For a case without a shared fixture, the runner passes `nullptr`. |
+| `file`, `line` | none | Source location for listings, failure summaries and annotations. |
+| `is_benchmark` | `false` | Makes the case a bench case. |
+| `is_jitter` | `false` | Makes the case a jitter case. |
+| `is_baseline` | `false` | Marks a bench or jitter case as the baseline for the other measured cases; see [Benchmarks](benchmarks.md). |
+| `tags` | none | Tags for `--tag`, listings and reports. A `death` tag makes the case a death test. The runner accepts any strings here. |
+| `requirements` | none | Requirement IDs; see [Requirements traceability](traceability_standards.md). |
+| `skip_reason`, `should_skip` | none | `should_skip = true` makes the case a [static skip](assertions.md) with that reason. |
+| `fixture`, `fixture_lifetime` | none | The shared fixture the case uses. For a case without one, leave `fixture` empty and use `gentest::FixtureLifetime::None`. See [Use a shared fixture](#use-a-shared-fixture); [Test inventory](test_inventory.md) maps all values to fixture lifetimes. |
+| `suite` | none | The suite the case belongs to; it orders the case and names its group in reports. |
+| `async_fn`, `is_async` | `nullptr`, `false` | Set by generated code for coroutine cases. Leave them unset. |
+| `items_per_call` | `1` | Logical items that one call of a bench or jitter case processes. |
+| `owner` | empty | Owner of the case. |
+| `benchmark` | calibrated, runner-timed | Execution options of a bench case; see the next section. |
+| `reports_body_start` | `false` | Set by generated code. Leave it unset. |
+| `measured_fn` | `nullptr` | For a bench or jitter case, the function that the timed calls run. |
+
+## Use a shared fixture
+
+A hand-written case can use a suite or global fixture that codegen registers:
+a `fixture(suite)` or `fixture(global)` class in a header that
+`gentest_attach_codegen()` scans for the same program. For example,
+`tables.hpp`:
+
+```cpp
+#pragma once
+
+#include "gentest/test.h"
+
+namespace math {
+
+struct [[using gentest: fixture(suite)]] Tables {
+    int size = 8;
+};
+
+} // namespace math
+```
+
+Set `fixture` to the class's qualified name, `fixture_lifetime` to
+`gentest::FixtureLifetime::MemberSuite` or `MemberGlobal`, and `suite` to a
+suite in the fixture's namespace. The runner sets the fixture up on first use,
+as for a generated case, and passes `fn` a pointer to the instance. In
+`main.cpp`:
+
+```cpp
+#include "gentest/runner.h"
+#include "tables.hpp"
+
+#include <vector>
+
+using namespace gentest::asserts;
+
+void lookup(void *fixture) {
+    const auto &tables = *static_cast<math::Tables *>(fixture);
+    EXPECT_EQ(tables.size, 8);
+}
+
+const gentest::Case kCases[] = {
+    {
+        .name             = "math/lookup",
+        .fn               = &lookup,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = "math::Tables",
+        .fixture_lifetime = gentest::FixtureLifetime::MemberSuite,
+        .suite            = "math",
+    },
+};
+
+int main(int argc, char **argv) {
+    std::vector<const char *> args(argv, argv + argc);
+    return gentest::run_cases(kCases, args);
+}
+```
+
+Add the header to the target and attach codegen so that the fixture is
+registered:
+
+```cmake
+add_executable(embedded_runner main.cpp tables.hpp)
+target_compile_features(embedded_runner PRIVATE cxx_std_20)
+target_link_libraries(embedded_runner PRIVATE gentest::gentest)
+gentest_attach_codegen(embedded_runner)
+```
+
+[Fixtures](fixtures.md) describes when shared fixtures are set up and torn
+down.
+
+## Measured hand-written cases
+
+For a bench or jitter case, the runner calls `fn` in the setup phase, in every
+timed call and in the teardown phase. Set `measured_fn` to keep setup and
+teardown out of the timing: the timed calls then run `measured_fn`, and `fn`
+runs only in setup and teardown.
+
+`Case::benchmark` holds the options that the `bench_once`, `bench_time(...)`
+and `bench_warmup(...)` attributes set for a generated case:
+
+| Field | Values | Attribute |
+|---|---|---|
+| `execution` | `gentest::BenchmarkExecution::Calibrated` (default) or `Once` | `bench_once` |
+| `time_source` | `gentest::BenchmarkTimeSource::Runner` (default) or `Supplied` | `bench_time("supplied")` |
+| `warmup_epochs` | `std::optional<std::size_t>`; when empty, `--bench-warmup` applies | `bench_warmup(N)` |
+
+This bench case runs its measured call once and supplies its own duration, so
+building the input stays out of the result:
+
+```cpp
+#include "gentest/benchmark.h"
+#include "gentest/runner.h"
+
+#include <chrono>
+#include <numeric>
+#include <vector>
+
+using namespace gentest::asserts;
+
+namespace {
+
+void no_setup(void *) {}
+
+void sum_numbers(void *) {
+    const std::vector<int> numbers(1'000'000, 1); // not timed
+    const auto             start = std::chrono::steady_clock::now();
+    const long long        sum   = std::accumulate(numbers.begin(), numbers.end(), 0LL);
+    gentest::setBenchmarkDuration(std::chrono::steady_clock::now() - start);
+    EXPECT_EQ(sum, 1'000'000LL);
+}
+
+const gentest::Case kCases[] = {
+    {
+        .name             = "embedded/sum_numbers",
+        .fn               = &no_setup,
+        .file             = __FILE__,
+        .line             = __LINE__,
+        .is_benchmark     = true,
+        .tags             = {},
+        .requirements     = {},
+        .skip_reason      = {},
+        .should_skip      = false,
+        .fixture          = {},
+        .fixture_lifetime = gentest::FixtureLifetime::None,
+        .suite            = "embedded",
+        .benchmark =
+            {
+                .execution     = gentest::BenchmarkExecution::Once,
+                .time_source   = gentest::BenchmarkTimeSource::Supplied,
+                .warmup_epochs = 0,
+            },
+        .measured_fn = &sum_numbers,
+    },
+};
+
+} // namespace
+
+int main(int argc, char **argv) {
+    std::vector<const char *> args(argv, argv + argc);
+    return gentest::run_cases(kCases, args);
+}
+```
+
+The runner checks these rules for every selected case before any fixture
+setup:
+
+- Options other than the defaults need `is_benchmark = true`.
+- `BenchmarkTimeSource::Supplied` needs `BenchmarkExecution::Once`.
+- `BenchmarkExecution::Once` can't have a positive `warmup_epochs`.
+- A bench case needs a positive `items_per_call`.
+
+A case that breaks one of them stops the run with exit code 1 and an error
+such as
+`invalid benchmark metadata for <name>: supplied timing requires bench_once`.
+See [Benchmarks](benchmarks.md) for `gentest::setBenchmarkDuration()`, timing
+samples and how measured reports count items.
+
+## Notifications and progress events
+
+Pass a `gentest::RunConfiguration` as the last argument of `run_cases()` or of
+either `run_all_tests()` overload. It installs a notifier and an optional
+shared `gentest::FrameworkEventVisitor` for the run:
+
+```cpp
+run_cases(cases, arguments, configuration);
+run_all_tests(arguments, configuration);
+run_all_tests(argc, argv, configuration);
+```
+
+If the notification machinery fails, the call returns 1, even when every case
+passed. See [Notifications](notifications.md) for the setup, what the
+notifications cover and the source events.
+
+## With `import gentest;`
+
+`import gentest;` exports `run_cases`, `run_all_tests`, `registered_cases`,
+`gentest::Case`, `gentest::FixtureLifetime`, the benchmark option types and
+`gentest::RunConfiguration`. See [Named modules](modules.md).

@@ -1,80 +1,166 @@
 # Test selection
 
-The runner uses the same selector for execution and `--list-selected` previews.
-Selectors apply to ordinary tests, benchmarks, and jitter cases:
+Use the selection options to run part of a test executable: one case, the cases
+whose names match a pattern, or the cases with certain tags. The same rules
+decide what a run executes and what `--list-selected` previews, for tests,
+benchmarks and jitter cases alike.
 
-```sh
-./my_tests --kind=test --filter="unit/*" --tag=fast --tag=linux --exclude-tag=slow --exclude="*/database/*"
-./my_tests --list-selected --kind=test --filter="unit/*" --tag=fast --tag=linux --exclude-tag=slow --exclude="*/database/*"
+```bash
+./my_tests --run=math/add
+./my_tests --filter='math/*' --kind=test
+./my_tests --tag=fast --exclude-tag=slow --exclude='*/database/*'
+./my_tests --list-selected --tag=fast --exclude-tag=slow --exclude='*/database/*'
 ```
 
-## Composition
+The last command prints the names the third one would run, without running
+them. [Command-line options](command_line.md#selecting-cases) has a one-line
+summary of each option.
 
-Selection follows these rules:
+## How the options combine
 
-1. `--run=<name>` resolves one full name or unique suffix among cases matching
-   `--kind`. Otherwise, `--filter=<pattern>` matches names using `*` and `?`;
-   omitting both selects all names. `--run` takes precedence over `--filter`
-   when both are present.
-2. `--kind=all|test|bench|jitter` restricts the selected case kinds.
-3. When any `--tag=<tag>` options are present, keep cases with **any** requested
-   tag. Repeating a tag has no additional effect.
-4. Remove cases matching **any** `--exclude-tag=<tag>` or
-   `--exclude=<name-pattern>`. Exclusions take precedence over includes,
-   including a resolved `--run` name.
-5. Remove death-tagged cases unless `--include-death` is present.
+The runner applies the options in this order:
 
-`--tag`, `--exclude-tag`, and `--exclude` are repeatable. Both `--tag=fast` and
-`--tag fast` spellings work. Each option takes one nonempty value; empty or
-missing values are CLI errors. A comma is part of a tag or pattern, not a list
-separator.
+1. **Names.** `--run=<name>` resolves to one case (see
+   [Names and patterns](#names-and-patterns)). Otherwise `--filter=<pattern>`
+   keeps the cases whose names match. Without either, every case is a
+   candidate. When both are given, `--run` wins and `--filter` is ignored.
+2. **Kind.** `--kind=all|test|bench|jitter` keeps only cases of that kind. The
+   default is `all`.
+3. **Tags.** When at least one `--tag=<tag>` is given, keep the cases that have
+   **any** of the requested tags. Repeating a tag has no further effect.
+4. **Exclusions.** Remove every case that has **any** `--exclude-tag=<tag>` tag
+   or matches **any** `--exclude=<pattern>`. Exclusions win over every include,
+   including the case `--run` resolved to.
+5. **Death tests.** Remove the cases tagged `death` unless `--include-death` is
+   given.
 
-Tag matching compares whole tags and ignores ASCII case: `--tag=FAST` matches
-`fast`. It does not expand wildcards. Name matching is case-sensitive;
-`--exclude="*/Slow*"` and `--exclude="*/slow*"` select different names. `*`
-matches any number of characters, including namespace separators, and `?`
-matches one character.
+For example, `--tag=fast --tag=linux --exclude-tag=slow` keeps the cases tagged
+`fast` or `linux`, then removes every one of them that is also tagged `slow`.
+An untagged case never matches `--tag`, but it stays selected when you give
+only exclusions.
 
-For example, `--tag=fast --tag=linux --exclude-tag=slow` keeps cases tagged
-`fast` or `linux`, then removes every case also tagged `slow`. An untagged case
-does not match an include tag, but remains eligible when there are only
-exclusions. Kind and name restrictions intersect with this result.
+## Names and patterns
 
-## Previews and inventories
+Case names are the ones `--list-tests` prints, for example `math/add`. Every
+name comparison is case-sensitive.
 
-`--list-selected` prints selected names only, one per line, in deterministic
-inventory order. It does not construct fixtures, run cases, write reports, or
-shuffle names. Statically skipped cases remain visible because they are
-selected cases whose execution outcome is a skip. Resolution errors, including
-an ambiguous `--run`, are the same as execution errors.
+`--run=<name>` first looks for a case whose full name equals `<name>`. If there
+is none, it accepts a suffix of a full name, as long as exactly one case of the
+requested `--kind` ends with it. The suffix is a plain string suffix:
+`--run=add` matches both `math/add` and `math/subadd`, so it fails as
+ambiguous and the error lists both names. A `--run` whose matches all have
+another kind fails too.
 
-`--list-tags` lists all distinct nonempty tags in sorted ASCII-lowercase form,
-including tags on skipped and death cases. It ignores selection flags. The
-other full-inventory modes, including `--list-tests`, `--list`, and
-[`--list-json`](test_inventory.md), also ignore selectors. Listing modes cannot
-be combined with `--list-selected` or `--list-tags`.
+`--filter` and `--exclude` take wildcard patterns that must match the whole
+name:
 
-## Empty selections and death cases
+- `*` matches any number of characters, including `/`.
+- `?` matches exactly one character.
+- Every other character matches itself, including its case:
+  `--exclude='*/Slow*'` and `--exclude='*/slow*'` select different names.
 
-An unknown include tag or an exclusion that removes every case produces an
-empty selection. An empty selection succeeds by default and activates no
-fixtures. `--list-selected` prints nothing; ordinary execution reports zero
-selected cases. Add `--fail-on-empty` to make an empty selection fail with exit
-code 1. A selected static or runtime skip does not count as empty.
+Parameterized names contain parentheses, commas, spaces and quotes. Quote
+patterns and such names so the shell passes them unchanged, for example
+`--run='math/add(2, "two words")'`.
 
-Name-resolution errors have specific return codes: an unknown `--run` name
-returns 3; an ambiguous name or a kind mismatch returns 1. An unmatched name filter
-with an explicit `--kind=bench` or `--kind=jitter` is also an error, with a hint
-to list available measured cases. Tag and exclusion filters applied to an
-otherwise valid selection use the normal empty-selection policy.
+A comma is part of an option's value, not a separator: repeat `--tag`,
+`--exclude-tag` or `--exclude` to give several values.
 
-`--tag=death` does not enable execution of death cases. A death-only tag or
-wildcard selection is empty without `--include-death`; `--fail-on-empty` can
-reject it. A resolved `--run` of a death case requires `--include-death` and
-returns 1 without it. Explicit exclusions still remove death cases when
-`--include-death` is enabled.
+## Tags
 
-For process-isolated death execution, use
-[`gentest_discover_tests`](discover_tests.md). It also propagates case tags to
-CTest labels while retaining caller labels. Shared fixture activation for a
-selected case is described in [fixture allocation](fixtures_allocation.md).
+A tag matches only a whole tag, ignoring ASCII case: `--tag=FAST` selects a
+case tagged `fast`. Tags don't take wildcards.
+
+The tags of a generated case come from its attributes: the flags `fast`,
+`slow`, `linux`, `windows` and `death`, and `owner("...")`, which adds the tag
+`owner=<value>`. Codegen rejects other flag names, so a tag such as `--tag=gpu`
+selects nothing among generated cases. A hand-written case (`gentest::Case`)
+can carry any tags. [Writing tests](writing_tests.md) describes the
+attributes.
+
+`--list-tags` prints every distinct tag in the executable, in ASCII lowercase
+and sorted, including the tags of skipped cases and death tests:
+
+```text
+death
+fast
+owner=team-runtime
+slow
+```
+
+`--list-tags` ignores the selection options.
+
+## Previewing a selection
+
+`--list-selected` runs the selection and prints the selected names, one per
+line, in inventory order (sorted by name). It doesn't set up fixtures, run
+cases, write reports or shuffle. A case with a static skip appears too: it is
+selected, and its outcome when run is a skip.
+
+Selection errors such as an ambiguous `--run` are the same as for a real run.
+An empty selection prints nothing and exits with `0`, or fails with
+`--fail-on-empty`.
+
+The other listing options, such as `--list-tests` and
+[`--list-json`](test_inventory.md), ignore the selection options.
+
+## Death tests
+
+The runner removes death tests from every selection unless you pass
+`--include-death`:
+
+- `--tag=death` doesn't run death tests. A tag or pattern that matches only
+  death tests gives an empty selection, which `--fail-on-empty` rejects.
+- A `--run` that resolves to a death test fails without `--include-death`:
+  `Case 'crash/fatal_path' is tagged as a death test; rerun with --include-death`.
+- When death tests are removed from a selection that keeps other cases, the run
+  prints `Note: excluded 1 death test(s). Use --include-death to run them.`
+  with the actual count.
+- With `--include-death`, `--exclude-tag` and `--exclude` remove death tests as
+  usual.
+
+A death test usually ends the process, so run each one in its own process.
+`gentest_discover_tests()` does that for you; see [Death tests](death_tests.md).
+
+## Empty selections
+
+A filter that matches nothing, an unknown include tag, or exclusions that
+remove every case give an empty selection. By default an empty selection
+succeeds: the run sets up no fixtures, prints a line such as
+`Executed 0 case(s).` and exits with `0`, and `--list-selected` prints nothing. With `--junit`, the runner
+writes a report for the empty run too; see [Reports](reports.md).
+
+Add `--fail-on-empty` to make an empty selection an error, for example in CI:
+
+```text
+No cases selected (--kind=all, --filter=*); --fail-on-empty is enabled
+```
+
+A selected case that skips, statically or at run time, makes the selection
+nonempty. A static skip sets up no fixtures; see [Fixtures](fixtures.md).
+
+## Selection errors
+
+These errors stop the run before any fixture is set up:
+
+| Situation | Message |
+| --- | --- |
+| `--run` matches no case | `Case not found: <name>` |
+| `--run` matches more than one case | `Case name is ambiguous: <name>`, followed by the matches |
+| `--run` matches only cases of another kind | `Case '<name>' does not match --kind=<kind>` |
+| `--run` resolves to a death test without `--include-death` | `Case '<name>' is tagged as a death test; rerun with --include-death` |
+| `--filter` with `--kind=bench` matches no benchmark | `benchmark filter matched 0 benchmarks: <pattern>`, with a hint to use `--list-benches` |
+| `--filter` with `--kind=jitter` matches no jitter case | `jitter filter matched 0 jitter benchmarks: <pattern>`, with the same hint |
+| The selection is empty and `--fail-on-empty` is given | `No cases selected (...); --fail-on-empty is enabled` |
+
+`--tag`, `--exclude-tag` and `--exclude` never cause the two filter errors: when
+they empty an otherwise valid selection, the empty-selection rules above apply.
+[Exit codes](command_line.md#exit-codes) gives the status each error returns.
+
+## CTest
+
+[`gentest_discover_tests()`](discover_tests.md) registers every case as its
+own CTest entry and runs each death test in its own process. It turns each case
+tag into a CTest label and keeps the labels you pass, so `ctest -L fast`
+selects the cases tagged `fast`. Its `TEST_FILTER` and `FAIL_ON_EMPTY`
+arguments work like `--filter` and `--fail-on-empty` at CTest discovery time.

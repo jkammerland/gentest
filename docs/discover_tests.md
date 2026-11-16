@@ -1,147 +1,159 @@
-# Test Discovery (`gentest_discover_tests`)
+# CTest integration (`gentest_discover_tests`)
 
-This doc explains the CMake helper that wires gentest binaries into CTest.
-
-## Summary
-
-`gentest_discover_tests(<target> ...)` runs the test executable to discover cases and creates one CTest entry per case.
-It also auto-registers death tests (tagged `death`) via a dedicated harness so they run in their own process.
-See [runner workflows](runner_workflows.md#ctest-workflows) for rerunning failed
-entries, parallel scheduling, and repetition with a fresh process.
-
-## Required vs optional arguments
-
-Required:
-- `target` (first positional argument): the CMake executable target to discover tests from.
-
-Optional:
-- `TEST_PREFIX <prefix>`: prepends this string to each discovered test name.
-- `TEST_SUFFIX <suffix>`: appends this string to each discovered test name.
-- `TEST_FILTER <pattern>`: wildcard filter applied to discovered case names (supports `*` and `?`).
-- `FAIL_ON_EMPTY`: fail discovery if no CTest entries are registered after filtering (off by default). Matched skipped ordinary cases still count; skipped death cases are omitted.
-- `WORKING_DIRECTORY <dir>`: working directory used when invoking the test binary (default: `CMAKE_CURRENT_BINARY_DIR`).
-- `TEST_LIST <var>`: CMake variable that receives the list of discovered tests. Names containing square brackets or ending in a backslash are omitted from this variable because CMake lists cannot represent them reliably; they are still registered with CTest.
-- `DISCOVERY_TIMEOUT <seconds>`: timeout for discovery calls (default: `5`).
-- `DISCOVERY_MODE <POST_BUILD|PRE_TEST>`:
-  - `POST_BUILD`: run discovery at build time and write a CTest include file.
-  - `PRE_TEST`: run discovery right before `ctest` executes (slower but always up-to-date).
-- `EXTRA_ARGS <arg...>`: extra arguments forwarded to each CTest test invocation.
-- `DISCOVERY_EXTRA_ARGS <arg...>`: extra arguments forwarded to discovery (`--list-json`).
-- `PROPERTIES <prop...>`: CTest properties applied to each discovered test. Case tags are added to `LABELS`, preserving caller-supplied labels.
-- `DEATH_EXPECT_SUBSTRING <text>`: required substring in combined stdout/stderr for **death tests** (optional).
-
-## Labels
-
-Each nonempty case tag becomes a CTest label, including `death` and metadata
-such as `owner=team-runtime`. Labels preserve the tag's spelling. Both
-`PRE_TEST` and `POST_BUILD` discovery retain labels supplied with `PROPERTIES`:
+`gentest_discover_tests()` registers every case of a test executable as its own
+CTest entry, so `ctest` can run, filter, label and parallelize them, and run
+each death test in a separate process.
 
 ```cmake
-gentest_discover_tests(my_tests PROPERTIES LABELS "project;unit")
-```
+include(CTest)
+find_package(gentest CONFIG REQUIRED)
 
-A case tagged `fast` receives `project`, `unit`, and `fast` labels, so
-`ctest -L fast` selects it. Runtime tag matching is described in
-[test selection](test_selection.md).
-
-## Death tests
-
-Death tests are tagged in code with the `death` tag:
-
-```cpp
-[[using gentest: test("suite/crash_on_x"), death]]
-void crash_on_x();
-```
-
-Discovery runs:
-- `--list-json`
-
-Death-tagged cases are identified from the `tags` array in the JSON inventory. Names are preserved verbatim, including semicolons and unmatched brackets.
-
-Death tests are registered as `death/<case>` and executed via a harness that runs:
-
-```
---include-death --run=<case>
-```
-
-The harness:
-- treats non-zero exit or a fatal signal as success,
-- rejects process launch failures,
-- fails on normal test failures (`[ FAIL ]`),
-- and optionally enforces `DEATH_EXPECT_SUBSTRING` if provided.
-
-`DEATH_EXPECT_SUBSTRING` is scoped to a single `gentest_discover_tests(...)` call.
-If that call discovers multiple death tests, the same substring is required for all of them.
-There is no built-in per-test map such as `case -> expected substring`.
-
-To use different death-output expectations, split discovery into multiple non-overlapping calls with `TEST_FILTER`.
-Make sure each death test is registered by exactly one call.
-
-## Examples
-
-Basic:
-
-```cmake
+add_executable(my_tests cases.hpp)
+target_compile_features(my_tests PRIVATE cxx_std_20)
+target_link_libraries(my_tests PRIVATE gentest::gentest_main)
+gentest_attach_codegen(my_tests)
 gentest_discover_tests(my_tests)
 ```
 
-For CI, make an accidental empty selection an error:
+```bash
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+After each build of `my_tests`, CMake runs `my_tests --list-json` and writes one
+CTest entry per case. This step is called CTest discovery: unlike the codegen
+scan, it asks the built executable for its cases. For rerunning failed entries,
+parallel runs and repetition, see
+[CTest workflows](runner_workflows.md#ctest-workflows).
+
+## What it registers
+
+- **Ordinary cases.** The CTest name is the case name, between `TEST_PREFIX`
+  and `TEST_SUFFIX`. The entry runs `my_tests --run=<case> --skip-return-code=77`
+  plus `EXTRA_ARGS`, with the CTest property `SKIP_RETURN_CODE 77`, so static
+  and runtime skips show as skipped in CTest.
+- **Death tests** (cases tagged `death`). The CTest name gets a `death/` prefix,
+  after `TEST_PREFIX`: `death/crash/fatal_path`. The entry runs a CMake script
+  that starts the executable with `--include-death --run=<case>` and decides
+  whether the case died as expected; see [Death tests](death_tests.md). Death
+  tests with a static skip are not registered.
+
+Case names are registered verbatim, including semicolons and brackets. Only the
+cases compiled into the executable appear: a case that the preprocessor removes
+in one configuration (for example inside `#ifndef NDEBUG`) gets no CTest entry
+in that configuration.
+
+If the target's `TEST_LAUNCHER` or `CROSSCOMPILING_EMULATOR` property is set,
+CTest discovery and every registered entry run the executable through it, the
+launcher first.
+
+## Arguments
+
+```cmake
+gentest_discover_tests(<target>
+  [TEST_PREFIX <prefix>]
+  [TEST_SUFFIX <suffix>]
+  [TEST_FILTER <pattern>]
+  [FAIL_ON_EMPTY]
+  [WORKING_DIRECTORY <dir>]
+  [TEST_LIST <variable>]
+  [DISCOVERY_TIMEOUT <seconds>]
+  [DISCOVERY_MODE <POST_BUILD|PRE_TEST>]
+  [EXTRA_ARGS <arg>...]
+  [DISCOVERY_EXTRA_ARGS <arg>...]
+  [PROPERTIES <name> <value>...]
+  [DEATH_EXPECT_SUBSTRING <text>])
+```
+
+| Argument | Meaning |
+| --- | --- |
+| `<target>` | The executable target to ask for cases. It must exist and be an executable. |
+| `TEST_PREFIX <prefix>` | Text added before each CTest name, before the `death/` prefix of death tests. |
+| `TEST_SUFFIX <suffix>` | Text added after each CTest name. |
+| `TEST_FILTER <pattern>` | Registers only the cases whose names match this wildcard pattern (`*`, `?`). See [Filtering](#filtering). |
+| `FAIL_ON_EMPTY` | Fails CTest discovery when no entry is registered. Off by default. |
+| `WORKING_DIRECTORY <dir>` | Working directory for CTest discovery and for every entry. Default: `CMAKE_CURRENT_BINARY_DIR`. |
+| `TEST_LIST <variable>` | Name of the variable that receives the registered CTest names. Default: `<target>_TESTS`. See [The test list variable](#the-test-list-variable). |
+| `DISCOVERY_TIMEOUT <seconds>` | Time limit for the `--list-json` run. Default: `5`. |
+| `DISCOVERY_MODE <mode>` | When CTest discovery runs: `POST_BUILD` (default) or `PRE_TEST`. See [Discovery modes](#discovery-modes). |
+| `EXTRA_ARGS <arg>...` | Arguments appended to every registered command, for example `--no-color`. A shared `--allure-dir` works; a fixed `--junit` path is overwritten by every entry (see [Reports from CTest runs](reports.md#reports-from-ctest-runs)). |
+| `DISCOVERY_EXTRA_ARGS <arg>...` | Arguments appended to the CTest discovery command, after `--list-json`. |
+| `PROPERTIES <name> <value>...` | CTest properties set on every entry. Case tags are added to `LABELS`; your labels stay. |
+| `DEATH_EXPECT_SUBSTRING <text>` | Text that each death test registered by this call must print. See [Death tests](#death-tests). |
+
+`EXTRA_ARGS` must be options the executable accepts. Don't pass `--run` or
+`--skip-return-code` there: every registered command already sets them, and the
+runner rejects a repeated single-value option.
+
+## Filtering
+
+`TEST_FILTER` uses the same wildcards as the runner's `--filter` (`*` matches
+any characters including `/`, `?` one character). The pattern must match the
+whole case name, is case-sensitive, and is matched before `TEST_PREFIX` and the
+`death/` prefix are added: `TEST_FILTER "death/*"` selects the cases whose own
+names start with `death/`, not the death tests.
+
+For CI, make an accidental empty registration an error:
 
 ```cmake
 gentest_discover_tests(my_tests TEST_FILTER "unit/*" FAIL_ON_EMPTY)
 ```
 
-The corresponding runner option is `--fail-on-empty`. It rejects an empty
-execution selection before fixture setup; matching a case which intentionally
-skips is not an empty selection. Existing defaults remain unchanged.
+With `FAIL_ON_EMPTY`, CTest discovery stops with
+`gentest_discover_tests: no cases registered for '<executable>' (TEST_FILTER='<pattern>'); FAIL_ON_EMPTY is enabled`
+when nothing is registered. A matching case with a static skip counts; a death
+test with a static skip doesn't, because it isn't registered.
 
-Filtered discovery with death-output matching:
+You can call `gentest_discover_tests()` more than once for the same target, for
+example with different filters, prefixes or properties. Make the calls
+select disjoint cases: a case that two calls register gets two CTest entries.
 
-```cmake
-gentest_discover_tests(my_tests
-  TEST_FILTER "death/*"
-  DEATH_EXPECT_SUBSTRING "fatal path"
-)
-```
+## Labels
 
-Apply one expectation to a group of death tests:
-
-```cmake
-gentest_discover_tests(my_tests
-  TEST_FILTER "death/network/*"
-  DEATH_EXPECT_SUBSTRING "network fatal"
-)
-```
-
-Apply one expectation to a single death test:
+Each nonempty case tag becomes a CTest label with the tag's spelling, including
+`death` and owner tags such as `owner=team-runtime`. Labels you pass with
+`PROPERTIES` stay:
 
 ```cmake
-gentest_discover_tests(my_tests
-  TEST_FILTER "death/fatal_path"
-  DEATH_EXPECT_SUBSTRING "fatal path"
-)
+gentest_discover_tests(my_tests PROPERTIES LABELS "project;unit")
 ```
 
-If you need multiple different death expectations for the same target, partition discovery:
+A case tagged `fast` gets the labels `project`, `unit` and `fast`, so
+`ctest -L fast` selects it.
 
-```cmake
-gentest_discover_tests(my_tests
-  TEST_FILTER "unit/*")
+## Death tests
 
-gentest_discover_tests(my_tests
-  TEST_FILTER "death/network/*"
-  DEATH_EXPECT_SUBSTRING "network fatal")
+`DEATH_EXPECT_SUBSTRING <text>` requires `<text>` in the combined stdout and
+stderr of every death test that the call registers; there is no per-case
+setting. To give groups of death tests different texts, register each group
+with its own call and a disjoint `TEST_FILTER`.
+[Death tests](death_tests.md) shows that pattern and how the death-test script
+judges a run.
 
-gentest_discover_tests(my_tests
-  TEST_FILTER "death/io/*"
-  DEATH_EXPECT_SUBSTRING "io fatal")
-```
+## Discovery modes
 
-Avoid a broad unfiltered `gentest_discover_tests(my_tests)` call plus narrower death-only calls for the same target,
-because that would register the overlapping death tests more than once.
+| Mode | When CTest discovery runs |
+| --- | --- |
+| `POST_BUILD` | After every build of the target, as a post-build step. A discovery failure fails the build. This is the default. |
+| `PRE_TEST` | When CTest starts and the saved list is missing or older than the executable. Use it when the executable can't run at build time. |
 
-## Notes
+Set `CMAKE_GENTEST_DISCOVER_TESTS_DISCOVERY_MODE` to change the default for
+calls that don't pass `DISCOVERY_MODE`.
 
-- If a death test is compiled out in a configuration (e.g., wrapped in `#ifndef NDEBUG`), it will not appear in
-  `--list-json`, so no CTest entry is created.
-- For non-death output matching, use CTest properties (e.g., `PASS_REGULAR_EXPRESSION`) instead of `DEATH_EXPECT_SUBSTRING`.
+With multi-config generators, each configuration gets its own list, and
+`ctest -C <config>` uses that configuration's list. If CTest runs before the
+executable exists, CTest shows a placeholder entry named `<target>_NOT_BUILT`;
+build the target first.
+
+If the executable fails or exceeds `DISCOVERY_TIMEOUT`, CTest discovery stops
+with `Error running test executable.` followed by the executable's path,
+working directory, result and output.
+
+## The test list variable
+
+`TEST_LIST` names a variable that holds the registered CTest names. The
+variable is set when CTest reads the generated test file, so it is available to
+CTest scripts such as those added through the `TEST_INCLUDE_FILES` directory
+property, not during configuration. Names containing `[` or `]`, or ending in a
+backslash, are left out of the variable because CMake lists can't hold them
+reliably, but their CTest entries are registered as usual.
