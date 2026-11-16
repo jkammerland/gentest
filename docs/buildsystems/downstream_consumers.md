@@ -76,8 +76,9 @@ lookup order for each tool and explains when to set them.
 
 The installed package provides the `gentest::gentest`, `gentest::gentest_main`
 and `gentest::gentest_runtime` targets and the CMake functions
-`gentest_attach_codegen()`, `gentest_add_mocks()` and `gentest_discover_tests()`.
-A native build finds `gentest_codegen` in the same install.
+`gentest_attach_codegen()`, `gentest_add_mocks()`, `gentest_link_mocks()` and
+`gentest_discover_tests()`. A native build finds `gentest_codegen` in the same
+install.
 
 The package also needs the fmt CMake package of exactly the version gentest was
 built with. The simplest setup installs gentest and fmt into the same prefix

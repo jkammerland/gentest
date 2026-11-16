@@ -187,11 +187,9 @@ Timing metric names end in one of these suffixes:
 - `*_ns_per_call`: nanoseconds per function call.
 - `*_ns_per_item`: the per-call value divided by the case's `items_per_call`,
   or by the item count a benchmark passes to `gentest::setBenchmarkDuration()`.
-- `*_ns_per_op`: the same value as `*_ns_per_call`. Prefer the `_per_call` and
-  `_per_item` keys. Benchmark `stddev` has no `_per_op` key.
 
 For example, a 10 ns call that processes two items has
-`median_ns_per_call=10`, `median_ns_per_item=5` and `median_ns_per_op=10`.
+`median_ns_per_call=10` and `median_ns_per_item=5`.
 Jitter metrics also include `mode`, `sample_kind` and `calls_per_sample`, plus
 `sampling_warning` when each sample averages several calls. See
 [Benchmarks](benchmarks.md) for what these measurements mean.

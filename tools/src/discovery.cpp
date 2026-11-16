@@ -230,8 +230,6 @@ std::string mis_scoped_gentest_message(std::string_view attribute) {
     return fmt::format("attribute '{}' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification", attribute);
 }
 
-using SuiteAttributeCache = std::unordered_map<const NamespaceDecl *, SuiteAttributeSummary>;
-
 bool should_report_namespace_diag_once(const NamespaceDecl &ns, const SourceManager &sm, std::string_view message) {
     SourceLocation loc = sm.getSpellingLoc(ns.getBeginLoc());
     if (loc.isInvalid()) {
@@ -277,37 +275,32 @@ void report_namespace_diag(const NamespaceDecl &ns, const SourceManager &sm, std
     log_err("gentest_codegen: {}{}{}\n", locpfx, message, subj);
 }
 
-auto find_suite_override(const DeclContext *ctx, const SourceManager &sm, SuiteAttributeCache &suite_cache, bool &had_error)
-    -> std::optional<std::string> {
-    const DeclContext *current = ctx;
-    while (current != nullptr) {
-        if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
-            auto it = suite_cache.find(ns);
-            if (it == suite_cache.end()) {
-                auto ns_attrs = collect_gentest_attributes_for(*ns, sm);
-                for (const auto &msg : ns_attrs.mis_scoped_gentest) {
-                    had_error       = true;
-                    const auto diag = mis_scoped_gentest_message(msg);
-                    if (should_report_namespace_diag_once(*ns, sm, diag)) {
-                        report_namespace_diag(*ns, sm, diag);
-                    }
-                }
-                for (const auto &msg : ns_attrs.other_namespaces) {
-                    report_namespace_diag(*ns, sm, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", msg));
-                }
-                auto summary_ns = validate_namespace_attributes(ns_attrs.gentest, [&](const std::string &m) {
-                    had_error = true;
-                    report_namespace_diag(*ns, sm, m);
-                });
-                it              = suite_cache.emplace(ns, std::move(summary_ns)).first;
-            }
-            if (it->second.suite_name.has_value()) {
-                return it->second.suite_name;
-            }
+// Check the attributes of every namespace enclosing `ctx`, each namespace
+// declaration once per collector. gentest takes no namespace attributes (a
+// case's suite is always its namespace path), so this only diagnoses. Errors
+// are also reported once per namespace across translation units and collectors.
+void validate_enclosing_namespaces(const DeclContext *ctx, const SourceManager &sm, std::unordered_set<const NamespaceDecl *> &validated,
+                                   bool &had_error) {
+    for (const DeclContext *current = ctx; current != nullptr; current = current->getParent()) {
+        const auto *ns = llvm::dyn_cast<NamespaceDecl>(current);
+        if (ns == nullptr || !validated.insert(ns).second) {
+            continue;
         }
-        current = current->getParent();
+        const auto report_error_once = [&](const std::string &message) {
+            had_error = true;
+            if (should_report_namespace_diag_once(*ns, sm, message)) {
+                report_namespace_diag(*ns, sm, message);
+            }
+        };
+        const auto ns_attrs = collect_gentest_attributes_for(*ns, sm);
+        for (const auto &attribute : ns_attrs.mis_scoped_gentest) {
+            report_error_once(mis_scoped_gentest_message(attribute));
+        }
+        for (const auto &attribute : ns_attrs.other_namespaces) {
+            report_namespace_diag(*ns, sm, fmt::format("attribute '{}' ignored (unsupported attribute namespace)", attribute));
+        }
+        validate_namespace_attributes(ns_attrs.gentest, report_error_once);
     }
-    return std::nullopt;
 }
 
 [[nodiscard]] std::string derive_namespace_path(const DeclContext *ctx) {
@@ -1111,9 +1104,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     };
     const std::vector<std::string> namespace_parts = collect_namespace_parts(func->getDeclContext());
 
-    const auto  suite_override = find_suite_override(func->getDeclContext(), *sm, suite_cache_, had_error_);
-    std::string suite_path     = suite_override.value_or(derive_namespace_path(func->getDeclContext()));
-    std::string base_case_name;
+    validate_enclosing_namespaces(func->getDeclContext(), *sm, validated_namespaces_, had_error_);
+    const std::string suite_path = derive_namespace_path(func->getDeclContext());
+    std::string       base_case_name;
     if (summary.case_name.has_value()) {
         base_case_name = *summary.case_name;
     } else if (const auto *method = llvm::dyn_cast<CXXMethodDecl>(func)) {
@@ -1936,8 +1929,8 @@ void FixtureDeclCollector::run(const MatchFinder::MatchResult &result) {
     if (summary.lifetime != FixtureLifetime::MemberSuite && summary.lifetime != FixtureLifetime::MemberGlobal) {
         return; // not a shared fixture declaration
     }
-    const auto        suite_override = find_suite_override(record->getDeclContext(), *sm, suite_cache_, had_error_);
-    const std::string suite_path     = suite_override.value_or(derive_namespace_path(record->getDeclContext()));
+    validate_enclosing_namespaces(record->getDeclContext(), *sm, validated_namespaces_, had_error_);
+    const std::string suite_path = derive_namespace_path(record->getDeclContext());
     if (summary.lifetime == FixtureLifetime::MemberSuite && suite_path.empty()) {
         had_error_ = true;
         report(*record, *sm, "'fixture(suite)' requires an enclosing named namespace to derive a suite path");

@@ -222,45 +222,29 @@ int main() {
         t.expect(!diags.empty(), "unknown class value attribute reports a diagnostic");
     }
 
+    // The namespace attribute suite(...) was removed in gentest 2.0.0. Every
+    // spelling and argument list reports the removal once, with the replacements.
     {
-        auto                     attrs = parse_attribute_list(R"(suite("codegen/ns"))");
-        std::vector<std::string> diags;
-        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
-        t.expect(!summary.had_error, "namespace suite validates");
-        t.expect(summary.suite_name && *summary.suite_name == "codegen/ns", "namespace suite name parsed");
-        t.expect(diags.empty(), "namespace suite should not report diagnostics");
-    }
+        const auto is_suite_removal = [](const std::string &diag) {
+            return diag.find("namespace attribute 'suite' was removed in gentest 2.0.0") != std::string::npos &&
+                   diag.find("test(\"...\")") != std::string::npos && diag.find("separate test executables") != std::string::npos;
+        };
+        for (const std::string_view list :
+             {R"(suite("codegen/ns"))", R"(suite("a"), suite("b"))", R"(suite())", R"(suite("a", "b"))", R"(suite(""))", R"(Suite("x"))"}) {
+            auto                     attrs = parse_attribute_list(list);
+            std::vector<std::string> diags;
+            auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+            const std::string        label   = std::string("namespace attribute list ") + std::string(list);
+            t.expect(summary.had_error, label + " errors");
+            t.expect(diags.size() == 1 && is_suite_removal(diags.front()), label + " reports the suite removal once");
+        }
 
-    {
-        auto                     attrs = parse_attribute_list(R"(suite("a"), suite("b"))");
+        auto                     attrs = parse_attribute_list(R"(suite("a"), slow)");
         std::vector<std::string> diags;
         auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
-        t.expect(summary.had_error, "duplicate namespace suite errors");
-        t.expect(!diags.empty(), "duplicate namespace suite reports a diagnostic");
-    }
-
-    {
-        auto                     attrs = parse_attribute_list(R"(suite())");
-        std::vector<std::string> diags;
-        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
-        t.expect(summary.had_error, "namespace suite without argument errors");
-        t.expect(!diags.empty(), "namespace suite without argument reports a diagnostic");
-    }
-
-    {
-        auto                     attrs = parse_attribute_list(R"(suite("a", "b"))");
-        std::vector<std::string> diags;
-        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
-        t.expect(summary.had_error, "namespace suite with too many args errors");
-        t.expect(!diags.empty(), "namespace suite with too many args reports a diagnostic");
-    }
-
-    {
-        auto                     attrs = parse_attribute_list(R"(suite(""))");
-        std::vector<std::string> diags;
-        auto                     summary = validate_namespace_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
-        t.expect(summary.had_error, "empty namespace suite errors");
-        t.expect(!diags.empty(), "empty namespace suite reports a diagnostic");
+        t.expect(summary.had_error, "suite removal with another namespace attribute errors");
+        t.expect(diags.size() == 2 && is_suite_removal(diags.front()) && diags.back() == "unknown gentest namespace attribute 'slow'",
+                 "suite removal does not hide another unknown namespace attribute");
     }
 
     {

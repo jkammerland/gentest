@@ -14,7 +14,7 @@ gentest_add_mocks(payment_mocks
 add_executable(gentest_mocking cases.hpp)
 target_compile_features(gentest_mocking PRIVATE cxx_std_20)
 target_link_libraries(gentest_mocking PRIVATE gentest::gentest_main)
-# Link the generated mock surface before attaching test codegen.
+# Link the mock target; gentest_link_mocks() also works after gentest_attach_codegen().
 gentest_link_mocks(gentest_mocking PRIVATE payment_mocks)
 
 gentest_attach_codegen(gentest_mocking

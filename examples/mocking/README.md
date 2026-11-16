@@ -24,9 +24,9 @@ build/examples/mocking/gentest_mocking --repeat=2 --shuffle --seed 123
   `gentest::mock<shop::PaymentGateway>`.
 - [CMakeLists.txt](CMakeLists.txt) creates the mock target `payment_mocks`
   with `gentest_add_mocks()`, which generates the mock header
-  `public/payment_mocks.hpp`. It links the mock target to the test target
-  before calling `gentest_attach_codegen()`, so codegen sees the generated mock
-  header.
+  `public/payment_mocks.hpp`. It links the mock target to the test target with
+  [`gentest_link_mocks()`](../../docs/mock_generation.md#link-mock-targets),
+  so the test's codegen runs after the generated mock header exists.
 - [cases.hpp](cases.hpp) includes `public/payment_mocks.hpp` and passes the mock
   to `Checkout` through its `PaymentGateway&` dependency.
 

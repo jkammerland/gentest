@@ -527,36 +527,25 @@ auto validate_fixture_attributes(const std::vector<ParsedAttribute> &parsed, con
 }
 
 auto validate_namespace_attributes(const std::vector<ParsedAttribute> &parsed, const std::function<void(const std::string &)> &report)
-    -> SuiteAttributeSummary {
-    SuiteAttributeSummary summary{};
-    bool                  saw_suite = false;
+    -> NamespaceAttributeSummary {
+    NamespaceAttributeSummary summary{};
+    bool                      reported_suite = false;
 
     for (const auto &attr : parsed) {
         std::string lowered = attr.name;
         std::ranges::transform(lowered, lowered.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
 
+        summary.had_error = true;
         if (lowered == "suite") {
-            if (saw_suite) {
-                summary.had_error = true;
-                report("duplicate gentest namespace attribute 'suite'");
-                continue;
+            // Any spelling or argument list gets the same error, reported once per list.
+            if (!reported_suite) {
+                reported_suite = true;
+                report("namespace attribute 'suite' was removed in gentest 2.0.0; cases take their suite and name prefix from the "
+                       "namespace path. Name cases with test(\"...\") or split them into separate test executables instead");
             }
-            if (attr.arguments.size() != 1) {
-                summary.had_error = true;
-                report("'suite' requires exactly one string argument");
-                continue;
-            }
-            if (attr.arguments.front().empty()) {
-                summary.had_error = true;
-                report("'suite' argument must not be empty");
-                continue;
-            }
-            saw_suite          = true;
-            summary.suite_name = attr.arguments.front();
             continue;
         }
 
-        summary.had_error = true;
         std::string joined;
         if (!attr.arguments.empty()) {
             for (std::size_t idx = 0; idx < attr.arguments.size(); ++idx) {

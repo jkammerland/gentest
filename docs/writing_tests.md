@@ -208,21 +208,16 @@ values to the name, as in `sort<int>` or `bounded_value(-1)`. See
 The namespace path is also the case's suite. Suites group the cases of a run,
 and suite fixtures belong to them; see [Fixtures](fixtures.md).
 
-To use a suite name other than the namespace path, put `suite("...")` on the
-namespace:
+Codegen rejects gentest attributes on a namespace that holds cases or shared
+fixtures, so the suite is always the namespace path. To group cases another
+way:
 
-```cpp
-namespace [[gentest::suite("storage")]] storage_v2 {
-
-[[gentest::test]]
-inline void opens_file() {} // storage/opens_file
-
-} // namespace storage_v2
-```
-
-The nearest enclosing `suite("...")` replaces the whole namespace path,
-including namespaces nested inside it: a case in `storage_v2::detail` is also
-named `storage/<base name>`.
+- Declare them in the namespace whose path you want as their suite.
+- Name them with `test("...")`. The suite stays the namespace path, but a `/`
+  in the name groups cases below it: in the example above,
+  `--filter='net/http/headers/*'` selects the cases whose `test("...")` names
+  start with `headers/`. See [Test selection](test_selection.md).
+- Build them into separate test executables, which run and report separately.
 
 ## Tags and metadata
 
@@ -331,8 +326,8 @@ can't be combined with `test` or `jitter`. [Benchmarks](benchmarks.md) explains
 them.
 
 On classes, `fixture(suite)` and `fixture(global)` declare a shared fixture; see
-[Fixtures](fixtures.md). On namespaces, `suite("name")` sets the suite name; see
-[Suites](#suites).
+[Fixtures](fixtures.md). Namespaces take no gentest attributes: a namespace's
+path is the suite of the cases in it; see [Suites](#suites).
 
 ## Member tests
 

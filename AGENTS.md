@@ -23,7 +23,7 @@ editing.
 ## Architecture & Execution Model
 - The codegen scan finds the attributes (`[[gentest::test]]`, `[[using gentest: ...]]`) and emits registration code that adds `gentest::Case` entries for each target.
 - The runtime (`run_all_tests`) takes the registered cases, groups them by suite and fixture lifetime, runs fixture setup and teardown, then runs the test, bench and jitter wrappers.
-- Suite identity comes from the namespace path (or a `suite("...")` attribute on an enclosing namespace) and is used for ordering and fixture scoping.
+- Suite identity comes from the namespace path and is used for ordering and fixture scoping. Namespaces take no gentest attributes.
 
 ## Fixture Model (Style + Semantics)
 - Fixture lifetimes: local (per test, bench or jitter), suite (per namespace group), global (per run).
@@ -96,7 +96,7 @@ editing.
   - See `docs/modules.md` for the supported named-module flows (`import gentest;`, `import gentest.mock;`, `import gentest.bench_util;`).
   - `import gentest;` consumers should link `gentest::gentest`; test executables typically link both `gentest::gentest` and `gentest::gentest_main` (or `gentest::gentest_runtime` if they provide their own `main()`).
   - Set `GENTEST_ENABLE_PUBLIC_MODULES` to `ON` (or `AUTO` for toolchain-driven fallback) when you test public modules.
-  - Link mock targets before calling `gentest_attach_codegen()`, so the codegen scan sees the generated mock headers. `gentest_link_mocks()` handles in-tree targets that link them afterwards.
+  - Link mock targets with the public `gentest_link_mocks()`, before or after `gentest_attach_codegen()`, or with `target_link_libraries()` before `gentest_attach_codegen()`, so the codegen scan sees the generated mock headers. A `target_link_libraries()` call after `gentest_attach_codegen()` misses the codegen ordering and the `DEFS` include-path check.
 - `gentest_attach_codegen()` without `MODULE_REGISTRATION` uses header registration. Use Ninja or Ninja Multi-Config.
 - `OUTPUT_DIR` must be a concrete path without generator expressions in every mode, and unique per target; multi-config generators add their configuration subdirectory automatically.
 - Cross-compiling (target = arm/riscv/etc, host runs codegen):

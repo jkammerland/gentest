@@ -646,10 +646,10 @@ unset(_gentest_default_suites)
 
 # Focused checks: ensure pass-only selection passes, and failing selection returns non-zero
 set(_gentest_concurrency_count_checks
-    "concurrency_pass_single|1|0|0|concurrency/child_log_pass"
-    "concurrency_pass_throw_single|1|0|0|concurrency/child_reports_exception_pass"
-    "concurrency_multi_pass_single|1|0|0|concurrency/multi_adopt_log_pass"
-    "concurrency_mock_dispatch_single|1|0|0|concurrency/mock_adopt_dispatch")
+    "concurrency_pass_single|1|0|0|concurrency_tests/child_log_pass"
+    "concurrency_pass_throw_single|1|0|0|concurrency_tests/child_reports_exception_pass"
+    "concurrency_multi_pass_single|1|0|0|concurrency_tests/multi_adopt_log_pass"
+    "concurrency_mock_dispatch_single|1|0|0|concurrency_tests/mock_adopt_dispatch")
 
 foreach(_gentest_check IN LISTS _gentest_concurrency_count_checks)
     string(REPLACE "|" ";" _gentest_fields "${_gentest_check}")
@@ -677,10 +677,10 @@ unset(_gentest_skip)
 unset(_gentest_run)
 
 set(_gentest_concurrency_death_checks
-    "concurrency_fail_single_death|concurrency/child_expect_fail|gentest: fatal: assertion/expectation called without an active test context."
-    "concurrency_skip_no_context_death|concurrency/child_skip_no_context|gentest: fatal: skip called without an active test context."
-    "concurrency_xfail_no_context_death|concurrency/child_xfail_no_context|gentest: fatal: xfail called without an active test context."
-    "concurrency_multi_noadopt_death|concurrency/no_adopt_expect_death_multi|gentest: fatal: assertion/expectation called without an active test context.")
+    "concurrency_fail_single_death|concurrency_tests/child_expect_fail|gentest: fatal: assertion/expectation called without an active test context."
+    "concurrency_skip_no_context_death|concurrency_tests/child_skip_no_context|gentest: fatal: skip called without an active test context."
+    "concurrency_xfail_no_context_death|concurrency_tests/child_xfail_no_context|gentest: fatal: xfail called without an active test context."
+    "concurrency_multi_noadopt_death|concurrency_tests/no_adopt_expect_death_multi|gentest: fatal: assertion/expectation called without an active test context.")
 
 foreach(_gentest_check IN LISTS _gentest_concurrency_death_checks)
     string(REPLACE "|" ";" _gentest_fields "${_gentest_check}")
@@ -704,20 +704,20 @@ unset(_gentest_required_substring)
 unset(_gentest_run)
 
 set(_gentest_adopted_context_death_checks
-    "concurrency_adopted_expect_pass_death|concurrency/adopted_expect_pass_death|assertion/expectation called"
-    "concurrency_adopted_fmt_expect_pass_death|concurrency/adopted_fmt_expect_pass_death|assertion/expectation called"
-    "concurrency_adopted_expect_fail_death|concurrency/adopted_expect_fail_death|assertion/expectation called"
-    "concurrency_adopted_assert_death|concurrency/adopted_assert_death|assertion/expectation called"
-    "concurrency_adopted_expect_throw_death|concurrency/adopted_expect_throw_death|assertion/expectation called"
-    "concurrency_adopted_fail_death|concurrency/adopted_fail_death|fail called"
-    "concurrency_adopted_skip_death|concurrency/adopted_skip_death|skip called"
-    "concurrency_adopted_xfail_death|concurrency/adopted_xfail_death|xfail called"
-    "concurrency_adopted_mock_expectation_death|concurrency/adopted_mock_expectation_death|mock expectation configured"
-    "concurrency_adopted_mock_mode_death|concurrency/adopted_mock_mode_death|mock mode configured"
-    "concurrency_adopted_mock_handle_mutation_death|concurrency/adopted_mock_handle_mutation_death|mock expectation configured"
-    "concurrency_adopted_mock_closed_context_death|concurrency/adopted_mock_closed_context_death|mock mode configured"
-    "concurrency_adopted_mock_unexpected_call_death|concurrency/adopted_mock_unexpected_call_death|assertion/expectation recorded"
-    "concurrency_stop_callback_expect_death|concurrency/stop_callback_expect_death|assertion/expectation called")
+    "concurrency_adopted_expect_pass_death|concurrency_tests/adopted_expect_pass_death|assertion/expectation called"
+    "concurrency_adopted_fmt_expect_pass_death|concurrency_tests/adopted_fmt_expect_pass_death|assertion/expectation called"
+    "concurrency_adopted_expect_fail_death|concurrency_tests/adopted_expect_fail_death|assertion/expectation called"
+    "concurrency_adopted_assert_death|concurrency_tests/adopted_assert_death|assertion/expectation called"
+    "concurrency_adopted_expect_throw_death|concurrency_tests/adopted_expect_throw_death|assertion/expectation called"
+    "concurrency_adopted_fail_death|concurrency_tests/adopted_fail_death|fail called"
+    "concurrency_adopted_skip_death|concurrency_tests/adopted_skip_death|skip called"
+    "concurrency_adopted_xfail_death|concurrency_tests/adopted_xfail_death|xfail called"
+    "concurrency_adopted_mock_expectation_death|concurrency_tests/adopted_mock_expectation_death|mock expectation configured"
+    "concurrency_adopted_mock_mode_death|concurrency_tests/adopted_mock_mode_death|mock mode configured"
+    "concurrency_adopted_mock_handle_mutation_death|concurrency_tests/adopted_mock_handle_mutation_death|mock expectation configured"
+    "concurrency_adopted_mock_closed_context_death|concurrency_tests/adopted_mock_closed_context_death|mock mode configured"
+    "concurrency_adopted_mock_unexpected_call_death|concurrency_tests/adopted_mock_unexpected_call_death|assertion/expectation recorded"
+    "concurrency_stop_callback_expect_death|concurrency_tests/stop_callback_expect_death|assertion/expectation called")
 
 foreach(_gentest_check IN LISTS _gentest_adopted_context_death_checks)
     string(REPLACE "|" ";" _gentest_fields "${_gentest_check}")
@@ -1896,24 +1896,26 @@ gentest_add_cmake_script_test(
         "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespaced_attrs_gentest_first_unscoped_foreign/namespaced_attrs_gentest_first_unscoped_foreign.gentest.h"
         "REQUIRED_SUBSTRING=smoke/namespaced/mixed/gentest_first_unscoped_foreign")
 
+# Codegen rejects the namespace attribute suite("..."), removed in gentest 2.0.0.
+# The checks match the two halves of its error message, which contains a ';'.
+set(_gentest_suite_removed_head "namespace attribute 'suite' was removed in gentest 2.0.0")
+set(_gentest_suite_removed_tail "Name cases with test(\"...\") or split them into separate test executables instead")
+
 gentest_add_cmake_script_test(
     NAME gentest_codegen_namespace_suite_attr_with_trailing_comment
     NO_EMULATOR
     PROG ${_gentest_codegen_prog}
-    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckFileContains.cmake"
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
     ARGS
-        --tu-out-dir
-        ${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment
-        --tu-header-output
-        ${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment/namespace_suite_comment.gentest.h
+        --check
         --compdb
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespace_suite_comment.cpp
         --
         ${_gentest_codegen_direct_clang_args}
     DEFINES
-        "FILE=${CMAKE_CURRENT_BINARY_DIR}/namespace_suite_comment/namespace_suite_comment.gentest.h"
-        "REQUIRED_SUBSTRING=suite_override/comment_backscan/trailing_comment_suite_attr_case")
+        "EXPECT_RC=1"
+        "REQUIRED_SUBSTRINGS=${_gentest_suite_removed_head}|${_gentest_suite_removed_tail} (namespace smoke::suite_comment_backscan)")
 
 gentest_add_cmake_script_test(
     NAME gentest_codegen_namespace_suite_diag_dedup
@@ -1929,9 +1931,29 @@ gentest_add_cmake_script_test(
         ${_gentest_codegen_direct_clang_args}
     DEFINES
         "EXPECT_RC=1"
-        "REQUIRED_SUBSTRING=duplicate gentest namespace attribute 'suite'"
+        "REQUIRED_SUBSTRINGS=${_gentest_suite_removed_tail} (namespace duplicate_scope)|${_gentest_suite_removed_tail} (namespace removed_scope)"
+        "EXPECT_COUNT_SUBSTRING=${_gentest_suite_removed_head}"
+        "EXPECT_COUNT=2"
+        "FORBID_SUBSTRINGS=(namespace foreign_scope)|duplicate gentest namespace attribute")
+
+gentest_add_cmake_script_test(
+    NAME gentest_codegen_namespace_suite_mis_scoped_dedup
+    NO_EMULATOR
+    PROG ${_gentest_codegen_prog}
+    SCRIPT "${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckNoSubstring.cmake"
+    ARGS
+        --check
+        --compdb
+        ${CMAKE_BINARY_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/smoke/namespace_suite_diag_dedup.cpp
+        --
+        ${_gentest_codegen_direct_clang_args}
+    DEFINES
+        "EXPECT_RC=1"
         "EXPECT_COUNT_SUBSTRING=attribute 'suite(\"smoke/namespace_diag/plain\")' must use '[[using gentest: ...]]' or explicit 'gentest::' qualification"
         "EXPECT_COUNT=1")
+unset(_gentest_suite_removed_head)
+unset(_gentest_suite_removed_tail)
 
 gentest_add_check_death(
     NAME gentest_codegen_check_invalid_unknown_attr
@@ -2488,6 +2510,7 @@ set_tests_properties(
     gentest_codegen_mis_scoped_attr_unqualified_test
     gentest_codegen_namespace_suite_attr_with_trailing_comment
     gentest_codegen_namespace_suite_diag_dedup
+    gentest_codegen_namespace_suite_mis_scoped_dedup
     gentest_codegen_check_invalid_unknown_attr
     gentest_codegen_check_invalid_duplicate_template_attr
     gentest_codegen_check_invalid_template_pack_bare
