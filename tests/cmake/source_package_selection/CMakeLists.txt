@@ -1,0 +1,56 @@
+cmake_minimum_required(VERSION 3.31)
+project(gentest_package_selection LANGUAGES C CXX)
+
+set(gentest_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(gentest_INSTALL OFF CACHE BOOL "" FORCE)
+set(GENTEST_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
+set(GENTEST_ENABLE_PUBLIC_MODULES OFF CACHE STRING "" FORCE)
+
+# Keep a separately discoverable installation in the ordinary package search.
+if(CASE MATCHES "^parent_")
+  unset(gentest_DIR CACHE)
+  unset(ENV{gentest_DIR})
+else()
+  set(gentest_DIR "${FOREIGN_PACKAGE_DIR}" CACHE PATH "" FORCE)
+endif()
+set(gentest_ROOT "${FOREIGN_PREFIX}")
+list(PREPEND CMAKE_PREFIX_PATH "${FOREIGN_PREFIX}")
+if(CMAKE_CROSSCOMPILING)
+  # Make this target installation discoverable under a package-only find root.
+  list(PREPEND CMAKE_FIND_ROOT_PATH "${FOREIGN_PREFIX}")
+endif()
+
+# These files belong to the parent, including its explicit version rejection.
+if(CASE MATCHES "^parent_")
+  include(CMakePackageConfigHelpers)
+  set(_parent_config "${CMAKE_FIND_PACKAGE_REDIRECTS_DIR}/gentest-config.cmake")
+  set(_parent_version "${CMAKE_FIND_PACKAGE_REDIRECTS_DIR}/gentest-config-version.cmake")
+  configure_file("${CMAKE_CURRENT_SOURCE_DIR}/parent-config.cmake.in" "${_parent_config}" @ONLY)
+  write_basic_package_version_file("${_parent_version}"
+    VERSION 2.0.0 COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
+  if(CASE MATCHES "^parent_reject_")
+    file(APPEND "${_parent_version}" [=[
+file(WRITE "${CMAKE_BINARY_DIR}/parent-version-rejected" "${PACKAGE_FIND_VERSION}")
+set(PACKAGE_VERSION_COMPATIBLE FALSE)
+set(PACKAGE_VERSION_EXACT FALSE)
+]=])
+  endif()
+  file(SHA256 "${_parent_config}" _config_before)
+  file(SHA256 "${_parent_version}" _version_before)
+endif()
+
+# The source provider and package requester deliberately have sibling scopes.
+if(CASE STREQUAL "installed_then_source")
+  find_package(gentest CONFIG REQUIRED)
+endif()
+if(NOT CASE STREQUAL "installed_only")
+  add_subdirectory(provider)
+endif()
+if(CASE MATCHES "^parent_")
+  file(SHA256 "${_parent_config}" _config_after)
+  file(SHA256 "${_parent_version}" _version_after)
+  if(NOT _config_before STREQUAL _config_after OR NOT _version_before STREQUAL _version_after)
+    message(FATAL_ERROR "Gentest replaced the parent's package-selection policy")
+  endif()
+endif()
+add_subdirectory(requester)

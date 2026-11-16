@@ -1,5 +1,41 @@
 include_guard(GLOBAL)
 
+# A configure has one owner of the public helper functions. Watching the
+# directory assignment also protects against older installed helpers, which
+# have no origin guard and load before their target-existence checks.
+get_property(_gentest_codegen_origin GLOBAL PROPERTY gentest_codegen_cmake_directory)
+if(NOT _gentest_codegen_origin)
+    if(COMMAND gentest_attach_codegen)
+        message(FATAL_ERROR
+            "gentest: conflicting CMake helpers: an earlier Gentest copy already defined gentest_attach_codegen. "
+            "Use one Gentest source tree or installation per configure.")
+    endif()
+    file(REAL_PATH "${CMAKE_CURRENT_LIST_DIR}" _gentest_codegen_origin)
+    set_property(GLOBAL PROPERTY gentest_codegen_cmake_directory "${_gentest_codegen_origin}")
+
+    function(_gentest_check_codegen_cmake_directory directory)
+        file(REAL_PATH "${directory}" _incoming_directory)
+        get_property(_selected_directory GLOBAL PROPERTY gentest_codegen_cmake_directory)
+        if(NOT _incoming_directory STREQUAL _selected_directory)
+            message(FATAL_ERROR
+                "gentest: conflicting CMake helpers from '${_incoming_directory}'; "
+                "helpers from '${_selected_directory}' are already selected. "
+                "Use one Gentest source tree or installation per configure. "
+                "When sharing source Gentest with nested dependencies, provide a source-package redirect in the parent "
+                "(for example FetchContent OVERRIDE_FIND_PACKAGE) instead of loading a separate installation.")
+        endif()
+    endfunction()
+
+    function(_gentest_watch_codegen_cmake_directory variable access value list_file stack)
+        if(access MATCHES "MODIFIED_ACCESS$")
+            _gentest_check_codegen_cmake_directory("${value}")
+        endif()
+    endfunction()
+
+    variable_watch(_GENTEST_CODEGEN_CMAKE_DIR _gentest_watch_codegen_cmake_directory)
+endif()
+
+_gentest_check_codegen_cmake_directory("${CMAKE_CURRENT_LIST_DIR}")
 set(_GENTEST_CODEGEN_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
 if(NOT DEFINED GENTEST_CODEGEN_EXECUTABLE)
