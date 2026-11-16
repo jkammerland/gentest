@@ -178,7 +178,7 @@ set_property(TEST format_value APPEND PROPERTY LABELS "public-api")
 # Public assertion/formatting header regressions. Each program owns its case
 # table: the failing cases pin their source lines with #line, and the death
 # checks require the reported location to be the test's own file and line.
-set(_gentest_assertion_header_tests throw_forms fmt_location)
+set(_gentest_assertion_header_tests throw_forms fmt_location minmax_macros)
 # The Microsoft standard library defines std::any (used by gentest/async.h) only
 # with RTTI enabled, so the RTTI-free build is covered on other libraries only.
 if(MSVC OR CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")

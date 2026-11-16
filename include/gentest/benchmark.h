@@ -60,7 +60,7 @@ void collect_timing_samples(std::string_view name, Samples &&samples, Convert co
                     return sample;
             }();
             const long double ns = convert(sample);
-            if (raw < 0 || !std::isfinite(ns) || ns < 0 || ns > std::numeric_limits<double>::max() ||
+            if (raw < 0 || !std::isfinite(ns) || ns < 0 || ns > (std::numeric_limits<double>::max)() ||
                 (raw != 0 && static_cast<double>(ns) == 0)) {
                 invalid = true;
                 break;

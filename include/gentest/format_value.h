@@ -74,7 +74,7 @@ namespace gentest::detail {
 inline std::string quote_diagnostic_string(std::string_view value, char quote = '"') {
     std::string           out(1, quote);
     constexpr std::size_t limit = 512;
-    auto                  count = std::min(value.size(), limit);
+    auto                  count = (std::min)(value.size(), limit);
     // Keep a truncated UTF-8 code point out of otherwise valid string output.
     if (count < value.size()) {
         while (count > 0 && (static_cast<unsigned char>(value[count]) & 0xc0U) == 0x80U)
