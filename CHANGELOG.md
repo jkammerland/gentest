@@ -6,6 +6,7 @@
 
 - Regenerate and rebuild with matching 2.0.0 codegen, headers, and runtime; 1.x generated sources are not compatible.
 - Rename `async_test<T>` to `gentest::awaitable<T>`. Custom awaiters passed to timed waits need no gentest-specific members.
+- Remove `suite("...")` from namespaces: the namespace path is always the suite. Group cases with `test("...")` names or separate test executables instead, or rename the namespace to the suite name you want.
 - Add `FILE_SET gentest_explicit_mock_defs DESTINATION include` when installing `gentest_add_mocks()` targets.
 - Review nice-mode mocks that relied on ignored extra calls, and shared fixtures expected to set up when unused.
 - Drop `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature; Allure output no longer needs them.
@@ -33,6 +34,7 @@
 - Explicit stop-token overloads of `sleep_for`, `yield`, `event.wait`, and `future.wait` require exceptions.
 - `--quiet-clang` / `QUIET_CLANG` no longer hides parse errors; a file that fails to parse fails codegen.
 - Numeric `range` / `linspace` bounds must be numeric literals; a mocked method named `mock` and template tests without a full `template(...)` set are rejected.
+- The namespace attribute `suite("...")` is removed and codegen rejects it; a case's suite and name prefix are always its namespace path.
 - `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature are removed; `--allure-dir` always writes results.
 - Allure results drop the non-standard `time` field; use `start` and `stop`.
 - Allure file names start with a per-run token, and a run no longer removes results that earlier runs left in `--allure-dir`.

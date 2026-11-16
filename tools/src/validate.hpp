@@ -85,9 +85,10 @@ struct FixtureAttributeSummary {
     FixtureLifetime lifetime  = FixtureLifetime::MemberEphemeral;
 };
 
-struct SuiteAttributeSummary {
-    bool                       had_error = false;
-    std::optional<std::string> suite_name;
+// Summary of namespace-level attributes after validation. gentest defines no
+// namespace attributes, so every gentest attribute on a namespace is an error.
+struct NamespaceAttributeSummary {
+    bool had_error = false;
 };
 
 // Validate a parsed `gentest::` attribute list (function scope) and collect
@@ -106,7 +107,11 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
 auto validate_fixture_attributes(const std::vector<ParsedAttribute> &parsed, const std::function<void(const std::string &)> &report)
     -> FixtureAttributeSummary;
 
+// Validate the gentest attributes written on a namespace. None is accepted:
+// 'suite' reports that it was removed in gentest 2.0.0 (once per list), and
+// any other name is unknown. Other attribute namespaces are reported by
+// discovery.
 auto validate_namespace_attributes(const std::vector<ParsedAttribute> &parsed, const std::function<void(const std::string &)> &report)
-    -> SuiteAttributeSummary;
+    -> NamespaceAttributeSummary;
 
 } // namespace gentest::codegen

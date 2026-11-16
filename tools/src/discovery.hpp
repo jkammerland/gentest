@@ -7,6 +7,7 @@
 #include <clang/ASTMatchers/ASTMatchFinder.h>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace gentest::codegen {
 
@@ -33,9 +34,10 @@ class TestCaseCollector : public clang::ast_matchers::MatchFinder::MatchCallback
     bool                       header_declaration_registration_ = false;
     bool                       module_importer_registration_    = false;
     // Dedup emitted test cases by a composite key (qualified + display + file:line)
-    std::set<std::string>                                                           seen_;
-    mutable bool                                                                    had_error_ = false;
-    mutable std::unordered_map<const clang::NamespaceDecl *, SuiteAttributeSummary> suite_cache_;
+    std::set<std::string> seen_;
+    mutable bool          had_error_ = false;
+    // Namespaces whose attributes this collector has already validated.
+    std::unordered_set<const clang::NamespaceDecl *> validated_namespaces_;
     // Enforce unique final base names (suite_path/base), before decorations
     mutable std::unordered_map<std::string, std::string> unique_base_locations_;
 };
@@ -54,11 +56,12 @@ class FixtureDeclCollector : public clang::ast_matchers::MatchFinder::MatchCallb
   private:
     void report(const clang::CXXRecordDecl &decl, const clang::SourceManager &sm, std::string_view message) const;
 
-    std::vector<FixtureDeclInfo>                                                   &out_;
-    bool                                                                            header_declaration_registration_ = false;
-    bool                                                                            module_importer_registration_    = false;
-    mutable bool                                                                    had_error_                       = false;
-    mutable std::unordered_map<const clang::NamespaceDecl *, SuiteAttributeSummary> suite_cache_;
+    std::vector<FixtureDeclInfo> &out_;
+    bool                          header_declaration_registration_ = false;
+    bool                          module_importer_registration_    = false;
+    mutable bool                  had_error_                       = false;
+    // Namespaces whose attributes this collector has already validated.
+    std::unordered_set<const clang::NamespaceDecl *> validated_namespaces_;
 };
 
 // Resolve free-function fixture uses against discovered fixture declarations.

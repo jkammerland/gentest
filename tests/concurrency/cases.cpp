@@ -1,6 +1,6 @@
 #include "cases.hpp"
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void child_log_pass() {
     auto              context = gentest::get_current_context();
@@ -16,9 +16,9 @@ void child_log_pass() {
     EXPECT_EQ(done.get(), 2);
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void child_expect_fail() {
     auto        context = gentest::get_current_context();
@@ -31,27 +31,27 @@ void child_expect_fail() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void child_skip_no_context() {
     std::thread t([] { gentest::skip("child thread skip without context"); });
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void child_xfail_no_context() {
     std::thread t([] { gentest::xfail("child thread xfail without context"); });
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void child_reports_exception_pass() {
     auto               context = gentest::get_current_context();
@@ -70,9 +70,9 @@ void child_reports_exception_pass() {
     EXPECT_TRUE(done.get());
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void multi_adopt_log_pass() {
     auto             context = gentest::get_current_context();
@@ -98,9 +98,9 @@ void multi_adopt_log_pass() {
     EXPECT_EQ(completed.load(std::memory_order_acquire), 3);
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void mock_adopt_dispatch() {
     constexpr int kThreads         = 8;
@@ -136,9 +136,9 @@ void mock_adopt_dispatch() {
     EXPECT_EQ(sum.load(std::memory_order_relaxed), kExpectedInvokes);
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_expect_pass_death() {
     auto        context = gentest::get_current_context();
@@ -149,9 +149,9 @@ void adopted_expect_pass_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_fmt_expect_pass_death() {
     auto        context = gentest::get_current_context();
@@ -162,9 +162,9 @@ void adopted_fmt_expect_pass_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_expect_fail_death() {
     auto        context = gentest::get_current_context();
@@ -175,9 +175,9 @@ void adopted_expect_fail_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_assert_death() {
     auto        context = gentest::get_current_context();
@@ -188,9 +188,9 @@ void adopted_assert_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_expect_throw_death() {
     auto        context = gentest::get_current_context();
@@ -201,9 +201,9 @@ void adopted_expect_throw_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_fail_death() {
     auto        context = gentest::get_current_context();
@@ -214,9 +214,9 @@ void adopted_fail_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_skip_death() {
     auto        context = gentest::get_current_context();
@@ -227,9 +227,9 @@ void adopted_skip_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_xfail_death() {
     auto        context = gentest::get_current_context();
@@ -240,9 +240,9 @@ void adopted_xfail_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_mock_expectation_death() {
     gentest::mock<mocking::Ticker> mock_tick;
@@ -254,9 +254,9 @@ void adopted_mock_expectation_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_mock_mode_death() {
     gentest::mock<mocking::Ticker> mock_tick;
@@ -268,9 +268,9 @@ void adopted_mock_mode_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_mock_handle_mutation_death() {
     gentest::mock<mocking::Ticker> mock_tick;
@@ -283,9 +283,9 @@ void adopted_mock_handle_mutation_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_mock_closed_context_death() {
     gentest::mock<mocking::Ticker> mock_tick;
@@ -299,9 +299,9 @@ void adopted_mock_closed_context_death() {
     gentest::make_nice(mock_tick);
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void adopted_mock_unexpected_call_death() {
     gentest::mock<mocking::Ticker> mock_tick;
@@ -313,9 +313,9 @@ void adopted_mock_unexpected_call_death() {
     t.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void stop_callback_expect_death() {
     auto ctx = gentest::detail::current_test();
@@ -325,9 +325,9 @@ void stop_callback_expect_death() {
     gentest::detail::request_context_stop(*ctx);
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests
 
-namespace gentest_concurrency_tests {
+namespace concurrency_tests {
 
 void no_adopt_expect_death_multi() {
     std::thread t1([] { EXPECT_TRUE(false, "no adopt t1"); });
@@ -336,4 +336,4 @@ void no_adopt_expect_death_multi() {
     t2.join();
 }
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests

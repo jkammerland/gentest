@@ -16,7 +16,10 @@ using namespace gentest::asserts;
 #include <thread>
 #include <vector>
 
-namespace [[using gentest: suite("concurrency")]] gentest_concurrency_tests {
+// The namespace path is the suite and case name prefix. Not `concurrency`: with
+// the MSVC standard library, <future> declares a global namespace alias of
+// that name.
+namespace concurrency_tests {
 
 [[using gentest: test("child_log_pass")]]
 void child_log_pass();
@@ -84,4 +87,4 @@ void stop_callback_expect_death();
 [[using gentest: test("no_adopt_expect_death_multi")]]
 void no_adopt_expect_death_multi();
 
-} // namespace gentest_concurrency_tests
+} // namespace concurrency_tests

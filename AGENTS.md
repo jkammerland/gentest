@@ -23,7 +23,7 @@ editing.
 ## Architecture & Execution Model
 - The codegen scan finds the attributes (`[[gentest::test]]`, `[[using gentest: ...]]`) and emits registration code that adds `gentest::Case` entries for each target.
 - The runtime (`run_all_tests`) takes the registered cases, groups them by suite and fixture lifetime, runs fixture setup and teardown, then runs the test, bench and jitter wrappers.
-- Suite identity comes from the namespace path (or a `suite("...")` attribute on an enclosing namespace) and is used for ordering and fixture scoping.
+- Suite identity comes from the namespace path and is used for ordering and fixture scoping. Namespaces take no gentest attributes.
 
 ## Fixture Model (Style + Semantics)
 - Fixture lifetimes: local (per test, bench or jitter), suite (per namespace group), global (per run).
