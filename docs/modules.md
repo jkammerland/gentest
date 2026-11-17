@@ -266,12 +266,6 @@ can hold several modules. Codegen stops with an error for:
 - a module partition (`export module name:part;`);
 - a unit with a private module fragment (`module :private;`).
 
-Give each unit a file name with a single dot, such as `cases.cppm` or
-`my_tests.cppm`. Codegen selects files by everything after the first dot of the
-name, so it skips a file such as `my.tests.cppm` without an error and never
-registers its cases. If no other file is left, configure fails with
-`no C++ translation units, module units, or annotated headers found to scan`.
-
 Declare cases in the primary interface. Put partitions in a second `CXX_MODULES`
 file set of the same target, and re-export them from the primary interface with
 `export import :part;`:
@@ -442,12 +436,6 @@ mock API. As with header mocks, link the mock target before you call
 [`gentest_link_mocks()`](mock_generation.md#link-mock-targets), which also
 works after that call.
 
-> [!IMPORTANT]
-> Keep module `DEFS` in their own directory and pass it as `BASE_DIRS`, as above.
-> With the default base directory, the current source directory, a build
-> directory inside the source tree (`cmake -S . -B build`) makes configure fail
-> with `Base directories in file set cannot be subdirectories of each other`.
-
 ### Rules for module mocks
 
 - Define each mocked type at namespace scope in a module interface unit that
@@ -524,13 +512,8 @@ gentest_attach_codegen(<target>
 
 ### `gentest_add_mocks()` with module `DEFS`
 
-- A `DEFS` file is a module when everything after the first dot of its file
-  name is `.cppm`, `.ccm`, `.cxxm`, `.ixx` or `.mxx`. Name module `DEFS` like
-  `service.cppm`, not `my.service.cppm`: the second is taken for a mock
-  definitions header, and configure fails with
-  `mixed textual and module DEFS are not supported`, or with
-  `MODULE_NAME is not yet supported for textual DEFS files` when every `DEFS`
-  file is named that way.
+- A `DEFS` file is a module when its last extension is `.cppm`, `.ccm`,
+  `.cxxm`, `.ixx` or `.mxx`; any other file is a mock definitions header.
 - Every `DEFS` module must be a primary module interface unit: partitions,
   implementation units and private module fragments are rejected. At least one
   of them must define a mocked type.
@@ -566,7 +549,6 @@ compiler. Meson supports header registration only. See
 | `module registration input '<file>' is a module implementation unit` / `declares module partition` / `contains a private module fragment` | Keep only primary interface units in the file set; see [What the file set can contain](#what-the-file-set-can-contain). |
 | `MODULE_REGISTRATION cannot generate direct mocks owned by named module '<module>'; ...` | Move the mock into a [mock target](#mock-types-from-modules) and create it in the test body. |
 | `--mock-registration-manifest does not support header-like mock '<type>' in module registration mode` | A module-registered test uses a mock of a header-defined type; see [Rules for module mocks](#rules-for-module-mocks). |
-| `Base directories in file set cannot be subdirectories of each other` (configuring a mock target) | Keep module `DEFS` in their own directory and pass it as `BASE_DIRS`, or build outside the source tree. |
 | GCC: `must ‘#include <typeinfo>’ before using ‘typeid’` | Add `#include <typeinfo>` to the global module fragment of the unit that sets mock expectations. |
 | GCC 16: `failed to read compiled module cluster 1: Bad file data` when the generated registration source is compiled | Move coroutine case definitions into an implementation unit; see [Coroutine cases](#coroutine-cases). |
 | Codegen fails to import a module that your compiler builds | Codegen reads your module with the host Clang and the flags from the build directory's `compile_commands.json`. Check those flags, and check that Clang accepts the code. |

@@ -514,7 +514,7 @@ endif()
 set(_header_only_generated ${_header_only_target_sources})
 list(FILTER _header_only_generated INCLUDE REGEX "\\.header_registration\\.gentest\\.cpp$")
 list(LENGTH _header_only_generated _header_only_generated_count)
-if(NOT _header_only_generated_count EQUAL 2)
+if(NOT _header_only_generated_count EQUAL 3)
   message(FATAL_ERROR
     "A header-only target must attach one registration source per annotated header.\n${_header_only_target_sources}")
 endif()
@@ -522,7 +522,7 @@ endif()
 # Header-only slots are fallback-header scan slots: their manifest entries must
 # say so and must not claim to include an authored source.
 foreach(_header_only_manifest_spec IN ITEMS
-    "generated_header_only;header_declaration_header_only_tests;2"
+    "generated_header_only;header_declaration_header_only_tests;3"
     "generated_header_only_alias;header_declaration_header_only_alias_tests;1")
   list(GET _header_only_manifest_spec 0 _header_only_manifest_dir)
   list(GET _header_only_manifest_spec 1 _header_only_manifest_target)
@@ -586,6 +586,10 @@ endforeach()
 if(NOT _header_only_multi_list MATCHES "header_declaration/inline")
   message(FATAL_ERROR
     "A header-only target must register cases from every listed header.\n${_header_only_multi_list}")
+endif()
+if(NOT _header_only_multi_list MATCHES "header_only/dotted")
+  message(FATAL_ERROR
+    "A header named with more than one dot (dotted.cases.hpp) must still be scanned.\n${_header_only_multi_list}")
 endif()
 if(_header_only_alias_list MATCHES "header_declaration/inline")
   message(FATAL_ERROR
