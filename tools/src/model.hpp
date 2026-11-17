@@ -198,7 +198,7 @@ struct CollectorOptions {
 // Description of a discovered test function or member function.
 // - qualified_name: fully qualified symbol name used to call the test
 // - display_name: display string exposed to users (from test("...") and suite prefix)
-// - suite_name: logical suite (from enclosing namespace attribute)
+// - suite_name: logical suite (the enclosing namespace path, joined with '/')
 // - filename/line: origin information for list/diagnostics
 // - tags/requirements/skip/skip_reason/owner: validation results
 // - fixture_*: present for member tests; empty for free functions

@@ -432,7 +432,9 @@ void uses_mock() {
 generates. It re-exports `gentest`, `gentest.mock` and every `DEFS` module, so
 one `import my.service_mocks;` gives a test the mock, the mocked type and the
 mock API. As with header mocks, link the mock target before you call
-`gentest_attach_codegen()`.
+`gentest_attach_codegen()`, or link it with
+[`gentest_link_mocks()`](mock_generation.md#link-mock-targets), which also
+works after that call.
 
 ### Rules for module mocks
 

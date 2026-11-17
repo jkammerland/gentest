@@ -11,7 +11,7 @@ namespace {
 
 using namespace gentest::asserts;
 
-void passing(void *) {
+void message_overloads(void *) {
     const int value = 1;
     gentest::expect(value == 1, "value {}", value);
     gentest::expect_true(value == 1, "value {}", value);
@@ -106,7 +106,7 @@ void runtime_format(void *) {
 
 int main(int argc, char **argv) {
     const gentest::Case cases[]{
-        {.name = "fmt_location/passing", .fn = passing, .suite = "fmt_location"},
+        {.name = "fmt_location/passing/message_overloads", .fn = message_overloads, .suite = "fmt_location"},
         {.name = "fmt_location/failing/lower_expect", .fn = lower_expect, .suite = "fmt_location"},
         {.name = "fmt_location/failing/lower_expect_true", .fn = lower_expect_true, .suite = "fmt_location"},
         {.name = "fmt_location/failing/lower_expect_eq", .fn = lower_expect_eq, .suite = "fmt_location"},

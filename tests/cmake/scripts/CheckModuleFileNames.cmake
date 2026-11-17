@@ -83,13 +83,19 @@ gentest_find_clang_scan_deps(_clang_scan_deps "${_clangxx}")
 if(NOT "${_clang_scan_deps}" STREQUAL "")
   list(APPEND _cmake_cache_args "-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS=${_clang_scan_deps}")
 endif()
-if(DEFINED BUILD_TYPE AND NOT "${BUILD_TYPE}" STREQUAL "")
-  list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}")
+gentest_resolve_fixture_build_type(_build_type "${_clangxx}" "${BUILD_TYPE}")
+if("${_build_type}" STREQUAL "")
+  set(_build_type Debug)
 endif()
+list(APPEND _cmake_cache_args "-DCMAKE_BUILD_TYPE=${_build_type}")
 gentest_append_public_modules_cache_arg(_cmake_cache_args)
 gentest_append_host_apple_sysroot(_cmake_cache_args)
 include("${CMAKE_CURRENT_LIST_DIR}/FixturePrefixContext.cmake")
-gentest_fixture_prefix_cache_args(_prefix_cache_args _cmake_cache_args)
+if(GENERATOR STREQUAL "Ninja Multi-Config")
+  gentest_fixture_prefix_cache_args(_prefix_cache_args _cmake_cache_args CONFIG "${_build_type}")
+else()
+  gentest_fixture_prefix_cache_args(_prefix_cache_args _cmake_cache_args)
+endif()
 list(APPEND _cmake_cache_args ${_prefix_cache_args})
 
 message(STATUS "Configure module file names fixture with the build directory inside the source tree...")
@@ -105,11 +111,15 @@ gentest_check_run_or_fail(
 
 message(STATUS "Build module file names fixture...")
 gentest_check_run_or_fail(
-  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --target module_file_names_tests
+  COMMAND "${CMAKE_COMMAND}" --build "${_build_dir}" --config "${_build_type}" --target module_file_names_tests
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)
 
-set(_prog "${_build_dir}/module_file_names_tests${CMAKE_EXECUTABLE_SUFFIX}")
+if(GENERATOR STREQUAL "Ninja Multi-Config")
+  set(_prog "${_build_dir}/${_build_type}/module_file_names_tests${CMAKE_EXECUTABLE_SUFFIX}")
+else()
+  set(_prog "${_build_dir}/module_file_names_tests${CMAKE_EXECUTABLE_SUFFIX}")
+endif()
 gentest_check_run_or_fail(
   COMMAND "${_prog}" --list-tests
   WORKING_DIRECTORY "${_work_dir}"
@@ -126,6 +136,6 @@ endforeach()
 
 message(STATUS "Run module file names cases...")
 gentest_check_run_or_fail(
-  COMMAND "${_prog}" --no-color
+  COMMAND "${_prog}" --no-color --fail-on-empty
   WORKING_DIRECTORY "${_work_dir}"
   STRIP_TRAILING_WHITESPACE)

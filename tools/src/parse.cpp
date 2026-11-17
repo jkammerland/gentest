@@ -46,6 +46,10 @@ std::string to_lower_copy(std::string_view text) {
     return lowered;
 }
 
+// Names that are reported as mis-scoped when written without the gentest
+// namespace. The removed attributes 'fixtures' and 'suite' stay in this list:
+// a bare spelling is reported here, and validation reports the removal of the
+// gentest-scoped spelling.
 bool is_known_gentest_attribute_name(std::string_view name) {
     const std::string lowered = to_lower_copy(name);
     return lowered == "test" || lowered == "bench" || lowered == "benchmark" || lowered == "baseline" || lowered == "jitter" ||

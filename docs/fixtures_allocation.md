@@ -78,8 +78,7 @@ Any other return type fails to compile with
 
 So a single suite-aware hook serves every lifetime. The suite name is the
 fixture's namespace path joined with `/`, for example `fx/shared` for a fixture
-in `namespace fx::shared`, or the name an enclosing `suite("...")` sets; see
-[Writing tests](writing_tests.md).
+in `namespace fx::shared`; see [Writing tests](writing_tests.md).
 
 ## Null results and exceptions
 

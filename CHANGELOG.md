@@ -6,6 +6,7 @@
 
 - Regenerate and rebuild with matching 2.0.0 codegen, headers, and runtime; 1.x generated sources are not compatible.
 - Rename `async_test<T>` to `gentest::awaitable<T>`. Custom awaiters passed to timed waits need no gentest-specific members.
+- Remove `suite("...")` from namespaces: the namespace path is always the suite. Group cases with `test("...")` names or separate test executables instead, or rename the namespace to the suite name you want.
 - Add `FILE_SET gentest_explicit_mock_defs DESTINATION include` when installing `gentest_add_mocks()` targets.
 - Review nice-mode mocks that relied on ignored extra calls, and shared fixtures expected to set up when unused.
 - Drop `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature; Allure output no longer needs them.
@@ -33,8 +34,10 @@
 - Explicit stop-token overloads of `sleep_for`, `yield`, `event.wait`, and `future.wait` require exceptions.
 - `--quiet-clang` / `QUIET_CLANG` no longer hides parse errors; a file that fails to parse fails codegen.
 - Numeric `range` / `linspace` bounds must be numeric literals; a mocked method named `mock` and template tests without a full `template(...)` set are rejected.
+- The namespace attribute `suite("...")` is removed and codegen rejects it; a case's suite and name prefix are always its namespace path.
 - `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature are removed; `--allure-dir` always writes results.
 - Allure results drop the non-standard `time` field; use `start` and `stop`.
+- Allure `metrics` attachments of bench and jitter cases drop the `*_ns_per_op` keys; read `*_ns_per_call` (the same values) or `*_ns_per_item` instead.
 - Allure file names start with a per-run token, and a run no longer removes results that earlier runs left in `--allure-dir`.
 
 ### Added
@@ -59,6 +62,7 @@
 - Linux first-use guide and developer build measurements (#237, #241).
 - `RunConfiguration::suspendProgressInterval` limits framework progress records per subject (1 ms default).
 - `gentest_add_mocks(... DEPENDS ...)` is documented for ordering mock codegen after generated inputs.
+- `gentest_link_mocks()` is public API: it links mock targets into a test target before or after `gentest_attach_codegen()`.
 - Allure results carry `uuid`, `historyId`, `fullName`, `stage`, `start` / `stop`, and framework, language, and tag labels, so reports show durations, timelines, tags, and history.
 - Allure results are named after their program (`<program>:<case>`, plus a `parentSuite` label), so same-named cases of different programs stay apart.
 - `GENTEST_USE_INSTALLED_PACKAGE_HELPER` installs with a separately installed `target_install_package` instead of the bundled copy.
@@ -95,6 +99,7 @@
 
 - `gentest_attach_codegen()` and `gentest_add_mocks()` no longer skip or misclassify files with more than one dot in their names, such as `more.cases.hpp` or `my.tests.cppm`.
 - A mock target with module `DEFS` in the source directory configures when the build directory is inside the source tree (`cmake -S . -B build`), instead of failing with "Base directories in file set cannot be subdirectories of each other".
+- CMake rejects helpers from a second Gentest copy before they can replace the selected helpers, preventing mixed source runtime and installed-package integration (#320).
 - Codegen depfiles escape literal dollar signs (#213).
 - Stale and competing async callbacks can no longer publish into a later suspension.
 - Coroutine frames and composition inputs stay alive during reentrant stop callbacks.
@@ -125,6 +130,7 @@
 - The gMock and Trompeloeil backends' default-argument overloads forward move-only and rvalue arguments.
 - The fmt-message assertion overloads compile and report the caller's location.
 - `EXPECT_THROW` works without RTTI, byte pointers print as addresses, and `record_cbor.h` compiles without exceptions.
+- Public headers compile after `<windows.h>` defines the `min` and `max` macros without `NOMINMAX` (#317).
 - Failure paths are trimmed at path-component boundaries.
 - Hand-written death-tagged benchmarks report body entry instead of terminating.
 - Allure results sanitise invalid UTF-8.

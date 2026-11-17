@@ -91,10 +91,10 @@ fails the test.
 
 Two rules apply to every mock target:
 
-- Link the mock target before you call `gentest_attach_codegen()` on the test
-  target, as above, so the test's codegen runs after the generated mock header
-  exists. To link a mock target later, use
-  [`gentest_link_mocks()`](#link-mock-targets).
+- Link the mock target with `target_link_libraries()` before you call
+  `gentest_attach_codegen()` on the test target, as above, or with
+  [`gentest_link_mocks()`](#link-mock-targets) before or after that call.
+  Either way, the test's codegen runs after the generated mock header exists.
 - `gentest::mock<T>` is a generated class only for the types that a linked mock
   target names in its `DEFS`. Your alias is a short name for that class:
   `gentest::mock<app::Clock>` and `app::mocks::ClockMock` are the same type.
@@ -541,10 +541,23 @@ mock target doesn't.
 It makes the test target's codegen run after theirs, and it fails at configure
 time if two of them would include different `DEFS` files by the same path.
 
-`gentest_link_mocks(<target> [PRIVATE|PUBLIC|INTERFACE] <mock-target>...)`
-links mock targets like `target_link_libraries()` (`PRIVATE` by default), runs
-the same check, and also works after `gentest_attach_codegen()`.
+`gentest_link_mocks()` links mock targets and works before or after
+`gentest_attach_codegen()`:
+
+```cmake
+gentest_link_mocks(<target> [PRIVATE|PUBLIC|INTERFACE] <mock-target>...)
+```
+
+It links the mock targets into `<target>` like `target_link_libraries()`,
+`PRIVATE` unless you name another scope, and runs the same `DEFS` check. If
+`gentest_attach_codegen()` already ran for `<target>`, it also gives that
+codegen what it takes from mock targets linked before it: the codegen runs
+after theirs and reads their generated files and named-module sources.
 [examples/mocking](../examples/mocking/CMakeLists.txt) uses it.
+
+A `target_link_libraries()` call after `gentest_attach_codegen()` links the
+mock target, but the test's codegen doesn't wait for the mock target's codegen,
+and the `DEFS` check doesn't run. Use `gentest_link_mocks()` there instead.
 
 A test target can link several mock targets, and several test targets can link
 one mock target.

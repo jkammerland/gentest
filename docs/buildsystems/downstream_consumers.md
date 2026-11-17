@@ -76,8 +76,9 @@ lookup order for each tool and explains when to set them.
 
 The installed package provides the `gentest::gentest`, `gentest::gentest_main`
 and `gentest::gentest_runtime` targets and the CMake functions
-`gentest_attach_codegen()`, `gentest_add_mocks()` and `gentest_discover_tests()`.
-A native build finds `gentest_codegen` in the same install.
+`gentest_attach_codegen()`, `gentest_add_mocks()`, `gentest_link_mocks()` and
+`gentest_discover_tests()`. A native build finds `gentest_codegen` in the same
+install.
 
 The package also needs the fmt CMake package of exactly the version gentest was
 built with. The simplest setup installs gentest and fmt into the same prefix
@@ -88,6 +89,15 @@ You can also add the gentest source tree with `add_subdirectory()`. That builds
 the runtime only. To generate code, either set `GENTEST_BUILD_CODEGEN=ON`,
 which needs the LLVM/Clang development packages, or point
 `GENTEST_CODEGEN_EXECUTABLE` at a built `gentest_codegen`.
+
+Gentest's CMake helpers must come from one source tree or installation per
+configure. Loading helpers from another copy is an error, including during a
+`QUIET` package lookup.
+`add_subdirectory()` does not redirect later `find_package(gentest)` calls.
+When nested dependencies request Gentest as a package, the parent must arrange
+for those requests to reuse its source copy, for example with FetchContent's
+`OVERRIDE_FIND_PACKAGE`. Parent-provided package redirects, version checks and
+component requirements retain their normal CMake behavior.
 
 ## Meson
 

@@ -821,9 +821,13 @@ function(_gentest_attach_tu_wrapper_sources)
             set(_gentest_remaining_module_files "")
             set(_gentest_module_set_has_genex FALSE)
             foreach(_gentest_module_file IN LISTS _gentest_new_module_files)
-                if("${_gentest_module_file}" MATCHES "\\$<")
+                # Known wrappers may contain $<CONFIG>; they do not need an
+                # authored base directory even when their path is unevaluated.
+                if(_gentest_module_file IN_LIST _gentest_module_wrappers)
+                    continue()
+                elseif("${_gentest_module_file}" MATCHES "\\$<")
                     set(_gentest_module_set_has_genex TRUE)
-                elseif(NOT _gentest_module_file IN_LIST _gentest_module_wrappers)
+                else()
                     list(APPEND _gentest_remaining_module_files "${_gentest_module_file}")
                 endif()
             endforeach()
@@ -943,10 +947,22 @@ function(_gentest_enable_nonmodule_wrapper_scanning target)
     endif()
 endfunction()
 
-# Internal convenience helper for in-tree consumers that link explicit mock
-# targets after gentest_attach_codegen() has already added the codegen target.
-# The primary public contract remains: link explicit mock targets before
-# gentest_attach_codegen().
+# gentest_link_mocks(<target> [PRIVATE|PUBLIC|INTERFACE] <mock-target>...)
+#
+# Public API. Links mock targets created by gentest_add_mocks() into <target>
+# like target_link_libraries(), PRIVATE unless another scope is given, and runs
+# the DEFS include-path check that gentest_attach_codegen() also runs:
+# configure fails when two mock targets in <target>'s link graph include
+# different DEFS files by the same include path.
+#
+# It works before or after gentest_attach_codegen(<target>). Mock targets
+# linked first are found by gentest_attach_codegen() in the link graph. When
+# gentest_attach_codegen() already ran, this function adds what a late link
+# would otherwise miss: it orders <target>'s codegen after each mock target and
+# its codegen, makes that codegen depend on the generated mock outputs (with
+# single-config generators), passes the mock targets' named-module source
+# mappings to it, and turns on module scanning for <target>'s generated
+# non-module wrappers when a mock target carries named modules.
 function(gentest_link_mocks target)
     if(NOT TARGET "${target}")
         message(FATAL_ERROR "gentest_link_mocks(${target}): target does not exist")

@@ -701,25 +701,19 @@ std::vector<ReportAttachment> make_bench_allure_attachments(const gentest::Case 
     append_tsv_metric(metrics, "iters_per_epoch", result.iters_per_epoch);
     append_tsv_metric(metrics, "total_iters", result.total_iters);
     append_tsv_metric(metrics, "total_items", total_items(result, c));
-    // Preserve the legacy per_op keys as per-call values; only per_item keys normalize logical items.
-    append_tsv_metric(metrics, "best_ns_per_op", result.best_ns);
+    // per_call keys report invocation timing; only per_item keys normalize logical items.
     append_tsv_metric(metrics, "best_ns_per_call", result.best_ns);
     append_tsv_metric(metrics, "best_ns_per_item", per_item_ns(result.best_ns, c, result));
-    append_tsv_metric(metrics, "median_ns_per_op", result.median_ns);
     append_tsv_metric(metrics, "median_ns_per_call", result.median_ns);
     append_tsv_metric(metrics, "median_ns_per_item", per_item_ns(result.median_ns, c, result));
-    append_tsv_metric(metrics, "mean_ns_per_op", result.mean_ns);
     append_tsv_metric(metrics, "mean_ns_per_call", result.mean_ns);
     append_tsv_metric(metrics, "mean_ns_per_item", per_item_ns(result.mean_ns, c, result));
     append_tsv_metric(metrics, "stddev_ns_per_call", result.stddev_ns);
     append_tsv_metric(metrics, "stddev_ns_per_item", per_item_ns(result.stddev_ns, c, result));
-    append_tsv_metric(metrics, "p05_ns_per_op", result.p05_ns);
     append_tsv_metric(metrics, "p05_ns_per_call", result.p05_ns);
     append_tsv_metric(metrics, "p05_ns_per_item", per_item_ns(result.p05_ns, c, result));
-    append_tsv_metric(metrics, "p95_ns_per_op", result.p95_ns);
     append_tsv_metric(metrics, "p95_ns_per_call", result.p95_ns);
     append_tsv_metric(metrics, "p95_ns_per_item", per_item_ns(result.p95_ns, c, result));
-    append_tsv_metric(metrics, "worst_ns_per_op", result.worst_ns);
     append_tsv_metric(metrics, "worst_ns_per_call", result.worst_ns);
     append_tsv_metric(metrics, "worst_ns_per_item", per_item_ns(result.worst_ns, c, result));
     append_tsv_metric(metrics, "total_time_s", result.total_time_s);
@@ -775,26 +769,19 @@ std::vector<ReportAttachment> make_jitter_allure_attachments(const gentest::Case
     append_tsv_metric(metrics, "iters_per_epoch", result.iters_per_epoch);
     append_tsv_metric(metrics, "total_iters", result.total_iters);
     append_tsv_metric(metrics, "total_items", total_items(result, c));
-    // Preserve the same per_op compatibility meaning as benchmark metric attachments.
-    append_tsv_metric(metrics, "min_ns_per_op", result.min_ns);
+    // Same per_call / per_item meaning as the benchmark metric attachments.
     append_tsv_metric(metrics, "min_ns_per_call", result.min_ns);
     append_tsv_metric(metrics, "min_ns_per_item", per_item_ns(result.min_ns, c, result));
-    append_tsv_metric(metrics, "max_ns_per_op", result.max_ns);
     append_tsv_metric(metrics, "max_ns_per_call", result.max_ns);
     append_tsv_metric(metrics, "max_ns_per_item", per_item_ns(result.max_ns, c, result));
-    append_tsv_metric(metrics, "median_ns_per_op", result.median_ns);
     append_tsv_metric(metrics, "median_ns_per_call", result.median_ns);
     append_tsv_metric(metrics, "median_ns_per_item", per_item_ns(result.median_ns, c, result));
-    append_tsv_metric(metrics, "mean_ns_per_op", result.mean_ns);
     append_tsv_metric(metrics, "mean_ns_per_call", result.mean_ns);
     append_tsv_metric(metrics, "mean_ns_per_item", per_item_ns(result.mean_ns, c, result));
-    append_tsv_metric(metrics, "stddev_ns_per_op", result.stddev_ns);
     append_tsv_metric(metrics, "stddev_ns_per_call", result.stddev_ns);
     append_tsv_metric(metrics, "stddev_ns_per_item", per_item_ns(result.stddev_ns, c, result));
-    append_tsv_metric(metrics, "p05_ns_per_op", result.p05_ns);
     append_tsv_metric(metrics, "p05_ns_per_call", result.p05_ns);
     append_tsv_metric(metrics, "p05_ns_per_item", per_item_ns(result.p05_ns, c, result));
-    append_tsv_metric(metrics, "p95_ns_per_op", result.p95_ns);
     append_tsv_metric(metrics, "p95_ns_per_call", result.p95_ns);
     append_tsv_metric(metrics, "p95_ns_per_item", per_item_ns(result.p95_ns, c, result));
     append_tsv_metric(metrics, "overhead_mean_ns_per_iter", result.overhead_mean_ns);
