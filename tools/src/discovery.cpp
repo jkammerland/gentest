@@ -1252,8 +1252,9 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             fmt::format("|bench-once:{}|bench-supplied:{}|bench-warmup:{}", info.benchmark.once, info.benchmark.supplied_time,
                         info.benchmark.warmup_epochs ? std::to_string(*info.benchmark.warmup_epochs) : "default");
         info.semantic_fingerprint += fmt::format("|death:{}", info.is_death);
+        // Length framing keeps punctuation in labels distinct from metadata separators.
         for (const auto &tag : info.tags) {
-            info.semantic_fingerprint += "|tag:" + tag;
+            info.semantic_fingerprint += fmt::format("|tag:{}:{}", tag.size(), tag);
         }
         for (const auto &requirement : info.requirements) {
             info.semantic_fingerprint += "|requirement:" + requirement;

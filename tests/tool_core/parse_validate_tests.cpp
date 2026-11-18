@@ -112,8 +112,10 @@ int main() {
         t.expect(!summary.is_death && summary.owner == "qa", "labels and owner have no death semantics");
         summary = validate_attributes(parse_attribute_list("death"), [&](const std::string &) { t.expect(false, "death is valid"); });
         t.expect(summary.is_death && summary.tags.empty(), "death creates behavior without a tag");
-        for (const auto *source : {"tag", "tag()", R"(tag("a" + "b"))", "tag(42)", "tag(label)", "tag(\"\")", "death(\"x\")", "fast",
-                                   "slow", "linux", "windows", "typo"}) {
+        for (const auto *source :
+             {"tag", "tag()", R"(tag("a" + "b"))", "tag(42)", "tag(label)", "tag(\"\")", "death(\"x\")", "fast", "slow", "linux", "windows",
+              "typo", R"(tag("\x{67}pu"))", R"(tag("bad\x{0}label"))", R"(tag("\u{67}pu"))", R"(tag("\o{147}pu"))",
+              R"(tag("\N{LATIN SMALL LETTER G}pu"))", R"(tag("\e"))", R"(tag("\x100"))"}) {
             std::vector<std::string> errors;
             auto invalid = validate_attributes(parse_attribute_list(source), [&](const std::string &msg) { errors.push_back(msg); });
             t.expect(invalid.had_error && !errors.empty(), std::string("invalid attribute rejected: ") + source);
@@ -122,6 +124,10 @@ int main() {
                                       [&](const std::string &) { t.expect(false, "raw and escaped labels are valid"); });
         t.expect(summary.tags == std::vector<std::string>{"feature;[gpu]", "quoted\"label", "path\\name"},
                  "string labels decode without losing punctuation");
+        summary = validate_attributes(parse_attribute_list(R"test(tag("GPU", "\147\x70\u0075", R"(\x{67}pu)"))test"),
+                                      [&](const std::string &) { t.expect(false, "C++20 escapes and raw labels are valid"); });
+        t.expect(summary.tags == std::vector<std::string>{"GPU", R"(\x{67}pu)"},
+                 "decoded C++20 escapes deduplicate while raw escapes stay literal");
         std::vector<std::string> nul_errors;
         auto nul = validate_attributes(parse_attribute_list(R"(tag("bad\0label"))"), [&](const auto &msg) { nul_errors.push_back(msg); });
         t.expect(nul.had_error && !nul_errors.empty(), "embedded NUL cannot silently truncate a generated label");

@@ -234,6 +234,7 @@ inline void read() {}
 Use `tag("integration", "gpu")` for labels chosen by your project. Tags are
 available before execution for selection and CTest discovery. Each argument
 must be a nonempty ordinary or raw string literal without NUL characters.
+Ordinary literals support C++20 escape sequences; raw literals preserve their text.
 You may repeat `tag(...)`; duplicate labels are combined ignoring ASCII case,
 retaining the first spelling. Labels such as
 `linux` and `windows` can coexist and have no platform or execution behavior.

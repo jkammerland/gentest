@@ -408,6 +408,9 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                     return true;
                 };
                 bool valid_literal = i < attr.argument_tokens.size() && is_string_literal(attr.argument_tokens[i]);
+                // Unknown escapes must not silently become different user labels.
+                if (valid_literal)
+                    value = decode_string_literal(attr.argument_tokens[i], &valid_literal);
                 if (i < attr.argument_tokens.size() && attr.argument_tokens[i].starts_with("R\"")) {
                     const std::string_view token = attr.argument_tokens[i];
                     const auto             open  = token.find('(', 2);
@@ -424,7 +427,7 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 }
                 if (!valid_literal || value.empty() || value.find('\0') != std::string::npos) {
                     summary.had_error = true;
-                    report("'tag' requires nonempty string literals without NUL characters");
+                    report("'tag' requires nonempty ordinary or raw string literals; use C++20 escapes and no NUL characters");
                     continue;
                 }
                 // Selection compares ASCII case-insensitively; keep the first spelling.

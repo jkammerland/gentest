@@ -173,6 +173,21 @@ int check_replay_quoting() {
     expect(command.find(R"(-ArgumentList '"--run=suite/)" + twice(right) + R"(case" "--kind=test"')") != std::string::npos,
            "PowerShell command doubles quotes in the argument list");
     expect(gentest::runner::replay_command("./t", {"--run=a b"}, ReplayShell::Posix) == "'./t' '--run=a b'", "POSIX command shape");
+
+    // Replaying a failure opts into death behavior only for a death-test descriptor.
+    CliOptions options;
+    options.executable               = "./t";
+    Case                        test = make_case("replay/case");
+    static constexpr std::array kTags{std::string_view{"death"}};
+    test.tags           = kTags;
+    const auto ordinary = gentest::runner::failure_rerun_command(options, test);
+    expect(!ordinary.empty() && ordinary.find("--include-death") == std::string::npos,
+           "a user death label does not add a death opt-in to the rerun command");
+    test.tags        = {};
+    test.is_death    = true;
+    const auto death = gentest::runner::failure_rerun_command(options, test);
+    expect(death.find("--include-death") != std::string::npos, "an untagged death test retains its death opt-in when rerun");
+
     if (g_failures != 0)
         std::cerr << command << '\n';
     return g_failures == 0 ? 0 : 1;
