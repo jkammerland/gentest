@@ -34,17 +34,17 @@ void emplace_matrix() {
 ## Why gentest
 
 - **No registration macros.** Tests, benchmarks, parameters, templates,
-  fixture lifetimes and metadata are all declared with attributes.
+  fixture lifetimes and some metadata are all declared with attributes.
 - **Matrices from one declaration.** Value axes, row tables and template
   parameters expand into one case per combination.
 - **Fixtures from the signature.** Declare fixtures as function parameters,
-  several per case. Each has a local, suite or global lifetime and optional
-  setup and teardown.
+  several per case. Each has a local, suite or global lifetime, which can be shared between tests in later cases.
 - **Generated mocks.** `gentest_add_mocks()` generates mock classes for your
-  types, for gentest's own expectations or for gMock and Trompeloeil.
+  types, MENTION IT CAN HANDLE ANY CLASS, EVEN NON-VIRTUAL, not other shit. You can say this helper also allows you to generate for gmock and the other.
 - **More than pass or fail.** Benchmarks, jitter measurements and death tests
-  are declared the same way. Async tests on C++20 coroutines are experimental.
-- **Fits your tooling.** Each case can be its own CTest test. Cases carry tags
+  are declared the same way.
+- **Async tests** and fixture setups with C++20 coroutines.
+- TODO: MAYBE THIS IS WEIRD? WHAT ARE THE USE CASE FOR THESE? WHY NOT CUSTOM/USER TAGS ONLY? **Fits your tooling.** Each case can be its own CTest test. Cases carry tags
   from a fixed set (`fast`, `slow`, `linux`, `windows`, `death`), requirement
   IDs and an owner. Runs can write JUnit XML, Allure results and GitHub Actions
   annotations. CMake, Meson, Xmake and Bazel are supported, as are named
@@ -54,10 +54,13 @@ void emplace_matrix() {
 
 - CMake 3.31 or newer with the Ninja or Ninja Multi-Config generator, or one of
   the [other supported build systems](docs/buildsystems/downstream_consumers.md).
-- A C++20 compiler and standard library that provide `std::stop_token`: Clang,
-  GCC or MSVC. On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
+- A C++20 compiler and standard library
+- Clang, GCC or MSVC. On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
 - To build `gentest_codegen`: the LLVM and Clang development packages of one
-  major version, 19 or newer. To run it: the Clang of that LLVM version on the
+  major version, 19 or newer. 
+
+TODO: WHAT?? THIS NEEDS TO BE SIMPLIFIED.
+To run it: the Clang of that LLVM version on the
   build machine, which codegen uses for Clang's built-in headers. Your tests
   can use a different compiler.
 
