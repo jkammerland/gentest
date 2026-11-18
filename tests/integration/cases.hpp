@@ -15,7 +15,7 @@ namespace math {
 
 int fibonacci(int n);
 
-[[using gentest: test("math/fibonacci"), slow, linux]]
+[[using gentest: test("math/fibonacci"), tag("slow"), tag("linux")]]
 void fibonacci_sequence();
 
 } // namespace math
@@ -32,7 +32,7 @@ namespace errors {
 [[using gentest: test("errors/recover"), req("BUG-123"), owner("team-runtime")]]
 void detect_and_recover_error();
 
-[[using gentest: test("errors/throw"), skip("unstable"), windows]]
+[[using gentest: test("errors/throw"), skip("unstable"), tag("windows")]]
 void throw_error();
 
 } // namespace errors

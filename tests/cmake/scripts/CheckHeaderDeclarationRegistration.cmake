@@ -273,7 +273,7 @@ foreach(_metadata IN ITEMS
     "\"kind\":\"bench\""
     "\"itemsPerCall\":2"
     "\"kind\":\"jitter\""
-    "\"tags\":[\"death\"]")
+    "\"is_death\":true")
   string(FIND "${_json_inventory}" "${_metadata}" _metadata_pos)
   if(_metadata_pos EQUAL -1)
     message(FATAL_ERROR "Header-declaration JSON inventory missed metadata '${_metadata}'.\n${_json_inventory}")

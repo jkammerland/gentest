@@ -1216,6 +1216,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.line                         = lnum;
         info.declaration_site_key         = declaration_site_key;
         info.entity_key                   = entity_key;
+        info.is_death                     = summary.is_death;
         info.tags                         = summary.tags;
         info.requirements                 = summary.requirements;
         info.owner                        = summary.owner.value_or(std::string{});
@@ -1250,6 +1251,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.semantic_fingerprint +=
             fmt::format("|bench-once:{}|bench-supplied:{}|bench-warmup:{}", info.benchmark.once, info.benchmark.supplied_time,
                         info.benchmark.warmup_epochs ? std::to_string(*info.benchmark.warmup_epochs) : "default");
+        info.semantic_fingerprint += fmt::format("|death:{}", info.is_death);
         for (const auto &tag : info.tags) {
             info.semantic_fingerprint += "|tag:" + tag;
         }

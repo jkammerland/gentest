@@ -41,9 +41,9 @@ inline constexpr std::string_view registration_preamble_light = R"CPP(#include <
 
 #include "gentest/detail/registration_runtime.h"
 
-#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 6 || \
+#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 7 || \
     !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
-#error "gentest_codegen output requires gentest headers with Case::measured_fn; use matching gentest headers/runtime"
+#error "gentest_codegen output requires gentest headers with Case::is_death; use matching gentest headers/runtime"
 #endif
 #if !defined(GENTEST_BENCHMARK_API_VERSION) || GENTEST_BENCHMARK_API_VERSION < 1
 #error "gentest_codegen output requires benchmark API version 1; use matching gentest headers/runtime"
@@ -63,9 +63,9 @@ inline constexpr std::string_view registration_preamble_full = R"CPP(#include <a
 #include "gentest/async.h"
 #include "gentest/detail/generated_runtime.h"
 
-#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 6 || \
+#if !defined(GENTEST_CASE_API_VERSION) || GENTEST_CASE_API_VERSION < 7 || \
     !defined(GENTEST_CASE_API_HAS_OWNER) || !GENTEST_CASE_API_HAS_OWNER
-#error "gentest_codegen output requires gentest headers with Case::measured_fn; use matching gentest headers/runtime"
+#error "gentest_codegen output requires gentest headers with Case::is_death; use matching gentest headers/runtime"
 #endif
 #if !defined(GENTEST_BENCHMARK_API_VERSION) || GENTEST_BENCHMARK_API_VERSION < 1
 #error "gentest_codegen output requires benchmark API version 1; use matching gentest headers/runtime"
@@ -474,7 +474,8 @@ inline constexpr std::string_view case_entry = R"FMT(    gentest::Case{{
             .warmup_epochs = {benchmark_warmup}
         }},
         .reports_body_start = true,
-        .measured_fn = {measured_wrapper}
+        .measured_fn = {measured_wrapper},
+        .is_death = {is_death}
     }},
 
 )FMT";

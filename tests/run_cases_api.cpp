@@ -75,7 +75,8 @@ bool same_case(const gentest::Case &lhs, const gentest::Case &rhs) {
            std::ranges::equal(lhs.tags, rhs.tags) && std::ranges::equal(lhs.requirements, rhs.requirements) &&
            lhs.skip_reason == rhs.skip_reason && lhs.should_skip == rhs.should_skip && lhs.fixture == rhs.fixture &&
            lhs.fixture_lifetime == rhs.fixture_lifetime && lhs.suite == rhs.suite && lhs.async_fn == rhs.async_fn &&
-           lhs.is_async == rhs.is_async && lhs.items_per_call == rhs.items_per_call && lhs.owner == rhs.owner;
+           lhs.is_async == rhs.is_async && lhs.items_per_call == rhs.items_per_call && lhs.owner == rhs.owner &&
+           lhs.is_death == rhs.is_death;
 }
 
 bool same_registry(const std::vector<gentest::Case> &lhs, const std::vector<gentest::Case> &rhs) {
@@ -173,6 +174,10 @@ int main(int argc, char **argv) {
     auto                   death_case = kCases[0];
     const std::string_view death_tag[]{"death"};
     death_case.tags = death_tag;
+    expect(gentest::run_cases(std::span(&death_case, 1), strict_args) == 0, "a user death tag has no execution semantics");
+    g_alpha_runs.store(0, std::memory_order_relaxed);
+    death_case.tags     = {};
+    death_case.is_death = true;
     expect(gentest::run_cases(std::span(&death_case, 1), strict_args) == 1, "excluded-only death selection is empty");
     const char *strict_match_args[] = {"--filter=embed/alpha_*", "--fail-on-empty", "--no-color"};
     expect(gentest::run_cases(case_table(), strict_match_args) == 0, "strict nonempty selection must succeed");

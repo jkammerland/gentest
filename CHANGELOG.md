@@ -15,10 +15,12 @@
 
 ### Breaking changes
 
+- User-defined `tag("label", ...)` replaces the `fast`, `slow`, `linux` and `windows` attributes. Owner metadata no longer creates an implicit tag.
+- Death-test behavior uses `Case::is_death` and the inventory `is_death` field, independently of user tags; a tag named `death` is an ordinary label.
 - Async cases, helpers, and fixture hooks return `gentest::awaitable<T = void>` instead of `async_test<T>`.
 - Timed waits take ordinary C++ awaiters; the 1.x timed-wait hooks on gentest's awaitables (`gentest_async_wait_supported`, `await_suspend_with_token`, `cancel_wait`) are removed.
 - `when_any`, `wait_for`, and `wait_until` require exceptions; `awaitable` and `when_all` do not.
-- Generated registration code requires case API version 6 (`GENTEST_CASE_API_VERSION`), up from 4 (#238, #299).
+- Generated registration code requires case API version 7 (`GENTEST_CASE_API_VERSION`), up from 4 (#238, #299).
 - Shared suite and global fixtures set up on first use by a selected case, not at the start of the run (#240).
 - Nice-mode gentest mocks fail calls beyond a method's expectations, including `.times(0)` (#261).
 - Changing gentest mock configuration after its first call or verification records a test failure (#238).

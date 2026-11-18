@@ -541,9 +541,9 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
         std::string name = std::string(list.substr(name_start, index - name_start));
 
         // Support scoped attribute tokens inside a list, e.g.
-        // [[gentest::test("x"), gentest::fast]].
+        // [[gentest::test("x"), gentest::tag("fast")]].
         // For gentest-qualified tokens we keep only the attribute name ("test",
-        // "fast"), while other namespaces are preserved as "ns::attr" so
+        // "tag"), while other namespaces are preserved as "ns::attr" so
         // validation can reject them explicitly.
         while (true) {
             std::size_t scope_cursor = index;

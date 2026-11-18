@@ -57,8 +57,8 @@ bool is_known_gentest_attribute_name(std::string_view name) {
            lowered == "items_per_call" || lowered == "ops_per_call" || lowered == "bench_once" || lowered == "bench_warmup" ||
            lowered == "bench_time" || lowered == "range" || lowered == "linspace" || lowered == "geom" || lowered == "geomspace" ||
            lowered == "geospace" || lowered == "logspace" || lowered == "parameters_pack" || lowered == "fixtures" || lowered == "fast" ||
-           lowered == "slow" || lowered == "linux" || lowered == "windows" || lowered == "death" || lowered == "owner" ||
-           lowered == "fixture" || lowered == "suite";
+           lowered == "slow" || lowered == "linux" || lowered == "windows" || lowered == "death" || lowered == "tag" ||
+           lowered == "owner" || lowered == "fixture" || lowered == "suite";
 }
 
 bool is_gentest_scoped_attribute_token(std::string_view token) {

@@ -183,7 +183,7 @@ SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOpti
         std::vector<std::size_t> kept;
         kept.reserve(idxs.size());
         for (auto idx : idxs) {
-            if (has_tag_ci(cases[idx], "death")) {
+            if (cases[idx].is_death) {
                 ++result.filtered_death;
                 continue;
             }

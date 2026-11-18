@@ -494,7 +494,7 @@ gentest_add_check_contains(
 gentest_add_check_death(
     NAME regression_runtime_selection_exact_death_requires_opt_in
     PROG $<TARGET_FILE:gentest_regression_runtime_selection>
-    REQUIRED_SUBSTRING "Case 'regressions/runtime_selection/death_case' is tagged as a death test; rerun with --include-death"
+    REQUIRED_SUBSTRING "Case 'regressions/runtime_selection/death_case' is a death test; rerun with --include-death"
     ARGS --run=regressions/runtime_selection/death_case --kind=test)
 
 gentest_add_check_counts(

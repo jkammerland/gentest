@@ -141,8 +141,7 @@ int main() {
             std::cerr << "Incorrect generated benchmark policy: " << item.name << '\n';
             return 1;
         }
-        if (item.name == "codegen/once_supplied" &&
-            (found->owner != "codegen" || found->tags.size() != 2 || found->tags[0] != "fast" || found->tags[1] != "owner=codegen")) {
+        if (item.name == "codegen/once_supplied" && (found->owner != "codegen" || found->tags.size() != 1 || found->tags[0] != "fast")) {
             std::cerr << "Benchmark controls changed ordinary tags or owner metadata\n";
             return 1;
         }

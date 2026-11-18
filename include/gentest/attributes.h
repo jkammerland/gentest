@@ -5,7 +5,7 @@
 // Use standard C++11 attributes with a vendor namespace to tag tests and
 // attach metadata:
 //
-//   [[using gentest : test("suite/case"), req("BUG-123"), owner("team-runtime"), slow, linux]]
+//   [[using gentest : test("suite/case"), req("BUG-123"), owner("team-runtime"), tag("slow"), tag("linux")]]
 //   void my_test();
 //
 // Benchmarks:
@@ -37,16 +37,13 @@
 // - `baseline` is only valid for `bench`/`jitter` cases.
 // - `items_per_call(N)` / `ops_per_call(N)` declare logical measured items per bench/jitter function call.
 //   `N` must be a positive non-zero decimal integer with no prefix, suffix, separator, or leading zero.
-// Additional attribute names (e.g. `slow`, `linux`) are collected as tags,
-// while attributes such as `req("BUG-123")` or `skip("reason")` attach
-// requirements or skipping instructions. All information is extracted by the
-// code generator—no macros or compiler-specific annotations required.
-// `owner("team-runtime")` also populates `Case::owner` while retaining the
-// legacy `owner=team-runtime` tag for existing metadata consumers.
+// `tag("integration", "gpu")` attaches user-defined selection labels.
+// `owner("team-runtime")` and `req("BUG-123")` attach declared metadata;
+// neither implicitly adds tags. Runtime facts use record_property().
 //
 // Death tests:
 //   [[using gentest : test("suite/crash_on_x"), death]]
-//   - Tagged tests are excluded from the default "run all" execution to avoid
+//   - Death tests are excluded from the default "run all" execution to avoid
 //     aborting the full test run.
 //   - Run explicitly via --run=... with --include-death, or wire them into
 //     CTest using a death-test harness (see GentestCodegen.cmake helpers).

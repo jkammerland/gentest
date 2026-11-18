@@ -109,8 +109,8 @@ endforeach()
 set(_label_expectations [====[
   {"demo/a":["fast","owner=team-runtime","feature;parser","suffix]="],
    "demo/has [bracket]":["fast","suffix]="],
-   "demo/b":["suffix]="],
-   "death/demo/death":["death","suffix]="],
+   "demo/b":["death","suffix]="],
+   "death/demo/death":["suffix]="],
    "filtered/death/demo/death;[/suffix":["death","caller","shared"]}
 ]====])
 string(JSON _label_cases LENGTH "${_label_expectations}")
