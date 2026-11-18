@@ -139,9 +139,7 @@ gentest_attach_codegen(first_tests)
 gentest_discover_tests(first_tests)
 ```
 
-- `set(CMAKE_CXX_EXTENSIONS OFF)` compiles in ISO C++ mode. In GNU mode, GCC
-  and Clang define `linux` as a macro, which breaks the `linux` tag (see
-  [Writing tests](../writing_tests.md)).
+- `set(CMAKE_CXX_EXTENSIONS OFF)` compiles in ISO C++ mode.
 - `find_package(gentest)` provides the `gentest::` targets and the CMake
   functions.
 - `gentest::gentest_main` links the runtime and supplies `main()`.

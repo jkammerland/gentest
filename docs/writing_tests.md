@@ -25,7 +25,7 @@ inline void default_name() {
     EXPECT_EQ(text.size(), 5u);
 }
 
-[[using gentest: test("format/with_name"), fast]]
+[[using gentest: test("format/with_name"), tag("fast")]]
 inline void with_name() {
     const std::string text = "hello " + std::string("gentest");
     EXPECT_EQ(text, "hello gentest");
@@ -152,7 +152,7 @@ a single attribute as `[[gentest::...]]` and a list as `[[using gentest: ...]]`:
 [[gentest::test("math/add")]]
 inline void add() {}
 
-[[using gentest: test("math/subtract"), slow, req("BUG-123")]]
+[[using gentest: test("math/subtract"), tag("slow"), req("BUG-123")]]
 inline void subtract() {}
 ```
 
@@ -225,59 +225,47 @@ Tags and metadata are attributes on the case declaration:
 
 namespace net::io {
 
-[[using gentest: slow, owner("team-io"), req("REQ-1")]]
+[[using gentest: tag("slow"), owner("team-io"), req("REQ-1")]]
 inline void read() {}
 
 } // namespace net::io
 ```
 
-Flags, attributes without arguments, become tags. The set of flags is fixed:
-
-| Flag | Meaning |
-|---|---|
-| `fast`, `slow` | Labels for selection. |
-| `linux`, `windows` | Labels for selection. A case can't have both. They don't skip a case on another platform; exclude them with `--exclude-tag` instead. |
-| `death` | Marks a death test, which the runner leaves out unless you pass `--include-death`. See [Death tests](death_tests.md). |
-
-Value attributes attach metadata:
+Use `tag("integration", "gpu")` for labels chosen by your project. Tags are
+available before execution for selection and CTest discovery. Each argument
+must be a nonempty ordinary or raw string literal without NUL characters.
+You may repeat `tag(...)`; duplicate labels are combined ignoring ASCII case,
+retaining the first spelling. Labels such as
+`linux` and `windows` can coexist and have no platform or execution behavior.
 
 | Attribute | Meaning |
 |---|---|
-| `owner("team-runtime")` | The owner of the case. Takes one string and appears once per case. It also adds the tag `owner=team-runtime`. |
-| `req("BUG-123", ...)` | Requirement IDs, for traceability. Takes one or more strings. `requires(...)` is an alias. See [Traceability](traceability_standards.md). |
-| `skip("reason")` | A static skip: the case is reported as skipped without running. The reason is optional. See [Assertions](assertions.md). |
+| `tag("integration", ...)` | User-defined labels for selection and reporting. |
+| `owner("team-runtime")` | Declared owner metadata. Takes one string and appears once per case; it does not add a tag. |
+| `req("BUG-123", ...)` | Requirement IDs for traceability. `requires(...)` is an alias. See [Traceability](traceability_standards.md). |
+| `death` | Marks a death test, excluded unless `--include-death` is passed. See [Death tests](death_tests.md). |
+| `skip("reason")` | Reports the case as skipped without executing it. The reason is optional. See [Assertions](assertions.md). |
 
-Codegen rejects any other flag or value attribute, so a misspelled tag fails
-the build instead of being ignored:
+A label has no execution semantics: `tag("death")` is an ordinary label, while
+`death` is a behavioral attribute. Unknown attribute names are errors; arbitrary
+labels belong inside `tag(...)`.
 
-```text
-unknown gentest attribute 'gpu'
-unknown gentest attribute 'team' with argument ("x")
-```
-
-It also rejects a repeated flag (`duplicate gentest flag attribute 'fast'`) and
-`linux` together with `windows` (`conflicting gentest flags 'linux' and 'windows'`).
-
-> [!WARNING]
-> On Linux, GCC and Clang define `linux` as a macro in their GNU language modes,
-> such as `-std=gnu++20`, and CMake uses a GNU mode unless you turn extensions
-> off. The `linux` tag then becomes `1`, and the build fails with a syntax error
-> such as `error: expected ']'`. Compile the test target in ISO mode:
-> `set(CMAKE_CXX_EXTENSIONS OFF)` before you create it, or set its
-> `CXX_EXTENSIONS` property to `OFF`.
+Use [runtime properties](recording.md) for facts learned during execution,
+such as a random seed or device name. Those properties are unavailable during
+selection or discovery, and do not change declared metadata.
 
 The metadata shows up here:
 
 - `--list` prints it after the name. For the example above:
 
   ```text
-  net/io/read [gentest:tags=slow,owner=team-io;requires=REQ-1;owner=team-io] (cases.hpp:8)
+  net/io/read [gentest:tags=slow;requires=REQ-1;owner=team-io] (cases.hpp:8)
   ```
 
 - `--list-tags` prints every tag in the test target, in lowercase.
 - `--tag` and `--exclude-tag` select cases by tag, ignoring ASCII case. See
   [Test selection](test_selection.md).
-- `--list-json` writes `tags`, `requirements`, `owner`, `skipped` and
+- `--list-json` writes `tags`, `requirements`, `owner`, `is_death`, `skipped` and
   `skipReason` for each case. See [Test inventory](test_inventory.md).
 - JUnit reports write each requirement as
   `<property name="requirement" value="..."/>`, and Allure reports add `tag` and
@@ -291,7 +279,7 @@ test target.
 ## Attribute reference
 
 These are all the attributes codegen accepts. Any of the function attributes
-marks the function as a case, so `[[gentest::slow]]` alone declares a test named
+marks the function as a case, so `[[gentest::tag("slow")]]` alone declares a test named
 after the function.
 
 On functions:
@@ -313,7 +301,7 @@ On functions:
 | `geom` (aliases `geomspace`, `geospace`) | name, start, factor, count | A geometric sequence of `count` values. |
 | `logspace` | name, start exponent, end exponent, count, optional base | `count` values spaced evenly on a log scale (base 10 by default). |
 | `template` | a template parameter name, then arguments | One case per template argument. |
-| `fast`, `slow`, `linux`, `windows`, `death`, `owner`, `req` (alias `requires`), `skip` | see [Tags and metadata](#tags-and-metadata) | Tags, owner, requirements and static skip. |
+| `tag`, `death`, `owner`, `req` (alias `requires`), `skip` | see [Tags and metadata](#tags-and-metadata) | Tags, death-test behavior, owner, requirements and static skip. |
 
 `baseline` and `items_per_call` need `bench` or `jitter` on the same
 declaration. `bench_once`, `bench_warmup` and `bench_time` need `bench` and

@@ -22,7 +22,7 @@ struct [[using gentest: fixture(suite)]] Tables {
     int size = 8;
 };
 
-[[using gentest: test("add"), req("SSR-001"), owner("team-runtime"), fast]]
+[[using gentest: test("add"), req("SSR-001"), owner("team-runtime"), tag("fast")]]
 inline void add() {
     EXPECT_EQ(1 + 1, 2);
 }
@@ -42,9 +42,9 @@ the command writes one JSON array, with one object per case on its own line:
 
 ```json
 [
-  {"name":"math/add","file":"cases.hpp","line":14,"kind":"test","tags":["owner=team-runtime","fast"],"requirements":["SSR-001"],"owner":"team-runtime","skipped":false,"skipReason":"","fixture":"","fixtureLifetime":"none","suite":"math","async":false,"baseline":false,"itemsPerCall":1},
-  {"name":"math/legacy_api","file":"cases.hpp","line":24,"kind":"test","tags":[],"requirements":[],"owner":"","skipped":true,"skipReason":"replaced by add","fixture":"","fixtureLifetime":"none","suite":"math","async":false,"baseline":false,"itemsPerCall":1},
-  {"name":"math/lookup","file":"cases.hpp","line":19,"kind":"test","tags":[],"requirements":[],"owner":"","skipped":false,"skipReason":"","fixture":"math::Tables","fixtureLifetime":"suite","suite":"math","async":false,"baseline":false,"itemsPerCall":1}
+  {"name":"math/add","file":"cases.hpp","line":14,"kind":"test","is_death":false,"tags":["fast"],"requirements":["SSR-001"],"owner":"team-runtime","skipped":false,"skipReason":"","fixture":"","fixtureLifetime":"none","suite":"math","async":false,"baseline":false,"itemsPerCall":1},
+  {"name":"math/legacy_api","file":"cases.hpp","line":24,"kind":"test","is_death":false,"tags":[],"requirements":[],"owner":"","skipped":true,"skipReason":"replaced by add","fixture":"","fixtureLifetime":"none","suite":"math","async":false,"baseline":false,"itemsPerCall":1},
+  {"name":"math/lookup","file":"cases.hpp","line":19,"kind":"test","is_death":false,"tags":[],"requirements":[],"owner":"","skipped":false,"skipReason":"","fixture":"math::Tables","fixtureLifetime":"suite","suite":"math","async":false,"baseline":false,"itemsPerCall":1}
 ]
 ```
 
@@ -61,7 +61,8 @@ Every object has all of these keys:
 | `file` | string | File that declares the case. For a generated case, the path is relative to the project's top-level source directory when the file is inside it. |
 | `line` | number | Line of the declaration. |
 | `kind` | string | `test`, `bench` or `jitter`. |
-| `tags` | array of strings | Tags from the flag attributes `fast`, `slow`, `linux`, `windows` and `death`, plus `owner=<owner>` when the case has an `owner(...)`. |
+| `is_death` | boolean | Whether the case is a death test; independent of its tags. |
+| `tags` | array of strings | User-defined labels from `tag(...)`, independent of owner and execution behavior. |
 | `requirements` | array of strings | IDs from `req(...)`. |
 | `owner` | string | Value of `owner(...)`; empty when the case has none. |
 | `skipped` | boolean | `true` for a [static skip](assertions.md). |
@@ -73,8 +74,7 @@ Every object has all of these keys:
 | `baseline` | boolean | `true` for a bench or jitter case marked `baseline`. |
 | `itemsPerCall` | number | Logical items per call (`items_per_call`) of a bench or jitter case; `1` unless set. |
 
-The owner also appears in `tags` as `owner=<owner>`, so tools that read only
-tags, such as CTest labels and Allure `tag` labels, see it as well.
+The `owner` field is declared metadata. CTest labels come from user-defined tags.
 
 ### `fixtureLifetime` values
 
@@ -111,7 +111,7 @@ one in parameter order. See [Fixtures](fixtures.md) for the lifetimes, and
 For a human-readable listing of the same metadata, use `--list`:
 
 ```text
-math/add [gentest:tags=owner=team-runtime,fast;requires=SSR-001;owner=team-runtime] (cases.hpp:14)
+math/add [gentest:tags=fast;requires=SSR-001;owner=team-runtime] (cases.hpp:14)
 math/legacy_api [gentest:skip=replaced by add] (cases.hpp:24)
 math/lookup (cases.hpp:19)
 ```

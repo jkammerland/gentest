@@ -34,35 +34,36 @@ void emplace_matrix() {
 ## Why gentest
 
 - **No registration macros.** Tests, benchmarks, parameters, templates,
-  fixture lifetimes and some metadata are all declared with attributes.
+  fixture lifetimes and declared metadata use attributes.
 - **Matrices from one declaration.** Value axes, row tables and template
   parameters expand into one case per combination.
 - **Fixtures from the signature.** Declare fixtures as function parameters,
-  several per case. Each has a local, suite or global lifetime, which can be shared between tests in later cases.
-- **Generated mocks.** `gentest_add_mocks()` generates mock classes for your
-  types, MENTION IT CAN HANDLE ANY CLASS, EVEN NON-VIRTUAL, not other shit. You can say this helper also allows you to generate for gmock and the other.
-- **More than pass or fail.** Benchmarks, jitter measurements and death tests
-  are declared the same way.
-- **Async tests** and fixture setups with C++20 coroutines.
-- TODO: MAYBE THIS IS WEIRD? WHAT ARE THE USE CASE FOR THESE? WHY NOT CUSTOM/USER TAGS ONLY? **Fits your tooling.** Each case can be its own CTest test. Cases carry tags
-  from a fixed set (`fast`, `slow`, `linux`, `windows`, `death`), requirement
-  IDs and an owner. Runs can write JUnit XML, Allure results and GitHub Actions
-  annotations. CMake, Meson, Xmake and Bazel are supported, as are named
-  modules.
+  several per case. Local fixtures are fresh for each case; suite and global
+  fixtures are shared, with optional setup and teardown.
+- **Generated mocks.** Generate mocks for virtual and non-virtual members,
+  including static members and member templates. Non-virtual calls use the
+  mock type; see [Mocks](docs/mock_generation.md). The CMake helper also
+  supports gMock and Trompeloeil backends.
+- **More than pass or fail.** Declare benchmarks, jitter measurements and
+  death tests with attributes.
+- **Async tests.** Write tests and fixture setup with C++20 coroutines.
+  [Async support](docs/async.md) is experimental.
+- **Fits your tooling.** Select cases by name or user-defined tag and expose
+  each case through CTest. Runs can write JUnit XML, Allure results and GitHub
+  Actions annotations. CMake, Meson, Xmake and Bazel are supported, as are
+  named modules.
 
 ## Requirements
 
-- CMake 3.31 or newer with the Ninja or Ninja Multi-Config generator, or one of
-  the [other supported build systems](docs/buildsystems/downstream_consumers.md).
-- A C++20 compiler and standard library
-- Clang, GCC or MSVC. On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
-- To build `gentest_codegen`: the LLVM and Clang development packages of one
-  major version, 19 or newer. 
-
-TODO: WHAT?? THIS NEEDS TO BE SIMPLIFIED.
-To run it: the Clang of that LLVM version on the
-  build machine, which codegen uses for Clang's built-in headers. Your tests
-  can use a different compiler.
+- CMake 3.31 or newer with Ninja or Ninja Multi-Config, or one of the
+  [other supported build systems](docs/buildsystems/downstream_consumers.md).
+- A C++20 compiler and standard library with `std::stop_token`: Clang, GCC
+  or MSVC. On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
+- LLVM/Clang 19 or newer on the build machine for `gentest_codegen`.
+  Building the tool requires matching LLVM and Clang development packages;
+  running it requires that Clang installation and its built-in headers.
+  Your tests can use a different compiler. The installation guides below
+  list the packages to install.
 
 Named modules add [compiler and dependency-scanning requirements](docs/modules.md#requirements).
 
@@ -82,8 +83,7 @@ cmake_minimum_required(VERSION 3.31)
 project(my_tests LANGUAGES CXX)
 
 include(CTest)
-# Compile as ISO C++20. In GNU mode, GCC and Clang define `linux` as a macro,
-# which breaks the `linux` tag (and Clang module builds).
+# Compile as ISO C++20.
 set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(gentest CONFIG REQUIRED)
 
@@ -108,7 +108,7 @@ gentest_discover_tests(my_tests)
 
 using namespace gentest::asserts;
 
-[[using gentest: test("demo/addition"), fast]]
+[[using gentest: test("demo/addition"), tag("fast")]]
 inline void addition() {
     const auto value = 2 + 2;
     gentest::expect_true(value == 4);

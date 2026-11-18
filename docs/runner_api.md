@@ -139,7 +139,7 @@ missing initializer.
 | `is_benchmark` | `false` | Makes the case a bench case. |
 | `is_jitter` | `false` | Makes the case a jitter case. |
 | `is_baseline` | `false` | Marks a bench or jitter case as the baseline for the other measured cases; see [Benchmarks](benchmarks.md). |
-| `tags` | none | Tags for `--tag`, listings and reports. A `death` tag makes the case a death test. The runner accepts any strings here. |
+| `tags` | none | User-defined labels for `--tag`, listings and reports; no label controls execution. |
 | `requirements` | none | Requirement IDs; see [Requirements traceability](traceability_standards.md). |
 | `skip_reason`, `should_skip` | none | `should_skip = true` makes the case a [static skip](assertions.md) with that reason. |
 | `fixture`, `fixture_lifetime` | none | The shared fixture the case uses. For a case without one, leave `fixture` empty and use `gentest::FixtureLifetime::None`. See [Use a shared fixture](#use-a-shared-fixture); [Test inventory](test_inventory.md) maps all values to fixture lifetimes. |
@@ -150,6 +150,7 @@ missing initializer.
 | `benchmark` | calibrated, runner-timed | Execution options of a bench case; see the next section. |
 | `reports_body_start` | `false` | Set by generated code. Leave it unset. |
 | `measured_fn` | `nullptr` | For a bench or jitter case, the function that the timed calls run. |
+| `is_death` | `false` | Marks a death test independently of tags. |
 
 ## Use a shared fixture
 
