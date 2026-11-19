@@ -101,7 +101,7 @@
 ### Fixed
 
 - Generated tests call the annotated overload. Codegen diagnoses named parameter rows that would put a value in the wrong argument slot (#332).
-- CTest entries run their exact discovered case. Stale entries fail, and a filtered case skips unless `--fail-on-empty` is set (#331, #341).
+- Ordinary CTest entries run their exact discovered case and fail if it disappears or becomes a death test. Filtered entries skip unless `--fail-on-empty` is set (#331, #341).
 - Local fixture cleanup preserves failures after a skip, and shared fixture destruction and stop callbacks retain their reporting context (#334, #343, #347).
 - Benchmarks and jitter tests stop on the first failed call, retain its diagnostic, and omit invalid timing samples (#329, #342).
 - Bazel discovers annotated headers through package-relative include paths and external repositories. Xmake resolves mock module output in absolute directories and finds shared fmt in a private SDK (#333, #337, #340, #344).
