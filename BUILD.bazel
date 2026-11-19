@@ -38,6 +38,14 @@ _gentest_linkopts = select({
     '//conditions:default': ['-fuse-ld=bfd'],
 })
 
+# Bazel can detect gold or lld during configuration. Give BFD ordinary archives
+# when statically linking the supervisor and its test probe.
+_gentest_static_link_features = select({
+    '@bazel_tools//src/conditions:windows': [],
+    '@bazel_tools//src/conditions:darwin': [],
+    '//conditions:default': ['-supports_start_end_lib'],
+})
+
 _gentest_module_features = ['cpp_modules']
 
 # Keep in sync with MODULE.bazel and CMakeLists.txt (checked by gentest_vcpkg_manifest_metadata).
@@ -202,6 +210,8 @@ cc_binary(
         '//conditions:default': ['tools/supervise/process_posix.cpp'],
     }),
     copts = _gentest_public_copts,
+    features = _gentest_static_link_features,
+    linkopts = _gentest_linkopts,
     deps = [':gentest_death_watchdog'],
     visibility = ['//visibility:public'],
 )
@@ -462,6 +472,8 @@ cc_binary(
     testonly = True,
     srcs = ['tests/death_supervisor/probe.cpp'],
     copts = _gentest_public_copts,
+    features = _gentest_static_link_features,
+    linkopts = _gentest_linkopts,
     deps = [':gentest_runtime'],
 )
 
