@@ -91,6 +91,10 @@ int main(int argc, char **argv) {
             }
             return 0;
         }
+        constexpr std::string_view kExactRun = "--gentest-run-exact=";
+        if (arg.starts_with(kExactRun))
+            return run_one(arg.substr(kExactRun.size()));
+
         constexpr std::string_view kRun = "--run=";
         if (arg.rfind(kRun, 0) == 0) {
             if (arg.substr(kRun.size()) == "demo/death_missing") {

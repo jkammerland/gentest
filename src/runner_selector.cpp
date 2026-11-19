@@ -103,7 +103,7 @@ SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOpti
                 return result;
             }
             idxs.push_back(exact_kind_matches.front());
-        } else if (opt.death_test_marker) {
+        } else if (opt.exact_run || opt.death_test_marker) {
             // Build-system registrations name one exact case. A stale entry
             // must never launch another case that happens to share its suffix.
             result.status = SelectionStatus::CaseNotFound;
@@ -180,7 +180,7 @@ SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOpti
         return !included || excluded_tag || excluded_name;
     });
     if (idxs.empty()) {
-        result.status = SelectionStatus::ZeroSelected;
+        result.status = opt.exact_run ? SelectionStatus::ExactRunExcluded : SelectionStatus::ZeroSelected;
         return result;
     }
 

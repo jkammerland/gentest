@@ -29,9 +29,11 @@ parallel runs and repetition, see
 ## What it registers
 
 - **Ordinary cases.** The CTest name is the case name, between `TEST_PREFIX`
-  and `TEST_SUFFIX`. The entry runs `my_tests --run=<case> --skip-return-code=77`
-  plus `EXTRA_ARGS`, with the CTest property `SKIP_RETURN_CODE 77`, so static
-  and runtime skips show as skipped in CTest.
+  and `TEST_SUFFIX`. Each entry selects its exact case name. If that name is
+  missing at execution time, the entry fails. If `--tag`, `--exclude-tag`, or
+  `--exclude` in `EXTRA_ARGS` filters out the case, CTest reports it as skipped
+  (return code 77), just as it does for static and runtime skips. Add
+  `--fail-on-empty` to `EXTRA_ARGS` to fail the entry when these filters exclude it.
 - **Death tests.** Discovery registers each runnable `death` case with a
   `death/` prefix after `TEST_PREFIX`, for example `death/crash/fatal_path`.
   Each entry runs `gentest_supervise`. Discovery omits statically skipped death
@@ -84,8 +86,7 @@ gentest_discover_tests(<target>
 | `DEATH_INACTIVITY_MS <ms>` | Maximum time without progress in a death test. |
 
 `EXTRA_ARGS` must be options the executable accepts. Don't pass `--run` or
-`--skip-return-code` there: every registered command already sets them, and the
-runner rejects a repeated single-value option.
+`--skip-return-code` there. Discovery supplies the case selection and skip return code.
 
 ## Filtering
 

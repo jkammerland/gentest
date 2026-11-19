@@ -13,6 +13,15 @@ gentest_add_python_program_test(NAME selected_cases_contract
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_selected_cases.py)
 set_tests_properties(selected_cases_contract PROPERTIES LABELS "public-api;runner")
 
+add_executable(gentest_discover_exact_probe cmake/discover_exact/main.cpp)
+target_link_libraries(gentest_discover_exact_probe PRIVATE gentest::gentest)
+target_compile_features(gentest_discover_exact_probe PRIVATE cxx_std_20)
+gentest_add_python_program_test(NAME discover_exact_contract
+    PROG gentest_discover_exact_probe
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_discover_exact.py
+    ARGS ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND} "${CMAKE_GENERATOR}")
+set_tests_properties(discover_exact_contract PROPERTIES LABELS "public-api;runner;cmake")
+
 # Shared fixtures activate only when selected runnable cases acquire them.
 add_executable(gentest_fixture_selection_tests fixture_selection/main.cpp fixture_selection/cases.cpp fixture_selection/cases.hpp)
 target_link_libraries(gentest_fixture_selection_tests PRIVATE gentest::gentest)
@@ -116,7 +125,7 @@ endif()
 add_dependencies(gentest_test_suites gentest_benchmark_measurement_tests)
 add_dependencies(gentest_test_suites gentest_bench_util_value_tests)
 add_dependencies(gentest_test_suites gentest_report_stream_tests)
-add_dependencies(gentest_test_suites gentest_selection_tests)
+add_dependencies(gentest_test_suites gentest_selection_tests gentest_discover_exact_probe)
 add_dependencies(gentest_test_suites gentest_fixture_selection_tests)
 
 _gentest_resolve_supervisor(_gentest_host_supervisor)
