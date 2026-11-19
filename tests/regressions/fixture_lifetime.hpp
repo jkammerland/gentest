@@ -67,6 +67,18 @@ struct SkipCleanup : gentest::FixtureTearDown {
 
 [[gentest::test("body_throws")]] inline void body_throws(First &, Second &) { throw std::runtime_error("body exception before cleanup"); }
 
+struct MeasuredFirst : First {
+    ~MeasuredFirst() override { gentest::record_property("destroyed_during_teardown", true); }
+};
+
+[[using gentest: bench("measured_cleanup_bench"), bench_once]] inline void measured_cleanup_bench(MeasuredFirst &, Second &) {
+    gentest::skip("measurement prerequisite unavailable");
+}
+
+[[gentest::jitter("measured_cleanup_jitter")]] inline void measured_cleanup_jitter(MeasuredFirst &, Second &) {
+    gentest::skip("measurement prerequisite unavailable");
+}
+
 struct [[gentest::fixture(suite)]] MockOwner {
     gentest::mock<mocking::Calculator> calculator;
 };

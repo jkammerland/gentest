@@ -164,6 +164,12 @@ struct gentest_local_cleanup {
     }
 #endif
 
+    void rethrow_pending() const {
+#if GENTEST_EXCEPTIONS_ENABLED
+        if (pending) std::rethrow_exception(pending);
+#endif
+    }
+
     template <typename T> void run(T &fixture) {
 #if GENTEST_EXCEPTIONS_ENABLED
         try { gentest_maybe_teardown(fixture); } catch (...) { capture_teardown_exception(); }
@@ -206,7 +212,7 @@ template <typename BodyFn, typename TeardownFn>
         cleanup.capture_body_exception();
     }
     teardown(cleanup);
-    if (cleanup.pending) std::rethrow_exception(cleanup.pending);
+    cleanup.rethrow_pending();
 #else
     auto teardown_fn = [&] { teardown(cleanup); };
     gentest_noexceptions_local_teardown<decltype(teardown_fn)> teardown_state{&teardown_fn};
@@ -268,9 +274,7 @@ template <typename BodyFn, typename TeardownFn>
     gentest_local_cleanup cleanup;
     auto teardown_fn = [&]() -> ::gentest::awaitable<void> {
         co_await teardown(cleanup);
-#if GENTEST_EXCEPTIONS_ENABLED
-        if (cleanup.pending) std::rethrow_exception(cleanup.pending);
-#endif
+        cleanup.rethrow_pending();
     };
     gentest_async_local_teardown_guard<decltype(teardown_fn)> teardown_state{&teardown_fn};
 #if GENTEST_EXCEPTIONS_ENABLED
@@ -408,8 +412,10 @@ static void {w}(void* ctx_) {{
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Teardown) {{
+            gentest_local_cleanup cleanup;
 {bench_teardown}
             bench_state = {{}};
+            cleanup.rethrow_pending();
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Call) {{
@@ -448,8 +454,10 @@ inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Teardown) {{
-            if (bench_state.teardown_armed) gentest_maybe_teardown(bench_state.fx_.ref());
+            gentest_local_cleanup cleanup;
+            if (bench_state.teardown_armed) cleanup.run(bench_state.fx_.ref());
             bench_state = BenchState{{}};
+            cleanup.rethrow_pending();
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Call) {{

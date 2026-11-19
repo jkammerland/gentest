@@ -251,14 +251,14 @@ std::string build_fixture_teardown(const std::vector<FreeFixtureUse> &types, std
     return td;
 }
 
-std::string build_fixture_teardown_guarded(const std::vector<FreeFixtureUse> &types, std::string_view hook, std::string_view prefix = {}) {
+std::string build_fixture_teardown_guarded(const std::vector<FreeFixtureUse> &types, std::string_view prefix = {}) {
     std::string td;
     td.reserve(types.size() * 72);
     for (std::size_t i = types.size(); i-- > 0;) {
         if (types[i].scope != FixtureScope::Local) {
             continue;
         }
-        append_format(td, "    if ({}fx{}_teardown_armed) {}({}fx{}_.ref());\n", prefix, i, hook, prefix, i);
+        append_format(td, "    if ({}fx{}_teardown_armed) cleanup.run({}fx{}_.ref());\n", prefix, i, prefix, i);
     }
     return td;
 }
@@ -553,13 +553,13 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string inits            = build_fixture_inits(spec.fixtures);
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
-        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures, "cleanup.run");
+        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
         const auto invoke = make_invoke_for_free(spec, qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures)));
         const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
         const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
         const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "gentest_maybe_teardown", "bench_state.");
+        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.");
         const auto        bench_invoke =
             make_invoke_for_free(spec, qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures, "bench_state.")));
         append_format_runtime(out, templates.free_fixtures, fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
@@ -605,7 +605,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string inits            = build_fixture_inits(spec.fixtures);
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
-        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures, "cleanup.run");
+        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
         const auto        invoke           = make_invoke_for_free(
             spec, qualified_helper, format_call_args(prepend_call_arg("fx_.ref()", build_helper_fixture_call_list(spec.fixtures))));
 
@@ -613,7 +613,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
         const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
         const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "gentest_maybe_teardown", "bench_state.");
+        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.");
         const auto        bench_invoke      = make_invoke_for_free(
             spec, qualified_helper,
             format_call_args(prepend_call_arg("bench_state.fx_.ref()", build_helper_fixture_call_list(spec.fixtures, "bench_state."))));
@@ -642,9 +642,11 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += "            return;\n";
         out += "        }\n";
         out += "        if (phase == ::gentest::detail::BenchPhase::Teardown) {\n";
+        out += "            gentest_local_cleanup cleanup;\n";
         out += bench_teardown;
-        out += "            if (bench_state.fx_teardown_armed) gentest_maybe_teardown(bench_state.fx_.ref());\n";
+        out += "            if (bench_state.fx_teardown_armed) cleanup.run(bench_state.fx_.ref());\n";
         out += "            bench_state = BenchState{};\n";
+        out += "            cleanup.rethrow_pending();\n";
         out += "            return;\n";
         out += "        }\n";
         out += "        if (phase == ::gentest::detail::BenchPhase::Call) {\n";
@@ -682,7 +684,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string inits            = build_fixture_inits(spec.fixtures);
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
-        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures, "cleanup.run");
+        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
         const auto invoke = make_invoke_for_free(spec, qualified_helper,
                                                  format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
 
@@ -690,7 +692,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
         const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
         const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "gentest_maybe_teardown", "bench_state.");
+        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.");
         const auto        bench_invoke =
             make_invoke_for_free(spec, qualified_helper,
                                  format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures, "bench_state."))));
@@ -717,8 +719,10 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += "            return;\n";
         out += "        }\n";
         out += "        if (phase == ::gentest::detail::BenchPhase::Teardown) {\n";
+        out += "            gentest_local_cleanup cleanup;\n";
         out += bench_teardown;
         out += "            bench_state = BenchState{};\n";
+        out += "            cleanup.rethrow_pending();\n";
         out += "            return;\n";
         out += "        }\n";
         out += "        if (phase == ::gentest::detail::BenchPhase::Call) {\n";

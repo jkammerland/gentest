@@ -57,6 +57,14 @@ def main(root):
     count = item.find("properties/property[@name='gentest.property.release_count']")
     assert count is not None and count.attrib["value"] == "2", ET.tostring(item)
 
+    # The measured wrapper must also destroy its persistent fixture handles while reporting is active.
+    for name in ("measured_cleanup_bench", "measured_cleanup_jitter"):
+        suite, _ = run(root, f"--run=fixture_lifetime/{name}", 1, failures=1)
+        item = case(suite, name)
+        check_cleanup(item, "measurement prerequisite unavailable", "second fixture failed to close")
+        destroyed = item.find("properties/property[@name='gentest.property.destroyed_during_teardown']")
+        assert destroyed is not None and destroyed.attrib["value"] == "true", ET.tostring(item)
+
     suite, _ = run(root, "--run=fixture_lifetime/shared_missing", 1, errors=1)
     assert case(suite, "shared_missing").find("failure") is None, ET.tostring(suite)
     assert "expected 1 call(s) to ::mocking::Calculator::reset but observed 0" in suite.findtext("system-err", ""), ET.tostring(suite)
