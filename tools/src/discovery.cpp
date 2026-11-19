@@ -813,6 +813,42 @@ struct FunctionParamInfo {
     std::optional<std::size_t> template_binding_index;
 };
 
+// The replayed default uses the generated parameter names in unevaluated
+// operands such as sizeof(earlier). Private names are valid at the authored
+// declaration but cannot be named by a namespace-scope registration helper.
+class DeathDefaultPrinter final : public PrinterHelper {
+  public:
+    explicit DeathDefaultPrinter(const FunctionDecl &function) : function_(function) {}
+
+    bool handledStmt(Stmt *stmt, llvm::raw_ostream &out) override {
+        const NamedDecl *decl = nullptr;
+        if (const auto *reference = llvm::dyn_cast<DeclRefExpr>(stmt)) {
+            decl = reference->getDecl();
+        } else if (const auto *member = llvm::dyn_cast<MemberExpr>(stmt)) {
+            decl = member->getMemberDecl();
+        }
+
+        if (const auto *parameter = llvm::dyn_cast_or_null<ParmVarDecl>(decl);
+            parameter != nullptr && parameter->getDeclContext()->Equals(&function_)) {
+            out << "gentest_arg_" << parameter->getFunctionScopeIndex();
+            return true;
+        }
+
+        for (; decl != nullptr; decl = llvm::dyn_cast<NamedDecl>(decl->getDeclContext())) {
+            if (decl->getAccess() == AS_private || decl->getAccess() == AS_protected) {
+                inaccessible = decl->getQualifiedNameAsString();
+                break;
+            }
+        }
+        return false;
+    }
+
+    std::string inaccessible;
+
+  private:
+    const FunctionDecl &function_;
+};
+
 // A template binding resolved to the fixture type it names.
 struct BoundFixtureType {
     std::string      type_name;
@@ -1233,6 +1269,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         signature.print(stream, policy, pointer);
     }
 
+    DeathCallParameters death_parameters;
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &display_args, const std::string &call_args,
                         const std::vector<std::string> &free_fixture_types, const std::vector<std::string> &free_fixture_emit_types,
@@ -1250,6 +1287,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.declaration_site_key         = declaration_site_key;
         info.entity_key                   = entity_key;
         info.is_death                     = summary.is_death;
+        info.death_parameters             = death_parameters;
         info.tags                         = summary.tags;
         info.requirements                 = summary.requirements;
         info.owner                        = summary.owner.value_or(std::string{});
@@ -1287,6 +1325,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             fmt::format("|bench-once:{}|bench-supplied:{}|bench-warmup:{}", info.benchmark.once, info.benchmark.supplied_time,
                         info.benchmark.warmup_epochs ? std::to_string(*info.benchmark.warmup_epochs) : "default");
         info.semantic_fingerprint += fmt::format("|death:{}", info.is_death);
+        if (info.is_death) {
+            info.semantic_fingerprint +=
+                fmt::format("|death-parameters:{}:{}", death_parameters.template_parameters, death_parameters.declarations);
+        }
         // Length framing keeps punctuation in labels distinct from metadata separators.
         for (const auto &tag : info.tags) {
             info.semantic_fingerprint += fmt::format("|tag:{}:{}", tag.size(), tag);
@@ -1488,6 +1530,45 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
         inferred_fixture_emit_types.push_back(std::move(fixture_emit_type));
         inferred_fixture_required_scopes.push_back(param.required_scope);
+    }
+
+    // Mirror the parameter types so C++ performs implicit conversions and
+    // extends reference temporaries through the entire generated invocation.
+    if (summary.is_death && !function_params.empty()) {
+        if (function_template != nullptr) {
+            llvm::raw_string_ostream stream(death_parameters.template_parameters);
+            function_template->getTemplateParameters()->print(stream, *result.Context, policy, true);
+        }
+        for (const auto &param : function_params) {
+            const auto &decl = *param.decl;
+            if (!death_parameters.parameter_packs.empty()) {
+                death_parameters.declarations += ", ";
+            }
+            llvm::raw_string_ostream stream(death_parameters.declarations);
+            const auto               type = TypeName::getFullyQualifiedType(decl.getType(), *result.Context, true);
+            type.print(stream, policy, fmt::format("gentest_arg_{}", death_parameters.parameter_packs.size()));
+            death_parameters.parameter_packs.push_back(decl.isParameterPack());
+            if (param.has_default_arg && !param.is_value_axis) {
+                std::string              expression;
+                llvm::raw_string_ostream expr_stream(expression);
+                DeathDefaultPrinter      printer(*func);
+                decl.getDefaultArg()->printPretty(expr_stream, &printer, policy);
+                if (!printer.inaccessible.empty()) {
+                    had_error_ = true;
+                    report(fmt::format("death-test default argument names inaccessible member '{}'; supply an explicit parameter value",
+                                       printer.inaccessible));
+                    return;
+                }
+                if (module_importer_registration_ && !validate_importer_binding(*func, expression, "death-test default argument",
+                                                                                *result.Context, [&](const std::string &message) {
+                                                                                    had_error_ = true;
+                                                                                    report(message);
+                                                                                })) {
+                    return;
+                }
+                stream << " = " << expression;
+            }
+        }
     }
 
     // Cartesian product of scalar parameter axes across names.

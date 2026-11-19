@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <map>
 #include <set>
 #include <string>
@@ -136,8 +137,10 @@ struct WrapperSpec {
     std::string                 callee;       // free function (qualified) or fixture type (qualified)
     std::string                 method;       // member method name (unqualified)
     std::vector<std::string>    namespace_parts;
-    std::vector<FreeFixtureUse> fixtures;   // for FreeWithFixtures
-    std::vector<FreeCallArg>    free_args;  // for FreeWithFixtures
+    std::vector<FreeFixtureUse> fixtures;  // for FreeWithFixtures
+    std::vector<FreeCallArg>    free_args; // for FreeWithFixtures
+    DeathCallParameters         death_parameters;
+    std::vector<std::string>    template_args;
     std::string                 value_args; // comma-separated value args (may be empty)
     std::string                 overload_pointer_type;
     bool                        overload_needs_object = false;
@@ -480,44 +483,88 @@ std::string prepend_call_arg(std::string_view first_arg, const std::string &rest
     return std::string(first_arg) + ", " + rest;
 }
 
+struct WrapperCall {
+    std::string target;
+    std::string arguments;
+};
+
+std::string death_helper_body(const WrapperSpec &spec, const WrapperCall &call) {
+    const auto            &formals     = spec.death_parameters;
+    const std::string_view result_type = spec.returns_async ? "::gentest::awaitable<void>" : "void";
+    const std::string_view await       = spec.returns_async ? "co_await " : "";
+    std::string            helper;
+    append_format(helper, "    auto gentest_invoke = [&]{}({}) -> {} {{\n", formals.template_parameters, formals.declarations, result_type);
+
+    std::vector<std::string> types;
+    std::vector<std::string> forwarded;
+    for (std::size_t index = 0; index < formals.parameter_packs.size(); ++index) {
+        const auto arg       = fmt::format("gentest_arg_{}", index);
+        const auto expansion = formals.parameter_packs[index] ? "..." : "";
+        types.push_back(fmt::format("decltype({}){}", arg, expansion));
+        forwarded.push_back(forward_param_expr(arg) + expansion);
+    }
+    if (!types.empty()) {
+        append_format(helper,
+                      "        static_assert(::gentest::detail::safe_death_parameters<{}>, "
+                      "\"death test parameters with nontrivial move, copy or destruction must be passed by reference\");\n",
+                      fmt::join(types, ", "));
+    }
+
+    // Close the marker before the end of the full expression destroys the
+    // returned value or coroutine frame. The guard also covers unwinding.
+    helper += "        ::gentest::detail::CaseBodyScope gentest_body_scope;\n";
+    append_format(helper, "        static_cast<void>({}{}({})), gentest_body_scope.finish();\n", await, call.target,
+                  fmt::join(forwarded, ", "));
+    helper += "    };\n";
+    const auto op = formals.template_parameters.empty() || spec.template_args.empty()
+                        ? ""
+                        : fmt::format(".template operator()<{}>", fmt::join(spec.template_args, ", "));
+    append_format(helper, "    {}gentest_invoke{}({});\n", await, op, call.arguments);
+    return helper;
+}
+
 std::string build_helper_definition(const WrapperSpec &spec, std::string_view helper_name) {
     const bool include_self  = spec.kind == WrapperKind::MemberEphemeral || spec.kind == WrapperKind::MemberShared ||
                                spec.kind == WrapperKind::MemberEphemeralWithFixtures || spec.kind == WrapperKind::MemberSharedWithFixtures;
     const std::string params = build_helper_param_decls(spec.fixtures, include_self);
 
+    // Keep the selected declaration and the arguments in their declared slots.
     const auto  qualified = qualify_global_callee(spec.callee) + (include_self ? "::" + spec.method : "");
-    std::string target    = qualified;
+    WrapperCall call{.target    = qualified,
+                     .arguments = spec.fixtures.empty() ? spec.value_args : build_helper_bound_arg_list(spec.free_args)};
     if (!spec.overload_pointer_type.empty()) {
-        target = fmt::format("static_cast<{}>(&{})", spec.overload_pointer_type, target);
+        call.target = fmt::format("static_cast<{}>(&{})", spec.overload_pointer_type, qualified);
         if (spec.overload_needs_object) {
-            target = fmt::format("({}.*{})", forward_param_expr("self"), target);
+            call.target = fmt::format("({}.*{})", forward_param_expr("self"), call.target);
         }
     } else if (include_self) {
-        target = fmt::format("{}.{}{}", forward_param_expr("self"), spec.method_is_template ? "template " : "", spec.method);
+        call.target = fmt::format("{}.{}{}", forward_param_expr("self"), spec.method_is_template ? "template " : "", spec.method);
     }
-    // Emit each argument once, in its declared slot. A direct call leaves
-    // omitted trailing defaults and parameter initialization to the compiler.
-    const auto        args      = spec.fixtures.empty() ? spec.value_args : build_helper_bound_arg_list(spec.free_args);
-    const std::string call_expr = target + format_call_args(args);
 
-    std::string helper;
-    append_format_runtime(helper, "static decltype(auto) {}({}) {{\n", helper_name, params);
+    std::string            helper;
+    const std::string_view result_type = spec.is_death && spec.returns_async ? "::gentest::awaitable<void>" : "decltype(auto)";
+    append_format(helper, "static {} {}({}) {{\n", result_type, helper_name, params);
+
     // Other declaring headers can contribute names to the registration TU.
     // Require the direct non-template target to remain unambiguous there.
     if (!spec.method_is_template && spec.overload_pointer_type.empty()) {
         append_format_runtime(helper, "    static_assert(sizeof(decltype(&{})) > 0);\n", qualified);
     }
-    append_format_runtime(helper, "    return {};\n", call_expr);
+
+    if (spec.is_death) {
+        helper += death_helper_body(spec, call);
+    } else {
+        append_format(helper, "    return {}({});\n", call.target, call.arguments);
+    }
     helper += "}\n\n";
     return wrap_in_namespaces(spec.namespace_parts, helper);
 }
 
-static std::string make_invoke_for_free(const WrapperSpec &spec, const std::string &fn, const std::string &args) {
-    const std::string body_start = spec.is_death ? "::gentest::detail::CaseBodyScope gentest_body_scope; " : "";
+static std::string make_invoke_for_free(const std::string &fn, const std::string &args) {
     // Discard the result in place. Binding it to a local ("const auto x = f();")
     // copies a reference return: that does not compile for non-copyable or
     // abstract types, and for a bench it deep-copies inside the timed loop.
-    return body_start + fmt::format("static_cast<void>({}{});", fn, args);
+    return fmt::format("static_cast<void>({}{});", fn, args);
 }
 
 static void append_wrapper(std::string &out, const WrapperSpec &spec, const WrapperTemplates &templates) {
@@ -535,16 +582,18 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
 
     switch (spec.kind) {
     case WrapperKind::Free: {
-        if (!spec.is_measured && !spec.method_is_template && spec.value_args.empty() && spec.overload_pointer_type.empty()) {
-            const auto invoke = make_invoke_for_free(spec, qualify_global_callee(spec.callee), format_call_args(spec.value_args));
+        if (!spec.is_death && !spec.is_measured && !spec.method_is_template && spec.value_args.empty() &&
+            spec.overload_pointer_type.empty()) {
+            const auto invoke = make_invoke_for_free(qualify_global_callee(spec.callee), format_call_args(spec.value_args));
             append_format_runtime(out, templates.free_test, fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
             return;
         }
         const auto helper_name      = helper_name_for(spec);
         const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
         out += build_helper_definition(spec, helper_name);
-        const auto invoke = make_invoke_for_free(spec, qualified_helper, "()");
-        append_format_runtime(out, templates.free, fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
+        const auto invoke = make_invoke_for_free(qualified_helper, "()");
+        append_format_runtime(out, spec.is_death && !spec.is_measured ? templates.free_test : templates.free,
+                              fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
         // The runner selects the timed entrypoint once per epoch; fixture-free
         // calls need no phase lookup inside each iteration.
         if (spec.is_measured) {
@@ -561,14 +610,14 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
-        const auto invoke = make_invoke_for_free(spec, qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures)));
+        const auto        invoke = make_invoke_for_free(qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures)));
         const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
         const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
         const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
         const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
         const auto        bench_invoke =
-            make_invoke_for_free(spec, qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures, "bench_state.")));
+            make_invoke_for_free(qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures, "bench_state.")));
         append_format_runtime(out, templates.free_fixtures, fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
                               fmt::arg("inits", inits), fmt::arg("setup_flags", setup_flags), fmt::arg("setup", setup_tracked),
                               fmt::arg("teardown", teardown_guarded), fmt::arg("invoke", invoke), fmt::arg("bench_decls", bench_decls),
@@ -589,8 +638,8 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const auto helper_name      = helper_name_for(spec);
         const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
         out += build_helper_definition(spec, helper_name);
-        const auto invoke       = make_invoke_for_free(spec, qualified_helper, "(fx_.ref())");
-        const auto bench_invoke = make_invoke_for_free(spec, qualified_helper, "(bench_state.fx_.ref())");
+        const auto invoke       = make_invoke_for_free(qualified_helper, "(fx_.ref())");
+        const auto bench_invoke = make_invoke_for_free(qualified_helper, "(bench_state.fx_.ref())");
         append_format_runtime(out, templates.ephemeral, fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
                               fmt::arg("invoke", invoke), fmt::arg("bench_invoke", bench_invoke));
         return;
@@ -599,7 +648,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const auto helper_name      = helper_name_for(spec);
         const auto qualified_helper = qualify_global_name(spec.namespace_parts, helper_name);
         out += build_helper_definition(spec, helper_name);
-        const auto invoke = make_invoke_for_free(spec, qualified_helper, "(*fx_)");
+        const auto invoke = make_invoke_for_free(qualified_helper, "(*fx_)");
         append_format_runtime(out, templates.stateful, fmt::arg("w", spec.wrapper_name), fmt::arg("fixture", spec.callee),
                               fmt::arg("invoke", invoke));
         return;
@@ -614,7 +663,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
         const auto        invoke           = make_invoke_for_free(
-            spec, qualified_helper, format_call_args(prepend_call_arg("fx_.ref()", build_helper_fixture_call_list(spec.fixtures))));
+            qualified_helper, format_call_args(prepend_call_arg("fx_.ref()", build_helper_fixture_call_list(spec.fixtures))));
 
         const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
@@ -622,7 +671,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
         const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
         const auto        bench_invoke      = make_invoke_for_free(
-            spec, qualified_helper,
+            qualified_helper,
             format_call_args(prepend_call_arg("bench_state.fx_.ref()", build_helper_fixture_call_list(spec.fixtures, "bench_state."))));
 
         out += "static void " + spec.wrapper_name + "(void* ctx_) {\n";
@@ -690,7 +739,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
-        const auto invoke = make_invoke_for_free(spec, qualified_helper,
+        const auto invoke = make_invoke_for_free(qualified_helper,
                                                  format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
 
         const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
@@ -698,9 +747,8 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
         const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
         const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
-        const auto        bench_invoke =
-            make_invoke_for_free(spec, qualified_helper,
-                                 format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures, "bench_state."))));
+        const auto        bench_invoke      = make_invoke_for_free(
+            qualified_helper, format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures, "bench_state."))));
 
         out += "static void " + spec.wrapper_name + "(void* ctx_) {\n";
         out += "    auto* fx_ = static_cast<" + spec.callee + "*>(ctx_);\n";
@@ -752,9 +800,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
     }
 }
 
-std::string make_async_await_expr(const WrapperSpec &spec, const std::string &fn, const std::string &args) {
-    return fmt::format("{}co_await {}{};", spec.is_death ? "::gentest::detail::CaseBodyScope gentest_body_scope; " : "", fn, args);
-}
+std::string make_async_await_expr(const std::string &fn, const std::string &args) { return fmt::format("co_await {}{};", fn, args); }
 
 void append_async_local_teardown_call(std::string &body, const std::string &body_code, const std::string &teardown_code) {
     body += "    co_await gentest_run_async_with_local_teardown(\n";
@@ -794,7 +840,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
     switch (spec.kind) {
     case WrapperKind::Free: {
         body += "    (void)ctx_;\n";
-        body += "    " + make_async_await_expr(spec, qualified_helper, "()") + "\n";
+        body += "    " + make_async_await_expr(qualified_helper, "()") + "\n";
         append_async_entrypoint(out, spec, body);
         return;
     }
@@ -804,7 +850,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_async_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_async_teardown_guarded(spec.fixtures);
-        const auto invoke = make_async_await_expr(spec, qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures)));
+        const auto        invoke = make_async_await_expr(qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures)));
         body += "    (void)ctx_;\n";
         body += decls;
         body += inits;
@@ -821,7 +867,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         return;
     }
     case WrapperKind::MemberEphemeral: {
-        const auto        invoke           = make_async_await_expr(spec, qualified_helper, "(fx_.ref())");
+        const auto        invoke           = make_async_await_expr(qualified_helper, "(fx_.ref())");
         const std::string teardown_guarded = "        if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
         body += "    (void)ctx_;\n";
         body += "    auto fx_ = ::gentest::detail::FixtureHandle<" + spec.callee + ">::empty();\n";
@@ -836,7 +882,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         return;
     }
     case WrapperKind::MemberShared: {
-        const auto invoke = make_async_await_expr(spec, qualified_helper, "(*fx_)");
+        const auto invoke = make_async_await_expr(qualified_helper, "(*fx_)");
         body += "    auto* fx_ = static_cast<" + spec.callee + "*>(ctx_);\n";
         body += "    if (!fx_) {\n";
         body += "        gentest_record_fixture_failure(\"" + escape_string(spec.callee) + "\", \"instance missing\");\n";
@@ -853,7 +899,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         const std::string setup_tracked    = build_fixture_async_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_async_teardown_guarded(spec.fixtures);
         const auto        invoke           = make_async_await_expr(
-            spec, qualified_helper, format_call_args(prepend_call_arg("fx_.ref()", build_helper_fixture_call_list(spec.fixtures))));
+            qualified_helper, format_call_args(prepend_call_arg("fx_.ref()", build_helper_fixture_call_list(spec.fixtures))));
         body += "    (void)ctx_;\n";
         body += "    auto fx_ = ::gentest::detail::FixtureHandle<" + spec.callee + ">::empty();\n";
         body += "    if (!gentest_init_fixture(fx_, \"" + escape_string(spec.callee) + "\")) co_return;\n";
@@ -879,7 +925,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         const std::string setup_tracked    = build_fixture_async_setup_tracked(spec.fixtures);
         const std::string teardown_guarded = build_fixture_async_teardown_guarded(spec.fixtures);
         const auto        invoke           = make_async_await_expr(
-            spec, qualified_helper, format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
+            qualified_helper, format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
         body += "    auto* fx_ = static_cast<" + spec.callee + "*>(ctx_);\n";
         body += "    if (!fx_) {\n";
         body += "        gentest_record_fixture_failure(\"" + escape_string(spec.callee) + "\", \"instance missing\");\n";
@@ -911,6 +957,8 @@ WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
     spec.overload_needs_object = test.overload_needs_object;
     spec.method_is_template    = test.is_function_template;
     spec.is_measured           = test.is_benchmark || test.is_jitter;
+    spec.death_parameters      = test.death_parameters;
+    spec.template_args         = test.template_args;
     if (test.fixture_qualified_name.empty()) {
         if (!test.free_fixtures.empty()) {
             spec.kind      = WrapperKind::FreeWithFixtures;

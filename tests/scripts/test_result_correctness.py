@@ -108,20 +108,31 @@ file(WRITE [==[{root / 'script.txt'}]==] "${{script}}")
         supervisor_tmp = root / "supervisor-tmp"
         supervisor_tmp.mkdir()
         environment = {**os.environ, "TEST_TMPDIR": str(supervisor_tmp)}
-        for name, extra, expected, message in (
+        for name, extra, expected, *messages in (
             ("body_death", "", 0, "Death test passed"),
             ("body_death_77", "", 0, "Death test passed"),
             ("runtime_skip_death", "", 0, "[ SKIP ]"),
             ("async_death", "", 0, "Death test passed"),
             ("body_death", "--definitely-invalid", 8, "did not reach the selected test body"),
             ("setup_death", "", 8, "did not reach the selected test body"),
+            ("default_factory", "", 8, "did not reach the selected test body", "input factory exited"),
+            ("explicit_factory(exiting_factory())", "", 8, "did not reach the selected test body", "input factory exited"),
+            ("implicit_conversion(DeathInput{})", "", 8, "did not reach the selected test body", "input conversion exited"),
+            ("async_default_factory", "", 8, "did not reach the selected test body", "input factory exited"),
+            ("async_conversion(DeathInput{})", "", 8, "did not reach the selected test body", "input conversion exited"),
+            ("entered_with_input", "", 0, "Death test passed"),
+            ("entered_async<int>(17)", "", 0, "Death test passed"),
+            ("returns_normally", "", 8, "exit code was 0"),
+            ("return_with_input", "", 8, "body completed without the expected termination"),
+            ("async_return_with_input", "", 8, "body completed without the expected termination"),
             ("teardown_death", "", 8, "body completed without the expected termination"),
         ):
             discovery("CTestTestfile.cmake", "result_correctness/" + name, extra)
             result = subprocess.run([ctest, "--test-dir", directory, "-V", "--output-junit", str(root / "ctest.xml")],
                                     capture_output=True, text=True, timeout=30, env=environment)
             assert result.returncode == expected, result
-            assert message in result.stdout + result.stderr, result
+            for message in messages:
+                assert message in result.stdout + result.stderr, result
             if name == "runtime_skip_death":
                 case = ET.parse(root / "ctest.xml").find(".//testcase[@name='death/result_correctness/runtime_skip_death']")
                 assert case is not None and case.find("skipped") is not None, result

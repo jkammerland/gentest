@@ -29,6 +29,15 @@ a crash in fixture setup or teardown, and a timeout all fail the test. You can
 also require text in the child's stdout or stderr to check that it reached the
 intended failure.
 
+The supervisor starts watching for termination after argument factories and
+implicit conversions have finished. An exit while evaluating a default argument
+or a `parameters(...)` expression fails the case. Death tests can take scalars,
+references, and values whose transfer and destruction are trivial. Pass an
+object with a user-defined move constructor or destructor by reference, for
+example `void rejects_input(const Input &input = make_input())`. Default
+expressions used by the generated call must be accessible from its namespace.
+If a default uses a private member, supply a value with `parameters(...)`.
+
 Each supervised death test starts with fresh fixtures, including suite and
 global fixtures. In-memory changes made by earlier tests stay in their own
 process. If the death test increments a fixture counter, the increment is lost
