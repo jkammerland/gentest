@@ -131,6 +131,11 @@ void exported_bench() {}
 [[using gentest: jitter("module_registration/exported_jitter")]]
 void exported_jitter() {}
 
+inline int module_input() { std::_Exit(23); }
+
+[[using gentest: test("module_registration/death_input"), death]]
+void death_input(int = module_input()) {}
+
 namespace blocked_scope {
 
 struct [[using gentest: fixture(suite)]] NullSuiteFixture {

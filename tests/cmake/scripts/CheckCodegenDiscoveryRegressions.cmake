@@ -412,6 +412,35 @@ struct Fixture {
   _gentest_cdr_expect_registered("member template arguments"
     ".template typed<std::string>()" ".template typed<std::pair<std::string, int>>()" ".operator<(7)")
   _gentest_cdr_expect_not_registered("member template arguments" ".template string>" ".template pair<")
+elseif(SCENARIO STREQUAL "death_parameter_transfer")
+  _gentest_cdr_scan(access CONTENT [=[
+#pragma once
+struct WithPrivateDefault {
+private:
+    static int load();
+public:
+    [[using gentest: test, death]] void test_input(int = load()) {}
+};
+]=])
+  _gentest_cdr_expect_failure("private death-test default" "default argument names inaccessible member 'WithPrivateDefault::load'")
+  _gentest_cdr_scan(transfer CONTENT [=[
+#pragma once
+struct Input {
+    Input();
+    Input(Input &&);
+    ~Input();
+};
+[[using gentest: test, death]] inline void test_input(Input = {}) {}
+]=])
+  _gentest_cdr_expect_success("death-test value parameter scan")
+  execute_process(
+    COMMAND "${_clangxx}" -std=c++20 -Wno-unknown-attributes "-I${GENTEST_SOURCE_DIR}/include"
+      -fsyntax-only "${_root}/transfer/generated/registration.cpp"
+    RESULT_VARIABLE _compile_rc OUTPUT_VARIABLE _compile_out ERROR_VARIABLE _compile_err)
+  if(_compile_rc EQUAL 0 OR NOT _compile_err MATCHES "must be passed by reference")
+    message(FATAL_ERROR "Expected an unsafe by-value death parameter diagnostic.\n${_compile_out}${_compile_err}")
+  endif()
+
 elseif(SCENARIO STREQUAL "discarded_results")
   # A discarded result is never bound to a local: that would copy a reference
   # return (and "_" would be a reserved name at global scope).

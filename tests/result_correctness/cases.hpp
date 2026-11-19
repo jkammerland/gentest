@@ -5,6 +5,37 @@
 
 namespace result_correctness {
 
+struct DeathInput {
+    operator int() const;
+};
+
+int exiting_factory();
+
+[[using gentest: test, death]] void                                         default_factory(int value = exiting_factory());
+[[using gentest: test, death, parameters(value, "exiting_factory()")]] void explicit_factory(int value);
+[[using gentest: test, death, parameters(value, "DeathInput{}")]] void      implicit_conversion(int value);
+
+[[using gentest: test, death]] gentest::awaitable<void> async_default_factory(int value = exiting_factory());
+[[using gentest: test, death, parameters(value, "DeathInput{}")]] gentest::awaitable<void> async_conversion(int value);
+
+// Its destructor runs after a normally returning body.
+struct ReturningInput {
+    ~ReturningInput();
+};
+
+[[using gentest: test, death]] void                     return_with_input(const ReturningInput &input = {});
+[[using gentest: test, death]] gentest::awaitable<void> async_return_with_input(const ReturningInput &input = {});
+
+[[using gentest: test, death]] void entered_with_input(int value = 17, unsigned size = sizeof(value));
+[[using gentest: test, death]] void returns_normally(int value = 17);
+
+template <class T>
+[[using gentest: test, death, template(T, int), parameters(value, 17)]]
+gentest::awaitable<void> entered_async(T value) {
+    co_await gentest::async::yield();
+    entered_with_input(value);
+}
+
 [[using gentest: test, death]] void body_death_77();
 [[using gentest: test, death]] void runtime_skip_death();
 

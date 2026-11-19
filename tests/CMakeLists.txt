@@ -5301,6 +5301,7 @@ foreach(_gentest_cdr_scenario IN ITEMS
         display_name_uniqueness
         member_template_arguments
         discarded_results
+        death_parameter_transfer
         additive_include_boundary
         placeholder_like_text
         fallback_header_extensions)

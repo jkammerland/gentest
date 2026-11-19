@@ -195,6 +195,13 @@ struct CollectorOptions {
     bool        module_importer_registration    = false;
 };
 
+// Signature of the generated call that finishes argument conversion before a death body starts.
+struct DeathCallParameters {
+    std::string       template_parameters;
+    std::string       declarations;
+    std::vector<bool> parameter_packs;
+};
+
 // Description of a discovered test function or member function.
 // - qualified_name: fully qualified symbol name used to call the test
 // - display_name: display string exposed to users (from test("...") and suite prefix)
@@ -248,9 +255,10 @@ struct TestCaseInfo {
     // Template instantiation info (for display and call generation)
     std::vector<std::string> template_args;
     // Call-time arguments for free/member tests (e.g., parameterized value list joined by ',').
-    std::string call_arguments;
-    std::string overload_pointer_type;
-    bool        overload_needs_object = false;
+    std::string         call_arguments;
+    std::string         overload_pointer_type;
+    bool                overload_needs_object = false;
+    DeathCallParameters death_parameters;
     // Free-function fixtures inferred from function signature parameter types.
     // Raw fixture type tokens as discovered from the signature; resolved after discovery.
     std::vector<std::string> free_fixture_types;

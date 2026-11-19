@@ -6,6 +6,7 @@
 #include "gentest/detail/case_api.h"
 
 #include <span>
+#include <type_traits>
 
 namespace gentest::detail {
 
@@ -17,15 +18,23 @@ GENTEST_RUNTIME_API void register_cases(std::span<const Case> cases);
 GENTEST_RUNTIME_API void notify_case_body_start();
 GENTEST_RUNTIME_API void notify_case_body_finish() noexcept;
 
+// Passing a staged value to the authored function must not run user code.
+template <class... T>
+constexpr bool safe_death_parameters =
+    ((std::is_reference_v<T> || (std::is_trivially_constructible_v<T, T &&> && std::is_trivially_destructible_v<T>)) && ...);
+
 struct CaseBodyScope {
     bool active;
     explicit CaseBodyScope(bool enabled = true) : active(enabled) {
         if (active)
             notify_case_body_start();
     }
-    ~CaseBodyScope() {
-        if (active)
+    ~CaseBodyScope() { finish(); }
+    void finish() noexcept {
+        if (active) {
             notify_case_body_finish();
+            active = false;
+        }
     }
     CaseBodyScope(const CaseBodyScope &)            = delete;
     CaseBodyScope &operator=(const CaseBodyScope &) = delete;
