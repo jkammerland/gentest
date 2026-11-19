@@ -1,0 +1,23 @@
+if(WIN32)
+    set(_gentest_process_source process_windows.cpp)
+else()
+    set(_gentest_process_source process_posix.cpp)
+endif()
+
+add_executable(gentest_supervise main.cpp ${_gentest_process_source} ../../src/death_watchdog.cpp)
+target_compile_features(gentest_supervise PRIVATE cxx_std_20)
+target_include_directories(gentest_supervise PRIVATE ../../src)
+target_link_libraries(gentest_supervise PRIVATE gentest::notifications)
+if(WIN32)
+    target_link_libraries(gentest_supervise PRIVATE shell32)
+endif()
+
+# Keep both host executables together so a cross build can find the supervisor beside codegen.
+if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+    get_filename_component(_gentest_tools_dir "${CMAKE_CURRENT_BINARY_DIR}" DIRECTORY)
+    set_property(TARGET gentest_supervise PROPERTY RUNTIME_OUTPUT_DIRECTORY "${_gentest_tools_dir}")
+endif()
+set_property(TARGET gentest_supervise PROPERTY SPDX_LICENSE "${gentest_SPDX_LICENSE}")
+if(NOT gentest_INSTALL AND NOT gentest_BUILD_TESTING)
+    set_property(TARGET gentest_supervise PROPERTY EXCLUDE_FROM_ALL TRUE)
+endif()

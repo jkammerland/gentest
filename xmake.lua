@@ -56,16 +56,34 @@ target("gentest_notifications")
     add_includedirs("include", {public = true})
     add_cxxflags(table.unpack(gentest_common_cxxflags), {force = true})
 
+target("gentest_supervise")
+    set_kind("binary")
+    set_default(false)
+    gentest_apply_windows_llvm_toolchain()
+    add_files("tools/supervise/main.cpp", "src/death_watchdog.cpp")
+    add_includedirs("src")
+    add_deps("gentest_notifications")
+    if is_plat("windows", "mingw") then
+        add_files("tools/supervise/process_windows.cpp")
+        add_syslinks("shell32")
+    else
+        add_files("tools/supervise/process_posix.cpp")
+    end
+
 target("gentest_runtime")
     set_kind("static")
     gentest_apply_windows_llvm_toolchain()
     add_packages("fmt")
     add_deps("gentest_notifications", {public = true})
+    if is_plat("windows", "mingw") then
+        add_syslinks("shell32", {public = true})
+    end
     add_files("src/async.cpp")
     add_files("src/bench_stats.cpp")
     add_files("src/bench_util.cpp", {unity_ignored = true})
     add_files("src/benchmark.cpp")
     add_files("src/context_api.cpp")
+    add_files("src/death_watchdog.cpp")
     add_files("src/framework_events.cpp")
     add_files("src/recording.cpp", "src/recording_report.cpp")
     add_files("src/log_sink.cpp")
@@ -148,6 +166,22 @@ gentest_suite("unit")
 gentest_suite("integration")
 gentest_suite("fixtures")
 gentest_suite("skiponly")
+
+target("gentest_death_probe")
+    set_kind("binary")
+    set_default(false)
+    gentest_apply_windows_llvm_toolchain()
+    add_deps("gentest_runtime")
+    add_packages("fmt")
+    add_includedirs("include")
+    add_files("tests/death_supervisor/probe.cpp")
+
+gentest_add_death_test({
+    name = "gentest_death",
+    suite = "gentest_death_probe",
+    case = "probe/death",
+    expect = "fatal diagnostic",
+})
 
 target("gentest_consumer_textual_mocks_xmake")
     set_kind("static")

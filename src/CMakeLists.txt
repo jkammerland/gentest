@@ -34,6 +34,7 @@ add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/bench_util.cpp
     ${PROJECT_SOURCE_DIR}/src/benchmark.cpp
     ${PROJECT_SOURCE_DIR}/src/context_api.cpp
+    ${PROJECT_SOURCE_DIR}/src/death_watchdog.cpp
     ${PROJECT_SOURCE_DIR}/src/framework_events.cpp
     ${PROJECT_SOURCE_DIR}/src/recording.cpp
     ${PROJECT_SOURCE_DIR}/src/recording_report.cpp
@@ -98,6 +99,9 @@ target_link_libraries(gentest_runtime
     PUBLIC
         gentest::notifications
         ${GENTEST_FMT_LINK_TARGET})
+if(WIN32)
+    target_link_libraries(gentest_runtime PRIVATE shell32)
+endif()
 
 target_include_directories(gentest_runtime
     PRIVATE

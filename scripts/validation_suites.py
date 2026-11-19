@@ -89,7 +89,7 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
         if host_scan_deps:
             flags.append("--repo_env=GENTEST_BAZEL_LOCAL_CLANG_SCAN_DEPS")
         add(*bazel, "test", *flags, "--test_output=errors", "//:gentest_unit_bazel", "//:gentest_integration_bazel",
-            "//:gentest_fixtures_bazel", "//:gentest_skiponly_bazel", "//:codegen_check_invalid")
+            "//:gentest_fixtures_bazel", "//:gentest_skiponly_bazel", "//:gentest_death", "//:codegen_check_invalid")
         for style in ["textual", "module"]:
             name = f"gentest_consumer_{style}_bazel"
             add(*bazel, "build", *flags, f"//:{name}")
@@ -109,6 +109,7 @@ def suite_commands(suite: str, source: Path, work: Path, *, jobs: int = 2,
         add("xmake", "build", "-y", "-j", jobs)
         for name in ["unit", "integration", "fixtures", "skiponly"]:
             add("xmake", "r", "-y", f"gentest_{name}_xmake")
+        add("xmake", "test", "-y", "gentest_death/death")
         for style in ["textual", "module"]:
             consumer(["xmake", "r", "-y", f"gentest_consumer_{style}_xmake"])
         downstream("CheckXmakeXrepoConsumer.cmake")

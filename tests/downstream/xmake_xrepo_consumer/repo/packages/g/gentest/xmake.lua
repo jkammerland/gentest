@@ -50,6 +50,9 @@ package("gentest")
     end
 
     on_load(function (package)
+        if package:is_plat("windows", "mingw") then
+            package:add("syslinks", "shell32")
+        end
         local installdir = package:installdir()
         local includedir = path.join(installdir, "include")
         if os.isdir(includedir) then
@@ -116,6 +119,7 @@ package("gentest")
             includedirs = os.isdir(includedir) and {includedir} or {},
             linkdirs = libdir and {libdir} or {},
             links = links,
+            syslinks = package:is_plat("windows", "mingw") and {"shell32"} or {},
             extras = {
                 gentest = {
                     root = install_dir,
@@ -129,4 +133,6 @@ package("gentest")
     on_test(function (package)
         local codegen = path.join(package:installdir(), "bin", is_host("windows") and "gentest_codegen.exe" or "gentest_codegen")
         assert(os.isfile(codegen), "gentest_codegen missing from staged xrepo fixture package")
+        local supervisor = path.join(package:installdir(), "bin", is_host("windows") and "gentest_supervise.exe" or "gentest_supervise")
+        assert(os.isfile(supervisor), "gentest_supervise missing from staged xrepo fixture package")
     end)

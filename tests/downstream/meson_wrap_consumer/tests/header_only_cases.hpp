@@ -5,6 +5,8 @@
 
 #include "gentest/runner.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <string_view>
 
 namespace downstream::header_only {
@@ -20,3 +22,19 @@ inline void header_only_second() {
 }
 
 } // namespace downstream::header_only
+
+namespace downstream::death {
+
+[[using gentest: test("exit"), death]]
+inline void fatal_input() {
+    std::fputs("fatal input 42\n", stderr);
+    std::fflush(stderr);
+    std::_Exit(23);
+}
+
+[[using gentest: test("skip"), death]]
+inline void skipped_input() {
+    gentest::skip("optional input unavailable");
+}
+
+} // namespace downstream::death

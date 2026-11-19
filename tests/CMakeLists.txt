@@ -119,6 +119,21 @@ add_dependencies(gentest_test_suites gentest_report_stream_tests)
 add_dependencies(gentest_test_suites gentest_selection_tests)
 add_dependencies(gentest_test_suites gentest_fixture_selection_tests)
 
+_gentest_resolve_supervisor(_gentest_host_supervisor)
+if(_gentest_host_supervisor AND (NOT CMAKE_CROSSCOMPILING OR CMAKE_CROSSCOMPILING_EMULATOR))
+    # Use a real runner for the watchdog and a separate host process for each verdict.
+    add_executable(gentest_supervisor_probe death_supervisor/probe.cpp)
+    target_link_libraries(gentest_supervisor_probe PRIVATE gentest_runtime)
+    add_dependencies(gentest_test_suites gentest_supervisor_probe)
+    gentest_discover_tests(gentest_supervisor_probe TEST_PREFIX "supervised/" TEST_FILTER "probe/death"
+        DEATH_EXPECT_SUBSTRING "fatal diagnostic" DEATH_TIMEOUT_MS 30000 DEATH_INACTIVITY_MS 10000)
+    get_property(_gentest_probe_emulator TARGET gentest_supervisor_probe PROPERTY CROSSCOMPILING_EMULATOR)
+    add_test(NAME death_supervisor
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_death_supervisor.py
+            "${_gentest_host_supervisor}" "$<TARGET_FILE:gentest_supervisor_probe>" ${_gentest_probe_emulator})
+    set_tests_properties(death_supervisor PROPERTIES LABELS "runner;death")
+endif()
+
 add_executable(gentest_recording_tests recording/main.cpp recording/cases.hpp)
 target_link_libraries(gentest_recording_tests PRIVATE gentest::gentest)
 target_compile_features(gentest_recording_tests PRIVATE cxx_std_20)
@@ -482,7 +497,7 @@ add_dependencies(gentest_test_suites gentest_result_correctness_tests)
 gentest_add_python_program_test(NAME result_correctness_contract
     PROG gentest_result_correctness_tests
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_result_correctness.py
-    ARGS ${PROJECT_SOURCE_DIR}/cmake/gentest/DiscoverTests.cmake ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND})
+    ARGS ${PROJECT_SOURCE_DIR}/cmake/gentest/DiscoverTests.cmake ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND} "${_gentest_host_supervisor}")
 set_tests_properties(result_correctness_contract PROPERTIES LABELS "public-api;runner;reporting;cmake")
 
 add_executable(gentest_failure_diagnostics_tests diagnostics/cases.cpp diagnostics/cases.hpp support/test_entry.cpp)
@@ -4152,6 +4167,7 @@ _gentest_add_cmake_helper_test(
     ${PROJECT_SOURCE_DIR}/tests/cmake/discover_tests
     ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckDiscoverTests.cmake
     cmake
+    "-DGENTEST_SUPERVISE_EXECUTABLE=${_gentest_host_supervisor}"
     -DGENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS=${GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS}
     -DBUILD_CONFIG=${_gentest_discover_tests_config})
 

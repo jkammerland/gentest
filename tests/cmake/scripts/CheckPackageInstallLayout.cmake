@@ -125,10 +125,12 @@ set(_decoy_prefix "${_work_dir}/decoy")
 set(_decoy_tool "${_decoy_prefix}/bin/gentest_codegen${_exe_ext}")
 file(WRITE "${_installed_tool}" "stand-in for the installed tool\n")
 file(WRITE "${_decoy_tool}" "decoy from another prefix\n")
+file(TO_CMAKE_PATH "${GENTEST_SOURCE_DIR}" _gentest_source_dir)
 
 file(CONFIGURE OUTPUT "${_consumer_source_dir}/CMakeLists.txt" CONTENT [=[
 cmake_minimum_required(VERSION 3.31)
 project(gentest_install_layout_consumer LANGUAGES CXX)
+enable_testing()
 
 find_package(gentest CONFIG REQUIRED)
 if(NOT COMMAND gentest_attach_codegen)
@@ -146,8 +148,14 @@ set(CMAKE_INSTALL_BINDIR "not-the-producer-bindir")
 
 add_executable(layout_cases cases.cpp)
 gentest_attach_codegen(layout_cases OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-_gentest_find_installed_codegen_executable(resolved_tool)
+_gentest_find_installed_tool(resolved_tool gentest_codegen)
 file(WRITE "${CMAKE_BINARY_DIR}/resolved_tool.txt" "${resolved_tool}")
+
+# This executable supplies its own case table, so it also works in a package without codegen.
+add_executable(supervised_cases "@_gentest_source_dir@/tests/death_supervisor/probe.cpp")
+target_link_libraries(supervised_cases PRIVATE gentest::gentest_runtime)
+gentest_discover_tests(supervised_cases TEST_FILTER "probe/death" DEATH_EXPECT_SUBSTRING "fatal diagnostic"
+  DEATH_TIMEOUT_MS 30000 DEATH_INACTIVITY_MS 10000)
 ]=] @ONLY)
 file(WRITE "${_consumer_source_dir}/cases.cpp" "int layout_cases_marker = 0;\n")
 
@@ -180,14 +188,22 @@ if(NOT _resolved_tool STREQUAL _expected_tool)
     "Resolved: '${_resolved_tool}'")
 endif()
 
+set(_build_supervised --build "${_consumer_build_dir}" --target supervised_cases)
+set(_run_supervised --test-dir "${_consumer_build_dir}" --output-on-failure --no-tests=error -R "^death/probe/death$")
+if(BUILD_CONFIG)
+  list(APPEND _build_supervised --config "${BUILD_CONFIG}")
+  list(APPEND _run_supervised -C "${BUILD_CONFIG}")
+endif()
+gentest_check_run_or_fail(COMMAND "${CMAKE_COMMAND}" ${_build_supervised} WORKING_DIRECTORY "${_work_dir}")
+gentest_check_run_or_fail(COMMAND "${CMAKE_CTEST_COMMAND}" ${_run_supervised} WORKING_DIRECTORY "${_work_dir}")
+
 # A source-tree helper has no installation and must not probe around the repository.
 set(_source_probe "${_work_dir}/source_probe.cmake")
-file(TO_CMAKE_PATH "${GENTEST_SOURCE_DIR}" _gentest_source_dir)
 file(CONFIGURE OUTPUT "${_source_probe}" CONTENT [=[
 set(CMAKE_CROSSCOMPILING FALSE)
 set(PACKAGE_PREFIX_DIR "@_decoy_prefix@")
 include("@_gentest_source_dir@/cmake/gentest/CodegenToolchain.cmake")
-_gentest_find_installed_codegen_executable(resolved_tool)
+_gentest_find_installed_tool(resolved_tool gentest_codegen)
 if(NOT "${resolved_tool}" STREQUAL "")
   message(FATAL_ERROR "The source-tree helper resolved an installed gentest_codegen: '${resolved_tool}'")
 endif()

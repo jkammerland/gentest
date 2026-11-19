@@ -1,4 +1,23 @@
 include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/CodegenToolchain.cmake")
+
+function(_gentest_resolve_supervisor out_executable)
+    # Prefer an explicit host tool, then the source target or this installation.
+    if(GENTEST_SUPERVISE_EXECUTABLE)
+        cmake_path(ABSOLUTE_PATH GENTEST_SUPERVISE_EXECUTABLE NORMALIZE OUTPUT_VARIABLE _supervisor)
+    elseif(NOT CMAKE_CROSSCOMPILING AND TARGET gentest_supervise)
+        set(_supervisor "$<TARGET_FILE:gentest_supervise>")
+    else()
+        _gentest_find_installed_tool(_supervisor gentest_supervise)
+        if(NOT _supervisor)
+            get_filename_component(_host_tools "${GENTEST_CODEGEN_EXECUTABLE}" DIRECTORY)
+            find_program(_host_supervisor NAMES gentest_supervise HINTS "${_host_tools}" PATHS ENV PATH
+                NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH NO_CACHE)
+            set(_supervisor "${_host_supervisor}")
+        endif()
+    endif()
+    set(${out_executable} "${_supervisor}" PARENT_SCOPE)
+endfunction()
 
 function(_gentest_append_args)
   # ARGV indices retain semicolons and unmatched brackets in individual names.
@@ -41,8 +60,6 @@ function(_gentest_write_discover_tests_script out_script)
     set(_gentest_script_content [====[
 cmake_minimum_required(VERSION 3.31)
 
-set(_gentest_cmake_command "@CMAKE_COMMAND@")
-
 @_gentest_helper_include@
 
 function(_gentest_wildcard_to_regex out_var pat)
@@ -65,179 +82,11 @@ function(_gentest_wildcard_to_regex out_var pat)
   set(${out_var} "^${_s}$" PARENT_SCOPE)
 endfunction()
 
-function(_gentest_ensure_check_death_script out_var)
-  set(_script_dir "${CMAKE_CURRENT_LIST_DIR}")
-  file(MAKE_DIRECTORY "${_script_dir}")
-  set(_script "${_script_dir}/GentestCheckDeath.cmake")
-  file(WRITE "${_script}" [==[
-# Requires:
-#  -DPROG=<path to test binary>
-#  -DCASE_ID=<case name, preserved as one argument>
-#  -DEXTRA_ARGS=<optional CMake list of extra CLI args>
-#  -DARGS=<legacy optional CLI args, used without CASE_ID>
-#  -DENV_VARS=<optional env vars (list of KEY=VALUE)>
-#  -DDEATH_EXPECT_SUBSTRING=<substring expected in combined output>
-
-if(NOT DEFINED PROG)
-  message(FATAL_ERROR "CheckDeath.cmake: PROG not set")
-endif()
-if(NOT EXISTS "${PROG}" OR IS_DIRECTORY "${PROG}")
-  message(FATAL_ERROR "Death test process could not execute: executable does not exist: ${PROG}")
-endif()
-
-set(_emu)
-if(DEFINED EMU)
-  if(EMU MATCHES ";")
-    set(_emu ${EMU}) # already a list
-  else()
-    separate_arguments(_emu NATIVE_COMMAND "${EMU}") # string
-  endif()
-endif()
-
-set(_args)
-if(DEFINED EXTRA_ARGS)
-  set(_args "${EXTRA_ARGS}")
-elseif(DEFINED ARGS)
-  if(ARGS MATCHES ";")
-    set(_args ${ARGS})
-  else()
-    separate_arguments(_args NATIVE_COMMAND "${ARGS}")
-  endif()
-endif()
-
-if(DEFINED ENV_VARS)
-  foreach(kv IN LISTS ENV_VARS)
-    string(FIND "${kv}" "=" _equals)
-    if(_equals LESS 1)
-      message(FATAL_ERROR "Invalid death test environment assignment: ${kv}")
-    endif()
-    string(SUBSTRING "${kv}" 0 ${_equals} _key)
-    math(EXPR _value_start "${_equals} + 1")
-    string(SUBSTRING "${kv}" ${_value_start} -1 _value)
-    set(ENV{${_key}} "${_value}")
-  endforeach()
-endif()
-
-set(_expected_case "${CASE_ID}")
-if(NOT DEFINED CASE_ID)
-  foreach(_arg IN LISTS _args)
-    if(_arg MATCHES "^--run=(.+)$")
-      set(_expected_case "${CMAKE_MATCH_1}")
-      break()
-    endif()
-  endforeach()
-endif()
-
-# Each invocation owns a fresh file. Only body entry may write the case name.
-string(RANDOM LENGTH 24 ALPHABET 0123456789abcdef _nonce)
-set(_marker "${CMAKE_CURRENT_LIST_DIR}/gentest-death-${_nonce}.started")
-set(_protocol_args "--gentest-death-marker=${_marker}" --skip-return-code=77)
-
-if(DEFINED CASE_ID)
-  execute_process(
-    COMMAND ${_emu} "${PROG}" --include-death "--run=${CASE_ID}" ${_args} ${_protocol_args}
-    RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _err
-    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE)
-else()
-  execute_process(
-    COMMAND ${_emu} "${PROG}" --include-death ${_args} ${_protocol_args}
-    RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _err
-    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_STRIP_TRAILING_WHITESPACE)
-endif()
-
-set(_body_started FALSE)
-set(_body_completed FALSE)
-if(EXISTS "${_marker}")
-  file(READ "${_marker}" _entered_case)
-  file(REMOVE "${_marker}")
-  if(NOT _expected_case STREQUAL "" AND _entered_case STREQUAL _expected_case)
-    set(_body_started TRUE)
-  else()
-    string(FIND "${_entered_case}" "${_expected_case}\ncompleted" _completed_pos)
-    if(_completed_pos EQUAL 0)
-      set(_body_completed TRUE)
-    endif()
-  endif()
-endif()
-
-set(_all "${_out}\n${_err}")
-
-# execute_process returns text for both fatal signals and launch errors.
-# Accept CMake's termination descriptions; other text means execution failed.
-# See cmUVProcessChain::Status::GetException in CMake.
-set(_death_exception_pattern
-  "^(Segmentation fault|Bus error|Floating-point .+|Illegal instruction|User interrupt|Subprocess (aborted|killed|terminated)|SIG[A-Z0-9]+|Signal [0-9]+|Divide-by-zero|Invalid floating-point operation|Integer (divide-by-zero|overflow)|Datatype misalignment|Access violation|In-page error|Invalid handle|Noncontinuable exception|Invalid disposition|Array bounds exceeded|Stack overflow|Privileged instruction|Exit code 0x[0-9a-fA-F]+[\n]?)$")
-if(NOT _rc MATCHES "^-?[0-9]+$" AND NOT _rc MATCHES "${_death_exception_pattern}")
-  message(FATAL_ERROR "Death test process could not execute: ${_rc}. Output:\n${_all}")
-endif()
-
-set(_missing_case "${CASE_ID}")
-if(NOT DEFINED CASE_ID)
-  foreach(_arg IN LISTS _args)
-    if(_arg MATCHES "^--run=(.+)$")
-      set(_missing_case "${CMAKE_MATCH_1}")
-      break()
-    endif()
-  endforeach()
-endif()
-
-set(_missing_case_line FALSE)
-if(NOT _missing_case STREQUAL "")
-  string(REPLACE "\r\n" "\n" _all_norm "\n${_all}\n")
-  foreach(_prefix IN ITEMS "Case not found: " "Test not found: ")
-    string(FIND "${_all_norm}" "\n${_prefix}${_missing_case}\n" _missing_pos)
-    if(NOT _missing_pos EQUAL -1)
-      set(_missing_case_line TRUE)
-    endif()
-  endforeach()
-endif()
-
-# Some older runners use a generic non-zero exit code for absent cases.
-if(_missing_case_line AND NOT _body_started AND NOT _body_completed)
-  message(STATUS "[ SKIP ] Death test not present in this build configuration")
-  return()
-endif()
-
-if(_rc EQUAL 77 AND NOT _body_started)
-  message(STATUS "[ SKIP ] Death test skipped by test binary")
-  return()
-endif()
-
-if(_all MATCHES "is a death test; rerun with --include-death" OR _all MATCHES "death tests excluded")
-  message(FATAL_ERROR "Death test did not run with --include-death. Output:\n${_all}")
-endif()
-
-if(_rc EQUAL 0)
-  message(FATAL_ERROR "Expected process to abort/exit non-zero, but exit code was 0. Output:\n${_all}")
-endif()
-
-if(_all MATCHES "(^|\n)\\[ FAIL \\]")
-  message(FATAL_ERROR "Death test exited non-zero but reported a normal test failure. Output:\n${_all}")
-endif()
-
-if(NOT _body_started)
-  if(_body_completed)
-    message(FATAL_ERROR "Death test body completed without the expected termination. Output:\n${_all}")
-  endif()
-  message(FATAL_ERROR "Death test did not reach the selected test body. Output:\n${_all}")
-endif()
-
-if(DEFINED DEATH_EXPECT_SUBSTRING)
-  string(FIND "${_all}" "${DEATH_EXPECT_SUBSTRING}" _pos)
-  if(_pos EQUAL -1)
-    message(FATAL_ERROR "Expected substring not found in output: '${DEATH_EXPECT_SUBSTRING}'. Output:\n${_all}")
-  endif()
-endif()
-
-message(STATUS "Death test passed (non-zero exit and expected output present)")
-]==])
-  set(${out_var} "${_script}" PARENT_SCOPE)
-endfunction()
-
 function(gentest_discover_tests_impl)
   set(options "")
   set(oneValueArgs
     TEST_EXECUTABLE
+    TEST_SUPERVISOR
     TEST_WORKING_DIR
     TEST_PREFIX
     TEST_SUFFIX
@@ -246,6 +95,8 @@ function(gentest_discover_tests_impl)
     TEST_LIST
     CTEST_FILE
     TEST_DISCOVERY_TIMEOUT
+    DEATH_TIMEOUT_MS
+    DEATH_INACTIVITY_MS
     # The following are all multi-value arguments in gentest_discover_tests(),
     # but are each passed as a single argument to preserve escaping.
     TEST_EXTRA_ARGS
@@ -336,36 +187,46 @@ function(gentest_discover_tests_impl)
     math(EXPR registered_count "${registered_count} + 1")
 
     if(is_death)
-      if(NOT DEFINED _gentest_check_death_script)
-        _gentest_ensure_check_death_script(_gentest_check_death_script)
+      if(NOT EXISTS "${arg_TEST_SUPERVISOR}" OR IS_DIRECTORY "${arg_TEST_SUPERVISOR}")
+        message(FATAL_ERROR
+          "gentest_discover_tests: death case '${case_id}' requires a host gentest_supervise executable. "
+          "Set GENTEST_SUPERVISE_EXECUTABLE to its path.")
       endif()
       set(testname "${prefix}${death_prefix}${case_id}${death_suffix}${suffix}")
-      _gentest_add_command(add_test "${testname}" "${_gentest_cmake_command}"
-        "-DPROG=${arg_TEST_EXECUTABLE}" "-DCASE_ID=${case_id}"
-        "-DEXTRA_ARGS=${arg_TEST_EXTRA_ARGS}" "-DEMU=${arg_TEST_EXECUTOR}"
-        "-DDEATH_EXPECT_SUBSTRING=${arg_DEATH_EXPECT_SUBSTRING}"
-        "-P" "${_gentest_check_death_script}")
     else()
       set(testname "${prefix}${case_id}${suffix}")
-      string(APPEND script "add_test(")
-      _gentest_append_args("${testname}")
-      foreach(arg IN LISTS arg_TEST_EXECUTOR)
-        _gentest_append_args("${arg}")
-      endforeach()
-      _gentest_append_args("${arg_TEST_EXECUTABLE}" "--run=${case_id}" --skip-return-code=77)
-      foreach(arg IN LISTS arg_TEST_EXTRA_ARGS)
-        _gentest_append_args("${arg}")
-      endforeach()
-      string(APPEND script ")\n")
     endif()
 
-    string(APPEND script "set_tests_properties(")
-    _gentest_append_args("${testname}" PROPERTIES WORKING_DIRECTORY "${arg_TEST_WORKING_DIR}")
+    # The host supervisor wraps the entire target command, including any launcher or emulator.
+    string(APPEND script "add_test(")
+    _gentest_append_args("${testname}")
     if(is_death)
-      _gentest_append_args(SKIP_REGULAR_EXPRESSION "\\[ SKIP \\]")
-    else()
-      _gentest_append_args(SKIP_RETURN_CODE 77)
+      _gentest_append_args("${arg_TEST_SUPERVISOR}" --case "${case_id}" --skip-missing)
+      if(NOT "${arg_DEATH_EXPECT_SUBSTRING}" STREQUAL "")
+        _gentest_append_args(--expect "${arg_DEATH_EXPECT_SUBSTRING}")
+      endif()
+      if(NOT "${arg_DEATH_TIMEOUT_MS}" STREQUAL "")
+        _gentest_append_args(--timeout-ms "${arg_DEATH_TIMEOUT_MS}")
+      endif()
+      if(NOT "${arg_DEATH_INACTIVITY_MS}" STREQUAL "")
+        _gentest_append_args(--inactivity-ms "${arg_DEATH_INACTIVITY_MS}")
+      endif()
+      _gentest_append_args(--)
     endif()
+    foreach(arg IN LISTS arg_TEST_EXECUTOR)
+      _gentest_append_args("${arg}")
+    endforeach()
+    _gentest_append_args("${arg_TEST_EXECUTABLE}")
+    if(NOT is_death)
+      _gentest_append_args("--run=${case_id}" --skip-return-code=77)
+    endif()
+    foreach(arg IN LISTS arg_TEST_EXTRA_ARGS)
+      _gentest_append_args("${arg}")
+    endforeach()
+    string(APPEND script ")\n")
+
+    string(APPEND script "set_tests_properties(")
+    _gentest_append_args("${testname}" PROPERTIES WORKING_DIRECTORY "${arg_TEST_WORKING_DIR}" SKIP_RETURN_CODE 77)
     foreach(arg IN LISTS arg_TEST_PROPERTIES)
       _gentest_append_args("${arg}")
     endforeach()
@@ -411,6 +272,7 @@ endfunction()
 if(CMAKE_SCRIPT_MODE_FILE)
   gentest_discover_tests_impl(
     TEST_EXECUTABLE "${TEST_EXECUTABLE}"
+    TEST_SUPERVISOR "${TEST_SUPERVISOR}"
     TEST_EXECUTOR "${TEST_EXECUTOR}"
     TEST_WORKING_DIR "${TEST_WORKING_DIR}"
     TEST_PREFIX "${TEST_PREFIX}"
@@ -424,6 +286,8 @@ if(CMAKE_SCRIPT_MODE_FILE)
     TEST_DISCOVERY_EXTRA_ARGS "${TEST_DISCOVERY_EXTRA_ARGS}"
     TEST_PROPERTIES "${TEST_PROPERTIES}"
     DEATH_EXPECT_SUBSTRING "${DEATH_EXPECT_SUBSTRING}"
+    DEATH_TIMEOUT_MS "${DEATH_TIMEOUT_MS}"
+    DEATH_INACTIVITY_MS "${DEATH_INACTIVITY_MS}"
   )
 endif()
 ]====])
@@ -443,7 +307,9 @@ function(gentest_discover_tests target)
         TEST_LIST
         DISCOVERY_TIMEOUT
         DISCOVERY_MODE
-        DEATH_EXPECT_SUBSTRING)
+        DEATH_EXPECT_SUBSTRING
+        DEATH_TIMEOUT_MS
+        DEATH_INACTIVITY_MS)
     set(multi_value_args EXTRA_ARGS DISCOVERY_EXTRA_ARGS PROPERTIES)
     set(_gentest_discover_keyword_args ${options} ${one_value_args} ${multi_value_args})
     set(_gentest_in_multi_value_arg FALSE)
@@ -535,6 +401,10 @@ function(gentest_discover_tests target)
         set(_gentest_test_executor "")
     endif()
 
+    _gentest_resolve_supervisor(_gentest_supervisor)
+    if(NOT CMAKE_CROSSCOMPILING AND TARGET gentest_supervise AND NOT GENTEST_SUPERVISE_EXECUTABLE)
+        add_dependencies(${target} gentest_supervise)
+    endif()
     _gentest_write_discover_tests_script(_gentest_add_tests_script)
 
     if(GENTEST_DISCOVERY_MODE STREQUAL "POST_BUILD")
@@ -543,6 +413,7 @@ function(gentest_discover_tests target)
             BYPRODUCTS "${_gentest_ctest_tests_file}"
             COMMAND "${CMAKE_COMMAND}"
                 -D "TEST_EXECUTABLE=$<TARGET_FILE:${target}>"
+                -D "TEST_SUPERVISOR=${_gentest_supervisor}"
                 -D "TEST_EXECUTOR=${_gentest_test_executor}"
                 -D "TEST_WORKING_DIR=${GENTEST_WORKING_DIRECTORY}"
                 -D "TEST_EXTRA_ARGS=${GENTEST_EXTRA_ARGS}"
@@ -556,6 +427,8 @@ function(gentest_discover_tests target)
                 -D "TEST_DISCOVERY_TIMEOUT=${GENTEST_DISCOVERY_TIMEOUT}"
                 -D "TEST_DISCOVERY_EXTRA_ARGS=${GENTEST_DISCOVERY_EXTRA_ARGS}"
                 -D "DEATH_EXPECT_SUBSTRING=${GENTEST_DEATH_EXPECT_SUBSTRING}"
+                -D "DEATH_TIMEOUT_MS=${GENTEST_DEATH_TIMEOUT_MS}"
+                -D "DEATH_INACTIVITY_MS=${GENTEST_DEATH_INACTIVITY_MS}"
                 -P "${_gentest_add_tests_script}"
             VERBATIM
         )
@@ -581,6 +454,7 @@ function(gentest_discover_tests target)
         set(script)
         _gentest_add_command(gentest_discover_tests_impl
             TEST_EXECUTABLE "$<TARGET_FILE:${target}>"
+            TEST_SUPERVISOR "${_gentest_supervisor}"
             TEST_EXECUTOR "${_gentest_test_executor}"
             TEST_WORKING_DIR "${GENTEST_WORKING_DIRECTORY}"
             TEST_EXTRA_ARGS "${GENTEST_EXTRA_ARGS}"
@@ -593,7 +467,9 @@ function(gentest_discover_tests target)
             CTEST_FILE "${_gentest_ctest_tests_file}"
             TEST_DISCOVERY_TIMEOUT "${GENTEST_DISCOVERY_TIMEOUT}"
             TEST_DISCOVERY_EXTRA_ARGS "${GENTEST_DISCOVERY_EXTRA_ARGS}"
-            DEATH_EXPECT_SUBSTRING "${GENTEST_DEATH_EXPECT_SUBSTRING}")
+            DEATH_EXPECT_SUBSTRING "${GENTEST_DEATH_EXPECT_SUBSTRING}"
+            DEATH_TIMEOUT_MS "${GENTEST_DEATH_TIMEOUT_MS}"
+            DEATH_INACTIVITY_MS "${GENTEST_DEATH_INACTIVITY_MS}")
         string(CONCAT _gentest_ctest_include_content
             "if(EXISTS \"$<TARGET_FILE:${target}>\")" "\n"
             "  if(NOT EXISTS \"${_gentest_ctest_tests_file}\" OR" "\n"

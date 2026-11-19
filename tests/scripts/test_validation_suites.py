@@ -27,6 +27,7 @@ class SuiteContracts(unittest.TestCase):
         builds = [command for command in commands if len(command.args) > 2 and command.args[2] in ("build", "test")]
         self.assertEqual(len(builds), 3)
         self.assertIn("//:codegen_check_invalid", builds[0].args)
+        self.assertIn("//:gentest_death", builds[0].args)
         for command in builds:
             self.assertIn("--repo_contents_cache=", command.args)
             self.assertIn("--repo_env=GENTEST_BAZEL_LOCAL_CLANG", command.args)
@@ -66,6 +67,7 @@ class SuiteContracts(unittest.TestCase):
             self.assertEqual(command.env["GENTEST_CODEGEN_HOST_CLANG"], "selected-clang++")
         for target in ("unit", "integration", "fixtures", "skiponly"):
             self.assertIn(["xmake", "r", "-y", f"gentest_{target}_xmake"], [c.args for c in commands])
+        self.assertIn(["xmake", "test", "-y", "gentest_death/death"], [c.args for c in commands])
         self.assertTrue(commands[-1].args[-1].endswith("CheckXmakeXrepoConsumer.cmake"))
 
     def test_meson_keeps_repo_tests_and_downstream_wrap_acceptance(self):

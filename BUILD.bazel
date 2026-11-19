@@ -4,9 +4,10 @@ load(
     'gentest_add_mocks_textual',
     'gentest_attach_codegen_modules',
     'gentest_attach_codegen_textual',
+    'gentest_death_test',
     'gentest_suite',
 )
-load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
@@ -37,13 +38,22 @@ _gentest_linkopts = select({
     '//conditions:default': ['-fuse-ld=bfd'],
 })
 
+# Bazel can detect gold or lld during configuration. Give BFD ordinary archives
+# when statically linking the supervisor and its test probe.
+_gentest_static_link_features = select({
+    '@bazel_tools//src/conditions:windows': [],
+    '@bazel_tools//src/conditions:darwin': [],
+    '//conditions:default': ['-supports_start_end_lib'],
+})
+
 _gentest_module_features = ['cpp_modules']
 
 # Keep in sync with MODULE.bazel and CMakeLists.txt (checked by gentest_vcpkg_manifest_metadata).
 _gentest_version = '2.0.0'
-_gentest_public_copts = ['-std=c++20', '-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({
-    '@bazel_tools//src/conditions:windows': ['/wd5030'],
-    '//conditions:default': ['-Wno-attributes'],
+_gentest_public_copts = ['-DFMT_HEADER_ONLY', '-Iinclude', '-Itests', '-Ithird_party/include'] + select({
+    '@rules_cc//cc/compiler:msvc-cl': ['/std:c++20', '/wd5030'],
+    '@rules_cc//cc/compiler:clang-cl': ['/std:c++20', '/wd5030'],
+    '//conditions:default': ['-std=c++20', '-Wno-attributes'],
 })
 _gentest_public_module_copts = _gentest_public_copts + ['-fmodules-embed-all-files']
 
@@ -178,6 +188,35 @@ cc_library(
 )
 
 cc_library(
+    name = 'gentest_death_watchdog',
+    srcs = ['src/death_watchdog.cpp'],
+    hdrs = ['src/death_watchdog.h', 'src/notification_forward.h'],
+    strip_include_prefix = 'src',
+    copts = _gentest_public_copts,
+    # Both Windows entry points read the wide command line.
+    linkopts = select({
+        '@rules_cc//cc/compiler:msvc-cl': ['-DEFAULTLIB:shell32.lib'],
+        '@rules_cc//cc/compiler:clang-cl': ['-DEFAULTLIB:shell32.lib'],
+        '@rules_cc//cc/compiler:mingw-gcc': ['-lshell32'],
+        '//conditions:default': [],
+    }),
+    deps = [':gentest_notifications'],
+)
+
+cc_binary(
+    name = 'gentest_supervise',
+    srcs = ['tools/supervise/main.cpp', 'tools/supervise/process.h'] + select({
+        '@platforms//os:windows': ['tools/supervise/process_windows.cpp'],
+        '//conditions:default': ['tools/supervise/process_posix.cpp'],
+    }),
+    copts = _gentest_public_copts,
+    features = _gentest_static_link_features,
+    linkopts = _gentest_linkopts,
+    deps = [':gentest_death_watchdog'],
+    visibility = ['//visibility:public'],
+)
+
+cc_library(
     name = 'gentest_runtime',
     srcs = [
         'src/async_scheduler_core.h',
@@ -251,7 +290,7 @@ cc_library(
     linkopts = _gentest_linkopts,
     # Defines are shell-tokenized, so the quotes of the string literal are escaped.
     local_defines = ['GENTEST_VERSION_STR=\\"' + _gentest_version + '\\"'],
-    deps = [':gentest_bench_escape', ':gentest_notifications', '@fmt//:fmt'],
+    deps = [':gentest_bench_escape', ':gentest_death_watchdog', ':gentest_notifications', '@fmt//:fmt'],
     visibility = ['//visibility:public'],
 )
 
@@ -427,3 +466,20 @@ gentest_suite('unit')
 gentest_suite('integration')
 gentest_suite('fixtures')
 gentest_suite('skiponly')
+
+cc_binary(
+    name = 'gentest_death_probe',
+    testonly = True,
+    srcs = ['tests/death_supervisor/probe.cpp'],
+    copts = _gentest_public_copts,
+    features = _gentest_static_link_features,
+    linkopts = _gentest_linkopts,
+    deps = [':gentest_runtime'],
+)
+
+gentest_death_test(
+    name = 'gentest_death',
+    suite = ':gentest_death_probe',
+    case = 'probe/death',
+    expect = 'fatal diagnostic',
+)

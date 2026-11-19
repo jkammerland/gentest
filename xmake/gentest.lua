@@ -419,6 +419,49 @@ local function require_kind(opts, operation)
     return kind
 end
 
+-- A separate test target lets a suite keep its own run and test hooks.
+function gentest_add_death_test(opts)
+    local name = require_opt(opts, "name", "gentest_add_death_test")
+    local suite = require_opt(opts, "suite", "gentest_add_death_test")
+    local case_name = require_opt(opts, "case", "gentest_add_death_test")
+    local args = {"--skip-as-pass", "--case", case_name}
+    for _, key in ipairs({"expect", "timeout_ms", "inactivity_ms"}) do
+        if opts[key] ~= nil then
+            table.insert(args, "--" .. key:gsub("_", "-"))
+            table.insert(args, tostring(opts[key]))
+        end
+    end
+    local extra_args = opts.args or {}
+    local installed
+    if gentest_uses_installed_libraries() then
+        installed = path.join(gentest_root(), "bin", is_host("windows") and "gentest_supervise.exe" or "gentest_supervise")
+    end
+
+    target(name)
+        set_kind("phony")
+        set_default(false)
+        add_deps(suite)
+        if not installed then
+            add_deps("gentest_supervise")
+        end
+        add_tests("death")
+        on_test(function (target, opt)
+            local runenvs = import("private.action.run.runenvs", {anonymous = true})
+            local child = target:dep(suite)
+            local supervisor = installed or target:dep("gentest_supervise"):targetfile()
+            local command = table.join(args, {"--", path.absolute(child:targetfile())}, extra_args)
+            local addenvs, setenvs = runenvs.make(child)
+            local result, diagnostic = os.execv(path.absolute(supervisor), command, {
+                try = true, curdir = child:rundir(), envs = runenvs.join(addenvs, setenvs),
+            })
+            if result ~= 0 then
+                opt.errors = diagnostic or ("gentest_supervise exited with status " .. tostring(result))
+            end
+            return result == 0
+        end)
+    target_end()
+end
+
 local function sanitize_target_id(name)
     return (name:gsub("[^%w_]", "_"))
 end
@@ -1365,6 +1408,9 @@ function gentest_add_mocks(opts)
     local runtime_link = gentest_runtime_link_name()
     if runtime_link then
         add_links(runtime_link)
+        if is_plat("windows", "mingw") then
+            add_syslinks("shell32", {public = true})
+        end
     end
 
     -- Static runtime consumers also need its portable notifications dependency.
@@ -1600,6 +1646,9 @@ function gentest_attach_codegen(opts)
     local runtime_link = gentest_runtime_link_name()
     if runtime_link then
         add_links(runtime_link)
+        if is_plat("windows", "mingw") then
+            add_syslinks("shell32")
+        end
     end
 
     -- Static runtime consumers also need its portable notifications dependency.

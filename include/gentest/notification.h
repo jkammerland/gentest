@@ -87,6 +87,10 @@ class NotificationSink {
     virtual void onError(NotifyResult) noexcept {}
 };
 
+namespace detail {
+struct NotificationForwarder;
+}
+
 class Notifier {
   public:
     Notifier() noexcept = default;
@@ -104,6 +108,7 @@ class Notifier {
     [[nodiscard]] auto allowSilenceFor(std::chrono::nanoseconds duration, std::string_view reason = {}) const noexcept -> NotifyResult;
 
   private:
+    friend struct detail::NotificationForwarder;
     [[nodiscard]] auto send(NotificationKind kind, std::string_view topic, std::string_view payload,
                             std::chrono::nanoseconds allowance = {}) const noexcept -> NotifyResult;
 

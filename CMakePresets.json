@@ -161,7 +161,7 @@
       "name": "host-codegen",
       "inherits": "debug-system",
       "displayName": "Host codegen (native)",
-      "description": "Minimal host build that produces a runnable gentest_codegen (for cross-compiling)",
+      "description": "Native host tools for cross-compiling and running tests",
       "cacheVariables": {
         "gentest_BUILD_TESTING": "OFF",
         "GENTEST_BUILD_CODEGEN": "ON",
@@ -612,9 +612,10 @@
       "inherits": "build-base",
       "configurePreset": "host-codegen",
       "displayName": "Build Host Codegen",
-      "description": "Build the host gentest_codegen executable used by cross-compiling presets",
+      "description": "Build the host code generator and death-test supervisor used by cross-compiling presets",
       "targets": [
-        "gentest_codegen"
+        "gentest_codegen",
+        "gentest_supervise"
       ],
       "jobs": 0
     },
@@ -1321,7 +1322,7 @@
     {
       "name": "host-codegen",
       "displayName": "Host Codegen Workflow",
-      "description": "Configure and build a host gentest_codegen executable (for cross-compiling)",
+      "description": "Configure and build gentest host tools for cross-compiling",
       "steps": [
         { "type": "configure", "name": "host-codegen" },
         { "type": "build",     "name": "host-codegen" }

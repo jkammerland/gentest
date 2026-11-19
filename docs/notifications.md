@@ -5,9 +5,9 @@ reports progress through a `gentest::Notifier`. A watchdog tracks each piece of
 work, called a subject, on its own monotonic clock, and fails when a subject
 reports no progress for too long.
 
-The portable library works without the test runner. The transport between local
-processes and the process monitor are Linux-only; there is no macOS, Windows or
-network transport.
+The portable library works without the test runner. Linux also provides a
+transport and process monitor for applications. Supervised death tests can use
+an [inactivity timeout](death_tests.md) on Linux, macOS and Windows.
 
 | What | Header | CMake target |
 | --- | --- | --- |

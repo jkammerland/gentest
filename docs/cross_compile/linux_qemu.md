@@ -133,7 +133,7 @@ cmake -S . -B build/host-codegen -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -Dgentest_BUILD_TESTING=OFF \
   -DGENTEST_BUILD_CODEGEN=ON
-cmake --build build/host-codegen --target gentest_codegen
+cmake --build build/host-codegen --target gentest_codegen gentest_supervise
 cmake -S . -B build/aarch64-qemu -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/aarch64-linux-gnu.cmake \

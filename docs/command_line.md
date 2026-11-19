@@ -185,8 +185,5 @@ The runner also turns off color when stdout is not a terminal.
 
 ## Options for gentest's own tools
 
-The death-test script (`GentestCheckDeath.cmake`) that `gentest_discover_tests()` registers passes
-`--gentest-death-marker=<file>`, which records when the test body starts. The
-runner accepts it only with `--include-death` and a `--run` that selects one
-death test. You don't need it when running tests yourself; see
-[Death tests](death_tests.md).
+For death tests, `gentest_supervise` supplies the child process options and
+checks the result. See [Death tests](death_tests.md).

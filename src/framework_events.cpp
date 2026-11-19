@@ -1,6 +1,7 @@
 #include "gentest/framework_events.h"
 
 #include "gentest/detail/runtime_context.h"
+#include "notification_forward.h"
 
 #include <algorithm>
 #include <atomic>
@@ -48,27 +49,22 @@ class ContextNotificationSink final : public NotificationSink {
     ContextNotificationSink(std::shared_ptr<FrameworkRunState> run, std::uint64_t subject)
         : run_(std::move(run)), upstream_(run_->notifier.forSubject(subject)) {}
 
-    void onError(NotifyResult result) noexcept override { note_result(*run_, result); }
+    void onError(NotifyResult result) noexcept override {
+        NotificationForwarder::onError(upstream_, result);
+        note_result(*run_, result);
+    }
 
     auto submit(const Notification &record) noexcept -> NotifyResult override {
         if (closed_.load(std::memory_order_acquire)) {
             return NotifyResult::closed;
         }
         if (record.subject != upstream_.subject()) {
-            note_result(*run_, NotifyResult::invalid_record);
+            onError(NotifyResult::invalid_record);
             return NotifyResult::invalid_record;
         }
-        NotifyResult result = NotifyResult::invalid_record;
-        switch (record.kind) {
-        case NotificationKind::subject_started: result = upstream_.start(record.payload); break;
-        case NotificationKind::subject_finished:
+        if (record.kind == NotificationKind::subject_finished)
             closed_.store(true, std::memory_order_release);
-            result = upstream_.finish();
-            break;
-        case NotificationKind::progress: result = upstream_.progress(record.payload); break;
-        case NotificationKind::custom: result = upstream_.notify(record.topic, record.payload); break;
-        case NotificationKind::silence_allowance: result = upstream_.allowSilenceFor(record.allowance, record.payload); break;
-        }
+        const auto result = NotificationForwarder::submit(upstream_, record);
         note_result(*run_, result);
         return result;
     }

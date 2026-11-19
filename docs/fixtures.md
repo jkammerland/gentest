@@ -73,7 +73,9 @@ project with a local and a suite fixture.
 | suite | `[[gentest::fixture(suite)]]` on the type | One instance per run, shared by the cases in the fixture's namespace and its nested namespaces. |
 | global | `[[gentest::fixture(global)]]` on the type | One instance per run, shared by every case that uses it. |
 
-Suite and global fixtures are called shared fixtures.
+Suite and global fixtures are called shared fixtures. Cases share them within
+one runner invocation. Each [supervised death test](death_tests.md) runs in a
+fresh process.
 
 ## Fixture parameters
 

@@ -141,7 +141,7 @@ cmake -S "${root}" -B "${host_build_dir}" -G Ninja \
   -DGENTEST_BUILD_CODEGEN=ON \
   "${host_args[@]}"
 
-cmake --build "${host_build_dir}" --target gentest_codegen
+cmake --build "${host_build_dir}" --target gentest_codegen gentest_supervise
 
 codegen="${host_build_dir}/tools/gentest_codegen"
 if [[ ! -x "${codegen}" ]]; then

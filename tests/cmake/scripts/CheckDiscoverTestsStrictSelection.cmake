@@ -6,11 +6,12 @@ include("${CMAKE_CURRENT_LIST_DIR}/CheckDiscoverTestsCommon.cmake")
 # Both entry paths must reject genuinely empty inventories, not merely an empty
 # TEST_LIST: unmatched-bracket names still produce real CTest registrations.
 foreach(_mode IN ITEMS POST_BUILD PRE_TEST)
-  foreach(_policy IN ITEMS missing empty bracket skipped false_like skipped_death)
+  foreach(_policy IN ITEMS missing empty bracket skipped false_like skipped_death missing_supervisor)
     set(_policy_dir "${_work_dir}/strict-${_mode}-${_policy}")
     set(_filter "demo/not-present")
     set(_empty OFF)
     set(_expect_failure TRUE)
+    set(_expected_error "FAIL_ON_EMPTY is enabled")
     if(_policy STREQUAL "empty")
       set(_empty ON)
       set(_filter "*")
@@ -24,11 +25,15 @@ foreach(_mode IN ITEMS POST_BUILD PRE_TEST)
       set(_filter "OFF")
     elseif(_policy STREQUAL "skipped_death")
       set(_filter "demo/death_skip")
+    elseif(_policy STREQUAL "missing_supervisor")
+      set(_filter "demo/death")
+      set(_expected_error "GENTEST_SUPERVISE_EXECUTABLE")
     endif()
     # Use direct argv here: the unmatched bracket is not a CMake-list value.
     execute_process(
       COMMAND "${CMAKE_COMMAND}" ${_cmake_gen_args} -S "${SOURCE_DIR}" -B "${_policy_dir}"
         ${_cmake_cache_args} "-DGENTEST_DISCOVER_POLICY_FILTER=${_filter}"
+        "-DGENTEST_SUPERVISE_EXECUTABLE=${_work_dir}/missing-supervisor"
         "-DGENTEST_DISCOVER_POLICY_MODE=${_mode}" "-DGENTEST_DISCOVER_POLICY_EMPTY=${_empty}"
       RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _err)
     if(NOT _rc EQUAL 0)
@@ -48,7 +53,7 @@ foreach(_mode IN ITEMS POST_BUILD PRE_TEST)
         RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _err)
     endif()
     if(_expect_failure)
-      if(_rc EQUAL 0 OR NOT "${_out}\n${_err}" MATCHES "FAIL_ON_EMPTY is enabled")
+      if(_rc EQUAL 0 OR NOT "${_out}\n${_err}" MATCHES "${_expected_error}")
         message(FATAL_ERROR "Expected strict ${_mode}/${_policy} discovery rejection: ${_rc}\n${_out}\n${_err}")
       endif()
     else()
