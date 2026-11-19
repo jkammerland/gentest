@@ -344,6 +344,12 @@ if(${PROJECT_NAME}_INSTALL)
         EXPORT gentest-tools
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         COMPONENT Development)
+
+    if(GENTEST_ENABLE_SBOM)
+        # The host tool's SBOM follows private links through these interface targets.
+        install(TARGETS gentest_codegen_support gentest_codegen_headers EXPORT gentest-tools)
+        set_property(TARGET gentest_codegen_support gentest_codegen_headers PROPERTY SPDX_LICENSE "${gentest_SPDX_LICENSE}")
+    endif()
 endif()
 
 unset(_gentest_llvm_support)

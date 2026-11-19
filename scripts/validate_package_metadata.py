@@ -119,14 +119,11 @@ def main() -> None:
 
     validate_release_artifact(find_one(args.root, "share/gentest/gentest-release-artifact.json"), args.version)
     validate_cps(find_one(args.root, "share/cps/gentest/gentest.cps"), args.version)
-    validate_sbom(
-        find_one(args.root, "share/sbom/gentest/gentest.spdx.json"),
-        {"gentest", "gentest_main", "gentest_runtime"},
-    )
-    validate_sbom(
-        find_one(args.root, "share/sbom/gentest/gentest-tools.spdx.json"),
-        {"gentest_codegen"},
-    )
+    # CMake 4.5 adds the build configuration to both SPDX filenames.
+    tools_sbom = find_one(args.root, "share/sbom/gentest/gentest-tools*.spdx.json")
+    runtime_name = tools_sbom.name.replace("gentest-tools", "gentest", 1)
+    validate_sbom(tools_sbom.with_name(runtime_name), {"gentest", "gentest_main", "gentest_runtime"})
+    validate_sbom(tools_sbom, {"gentest_codegen"})
 
 
 if __name__ == "__main__":
