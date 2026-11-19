@@ -4677,7 +4677,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_axis_generators.cpp
     -DEXPECT_CASE_COUNT=45
-    "-DREQUIRED_SUBSTRINGS=return range_many(1);;return range_descending_int(5);;return range_descending_int(3);;return range_descending_int(1);;return range_step_zero_int(1);;return range_step_zero_int(2);;return range_step_zero_int(3);;return range_float_many(0);;return range_float_many(0.25);;return range_float_many(0.5);;return range_float_descending(1);;return range_float_descending(0.75);;return range_float_descending(0.5);;return linspace_many(0.25);;return linspace_many_int(1);;return linspace_many_int(3);;return linspace_many_int(5);;return geom_many(8);;return geom_many_float(1.5);;return geom_many_float(3);;return geom_many_float(6);;return logspace_many(1000);;return logspace_many_int(1);;return logspace_many_int(2);;return logspace_many_int(4);;return logspace_many_int(8);;.name = \"smoke/axis_generators/logspace_many(0.10000000000000001)\"")
+    "-DREQUIRED_SUBSTRINGS=return ::range_many(1);;return ::range_descending_int(5);;return ::range_descending_int(3);;return ::range_descending_int(1);;return ::range_step_zero_int(1);;return ::range_step_zero_int(2);;return ::range_step_zero_int(3);;return ::range_float_many(0);;return ::range_float_many(0.25);;return ::range_float_many(0.5);;return ::range_float_descending(1);;return ::range_float_descending(0.75);;return ::range_float_descending(0.5);;return ::linspace_many(0.25);;return ::linspace_many_int(1);;return ::linspace_many_int(3);;return ::linspace_many_int(5);;return ::geom_many(8);;return ::geom_many_float(1.5);;return ::geom_many_float(3);;return ::geom_many_float(6);;return ::logspace_many(1000);;return ::logspace_many_int(1);;return ::logspace_many_int(2);;return ::logspace_many_int(4);;return ::logspace_many_int(8);;.name = \"smoke/axis_generators/logspace_many(0.10000000000000001)\"")
 set_property(TEST gentest_codegen_emit_axis_generators APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -4811,7 +4811,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_type_quoting.cpp
     -DEXPECT_CASE_COUNT=21
-    "-DREQUIRED_SUBSTRINGS=return char_params('\\'');;return char_params('\\\\');;return char16_params(u'D');;return char32_params(U'F');;return char8_params(u8'C');;return utf16_cstr(u\"hello\");;return utf32_cstr(U\"Dog\");;return utf8_string_view(u8\"beta\");;return wchar_params(L'Q');;return wide_string_view(L\"Wide\")")
+    "-DREQUIRED_SUBSTRINGS=return ::char_params('\\'');;return ::char_params('\\\\');;return ::char16_params(u'D');;return ::char32_params(U'F');;return ::char8_params(u8'C');;return ::utf16_cstr(u\"hello\");;return ::utf32_cstr(U\"Dog\");;return ::utf8_string_view(u8\"beta\");;return ::wchar_params(L'Q');;return ::wide_string_view(L\"Wide\")")
 set_property(TEST gentest_codegen_emit_type_quoting APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
