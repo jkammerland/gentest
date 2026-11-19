@@ -6,6 +6,19 @@ gentest_attach_codegen_textual(
     source_includes = ["include"],
 )
 
+genrule(
+    name = "emit_cases",
+    srcs = ["cases.hpp"],
+    outs = ["emitted/cases.hpp"],
+    cmd = "cp $< $@",
+)
+
+gentest_attach_codegen_textual(
+    name = "generated_headers",
+    source_hdrs = ["emitted/cases.hpp", "include/widget/config.hpp"],
+    source_includes = ["include"],
+)
+
 gentest_attach_codegen_modules(
     name = "modules",
     src = "cases.cppm",

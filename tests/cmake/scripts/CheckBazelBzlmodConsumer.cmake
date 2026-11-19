@@ -392,7 +392,10 @@ if(NOT GENTEST_BAZEL_HELPER_CONTRACT)
   # include root silently produces a passing one-case suite instead.
   set(_run_args ${_check_args})
   list(TRANSFORM _run_args REPLACE "^build$" "run")
-  foreach(_suite IN ITEMS @widget_checks//network:headers @widget_checks//network:modules)
+  foreach(_suite IN ITEMS
+      @widget_checks//network:headers
+      @widget_checks//network:generated_headers
+      @widget_checks//network:modules)
     execute_process(
       COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env} ${_bazel_command}
               ${_run_args} "${_suite}" -- --no-color
