@@ -28,6 +28,11 @@ def main(folder):
     assert report.get("failures") == "1", ET.tostring(report)
     assert "cleanup invariant failed" in failure and "missing prerequisite" in failure, failure
 
+    # Cancellation before the first hook starts preserves timers in normal teardown.
+    report, trace = run(folder, "--filter=cleanup_outcomes/cancel_body/*", "--fail-fast")
+    assert "peer failure during body" in ET.tostring(report, encoding="unicode")
+    assert [line for line in trace if line.startswith("hook:")] == ["hook: timer started", "hook: timer finished"], trace
+
     report, trace = run(folder, "--filter=cleanup_outcomes/cancel/*", "--fail-fast")
     assert "peer failure" in ET.tostring(report, encoding="unicode")
     assert [line for line in trace if line.startswith("hook:")] == [

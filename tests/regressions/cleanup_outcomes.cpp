@@ -22,4 +22,18 @@ gentest::awaitable<> peer() {
 }
 
 } // namespace cancel
+
+namespace cancel_body {
+
+gentest::awaitable<> pending(Timed &) {
+    entered.set("body entered");
+    co_await unresolved.wait("body waits for a peer");
+}
+
+gentest::awaitable<> peer() {
+    co_await entered.wait("body entered");
+    gentest::fail("peer failure during body");
+}
+
+} // namespace cancel_body
 } // namespace cleanup_outcomes

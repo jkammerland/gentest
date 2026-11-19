@@ -231,6 +231,7 @@ struct gentest_async_local_teardown_guard {
     };
     std::array<hook, Capacity> hooks{};
     std::size_t count = 0;
+    bool teardown_started = false;
     ::gentest::detail::ContextCancelHookToken cancel_hook =
         ::gentest::detail::register_context_cancel_hook({&run, this});
 
@@ -260,7 +261,12 @@ struct gentest_async_local_teardown_guard {
         auto &state = *static_cast<gentest_async_local_teardown_guard *>(user_data);
         while (state.count) {
             std::string error;
-            if (!::gentest::detail::run_canceled_fixture_teardown(state.next(), error)) {
+            // If the body was canceled, start teardown with its normal timer and worker support.
+            // An interrupted hook has already been claimed. Drain the remaining hooks without blocking.
+            const bool completed = state.teardown_started
+                ? ::gentest::detail::run_canceled_fixture_teardown(state.next(), error)
+                : ::gentest::detail::run_async_task_blocking(state.next(), "async local fixture teardown", error);
+            if (!completed) {
                 ::gentest::detail::record_failure(fmt::format("async local fixture teardown failed: {}", error));
             }
         }
@@ -282,6 +288,7 @@ template <std::size_t Capacity, typename BodyFn>
     co_await body(guard);
 #endif
 
+    guard.teardown_started = true;
     while (guard.count) {
 #if GENTEST_EXCEPTIONS_ENABLED
         try { co_await guard.next(); } catch (...) { cleanup.capture_teardown_exception(); }

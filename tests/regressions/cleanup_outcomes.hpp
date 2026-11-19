@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <stop_token>
 
 namespace cleanup_outcomes {
 
@@ -67,4 +68,22 @@ struct Last : gentest::AsyncFixtureTearDown {
 [[gentest::test("02_peer")]] gentest::awaitable<> peer();
 
 } // namespace cancel
+
+namespace cancel_body {
+
+inline gentest::async::manual_event entered;
+inline gentest::async::manual_event unresolved;
+
+struct Timed : gentest::AsyncFixtureTearDown {
+    gentest::awaitable<> tearDown() override {
+        (void)std::fputs("hook: timer started\n", stderr);
+        co_await gentest::async::sleep_for(std::chrono::milliseconds(10), std::stop_token{});
+        (void)std::fputs("hook: timer finished\n", stderr);
+    }
+};
+
+[[gentest::test("01_pending")]] gentest::awaitable<> pending(Timed &);
+[[gentest::test("02_peer")]] gentest::awaitable<>    peer();
+
+} // namespace cancel_body
 } // namespace cleanup_outcomes
