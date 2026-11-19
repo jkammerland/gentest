@@ -218,6 +218,7 @@ inline std::string comparison_failure_text(std::string_view label, const std::so
     return out;
 }
 
+GENTEST_RUNTIME_API void record_supervised_failure(std::string_view message);
 GENTEST_RUNTIME_API void record_failure(std::string msg);
 GENTEST_RUNTIME_API void record_failure(std::string msg, const std::source_location &loc);
 GENTEST_RUNTIME_API void record_failure_at(std::string msg, std::string file, unsigned line);
@@ -235,19 +236,22 @@ GENTEST_RUNTIME_API void record_failure_at(std::string msg, std::string file, un
     std::terminate();
 }
 
+[[noreturn]] GENTEST_RUNTIME_API void terminate_after_assertion(std::string_view origin, std::string diagnostic,
+                                                                const std::source_location &loc = {});
+
 // A distinct non-returning sink lets static analyzers prune the failed branch
 // of caller-visible assertion macros without incorrectly treating the
 // conditionally returning assertion API itself as [[noreturn]].
 [[noreturn]] inline void fatal_assertion(std::string_view label, std::string diagnostic, const std::source_location &loc,
                                          std::string_view origin) {
-    ::gentest::detail::record_failure(std::move(diagnostic), loc);
 #if GENTEST_EXCEPTIONS_ENABLED
+    ::gentest::detail::record_failure(std::move(diagnostic), loc);
     (void)origin;
     // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-    throw ::gentest::assertion(std::string(label));
+    throw ::gentest::detail::recorded_assertion(std::string(label));
 #else
     (void)label;
-    ::gentest::detail::terminate_no_exceptions_fatal(origin);
+    ::gentest::detail::terminate_after_assertion(origin, std::move(diagnostic), loc);
 #endif
 }
 
@@ -337,9 +341,9 @@ template <class Expected, class Fn> inline void require_throw(Fn &&fn, std::stri
     require_owner_context("assertion/expectation called");
 #if !GENTEST_EXCEPTIONS_ENABLED
     (void)fn;
-    ::gentest::detail::record_failure(
+    ::gentest::detail::terminate_after_assertion(
+        "gentest::require_throw",
         ::gentest::detail::failure_text("ASSERT_THROW", loc, "exceptions are disabled; cannot verify thrown exception"), loc);
-    ::gentest::detail::terminate_no_exceptions_fatal("gentest::require_throw");
 #else
     using ExpectedT = std::remove_cvref_t<Expected>;
 
@@ -363,18 +367,18 @@ template <class Expected, class Fn> inline void require_throw(Fn &&fn, std::stri
                                               "ASSERT_THROW", loc, "expected {} but caught std::exception: {}", expected_name, err.what()),
                                           loc);
         // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-        throw gentest::assertion("ASSERT_THROW");
+        throw gentest::detail::recorded_assertion("ASSERT_THROW");
     } catch (...) {
         ::gentest::detail::record_failure(
             ::gentest::detail::format_failure_text("ASSERT_THROW", loc, "expected {} but caught unknown exception", expected_name), loc);
         // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-        throw gentest::assertion("ASSERT_THROW");
+        throw gentest::detail::recorded_assertion("ASSERT_THROW");
     }
 
     ::gentest::detail::record_failure(
         ::gentest::detail::format_failure_text("ASSERT_THROW", loc, "expected {} but no exception was thrown", expected_name), loc);
     // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-    throw gentest::assertion("ASSERT_THROW");
+    throw gentest::detail::recorded_assertion("ASSERT_THROW");
 #endif
 }
 
@@ -392,11 +396,11 @@ template <class Fn> inline void require_no_throw(Fn &&fn, const std::source_loca
         ::gentest::detail::record_failure(
             ::gentest::detail::format_failure_text("ASSERT_NO_THROW", loc, "caught std::exception: {}", err.what()), loc);
         // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-        throw gentest::assertion("ASSERT_NO_THROW");
+        throw gentest::detail::recorded_assertion("ASSERT_NO_THROW");
     } catch (...) {
         ::gentest::detail::record_failure(::gentest::detail::failure_text("ASSERT_NO_THROW", loc, "caught unknown exception"), loc);
         // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-        throw gentest::assertion("ASSERT_NO_THROW");
+        throw gentest::detail::recorded_assertion("ASSERT_NO_THROW");
     }
 #endif
 }

@@ -329,8 +329,6 @@ inline void notify_adopted_contexts_released(TestContextInfo &ctx) noexcept {
     ctx.adopted_cv.notify_all();
 }
 
-void record_supervised_failure(std::string_view message);
-
 inline void mark_context_failed(TestContextInfo &ctx) noexcept {
     if (!ctx.has_failures.exchange(true, std::memory_order_acq_rel)) {
         notify_context_progress(ctx);

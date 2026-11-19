@@ -183,8 +183,9 @@
   parseable report output on stdout.
 - Fatal analyzer assertion macros support MSVC's traditional preprocessor.
 - CMake discovery honors filters whose text resembles a false CMake value.
-- Installed module providers preserve importer preprocessing context, and
-  codegen searches target system includes before host fallback directories.
+- With Ninja and Ninja Multi-Config, module registration uses each linked
+  provider's compile settings for the selected configuration and tracks its headers.
+  Codegen searches target system includes before host fallback directories.
 - Host LLVM tools and SDK packages are selected coherently. Imported-library
   configuration mappings, stale Windows DIA dependencies, and inherited scanner
   settings are handled consistently across compatibility toolchains.

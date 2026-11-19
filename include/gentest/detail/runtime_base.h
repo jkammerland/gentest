@@ -29,6 +29,12 @@ class assertion {
 
 namespace gentest::detail {
 
+// Framework assertions already carry a diagnostic in the owning case.
+class recorded_assertion : public assertion {
+  public:
+    using assertion::assertion;
+};
+
 enum class CurrentContextRole : unsigned char {
     None,
     Owner,

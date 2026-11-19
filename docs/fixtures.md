@@ -158,6 +158,14 @@ A local fixture's `tearDown()` runs even when the case or the fixture's own
 `setUp()` fails. Local fixtures after a failed `setUp()` are never set up, so
 they aren't torn down either.
 
+If fail-fast cancels an async case during setup or the case body, the local
+fixtures that entered setup run their normal teardown hooks, including timer
+waits. If cancellation interrupts a teardown hook, gentest abandons the
+suspended hook and attempts each remaining hook once in reverse order. Those
+hooks can complete immediately ready work. A hook that waits for a timer or
+external completion, or keeps yielding indefinitely, gives way to the next
+fixture.
+
 Benchmark and jitter cases set up their fixtures before the timed loop and tear
 them down after it; see [Benchmarks and jitter](benchmarks.md).
 

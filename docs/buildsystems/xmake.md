@@ -94,6 +94,11 @@ installs fmt there. If your prefix has no fmt library, add `add_requires("fmt")`
 near the top of `xmake.lua`; the helper then adds the `fmt` package to each
 target it configures.
 
+On Linux, when the Gentest prefix supplies shared fmt, the helper adds its
+library directory to the test executable's runtime search path. A target built
+under the prefix uses an executable-relative path and can move with the SDK.
+A target built elsewhere uses the configured prefix's library directory.
+
 ## Configuration
 
 `gentest_configure({...})` sets the options that every later helper call uses.
