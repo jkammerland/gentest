@@ -177,6 +177,7 @@ struct CollectorOptions {
     std::unordered_map<std::string, std::vector<std::filesystem::path>> explicit_module_sources_by_name;
     std::vector<std::string>                                            clang_args;
     std::optional<std::filesystem::path>                                compilation_database;
+    std::optional<std::filesystem::path>                                module_provider_compdb;
     std::optional<std::filesystem::path>                                source_root;
     MockBackend                                                         mock_backend = MockBackend::Gentest;
     std::optional<std::filesystem::path>                                clang_scan_deps_executable;

@@ -199,10 +199,7 @@ function(_gentest_append_codegen_module_context_args command_var target clang_sc
     if(NOT "${GENTEST_CODEGEN_HOST_CLANG}" STREQUAL "")
         list(APPEND _gentest_command --host-clang "${GENTEST_CODEGEN_HOST_CLANG}")
     endif()
-    foreach(_gentest_files IN LISTS ARGN)
-        list(APPEND _gentest_command "$<LIST:TRANSFORM,${_gentest_files},PREPEND,--external-module-file=>")
-    endforeach()
-    list(APPEND _gentest_command
+    list(APPEND _gentest_command ${ARGN}
         "$<$<BOOL:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS>>:$<TARGET_PROPERTY:${target},GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS>>")
     set(${command_var} "${_gentest_command}" PARENT_SCOPE)
 endfunction()

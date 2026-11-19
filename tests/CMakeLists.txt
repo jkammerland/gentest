@@ -5120,6 +5120,18 @@ gentest_add_fixture_prefix_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_module_partition_import_shorthand APPEND PROPERTY LABELS "modules")
 
+foreach(_generator IN ITEMS "Ninja" "Ninja Multi-Config")
+    string(MAKE_C_IDENTIFIER "${_generator}" _id)
+    string(TOLOWER "${_id}" _id)
+    gentest_add_fixture_prefix_test(
+        CLANG
+        gentest_module_provider_scan_${_id}
+        ${PROJECT_SOURCE_DIR}/tests/cmake/module_provider_scan
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckModuleProviderScan.cmake
+        "cmake;modules"
+        "-DPROBE_GENERATOR=${_generator}")
+endforeach()
+
 _gentest_add_cmake_helper_test(
     gentest_public_module_old_ninja_fallback
     ${PROJECT_SOURCE_DIR}/tests/cmake/public_module_support_fallback
