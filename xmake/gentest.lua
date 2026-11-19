@@ -228,7 +228,7 @@ local function detect_installed_library_name(debug_name, release_name)
             -- Match the extension boundary, not a debug or companion library's prefix.
             local matches = os.files(path.join(linkdir, "*" .. candidate .. ".*"))
             if matches and #matches > 0 then
-                return candidate
+                return candidate, linkdir
             end
         end
     end
@@ -1634,15 +1634,14 @@ function gentest_attach_codegen(opts)
         config.public_module_entries = materialized_public_module_entries(output_dir)
     end
     set_configdir(project_root())
-    local fmt_link = gentest_fmt_link_name()
+    local fmt_link, fmt_dir = gentest_fmt_link_name()
     if not fmt_link then
         add_packages("fmt")
     end
     add_includedirs(incdirs())
     add_includedirs(gentest_public_include_dir(), {public = true})
-    local public_linkdirs = gentest_public_linkdirs()
-    if #public_linkdirs > 0 then
-        add_linkdirs(table.unpack(public_linkdirs), {public = true})
+    for _, linkdir in ipairs(gentest_public_linkdirs()) do
+        add_linkdirs(linkdir, {public = true})
     end
     local runtime_link = gentest_runtime_link_name()
     if runtime_link then
@@ -1728,6 +1727,18 @@ function gentest_attach_codegen(opts)
         ensure_materialized_public_modules(config.public_module_entries, os)
     end)
     on_load(function (target)
+        -- Keep binaries built within the SDK movable with its shared libraries.
+        if fmt_dir and target:is_plat("linux") and os.isfile(path.join(fmt_dir, "lib" .. fmt_link .. ".so")) then
+            local targetdir = path.normalize(path.absolute(target:targetdir(), os.projectdir()))
+            local libdir = path.normalize(fmt_dir)
+            local prefix = path.directory(libdir)
+            local rpath = libdir
+            if targetdir == prefix or targetdir:startswith(prefix .. "/") then
+                rpath = "@loader_path/" .. path.relative(libdir, targetdir)
+            end
+            target:add("rpathdirs", rpath)
+        end
+
         local dep_include_dirs = resolve_dep_inputs(config.deps)
         for _, include_dir in ipairs(extra_includes) do
             target:add("includedirs", include_dir)
