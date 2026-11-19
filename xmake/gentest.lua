@@ -1340,7 +1340,6 @@ function gentest_add_mocks(opts)
     local seen_registered_includes = {[out_dir_abs] = true}
     local anchor_cpp = nil
     local public_header = nil
-    local public_module = nil
     if kind == "textual" then
         local public_header_name = require_opt(opts, "header_name", "gentest_add_mocks")
         anchor_cpp = path.join(output_dir, target_id .. "_anchor.cpp")
@@ -1361,6 +1360,9 @@ function gentest_add_mocks(opts)
         local mock_domain_index = 1
         if not config.public_modules_via_deps then
             config.public_module_entries = materialized_public_module_entries(output_dir)
+            for _, entry in ipairs(config.public_module_entries) do
+                table.insert(add_public_files, entry.output_rel)
+            end
         else
             config.public_module_entries = {}
         end
@@ -1385,8 +1387,9 @@ function gentest_add_mocks(opts)
                 mock_domain_index = mock_domain_index + 1
             end
         end
-        public_module = module_public_output_rel(output_dir, module_name)
+        local public_module = module_public_output_rel(output_dir, module_name)
         config.public_module = project_path(public_module)
+        table.insert(add_public_files, public_module)
     end
     for _, defs_file in ipairs(defs) do
         table.insert(config.defs, project_path(defs_file))
@@ -1437,19 +1440,17 @@ function gentest_add_mocks(opts)
     if opts.clang_args and #opts.clang_args > 0 then
         add_cxxflags(table.unpack(opts.clang_args), {force = true})
     end
-    if kind == "modules" then
-        for _, entry in ipairs(config.public_module_entries or {}) do
-            add_files(entry.output_rel, {public = true, always_added = true})
-        end
-    end
+
     for _, private_file in ipairs(add_private_files) do
         add_files(private_file, {always_added = true})
     end
     for _, public_file in ipairs(add_public_files) do
+        -- Xmake looks up public visibility by project-relative source path before the file exists.
+        -- add_files resolves relative arguments from the calling xmake.lua.
+        if path.is_absolute(public_file) then
+            public_file = path.relative(public_file, os.scriptdir())
+        end
         add_files(public_file, {public = true, always_added = true})
-    end
-    if public_module then
-        add_files(public_module, {public = true, always_added = true})
     end
     if public_header then
         add_headerfiles(public_header, {public = true, always_added = true})

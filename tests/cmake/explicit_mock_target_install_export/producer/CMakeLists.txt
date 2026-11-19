@@ -98,6 +98,13 @@ install(DIRECTORY "${_fixture_support_include_dir}/"
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/fixture/"
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/fixture")
 
+# An ordinary linked library exports a named interface outside the include search path.
+add_library(fixture_values STATIC)
+target_compile_features(fixture_values PUBLIC cxx_std_20)
+target_sources(fixture_values PUBLIC FILE_SET api TYPE CXX_MODULES FILES values.cppm)
+install(TARGETS fixture_values EXPORT explicit_exported_mocksTargets
+    FILE_SET api DESTINATION "${CMAKE_INSTALL_DATADIR}/fixture/modules")
+
 install(TARGETS explicit_module_exported_mocks
     EXPORT explicit_exported_mocksTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
