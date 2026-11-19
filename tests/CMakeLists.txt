@@ -1599,6 +1599,19 @@ _gentest_add_proof_test(
 _gentest_add_proof_test(
     gentest_proof_api_assertions_header_isolation
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/assertions_header_isolation_red.cpp)
+
+if(NOT GENTEST_RUNTIME_SHARED AND NOT CMAKE_CROSSCOMPILING AND (WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+    set(_runtime_postfix "$<TARGET_PROPERTY:gentest_runtime,$<UPPER_CASE:$<CONFIG>>_POSTFIX>")
+    add_test(NAME static_runtime_loader_identity COMMAND "${CMAKE_COMMAND}"
+        "-DCONSUMER=$<TARGET_FILE:gentest_proof_api_context_log_sinks>"
+        "-DRUNTIME=$<TARGET_FILE:gentest_runtime>"
+        "-DRUNTIME_DIR=$<TARGET_FILE_DIR:gentest_runtime>"
+        "-DEXPECTED_ARCHIVE=${CMAKE_STATIC_LIBRARY_PREFIX}gentest_runtime${_runtime_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}"
+        -DSTATIC_RUNTIME=ON
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckRuntimeLoaderIdentity.cmake")
+    set_tests_properties(static_runtime_loader_identity PROPERTIES LABELS "runtime")
+endif()
+
 add_executable(
     gentest_proof_measured_call_phase_body_timing
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/measured/call_phase_body_timing_red.cpp)

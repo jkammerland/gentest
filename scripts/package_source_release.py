@@ -9,16 +9,20 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
 
 
-def run(*args: str, cwd: Path | None = None) -> str:
+def run(
+    *args: str, cwd: Path | None = None, env: dict[str, str] | None = None
+) -> str:
     return subprocess.run(
-        args, cwd=cwd, check=True, capture_output=True, text=True
+        args, cwd=cwd, env=env, check=True, capture_output=True, text=True
     ).stdout.strip()
 
 
@@ -37,34 +41,93 @@ def tool_provenance(executable: str) -> dict[str, str]:
     }
 
 
-def validate_source_payload(files: dict[str, bytes], prefix: str) -> None:
+COMPILED_SUFFIX = re.compile(
+    r"\.(?:a|lib|so(?:\.[0-9]+)*|dylib|dll|exe|o|obj|pcm|ifc)$", re.IGNORECASE
+)
+BINARY_MAGIC = (
+    b"\x7fELF",
+    b"MZ",
+    b"!<arch>\n",
+    b"\xfe\xed\xfa\xce",
+    b"\xce\xfa\xed\xfe",
+    b"\xfe\xed\xfa\xcf",
+    b"\xcf\xfa\xed\xfe",
+    b"\xca\xfe\xba\xbe",
+    b"\xbe\xba\xfe\xca",
+    b"\xca\xfe\xba\xbf",
+    b"\xbf\xba\xfe\xca",
+)
+
+
+def release_tree(repo: Path, commit: str, prefix: str) -> dict[str, tuple[int, str]]:
+    listing = subprocess.check_output(["git", "ls-tree", "-rtz", commit], cwd=repo)
+    tree = {prefix.rstrip("/"): (stat.S_IFDIR, "")}
+    for record in listing.split(b"\0")[:-1]:
+        metadata, path = record.split(b"\t", 1)
+        mode, kind, oid = metadata.split()
+        if kind not in (b"tree", b"blob"):
+            raise ValueError(f"Unsupported release tree entry: {os.fsdecode(path)}")
+        tree[prefix + os.fsdecode(path)] = (
+            int(mode, 8), oid.decode("ascii") if kind == b"blob" else ""
+        )
+
     for relative in (
         "CMakeLists.txt",
         "LICENSE",
         "src/runner_impl.cpp",
         "tools/src/main.cpp",
     ):
-        if prefix + relative not in files:
+        if not stat.S_ISREG(tree.get(prefix + relative, (0, ""))[0]):
             raise ValueError(f"Source archive is missing {relative}")
-    compiled_suffix = re.compile(
-        r"\.(?:a|lib|so(?:\.[0-9]+)*|dylib|dll|exe|o|obj|pcm|ifc)$", re.IGNORECASE
-    )
-    binary_magic = (
-        b"\x7fELF",
-        b"MZ",
-        b"!<arch>\n",
-        b"\xfe\xed\xfa\xce",
-        b"\xce\xfa\xed\xfe",
-        b"\xfe\xed\xfa\xcf",
-        b"\xcf\xfa\xed\xfe",
-        b"\xca\xfe\xba\xbe",
-        b"\xbe\xba\xfe\xca",
-        b"\xca\xfe\xba\xbf",
-        b"\xbf\xba\xfe\xca",
-    )
-    for name, data in files.items():
-        if compiled_suffix.search(name) or data.startswith(binary_magic):
+    return tree
+
+
+def archive_members(archive: Path) -> Iterator[tuple[str, int, bytes]]:
+    if archive.suffix == ".zip":
+        with zipfile.ZipFile(archive) as zipped:
+            for entry in zipped.infolist():
+                # Git uses DOS attributes for directories and ordinary non-executables.
+                mode = entry.external_attr >> 16
+                if entry.is_dir() and (mode == 0 or stat.S_ISDIR(mode)):
+                    yield entry.filename.removesuffix("/"), stat.S_IFDIR, b""
+                else:
+                    yield entry.filename, mode or 0o100644, zipped.read(entry)
+        return
+
+    with tarfile.open(archive) as tar:
+        for member in tar:
+            if member.isdir():
+                yield member.name, stat.S_IFDIR, b""
+            elif member.issym():
+                yield member.name, stat.S_IFLNK, os.fsencode(member.linkname)
+            elif member.isfile():
+                yield member.name, stat.S_IFREG | member.mode, tar.extractfile(member).read()
+            else:
+                raise ValueError(f"Unsupported TAR member: {member.name}")
+
+
+def verify_archive(archive: Path, tree: dict[str, tuple[int, str]], algorithm: str) -> None:
+    remaining = tree.copy()
+    for name, mode, data in archive_members(archive):
+        expected = remaining.pop(name, None)
+        if expected is None:
+            raise ValueError(f"{archive.name}: unexpected or duplicate member {name}")
+
+        oid = ""
+        if mode != stat.S_IFDIR:
+            # Git blob IDs cover the object type and length as well as the raw bytes.
+            blob = hashlib.new(algorithm, f"blob {len(data)}\0".encode("ascii"))
+            blob.update(data)
+            oid = blob.hexdigest()
+        if stat.S_ISLNK(mode):
+            mode = stat.S_IFLNK  # Git stores no permission bits for symlinks.
+        if (mode, oid) != expected:
+            raise ValueError(f"{archive.name}: {name} differs from Git tree (mode or contents)")
+        if stat.S_ISREG(mode) and (COMPILED_SUFFIX.search(name) or data.startswith(BINARY_MAGIC)):
             raise ValueError(f"Source archive contains a compiled artifact: {name}")
+
+    if remaining:
+        raise ValueError(f"{archive.name}: missing Git tree member {next(iter(remaining))}")
 
 
 def package_sources(
@@ -103,38 +166,30 @@ def package_sources(
     artifact_dir = artifact_dir.resolve()
     artifact_dir.mkdir(parents=True, exist_ok=True)
     archives: dict[str, dict[str, str]] = {}
+    tree = release_tree(repo, commit, prefix)
+    object_format = run("git", "rev-parse", "--show-object-format", cwd=repo)
     for archive_format, suffix in (("tar.gz", ".tar.gz"), ("zip", ".zip")):
         archive = artifact_dir / f"{package_id}{suffix}"
         run(
             "git",
             "-c",
             "tar.umask=0022",
+            "-c",
+            "core.autocrlf=false",
+            "-c",
+            "core.eol=lf",
             "archive",
             f"--format={archive_format}",
             f"--prefix={prefix}",
             f"--output={archive}",
             commit,
             cwd=repo,
+            env={**os.environ, "TZ": "UTC0"},
         )
+        verify_archive(archive, tree, object_format)
         archives[archive.name] = {
             algorithm: digest(archive, algorithm) for algorithm in ("sha256", "sha512")
         }
-
-    with tarfile.open(artifact_dir / f"{package_id}.tar.gz") as tar:
-        tar_files = {
-            member.name: tar.extractfile(member).read()
-            for member in tar.getmembers()
-            if member.isfile()
-        }
-    with zipfile.ZipFile(artifact_dir / f"{package_id}.zip") as zip_archive:
-        zip_files = {
-            member.filename: zip_archive.read(member)
-            for member in zip_archive.infolist()
-            if not member.is_dir()
-        }
-    if tar_files != zip_files:
-        raise ValueError("TGZ and ZIP source payloads differ")
-    validate_source_payload(tar_files, prefix)
 
     tools = {"git": tool_provenance("git"), "python": tool_provenance(sys.executable)}
     if signing_key:

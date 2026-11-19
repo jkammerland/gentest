@@ -93,13 +93,18 @@ int main(int argc, char **argv) {
         }
         constexpr std::string_view kRun = "--run=";
         if (arg.rfind(kRun, 0) == 0) {
-            if (arg.substr(kRun.size()) == "demo/death_missing")
+            if (arg.substr(kRun.size()) == "demo/death_missing") {
+                if (!marker.empty())
+                    std::ofstream(std::string(marker), std::ios::binary) << "demo/death_missing\nmissing";
                 return run_one("demo/death_missing");
+            }
             if (!marker.empty()) {
                 std::ofstream file(std::string(marker), std::ios::binary);
                 file << arg.substr(kRun.size());
             }
             const int result = run_one(arg.substr(kRun.size()));
+            if (arg.substr(kRun.size()) == "demo/fail" && !marker.empty())
+                std::ofstream(std::string(marker) + ".failure") << "ordinary assertion failure\n";
             if (result == 77 && !marker.empty()) {
                 std::ofstream file(std::string(marker), std::ios::binary | std::ios::trunc);
                 file << arg.substr(kRun.size()) << "\nskipped";
