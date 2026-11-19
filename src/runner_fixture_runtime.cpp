@@ -176,8 +176,8 @@ std::string resolve_fixture_context_issue(const std::shared_ptr<gentest::detail:
     if (!first_failure.empty()) {
         return first_failure;
     }
-    if (gentest::detail::has_bench_error()) {
-        return gentest::detail::take_bench_error();
+    if (auto error = gentest::detail::take_bench_error()) {
+        return error->empty() ? "fixture failed" : std::move(*error);
     }
     if (!ctx) {
         if (caught_runtime_skip) {
@@ -242,9 +242,9 @@ std::string format_fixture_error(std::string_view stage, std::string_view detail
 
 struct FixtureBenchStateScope {
     gentest::detail::BenchPhaseScope phase{gentest::detail::BenchPhase::None};
-    std::string                      previous_error = gentest::detail::take_bench_error();
+    std::optional<std::string>       previous_error = gentest::detail::take_bench_error();
 
-    ~FixtureBenchStateScope() { gentest::detail::bench_error_storage() = std::move(previous_error); }
+    ~FixtureBenchStateScope() { gentest::detail::pending_bench_error_storage() = std::move(previous_error); }
 };
 
 // Factories and setup may acquire other fixtures. Never hold the registry lock

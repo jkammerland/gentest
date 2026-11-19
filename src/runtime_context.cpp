@@ -63,7 +63,7 @@ thread_local TestContextLocalBuffer           g_current_buffer{};
 thread_local CurrentContextRole               g_current_context_role   = CurrentContextRole::None;
 thread_local BenchPhase                       g_bench_phase            = BenchPhase::None;
 thread_local int                              g_deferred_failure_depth = 0;
-thread_local std::string                      g_bench_error{};
+thread_local std::optional<std::string>       g_bench_error{};
 thread_local NoExceptionsFatalHookState       g_noexceptions_fatal_hook{};
 thread_local std::source_location             g_mock_configuration_location{};
 
@@ -90,9 +90,8 @@ auto normalize_failure_file(std::string file) -> std::string {
 // recorded, so a body failing on every iteration keeps only a bounded prefix.
 constexpr std::size_t max_deferred_bench_call_failures = 8;
 
-// Failures recorded from a destructor (explicitly, or while an exception is
-// unwinding the body) must not throw; the measured executor reports them when
-// the call phase ends.
+// Noexcept mock dispatch, destructor verification, and unwinding all defer
+// framework failures until the measured call phase ends.
 auto defers_bench_call_failure() -> bool {
     return bench_phase() == BenchPhase::Call && (deferred_failure_depth_storage() > 0 || std::uncaught_exceptions() > 0);
 }
@@ -131,7 +130,7 @@ GENTEST_RUNTIME_API auto deferred_failure_depth_storage() -> int & { return g_de
 
 auto mock_configuration_location_storage() -> std::source_location & { return g_mock_configuration_location; }
 
-GENTEST_RUNTIME_API auto bench_error_storage() -> std::string & { return g_bench_error; }
+GENTEST_RUNTIME_API auto pending_bench_error_storage() -> std::optional<std::string> & { return g_bench_error; }
 
 GENTEST_RUNTIME_API auto noexceptions_fatal_hook_storage() -> NoExceptionsFatalHookState & { return g_noexceptions_fatal_hook; }
 

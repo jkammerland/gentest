@@ -10,6 +10,7 @@
 #include <fmt/format.h>
 #include <initializer_list>
 #include <memory>
+#include <optional>
 #include <source_location>
 #include <string>
 #include <string_view>
@@ -33,7 +34,7 @@ enum class BenchPhase {
 };
 
 GENTEST_RUNTIME_API auto bench_phase_storage() -> BenchPhase &;
-GENTEST_RUNTIME_API auto bench_error_storage() -> std::string &;
+GENTEST_RUNTIME_API auto pending_bench_error_storage() -> std::optional<std::string> &;
 
 struct BenchPhaseScope {
     BenchPhase prev;
@@ -45,11 +46,8 @@ inline BenchPhase bench_phase() { return bench_phase_storage(); }
 
 GENTEST_RUNTIME_API auto deferred_failure_depth_storage() -> int &;
 
-// Failures recorded inside this scope never throw, not even during a measured
-// bench/jitter call. Generated mock destructors verify expectations inside it,
-// so an unmet expectation cannot escape an implicitly noexcept destructor; the
-// measured executor still observes the recorded failure when the call phase
-// ends and stops the benchmark there.
+// Generated noexcept mock methods and destructors use this scope to record
+// expectation failures for the executor to report after a measured call.
 struct DeferredFailureScope {
     DeferredFailureScope() noexcept { ++deferred_failure_depth_storage(); }
     ~DeferredFailureScope() { --deferred_failure_depth_storage(); }
@@ -57,23 +55,17 @@ struct DeferredFailureScope {
     DeferredFailureScope &operator=(const DeferredFailureScope &) = delete;
 };
 
+// An empty diagnostic still represents a failed measurement.
 inline void record_bench_error(std::string msg) {
-    auto &bench_error = bench_error_storage();
-    if (bench_error.empty()) {
-        bench_error = std::move(msg);
+    auto &error = pending_bench_error_storage();
+    if (!error) {
+        error.emplace(std::move(msg));
     }
 }
 
-inline void clear_bench_error() { bench_error_storage().clear(); }
+inline void clear_bench_error() { pending_bench_error_storage().reset(); }
 
-inline bool has_bench_error() { return !bench_error_storage().empty(); }
-
-inline std::string take_bench_error() {
-    auto       &bench_error = bench_error_storage();
-    std::string out         = std::move(bench_error);
-    bench_error.clear();
-    return out;
-}
+inline std::optional<std::string> take_bench_error() { return std::exchange(pending_bench_error_storage(), std::nullopt); }
 
 using NoExceptionsFatalHook = void (*)(void *) noexcept;
 

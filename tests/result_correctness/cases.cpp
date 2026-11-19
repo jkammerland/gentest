@@ -1,5 +1,8 @@
 #include "cases.hpp"
 
+#include "gentest/benchmark.h"
+
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -113,3 +116,36 @@ void bench_satisfied_mock() {
 }
 
 } // namespace result_correctness
+
+namespace measured_outcomes {
+
+void LateFailure::failOnThirdCall() {
+    if (++calls == 3) {
+        gentest::fail("");
+    }
+}
+
+void calibrated_empty(LateFailure &fixture) { fixture.failOnThirdCall(); }
+void jitter_empty(LateFailure &fixture) { fixture.failOnThirdCall(); }
+
+void supplied_ok() { gentest::setBenchmarkDuration(std::chrono::milliseconds{5}, 5); }
+
+void supplied_empty() {
+    supplied_ok();
+    gentest::fail("");
+}
+
+namespace {
+template <class Policy> void put(int value) {
+    gentest::mock<mocking::TraitSink<Policy>> sink;
+    EXPECT_CALL(sink, put).with(10);
+    static_cast<mocking::TraitSink<Policy> &>(sink).put(value);
+}
+} // namespace
+
+void bench_noexcept_mismatch() { put<noexcept_policy::NoThrow>(11); }
+void jitter_noexcept_mismatch() { put<noexcept_policy::NoThrow>(11); }
+void ordinary_mismatch() { put<noexcept_policy::Throw>(11); }
+void noexcept_match() { put<noexcept_policy::NoThrow>(10); }
+
+} // namespace measured_outcomes

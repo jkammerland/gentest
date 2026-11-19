@@ -250,8 +250,8 @@ bool run_measurement_phase(const gentest::Case &c, void *ctx, gentest::detail::B
     if (!error.empty()) {
         runtime_skipped = false;
     }
-    if (gentest::detail::has_bench_error()) {
-        error              = gentest::detail::take_bench_error();
+    if (auto bench_error = gentest::detail::take_bench_error()) {
+        error              = std::move(*bench_error);
         allocation_failure = true;
         runtime_skipped    = false;
         return false;
@@ -666,19 +666,19 @@ bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn
         primary.time_source == BenchmarkTimeSource::Supplied ? measurement.duration_supplied : primary.statistics.count != 0;
     measurement.snapshot.primary = primary;
 
-    std::string call_error;
-    if (gentest::detail::has_bench_error()) {
-        call_error = gentest::detail::take_bench_error();
+    auto call_error = gentest::detail::take_bench_error();
+    if (call_error && call_error->empty()) {
+        *call_error = "measured call failed without a diagnostic";
     }
 
     const MeasurementPhaseResult teardown_phase = run_phase(gentest::detail::BenchPhase::Teardown);
     if (!teardown_phase.ok) {
-        if (!call_error.empty()) {
+        if (call_error) {
             const std::string teardown_issue =
                 teardown_phase.runtime_skipped
                     ? (teardown_phase.skip_reason.empty() ? std::string("teardown requested skip") : teardown_phase.skip_reason)
                     : (teardown_phase.reason.empty() ? std::string("teardown failed") : teardown_phase.reason);
-            out_failure.reason             = fmt::format("call issue: {}; teardown issue: {}", call_error, teardown_issue);
+            out_failure.reason             = fmt::format("call issue: {}; teardown issue: {}", *call_error, teardown_issue);
             out_failure.allocation_failure = teardown_phase.allocation_failure;
             out_failure.skipped            = false;
             out_failure.infra_failure = (teardown_phase.skip_kind == gentest::detail::TestContextInfo::RuntimeSkipKind::SharedFixtureInfra);
@@ -702,8 +702,8 @@ bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn
         return false;
     }
 
-    if (!call_error.empty()) {
-        out_failure.reason             = std::move(call_error);
+    if (call_error) {
+        out_failure.reason             = std::move(*call_error);
         out_failure.allocation_failure = false;
         out_failure.phase              = "call";
         stamp_failure_time();
