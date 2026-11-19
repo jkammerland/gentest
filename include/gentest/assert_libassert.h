@@ -65,7 +65,7 @@ inline void failure_handler(const ::libassert::assertion_info &info) {
 #if GENTEST_EXCEPTIONS_ENABLED
         // Runner catches this and reports [ FAIL ].
         // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-        throw ::gentest::assertion(std::string("libassert::") + std::string(macro));
+        throw ::gentest::detail::recorded_assertion(std::string("libassert::") + std::string(macro));
 #else
         // No exceptions available: delegate to gentest's generic termination path.
         ::gentest::detail::terminate_no_exceptions_fatal("libassert");

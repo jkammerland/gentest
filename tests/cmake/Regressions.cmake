@@ -155,6 +155,15 @@ gentest_add_suite(regression_local_fixture_teardown
     OUTPUT_DIR regressions/local_fixture_teardown
     NO_CTEST)
 
+gentest_add_suite(regression_cleanup_outcomes
+    TARGET gentest_regression_cleanup_outcomes
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/cleanup_outcomes.cpp
+    OUTPUT_DIR regressions/cleanup_outcomes
+    NO_CTEST)
+gentest_add_python_program_test(NAME regression_cleanup_outcomes
+    PROG gentest_regression_cleanup_outcomes
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_cleanup_outcomes.py)
+
 gentest_add_suite(regression_local_fixture_teardown_noexceptions
     TARGET gentest_regression_local_fixture_teardown_noexceptions
     CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/local_fixture_teardown_noexceptions.cpp
