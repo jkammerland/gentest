@@ -1,5 +1,5 @@
-load("@rules_cc//cc/common:cc_common.bzl", "cc_common")
-load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+load("@consumer_cc//cc/common:cc_common.bzl", "cc_common")
+load("@consumer_cc//cc/common:cc_info.bzl", "CcInfo")
 
 def _categorized_headers_impl(ctx):
     headers = depset(ctx.files.hdrs)

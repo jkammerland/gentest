@@ -1,0 +1,3 @@
+module(name = "widget_checks", version = "1.0")
+
+bazel_dep(name = "gentest", version = "2.0.0")
