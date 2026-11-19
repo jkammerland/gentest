@@ -500,6 +500,15 @@ gentest_add_python_program_test(NAME result_correctness_contract
     ARGS ${PROJECT_SOURCE_DIR}/cmake/gentest/DiscoverTests.cmake ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND} "${_gentest_host_supervisor}")
 set_tests_properties(result_correctness_contract PROPERTIES LABELS "public-api;runner;reporting;cmake")
 
+add_executable(gentest_fixture_lifetime_tests regressions/fixture_lifetime.hpp support/test_entry.cpp)
+target_link_libraries(gentest_fixture_lifetime_tests PRIVATE gentest::gentest gentest_textual_suite_mocks)
+target_compile_features(gentest_fixture_lifetime_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(gentest_fixture_lifetime_tests)
+add_dependencies(gentest_test_suites gentest_fixture_lifetime_tests)
+gentest_add_python_program_test(NAME fixture_lifetime_contract
+    PROG gentest_fixture_lifetime_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_fixture_lifetime.py)
+
 add_executable(gentest_failure_diagnostics_tests diagnostics/cases.cpp diagnostics/cases.hpp support/test_entry.cpp)
 target_link_libraries(gentest_failure_diagnostics_tests PRIVATE gentest::gentest gentest_textual_suite_mocks)
 target_compile_features(gentest_failure_diagnostics_tests PRIVATE cxx_std_20)

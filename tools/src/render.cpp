@@ -251,15 +251,14 @@ std::string build_fixture_teardown(const std::vector<FreeFixtureUse> &types, std
     return td;
 }
 
-std::string build_fixture_teardown_guarded(const std::vector<FreeFixtureUse> &types, std::string_view fixture_prefix = {},
-                                           std::string_view flag_prefix = {}) {
+std::string build_fixture_teardown_guarded(const std::vector<FreeFixtureUse> &types, std::string_view hook, std::string_view prefix = {}) {
     std::string td;
     td.reserve(types.size() * 72);
     for (std::size_t i = types.size(); i-- > 0;) {
         if (types[i].scope != FixtureScope::Local) {
             continue;
         }
-        append_format(td, "    if ({}fx{}_teardown_armed) gentest_maybe_teardown({}fx{}_.ref());\n", flag_prefix, i, fixture_prefix, i);
+        append_format(td, "    if ({}fx{}_teardown_armed) {}({}fx{}_.ref());\n", prefix, i, hook, prefix, i);
     }
     return td;
 }
@@ -286,8 +285,8 @@ std::string build_fixture_async_teardown_guarded(const std::vector<FreeFixtureUs
         if (types[i].scope != FixtureScope::Local) {
             continue;
         }
-        append_format(td, "        if ({}fx{}_teardown_armed) co_await gentest_maybe_async_teardown({}fx{}_.ref());\n", flag_prefix, i,
-                      fixture_prefix, i);
+        append_format(td, "        if ({}fx{}_teardown_armed) co_await cleanup.run_async({}fx{}_.ref());\n", flag_prefix, i, fixture_prefix,
+                      i);
     }
     return td;
 }
@@ -554,13 +553,13 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string inits            = build_fixture_inits(spec.fixtures);
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
-        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
+        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures, "cleanup.run");
         const auto invoke = make_invoke_for_free(spec, qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures)));
         const std::string bench_decls       = build_fixture_state_decls(spec.fixtures);
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
         const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
         const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
+        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "gentest_maybe_teardown", "bench_state.");
         const auto        bench_invoke =
             make_invoke_for_free(spec, qualified_helper, format_call_args(build_helper_fixture_call_list(spec.fixtures, "bench_state.")));
         append_format_runtime(out, templates.free_fixtures, fmt::arg("w", spec.wrapper_name), fmt::arg("decls", decls),
@@ -606,7 +605,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string inits            = build_fixture_inits(spec.fixtures);
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
-        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
+        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures, "cleanup.run");
         const auto        invoke           = make_invoke_for_free(
             spec, qualified_helper, format_call_args(prepend_call_arg("fx_.ref()", build_helper_fixture_call_list(spec.fixtures))));
 
@@ -614,7 +613,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
         const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
         const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
+        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "gentest_maybe_teardown", "bench_state.");
         const auto        bench_invoke      = make_invoke_for_free(
             spec, qualified_helper,
             format_call_args(prepend_call_arg("bench_state.fx_.ref()", build_helper_fixture_call_list(spec.fixtures, "bench_state."))));
@@ -668,9 +667,9 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += setup_tracked;
         out += "            " + invoke + "\n";
         out += "        },\n";
-        out += "        [&] {\n";
+        out += "        [&]([[maybe_unused]] gentest_local_cleanup &cleanup) {\n";
         out += teardown_guarded;
-        out += "            if (fx_teardown_armed) gentest_maybe_teardown(fx_.ref());\n";
+        out += "            if (fx_teardown_armed) cleanup.run(fx_.ref());\n";
         out += "        });\n";
         out += "}\n\n";
         return;
@@ -683,7 +682,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string inits            = build_fixture_inits(spec.fixtures);
         const std::string setup_flags      = build_fixture_setup_flags(spec.fixtures);
         const std::string setup_tracked    = build_fixture_setup_tracked(spec.fixtures);
-        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures);
+        const std::string teardown_guarded = build_fixture_teardown_guarded(spec.fixtures, "cleanup.run");
         const auto invoke = make_invoke_for_free(spec, qualified_helper,
                                                  format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures))));
 
@@ -691,7 +690,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         const std::string bench_setup_flags = build_fixture_state_setup_flags(spec.fixtures);
         const std::string bench_inits       = build_fixture_bench_inits(spec.fixtures);
         const std::string bench_setup       = build_fixture_setup_tracked(spec.fixtures, "bench_state.", "bench_state.");
-        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "bench_state.", "bench_state.");
+        const std::string bench_teardown    = build_fixture_teardown_guarded(spec.fixtures, "gentest_maybe_teardown", "bench_state.");
         const auto        bench_invoke =
             make_invoke_for_free(spec, qualified_helper,
                                  format_call_args(prepend_call_arg("*fx_", build_helper_fixture_call_list(spec.fixtures, "bench_state."))));
@@ -737,7 +736,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
         out += setup_tracked;
         out += "            " + invoke + "\n";
         out += "        },\n";
-        out += "        [&] {\n";
+        out += "        [&]([[maybe_unused]] gentest_local_cleanup &cleanup) {\n";
         out += teardown_guarded;
         out += "        });\n";
         out += "}\n\n";
@@ -756,7 +755,7 @@ void append_async_local_teardown_call(std::string &body, const std::string &body
     body += body_code;
     body += "            co_return;\n";
     body += "        },\n";
-    body += "        [&]() -> ::gentest::awaitable<void> {\n";
+    body += "        [&]([[maybe_unused]] gentest_local_cleanup &cleanup) -> ::gentest::awaitable<void> {\n";
     body += teardown_code;
     body += "            co_return;\n";
     body += "        });\n";
@@ -816,7 +815,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
     }
     case WrapperKind::MemberEphemeral: {
         const auto        invoke           = make_async_await_expr(spec, qualified_helper, "(fx_.ref())");
-        const std::string teardown_guarded = "        if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
+        const std::string teardown_guarded = "        if (fx_teardown_armed) co_await cleanup.run_async(fx_.ref());\n";
         body += "    (void)ctx_;\n";
         body += "    auto fx_ = ::gentest::detail::FixtureHandle<" + spec.callee + ">::empty();\n";
         body += "    if (!gentest_init_fixture(fx_, \"" + escape_string(spec.callee) + "\")) co_return;\n";
@@ -856,7 +855,7 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
         body += inits;
         body += setup_flags;
         std::string all_teardown = teardown_guarded;
-        all_teardown += "        if (fx_teardown_armed) co_await gentest_maybe_async_teardown(fx_.ref());\n";
+        all_teardown += "        if (fx_teardown_armed) co_await cleanup.run_async(fx_.ref());\n";
         std::string async_body;
         async_body += "            fx_teardown_armed = true;\n";
         async_body += "            co_await gentest_maybe_async_setup(fx_.ref());\n";

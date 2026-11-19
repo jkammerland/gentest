@@ -57,15 +57,6 @@ inline void finish_active_test_context(const std::shared_ptr<gentest::detail::Te
     gentest::detail::finish_framework_case(*ctx);
 }
 
-inline void deactivate_active_test_context_without_wait(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
-    if (!ctx) {
-        return;
-    }
-    request_active_test_context_stop(ctx);
-    gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
-    gentest::detail::close_context_if_released(*ctx);
-}
-
 inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentest::detail::TestContextInfo> &ctx) {
     if (!ctx) {
         return;
@@ -76,7 +67,6 @@ inline void cancel_active_test_context_without_wait(const std::shared_ptr<gentes
         gentest::detail::run_context_cancel_hooks(ctx);
     }
     gentest::detail::clear_context_noexceptions_fatal_hook(ctx);
-    gentest::detail::close_context_if_released(*ctx);
 }
 
 template <typename OnWaiting = gentest::detail::IgnoreAdoptedContextWait> class BasicCurrentTestScope {

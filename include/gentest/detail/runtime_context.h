@@ -95,6 +95,7 @@ struct TestContextInfo {
     std::size_t                         log_observer_id     = 0;
 
     std::atomic<bool> runtime_skip_requested{false};
+    bool              preserve_skip_reason = false;
     std::string       runtime_skip_reason;
     enum class RuntimeSkipKind {
         User,
@@ -189,8 +190,9 @@ inline void set_current_test(std::shared_ptr<TestContextInfo> ctx, CurrentContex
     if (current_test) {
         flush_current_buffer_for(current_test.get());
     }
+    // A rejected lease still has worker restrictions, with no active reporting context.
     current_test                   = std::move(ctx);
-    current_context_role_storage() = current_test ? role : CurrentContextRole::None;
+    current_context_role_storage() = role;
     buffer.owner                   = current_test ? current_test.get() : nullptr;
 }
 
@@ -235,17 +237,6 @@ inline bool accepts_late_test_operation(const std::shared_ptr<TestContextInfo> &
         return false;
     }
     return ctx->state.load(std::memory_order_acquire) != ContextState::Closed;
-}
-
-inline void close_context_if_released(TestContextInfo &ctx) noexcept {
-    std::lock_guard<std::mutex> lk(ctx.adopted_mtx);
-    if (ctx.adopted_contexts.load(std::memory_order_acquire) != 0) {
-        return;
-    }
-    if (ctx.state.load(std::memory_order_acquire) == ContextState::Running) {
-        return;
-    }
-    ctx.state.store(ContextState::Closed, std::memory_order_release);
 }
 
 inline void close_context_to_late_operations(TestContextInfo &ctx) noexcept {
@@ -351,6 +342,8 @@ inline void request_runtime_skip(std::string_view reason, TestContextInfo::Runti
     require_owner_context("skip called");
     auto                        ctx = current_test_storage();
     std::lock_guard<std::mutex> lk(ctx->mtx);
+    if (ctx->preserve_skip_reason)
+        return;
     ctx->runtime_skip_requested.store(true, std::memory_order_relaxed);
     ctx->runtime_skip_reason = std::string(reason);
     ctx->runtime_skip_kind   = kind;

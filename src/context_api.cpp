@@ -22,13 +22,23 @@ namespace {
     return detail::CurrentContextAccess::get(context);
 }
 
-void acquire_adopted_context(const CurrentContext &context) {
+auto acquire_adopted_context(const CurrentContext &context) -> bool {
     if (!context) {
-        return;
+        return false;
     }
     const auto                 &ctx = context_info(context);
     std::lock_guard<std::mutex> lk(ctx->adopted_mtx);
+
+    // After the last worker drains, only the still-active owner or its stop
+    // callback can nest a lease. A stale worker token cannot reopen adoption.
+    const auto state = ctx->state.load(std::memory_order_acquire);
+    if (state == detail::ContextState::Closed ||
+        (state == detail::ContextState::Stopping && ctx->adopted_contexts.load(std::memory_order_relaxed) == 0 &&
+         detail::current_test_storage() != ctx))
+        return false;
+
     ctx->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
+    return true;
 }
 
 [[nodiscard]] auto release_adopted_context(const CurrentContext &context) noexcept -> bool {
@@ -63,9 +73,12 @@ auto set_current_token(CurrentToken context) -> CurrentContextLease { return set
 
 CurrentContextLease::CurrentContextLease(CurrentContext context)
     : previous_(get_current_context()), leased_(std::move(context)), previous_role_(detail::current_context_role()) {
-    acquire_adopted_context(leased_);
+    const auto role = leased_ ? detail::CurrentContextRole::Adopted : detail::CurrentContextRole::None;
+    if (!acquire_adopted_context(leased_))
+        leased_ = {};
+
     try {
-        detail::set_current_test(context_info(leased_), detail::CurrentContextRole::Adopted);
+        detail::set_current_test(context_info(leased_), role);
     } catch (...) {
         if (release_adopted_context(leased_)) {
             detail::notify_adopted_contexts_released(*context_info(leased_));
@@ -77,7 +90,7 @@ CurrentContextLease::CurrentContextLease(CurrentContext context)
 CurrentContextLease::~CurrentContextLease() {
     detail::set_current_test(context_info(previous_), previous_role_);
     if (release_adopted_context(leased_)) {
-        detail::close_context_if_released(*context_info(leased_));
+        // Only the owner knows when stop callbacks and exception reporting are complete.
         detail::notify_adopted_contexts_released(*context_info(leased_));
     }
 }

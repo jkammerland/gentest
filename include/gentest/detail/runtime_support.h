@@ -25,6 +25,9 @@ inline constexpr bool exceptions_enabled = GENTEST_EXCEPTIONS_ENABLED != 0;
 // Skip is a framework control signal and must bypass user std::exception handlers.
 struct skip_exception {};
 
+// Generated local cleanup propagates the first skip after all armed hooks return.
+GENTEST_RUNTIME_API void preserve_local_fixture_skip();
+
 enum class BenchPhase {
     None,
     Setup,
