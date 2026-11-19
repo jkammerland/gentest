@@ -162,10 +162,12 @@ python3 scripts/package_source_release.py --ref HEAD
 
 `--ref` takes a commit or tag. The script writes to
 `build/source-release/artifacts/`, or to the directory you pass as its first
-argument, which must be empty. It reads the version and the files from the
-selected commit, so uncommitted and untracked files never get in, and checks
-that both archives hold the same files and no compiled files. It needs Git and
-Python 3.11 or newer.
+argument, which must be empty. The script reads the version from the selected
+commit and packages its tree in UTC with Git checkout line-ending conversion
+disabled. Before signing, it checks each archive’s paths, file contents and
+executable bits against the commit and rejects compiled files. It writes
+SHA-256 and SHA-512 checksums for both archives and the manifest. It needs
+Git and Python 3.11 or newer.
 
 To sign, import the private key and pass its full fingerprint:
 

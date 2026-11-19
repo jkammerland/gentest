@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import subprocess
 import tarfile
 import tempfile
@@ -130,6 +131,71 @@ class SourceReleaseTests(unittest.TestCase):
                     self.assertEqual(
                         manifest["archives"][asset.name][algorithm], expected_digest
                     )
+
+    def test_archives_repeat_across_timezone_and_checkout_settings(self) -> None:
+        prefix = "gentest-1.2.3-source"
+        checksums = {}
+        for zone, autocrlf in (("UTC0", "false"), ("EST5", "false"), ("UTC0", "true"), ("EST5", "true")):
+            with self.subTest(zone=zone, autocrlf=autocrlf):
+                self.git("config", "core.autocrlf", autocrlf)
+                output = self.root / f"{zone}-{autocrlf}"
+                with patch.dict(os.environ, TZ=zone):
+                    packaging.package_sources(self.repo, output, self.commit)
+
+                for suffix in ("tar.gz", "zip"):
+                    archive = output / f"{prefix}.{suffix}"
+                    checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+                    if zone == "UTC0" and autocrlf == "false":
+                        checksums[suffix] = checksum
+                    else:
+                        self.assertEqual(checksum, checksums[suffix], suffix)
+
+        # Exercise a shebang through the OS after extracting the converted-checkout case.
+        output = self.root / "EST5-true"
+        with tarfile.open(output / f"{prefix}.tar.gz") as archive:
+            archive.extract(f"{prefix}/scripts/build.sh", path=output)
+        script = output / prefix / "scripts/build.sh"
+        self.assertEqual(script.read_bytes(), self.payload["scripts/build.sh"])
+        if os.name == "posix":
+            subprocess.run([script], check=True)
+
+    def test_rejects_git_archive_conversions_and_omissions_before_signing(self) -> None:
+        # These attributes affect both formats identically.
+        attributes = self.repo / ".git/info/attributes"
+        for rule, error in (
+            ("LICENSE text eol=crlf", "LICENSE differs"),
+            ("LICENSE export-ignore", "missing Git tree member .*LICENSE"),
+        ):
+            with self.subTest(rule=rule):
+                attributes.write_text(rule + "\n", encoding="ascii")
+                with self.assertRaisesRegex(ValueError, error):
+                    packaging.package_sources(self.repo, self.root / rule.split()[1], signing_key="unused")
+
+    def test_rejects_zip_that_loses_executable_bit_before_signing(self) -> None:
+        actual_run = packaging.run
+
+        def run(*args: str, **kwargs: object) -> str:
+            result = actual_run(*args, **kwargs)
+            if "--format=zip" in args:
+                archive = next(self.artifacts.glob("*.zip"))
+                replacement = archive.with_suffix(".tmp")
+                with zipfile.ZipFile(archive) as source, zipfile.ZipFile(replacement, "w") as dest:
+                    for member in source.infolist():
+                        data = source.read(member)
+                        if member.filename.endswith("/scripts/build.sh"):
+                            member.external_attr = 0o100644 << 16
+                        # zipfile assigns default Unix permissions to a zero DOS attribute.
+                        attrs = member.external_attr
+                        dest.writestr(member, data)
+                        member.external_attr = attrs
+                replacement.replace(archive)
+            return result
+
+        with (
+            patch.object(packaging, "run", side_effect=run),
+            self.assertRaisesRegex(ValueError, r"source\.zip: .*scripts/build.sh differs"),
+        ):
+            packaging.package_sources(self.repo, self.artifacts, signing_key="unused")
 
     def test_explicit_commit_controls_both_version_and_contents(self) -> None:
         (self.repo / "CMakeLists.txt").write_text(
