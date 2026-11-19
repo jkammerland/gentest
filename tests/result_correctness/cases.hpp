@@ -3,6 +3,25 @@
 #include "gentest/runner.h"
 #include "public/gentest_textual_suite_mocks.hpp"
 
+#include <cstdlib>
+#include <type_traits>
+
+namespace binding_values {
+inline int conversions = 0;
+
+struct Converted {
+    int value = 0;
+
+    Converted() = default;
+    explicit Converted(int n) : value(n) {}
+
+    operator int() const {
+        ++conversions;
+        return value;
+    }
+};
+} // namespace binding_values
+
 namespace result_correctness {
 
 struct DeathInput {
@@ -38,6 +57,48 @@ gentest::awaitable<void> entered_async(T value) {
 
 [[using gentest: test, death]] void body_death_77();
 [[using gentest: test, death]] void runtime_skip_death();
+
+inline namespace binding {
+struct Input {
+    int         value;
+    double      precise;
+    const char *bytes;
+    int         converted;
+};
+
+inline int select_input(long) { return 7; }
+
+[[using gentest: test, death, parameters(matches, true, false)]]
+void bound_default(bool matches, const Input &input = {.value     = select_input(static_cast<int>(0)) + 1,
+                                                       .precise   = 0x1.0000000000001p0,
+                                                       .bytes     = "\001"
+                                                                    "f\000x",
+                                                       .converted = ::binding_values::Converted{select_input(0)}});
+
+inline int select_input(int) { return 99; }
+inline int replacement_input(long) { return 99; }
+
+constexpr long choose_template(long) { return 7; }
+
+template <class T = decltype(choose_template(0)), int N = choose_template(0), class Qualified = const T>
+[[using gentest: test, death, parameters(matches, true, false)]]
+void bound_template(bool matches, T value = 5, Qualified other = 3) {
+    const bool exact = std::is_same_v<T, long> && std::is_same_v<Qualified, const long> && N == 7 && value == 5 && other == 3;
+    if (matches == exact)
+        std::_Exit(23);
+}
+
+constexpr int choose_template(int) { return 99; }
+
+// Both later declarations would be viable in the generated helper.
+namespace binding_values {
+struct Converted {
+    int value;
+
+    operator int() const { return 99; }
+};
+} // namespace binding_values
+} // namespace binding
 
 struct AbortingSetup : gentest::FixtureSetup {
     void setUp() override;
@@ -106,3 +167,6 @@ void bench_deferred(DeferredMismatch &fixture, bool skip_after);
 void jitter_deferred(DeferredMismatch &fixture, bool skip_after);
 
 } // namespace measured_outcomes
+
+// Later includes can introduce a macro for an identifier bound by the declaration.
+#define select_input replacement_input

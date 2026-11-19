@@ -152,7 +152,7 @@ endif()
 # A default factory can terminate in an importer before the exported body runs.
 set(_death_marker "${_work_dir}/death-input.marker")
 execute_process(
-  COMMAND "${_exe}" --include-death --run=story034_module_registration/module_registration/death_input "--gentest-death-marker=${_death_marker}"
+  COMMAND "${_exe}" --include-death --run=story034_module_registration/binding/module_registration/death_input "--gentest-death-marker=${_death_marker}"
   RESULT_VARIABLE _death_result OUTPUT_VARIABLE _death_out ERROR_VARIABLE _death_err)
 if(NOT _death_result STREQUAL "23" OR EXISTS "${_death_marker}")
   message(FATAL_ERROR "Default factory must exit before death-test body entry (status ${_death_result}).\n${_death_out}${_death_err}")

@@ -198,9 +198,11 @@ struct CollectorOptions {
 
 // Signature of the generated call that finishes argument conversion before a death body starts.
 struct DeathCallParameters {
-    std::string       template_parameters;
-    std::string       declarations;
-    std::vector<bool> parameter_packs;
+    std::string              template_parameters;
+    std::string              declarations;
+    std::string              template_target;
+    std::vector<std::string> bound_identifiers;
+    std::vector<bool>        parameter_packs;
 };
 
 // Description of a discovered test function or member function.
@@ -278,6 +280,7 @@ struct TestCaseInfo {
     std::vector<FreeCallArg> free_call_args;
     // Namespace parts for this test (used for fixture resolution).
     std::vector<std::string> namespace_parts;
+    std::vector<std::size_t> inline_namespace_indices;
     // Declared owner metadata, independent of user-defined tags.
     std::string owner;
 };

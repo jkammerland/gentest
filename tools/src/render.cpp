@@ -137,6 +137,7 @@ struct WrapperSpec {
     std::string                 callee;       // free function (qualified) or fixture type (qualified)
     std::string                 method;       // member method name (unqualified)
     std::vector<std::string>    namespace_parts;
+    std::vector<std::size_t>    inline_namespace_indices;
     std::vector<FreeFixtureUse> fixtures;  // for FreeWithFixtures
     std::vector<FreeCallArg>    free_args; // for FreeWithFixtures
     DeathCallParameters         death_parameters;
@@ -389,13 +390,15 @@ std::string qualify_global_callee(std::string_view callee) {
     return qualified;
 }
 
-std::string wrap_in_namespaces(const std::vector<std::string> &parts, const std::string &body) {
+std::string wrap_in_namespaces(const WrapperSpec &spec, const std::string &body) {
+    const auto &parts = spec.namespace_parts;
     if (parts.empty()) {
         return body;
     }
     std::string wrapped;
-    for (const auto &part : parts) {
-        append_format_runtime(wrapped, "namespace {} {{\n", part);
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        const auto is_inline = std::ranges::find(spec.inline_namespace_indices, i) != spec.inline_namespace_indices.end();
+        append_format_runtime(wrapped, "{}namespace {} {{\n", is_inline ? "inline " : "", parts[i]);
     }
     wrapped += body;
     for (std::size_t i = parts.size(); i-- > 0;) {
@@ -475,6 +478,10 @@ std::string death_helper_body(const WrapperSpec &spec, const WrapperCall &call) 
     const std::string_view result_type = spec.returns_async ? "::gentest::awaitable<void>" : "void";
     const std::string_view await       = spec.returns_async ? "co_await " : "";
     std::string            helper;
+    // Preserve declaration-bound spellings while preprocessing the formals.
+    // Restore the consumer macros before emitting any authored row expressions.
+    for (const auto &name : formals.bound_identifiers)
+        append_format(helper, "#pragma push_macro(\"{}\")\n#undef {}\n", name, name);
     append_format(helper, "    auto gentest_invoke = [&]{}({}) -> {} {{\n", formals.template_parameters, formals.declarations, result_type);
 
     std::vector<std::string> types;
@@ -498,6 +505,8 @@ std::string death_helper_body(const WrapperSpec &spec, const WrapperCall &call) 
     append_format(helper, "        static_cast<void>({}{}({})), gentest_body_scope.finish();\n", await, call.target,
                   fmt::join(forwarded, ", "));
     helper += "    };\n";
+    for (const auto &name : formals.bound_identifiers)
+        append_format(helper, "#pragma pop_macro(\"{}\")\n", name);
     const auto op = formals.template_parameters.empty() || spec.template_args.empty()
                         ? ""
                         : fmt::format(".template operator()<{}>", fmt::join(spec.template_args, ", "));
@@ -519,6 +528,9 @@ std::string build_helper_definition(const WrapperSpec &spec, std::string_view he
         if (spec.overload_needs_object) {
             call.target = fmt::format("({}.*{})", forward_param_expr("self"), call.target);
         }
+    } else if (!spec.death_parameters.template_target.empty()) {
+        const auto &target = spec.death_parameters.template_target;
+        call.target        = include_self ? fmt::format("{}.template {}", forward_param_expr("self"), target) : target;
     } else if (include_self) {
         call.target = fmt::format("{}.{}{}", forward_param_expr("self"), spec.method_is_template ? "template " : "", spec.method);
     }
@@ -530,7 +542,7 @@ std::string build_helper_definition(const WrapperSpec &spec, std::string_view he
     // Other declaring headers can contribute names to the registration TU.
     // Require the direct non-template target to remain unambiguous there.
     if (!spec.method_is_template && spec.overload_pointer_type.empty()) {
-        append_format_runtime(helper, "    static_assert(sizeof(decltype(&{})) > 0);\n", qualified);
+        append_format_runtime(helper, "    static_assert(requires {{ &{}; }});\n", qualified);
     }
 
     if (spec.is_death) {
@@ -539,7 +551,7 @@ std::string build_helper_definition(const WrapperSpec &spec, std::string_view he
         append_format(helper, "    return {}({});\n", call.target, call.arguments);
     }
     helper += "}\n\n";
-    return wrap_in_namespaces(spec.namespace_parts, helper);
+    return wrap_in_namespaces(spec, helper);
 }
 
 static std::string make_invoke_for_free(const std::string &fn, const std::string &args) {
@@ -918,15 +930,16 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
 
 WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
     WrapperSpec spec{};
-    spec.wrapper_name          = std::string("kCaseInvoke_") + std::to_string(idx);
-    spec.value_args            = test.call_arguments; // may be empty
-    spec.namespace_parts       = test.namespace_parts;
-    spec.overload_pointer_type = test.overload_pointer_type;
-    spec.overload_needs_object = test.overload_needs_object;
-    spec.method_is_template    = test.is_function_template;
-    spec.is_measured           = test.is_benchmark || test.is_jitter;
-    spec.death_parameters      = test.death_parameters;
-    spec.template_args         = test.template_args;
+    spec.wrapper_name             = std::string("kCaseInvoke_") + std::to_string(idx);
+    spec.value_args               = test.call_arguments; // may be empty
+    spec.namespace_parts          = test.namespace_parts;
+    spec.inline_namespace_indices = test.inline_namespace_indices;
+    spec.overload_pointer_type    = test.overload_pointer_type;
+    spec.overload_needs_object    = test.overload_needs_object;
+    spec.method_is_template       = test.is_function_template;
+    spec.is_measured              = test.is_benchmark || test.is_jitter;
+    spec.death_parameters         = test.death_parameters;
+    spec.template_args            = test.template_args;
     if (test.fixture_qualified_name.empty()) {
         if (!test.free_fixtures.empty()) {
             spec.kind      = WrapperKind::FreeWithFixtures;
