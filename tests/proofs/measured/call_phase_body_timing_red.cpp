@@ -109,8 +109,8 @@ bool prove_call_timing(const gentest::Case &test, Exit exit) {
     gentest::runner::MeasurementCaseFailure failure;
 
     const double elapsed_s = gentest::runner::detail::run_call_phase_with_context<ManualClock>(
-        test, "proof skip", [&] { perform_body(retirement, exit); }, [&] { ++interruptions; }, had_assert_fail, failure,
-        ObserveWaiting{retirement});
+        test, "proof skip", [&](const std::atomic<bool> &) { perform_body(retirement, exit); }, [&] { ++interruptions; }, had_assert_fail,
+        failure, ObserveWaiting{retirement});
 
     // Snapshot before cleanup: a runner that omits retirement waiting must fail
     // even though cleanup subsequently lets its worker finish safely.

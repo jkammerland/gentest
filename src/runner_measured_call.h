@@ -14,22 +14,6 @@
 
 namespace gentest::runner::detail {
 
-inline void record_runtime_skip_or_default(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo,
-                                           std::string_view                                         default_reason) {
-    std::string runtime_skip_reason;
-    {
-        std::scoped_lock lk(ctxinfo->mtx);
-        if (ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed)) {
-            runtime_skip_reason = ctxinfo->runtime_skip_reason;
-        }
-    }
-    if (!runtime_skip_reason.empty()) {
-        gentest::detail::record_bench_error(std::move(runtime_skip_reason));
-    } else {
-        gentest::detail::record_bench_error(std::string(default_reason));
-    }
-}
-
 inline void capture_first_failure_location(const std::shared_ptr<gentest::detail::TestContextInfo> &ctxinfo,
                                            MeasurementCaseFailure                                  &failure) {
     if (!failure.source_file.empty() && failure.source_line != 0) {
@@ -58,34 +42,20 @@ inline void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::T
                                         MeasurementCaseFailure &failure) {
     capture_first_failure_location(ctxinfo, failure);
     capture_measured_logs(ctxinfo, failure);
-    bool        runtime_skip_requested = false;
-    std::string runtime_skip_reason;
-    {
-        std::scoped_lock lk(ctxinfo->mtx);
-        runtime_skip_requested = ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
-        if (runtime_skip_requested) {
-            runtime_skip_reason = ctxinfo->runtime_skip_reason;
-        }
-    }
-    if (runtime_skip_requested) {
-        if (!runtime_skip_reason.empty()) {
-            gentest::detail::record_bench_error(std::move(runtime_skip_reason));
-        } else {
-            gentest::detail::record_bench_error(std::string(default_skip_reason));
-        }
-        had_assert_fail = true;
+
+    // The call scope flushes deferred mock failures before we choose the diagnostic.
+    std::scoped_lock lk(ctxinfo->mtx);
+    if (!ctxinfo->failures.empty()) {
+        gentest::detail::record_bench_error(ctxinfo->failures.front());
+    } else if (ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed)) {
+        gentest::detail::record_bench_error(ctxinfo->runtime_skip_reason.empty() ? std::string(default_skip_reason)
+                                                                                 : ctxinfo->runtime_skip_reason);
+    } else if (had_assert_fail || ctxinfo->has_failures.load(std::memory_order_relaxed)) {
+        gentest::detail::record_bench_error(assertion_fallback);
+    } else {
         return;
     }
-    std::string first_failure = gentest::detail::first_recorded_failure(ctxinfo);
-    if (!first_failure.empty()) {
-        gentest::detail::record_bench_error(std::move(first_failure));
-        had_assert_fail = true;
-        return;
-    }
-    if (had_assert_fail || ctxinfo->has_failures.load(std::memory_order_relaxed)) {
-        gentest::detail::record_bench_error(std::string(assertion_fallback));
-        had_assert_fail = true;
-    }
+    had_assert_fail = true;
 }
 
 template <typename Clock     = std::chrono::steady_clock, typename BodyFn, typename InterruptedFn,
@@ -113,13 +83,13 @@ double run_call_phase_with_context(const gentest::Case &c, std::string_view defa
         try {
             // Bench/jitter per-call timing should measure only the user call body.
             start = clock::now();
-            body();
+            body(ctxinfo->has_failures);
             stop_timer();
         } catch (const gentest::detail::skip_exception &) {
             stop_timer();
             on_interrupted();
-            record_runtime_skip_or_default(ctxinfo, default_skip_reason);
-            had_assert_fail = true;
+            assertion_fallback = default_skip_reason;
+            had_assert_fail    = true;
         } catch (const gentest::assertion &e) {
             stop_timer();
             on_interrupted();
