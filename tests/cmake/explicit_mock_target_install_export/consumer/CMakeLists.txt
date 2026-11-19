@@ -48,6 +48,7 @@ target_compile_features(explicit_installed_module_codegen_consumer PRIVATE cxx_s
 target_link_libraries(explicit_installed_module_codegen_consumer
     PRIVATE
         gentest::gentest_main
+        fixture::fixture_values
         fixture::explicit_module_exported_mocks)
 gentest_attach_codegen(explicit_installed_module_codegen_consumer
     MODULE_REGISTRATION

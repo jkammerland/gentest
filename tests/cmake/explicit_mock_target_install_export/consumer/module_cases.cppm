@@ -1,6 +1,7 @@
 export module fixture.installed_module_codegen_cases;
 
 import gentest;
+import fixture.arithmetic;
 import fixture.explicit_module_mocks;
 
 using namespace gentest::asserts;
@@ -11,7 +12,7 @@ void explicit_mock_target_install_export_codegen_module_consumer() {
     gentest::expect(alias_mock, &fixture::ModuleService::compute).times(1).with(10).returns(30);
 
     fixture::ModuleService *alias_service = &alias_mock;
-    EXPECT_EQ(alias_service->compute(10), 30);
+    EXPECT_EQ(alias_service->compute(10), fixture::triple(10));
 
     gentest::mock<fixture::ModuleService> raw_mock;
     gentest::expect(raw_mock, &fixture::ModuleService::compute).times(1).with(11).returns(33);

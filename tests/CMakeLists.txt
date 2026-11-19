@@ -5702,6 +5702,14 @@ set_property(TEST gentest_package_consumer_executable_path APPEND PROPERTY LABEL
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING)
+        _gentest_add_cmake_helper_test(
+            gentest_relocated_shared_fmt_codegen
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckRelocatedSharedFmtCodegen.cmake
+            package)
+    endif()
+
     gentest_package_test_producer_args(
         _gentest_package_test_config
         _gentest_package_test_compiler_args

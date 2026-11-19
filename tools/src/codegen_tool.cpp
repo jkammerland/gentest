@@ -4357,6 +4357,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<std::string> host_clang_option{
         "host-clang", llvm::cl::desc("Path to the host Clang executable used for Clang-only codegen operations"), llvm::cl::init(""),
         llvm::cl::cat(category)};
+    static llvm::cl::list<std::string> external_module_file_option{
+        "external-module-file", llvm::cl::desc("Module interface file to resolve in the importer's compile context"), llvm::cl::ZeroOrMore,
+        llvm::cl::cat(category)};
     static llvm::cl::list<std::string> external_module_source_option{"external-module-source",
                                                                      llvm::cl::desc("Explicit named-module source mapping (module=path)"),
                                                                      llvm::cl::ZeroOrMore, llvm::cl::cat(category)};
@@ -4471,6 +4474,12 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     } else if (const auto scan_deps_env = get_env_value("GENTEST_CODEGEN_CLANG_SCAN_DEPS"); scan_deps_env && !scan_deps_env->empty()) {
         opts.clang_scan_deps_executable = std::filesystem::path{*scan_deps_env};
     }
+    // File sets supply paths without module names. Probe these alongside explicit mappings
+    // so conditional declarations use the importing translation unit's compiler flags.
+    for (const auto &source_file : external_module_file_option) {
+        opts.explicit_module_sources_by_name[""].emplace_back(source_file);
+    }
+
     for (const auto &raw_mapping : external_module_source_option) {
         const auto separator = raw_mapping.find('=');
         if (separator == std::string::npos || separator == 0 || separator + 1 >= raw_mapping.size()) {
@@ -5040,13 +5049,13 @@ int run_codegen_tool(int argc, const char **argv) {
         compdb_files.push_back(file);
     }
 
-    auto get_expanded_compile_commands_for_file = [&](std::string_view file_path) {
+    auto get_expanded_compile_commands_for_file = [&](std::string_view file_path, bool allow_inferred = true) {
         std::vector<clang::tooling::CompileCommand> direct_commands;
         const auto                                  source_key = normalize_compdb_lookup_path(file_path);
         if (const auto direct_it = compile_commands_by_file.find(source_key); direct_it != compile_commands_by_file.end()) {
             direct_commands = direct_it->second;
         }
-        if (direct_commands.empty() && !options.tu_output_dir.empty()) {
+        if (allow_inferred && direct_commands.empty() && !options.tu_output_dir.empty()) {
             direct_commands = database->getCompileCommands(std::string(file_path));
         }
         for (auto &command : direct_commands) {
@@ -5859,8 +5868,9 @@ int run_codegen_tool(int argc, const char **argv) {
                     context_commands.emplace_back(context.working_directory, std::string{}, context.command_line, std::string{});
                 }
                 for (const auto &candidate_path : candidate_paths) {
-                    const std::filesystem::path &candidate                 = candidate_path;
-                    auto                         candidate_direct_commands = get_expanded_compile_commands_for_file(candidate.string());
+                    const std::filesystem::path &candidate = candidate_path;
+                    // An inferred command can belong to an unrelated target lacking the imported module's include paths.
+                    auto candidate_direct_commands = get_expanded_compile_commands_for_file(candidate.string(), /*allow_inferred=*/false);
                     std::vector<clang::tooling::CompileCommand> empty_candidate_source_commands;
                     const auto                                 &candidate_driver_commands =
                         candidate_direct_commands.empty() ? context_commands : candidate_direct_commands;
@@ -5916,7 +5926,7 @@ int run_codegen_tool(int argc, const char **argv) {
 
             for (const auto &include_dir : context.include_search_paths) {
                 for (const auto &candidate : candidate_external_module_interface_paths(include_dir, module_name)) {
-                    auto candidate_direct_commands = get_expanded_compile_commands_for_file(candidate.string());
+                    auto candidate_direct_commands = get_expanded_compile_commands_for_file(candidate.string(), /*allow_inferred=*/false);
                     std::vector<clang::tooling::CompileCommand> context_commands;
                     std::vector<clang::tooling::CompileCommand> empty_candidate_source_commands;
                     if (!context.command_line.empty()) {
