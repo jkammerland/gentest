@@ -6,6 +6,7 @@
 #include <coroutine>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -22,6 +23,19 @@ void death(void *) {
 void failedExpectation(void *) {
     gentest::expect(false, "unexpected value before exit");
     std::_Exit(23);
+}
+
+// NOLINTNEXTLINE(bugprone-exception-escape): exercise termination when fail() escapes a noexcept body.
+void noexceptFail(void *) noexcept { gentest::fail("explicit failure in noexcept helper"); }
+
+void unwindFail(void *) {
+    struct ExitOnUnwind {
+        ~ExitOnUnwind() {
+            if (std::uncaught_exceptions() > 0)
+                std::_Exit(23);
+        }
+    } guard;
+    gentest::fail("explicit failure before unwinding");
 }
 
 void diagnostic(void *) {
@@ -55,7 +69,7 @@ void invalid(void *) {
     std::_Exit(42);
 }
 
-enum class AsyncExit { Body, FailedExpectation, FrameTeardown, CanceledFrameTeardown };
+enum class AsyncExit { Body, NoexceptFail, FailedExpectation, FrameTeardown, CanceledFrameTeardown };
 
 struct ExitOnFrameRelease {
     ~ExitOnFrameRelease() {
@@ -68,6 +82,8 @@ struct ExitOnFrameRelease {
 // final_suspend on return or during cancellation of an unresumable task.
 gentest::awaitable<void> asyncBody(std::unique_ptr<ExitOnFrameRelease>, AsyncExit phase) {
     co_await gentest::async::yield();
+    if (phase == AsyncExit::NoexceptFail)
+        noexceptFail(nullptr);
     if (phase == AsyncExit::FailedExpectation) {
         gentest::expect(false, "unexpected value after resume");
         std::_Exit(42);
@@ -89,6 +105,9 @@ int main(int argc, char **argv) {
         {.name = "probe/ordinary", .fn = death},
         {.name = "probe/caf\xc3\xa9", .fn = death, .is_death = true},
         {.name = "probe/failed_expectation", .fn = failedExpectation, .is_death = true},
+        {.name = "probe/noexcept_fail", .fn = noexceptFail, .is_death = true},
+        {.name = "probe/unwind_fail", .fn = unwindFail, .is_death = true},
+        {.name = "probe/async_noexcept_fail", .async_fn = asyncCase<AsyncExit::NoexceptFail>, .is_async = true, .is_death = true},
         {.name = "probe/diagnostic", .fn = diagnostic, .is_death = true},
         {.name = "probe/stall", .fn = stall, .is_death = true},
         {.name = "probe/silence", .fn = silent, .is_death = true},

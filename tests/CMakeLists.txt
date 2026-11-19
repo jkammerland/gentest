@@ -142,7 +142,8 @@ if(_gentest_host_supervisor AND (NOT CMAKE_CROSSCOMPILING OR CMAKE_CROSSCOMPILIN
     get_property(_gentest_probe_emulator TARGET gentest_supervisor_probe PROPERTY CROSSCOMPILING_EMULATOR)
     add_test(NAME death_supervisor
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_death_supervisor.py
-            "${_gentest_host_supervisor}" "$<TARGET_FILE:gentest_supervisor_probe>" ${_gentest_probe_emulator})
+            "${_gentest_host_supervisor}" "$<TARGET_FILE:gentest_supervisor_probe>"
+            "$<TARGET_FILE:gentest_regression_local_fixture_teardown_noexceptions>" ${_gentest_probe_emulator})
     set_tests_properties(death_supervisor PROPERTIES LABELS "runner;death")
 endif()
 
