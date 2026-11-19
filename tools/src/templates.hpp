@@ -125,6 +125,68 @@ template <typename T>
     gentest::detail::record_failure(std::move(msg));
 }
 
+// A body exception stays pending until every armed local hook has run.
+struct gentest_local_cleanup {
+#if GENTEST_EXCEPTIONS_ENABLED
+    std::exception_ptr pending;
+    bool body_failed = false;
+
+    void capture_body_exception() {
+        pending = std::current_exception();
+        try {
+            throw;
+        } catch (const ::gentest::detail::skip_exception &) {
+            ::gentest::detail::preserve_local_fixture_skip();
+        } catch (...) {
+            body_failed = true;
+        }
+    }
+
+    void capture_teardown_exception() {
+        // Keep the original body/setup exception as the primary diagnostic.
+        if (body_failed) return;
+
+        try {
+            throw;
+        } catch (const ::gentest::detail::skip_exception &) {
+            if (!pending) {
+                pending = std::current_exception();
+                ::gentest::detail::preserve_local_fixture_skip();
+            }
+        } catch (const ::gentest::assertion &) {
+            // Fatal assertions already carry a recorded diagnostic.
+            if (!pending) pending = std::current_exception();
+        } catch (const std::exception &e) {
+            ::gentest::detail::record_failure(fmt::format("fixture teardown failed: {}", e.what()));
+        } catch (...) {
+            ::gentest::detail::record_failure("fixture teardown failed: unknown exception");
+        }
+    }
+#endif
+
+    void rethrow_pending() const {
+#if GENTEST_EXCEPTIONS_ENABLED
+        if (pending) std::rethrow_exception(pending);
+#endif
+    }
+
+    template <typename T> [[maybe_unused]] void run(T &fixture) {
+#if GENTEST_EXCEPTIONS_ENABLED
+        try { gentest_maybe_teardown(fixture); } catch (...) { capture_teardown_exception(); }
+#else
+        gentest_maybe_teardown(fixture);
+#endif
+    }
+
+    template <typename T> [[maybe_unused]] ::gentest::awaitable<void> run_async(T &fixture) {
+#if GENTEST_EXCEPTIONS_ENABLED
+        try { co_await gentest_maybe_async_teardown(fixture); } catch (...) { capture_teardown_exception(); }
+#else
+        co_await gentest_maybe_async_teardown(fixture);
+#endif
+    }
+};
+
 template <typename TeardownFn>
 struct gentest_noexceptions_local_teardown {
     TeardownFn *teardown = nullptr;
@@ -142,19 +204,17 @@ struct gentest_noexceptions_local_teardown {
 
 template <typename BodyFn, typename TeardownFn>
 [[maybe_unused]] inline void gentest_run_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+    gentest_local_cleanup cleanup;
 #if GENTEST_EXCEPTIONS_ENABLED
     try {
         body();
     } catch (...) {
-        try {
-            teardown();
-        } catch (...) {
-        }
-        throw;
+        cleanup.capture_body_exception();
     }
-    teardown();
+    teardown(cleanup);
+    cleanup.rethrow_pending();
 #else
-    auto teardown_fn = std::forward<TeardownFn>(teardown);
+    auto teardown_fn = [&] { teardown(cleanup); };
     gentest_noexceptions_local_teardown<decltype(teardown_fn)> teardown_state{&teardown_fn};
     ::gentest::detail::NoExceptionsFatalHookScope            fatal_scope(&decltype(teardown_state)::run, &teardown_state);
     body();
@@ -211,28 +271,23 @@ struct gentest_async_local_teardown_guard {
 
 template <typename BodyFn, typename TeardownFn>
 [[maybe_unused]] inline ::gentest::awaitable<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
-    auto teardown_fn = std::forward<TeardownFn>(teardown);
+    gentest_local_cleanup cleanup;
+    auto teardown_fn = [&]() -> ::gentest::awaitable<void> {
+        co_await teardown(cleanup);
+        cleanup.rethrow_pending();
+    };
     gentest_async_local_teardown_guard<decltype(teardown_fn)> teardown_state{&teardown_fn};
 #if GENTEST_EXCEPTIONS_ENABLED
-    std::exception_ptr error;
     try {
         co_await body();
     } catch (...) {
-        error = std::current_exception();
+        cleanup.capture_body_exception();
     }
-    if (error) {
-        try {
-            co_await teardown_state.run_now();
-        } catch (...) {
-        }
-        std::rethrow_exception(error);
-    }
-    co_await teardown_state.run_now();
 #else
     ::gentest::detail::NoExceptionsFatalHookScope fatal_scope(&decltype(teardown_state)::run, &teardown_state);
     co_await body();
-    co_await teardown_state.run_now();
 #endif
+    co_await teardown_state.run_now();
     co_return;
 }
 
@@ -357,8 +412,10 @@ static void {w}(void* ctx_) {{
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Teardown) {{
+            gentest_local_cleanup cleanup;
 {bench_teardown}
             bench_state = {{}};
+            cleanup.rethrow_pending();
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Call) {{
@@ -372,7 +429,7 @@ static void {w}(void* ctx_) {{
         [&] {{
 {setup}            {invoke}
         }},
-        [&] {{
+        [&]([[maybe_unused]] gentest_local_cleanup &cleanup) {{
 {teardown}        }});
 }}
 
@@ -397,8 +454,10 @@ inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Teardown) {{
-            if (bench_state.teardown_armed) gentest_maybe_teardown(bench_state.fx_.ref());
+            gentest_local_cleanup cleanup;
+            if (bench_state.teardown_armed) cleanup.run(bench_state.fx_.ref());
             bench_state = BenchState{{}};
+            cleanup.rethrow_pending();
             return;
         }}
         if (phase == ::gentest::detail::BenchPhase::Call) {{
@@ -417,8 +476,8 @@ inline constexpr std::string_view wrapper_ephemeral = R"FMT(static void {w}(void
             gentest_maybe_setup(fx_.ref());
             {invoke}
         }},
-        [&] {{
-            if (fx_teardown_armed) gentest_maybe_teardown(fx_.ref());
+        [&](gentest_local_cleanup &cleanup) {{
+            if (fx_teardown_armed) cleanup.run(fx_.ref());
         }});
 }}
 

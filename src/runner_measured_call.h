@@ -82,7 +82,7 @@ inline void finalize_call_phase_failure(const std::shared_ptr<gentest::detail::T
         had_assert_fail = true;
         return;
     }
-    if (!assertion_fallback.empty()) {
+    if (had_assert_fail || ctxinfo->has_failures.load(std::memory_order_relaxed)) {
         gentest::detail::record_bench_error(std::string(assertion_fallback));
         had_assert_fail = true;
     }

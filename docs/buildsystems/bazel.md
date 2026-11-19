@@ -34,7 +34,6 @@ You need:
 module(name = "my_tests")
 
 bazel_dep(name = "gentest", version = "2.0.0")
-bazel_dep(name = "rules_cc", version = "0.2.17")
 
 local_path_override(
     module_name = "gentest",
@@ -136,7 +135,7 @@ analysis when it is not empty: register an exec toolchain instead.
 | `deps` | Libraries the test uses. Their headers, include roots and definitions (`CcInfo`) reach codegen too. |
 | `defines` | Definitions for codegen and the compiler. |
 | `clang_args` | Flags for codegen and the compiler. |
-| `source_includes` | Include directories for codegen and the compiler. They add search paths only; they don't declare files. |
+| `source_includes` | Include directories relative to the target package, shared by codegen and the compiler. Declare the headers in `source_hdrs` or `deps`. |
 | `linkopts`, `visibility` | Passed to the `cc_test`. |
 
 Codegen runs as a Bazel action and reads only declared files. Declare every

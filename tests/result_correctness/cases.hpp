@@ -75,3 +75,23 @@ struct AbortingTeardown : gentest::FixtureTearDown {
 [[using gentest: bench("bench_satisfied_mock")]] void       bench_satisfied_mock();
 
 } // namespace result_correctness
+
+namespace measured_outcomes {
+
+// One calibration call and one completed epoch precede the failing call.
+struct LateFailure {
+    int  calls = 0;
+    void failOnThirdCall();
+};
+
+[[gentest::bench("calibrated_empty")]] void                                         calibrated_empty(LateFailure &fixture);
+[[gentest::jitter("jitter_empty")]] void                                            jitter_empty(LateFailure &fixture);
+[[using gentest: bench("supplied_empty"), bench_once, bench_time("supplied")]] void supplied_empty();
+[[using gentest: bench("supplied_ok"), bench_once, bench_time("supplied")]] void    supplied_ok();
+
+[[using gentest: bench("bench_noexcept_mismatch"), bench_once]] void bench_noexcept_mismatch();
+[[gentest::jitter("jitter_noexcept_mismatch")]] void                 jitter_noexcept_mismatch();
+[[using gentest: bench("ordinary_mismatch"), bench_once]] void       ordinary_mismatch();
+[[using gentest: bench("noexcept_match"), bench_once]] void          noexcept_match();
+
+} // namespace measured_outcomes

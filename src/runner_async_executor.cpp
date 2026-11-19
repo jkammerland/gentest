@@ -267,7 +267,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                 deferred.task.reset();
             }
             if (deferred.ctx) {
-                gentest::detail::close_context_if_released(*deferred.ctx);
+                gentest::detail::close_context_to_late_operations(*deferred.ctx);
                 gentest::detail::finish_framework_case(*deferred.ctx);
             }
             if (deferred.record_result_on_cleanup) {
@@ -300,7 +300,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             run.task.reset();
         }
         if (run.ctxinfo) {
-            gentest::detail::close_context_if_released(*run.ctxinfo);
+            gentest::detail::close_context_to_late_operations(*run.ctxinfo);
             gentest::detail::finish_framework_case(*run.ctxinfo);
         }
 
@@ -457,6 +457,7 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
                     gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);
                     run.task.reset();
                 }
+                gentest::detail::close_context_to_late_operations(*run.ctxinfo);
                 gentest::detail::finish_framework_case(*run.ctxinfo);
             }
             run.finalized = true;

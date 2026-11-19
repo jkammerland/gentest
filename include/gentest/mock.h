@@ -548,6 +548,13 @@ class InstanceState {
         return dispatch_with_fallback<R, Args...>(id, id, method_name, std::forward<Args>(args)...);
     }
 
+    // Record framework mismatches for the measured executor before returning through a noexcept override.
+    template <typename R, typename... Args>
+    R dispatch_deferred(const MethodIdentity &id, const MethodIdentity &fallback_id, std::string_view method_name, Args &&...args) {
+        ::gentest::detail::DeferredFailureScope deferred;
+        return dispatch_with_fallback<R, Args...>(id, fallback_id, method_name, std::forward<Args>(args)...);
+    }
+
     template <typename R, typename... Args>
     R dispatch_with_fallback(const MethodIdentity &id, const MethodIdentity &fallback_id, std::string_view method_name, Args &&...args) {
         using ExpectationT                    = Expectation<R(Args...)>;

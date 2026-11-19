@@ -74,6 +74,7 @@ struct CliOptions {
     std::size_t repeat_n         = 1;
     std::size_t async_log_tail   = 5;
     bool        include_death    = false;
+    bool        exact_run        = false;
     bool        death_watchdog   = false;
     bool        death_wide       = false;
     int         skip_return_code = 0;

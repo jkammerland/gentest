@@ -84,8 +84,16 @@ target_link_libraries(gentest_main
         gentest_runtime)
 
 if(GENTEST_RUNTIME_SHARED)
-    # Only set PIC for the shared case
-    set_target_properties(gentest_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    # ELF SONAME and Mach-O install name follow the runtime ABI major.
+    set_target_properties(gentest_runtime PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        VERSION "${PROJECT_VERSION}"
+        SOVERSION "${PROJECT_VERSION_MAJOR}")
+    if(WIN32)
+        # PE imports name the DLL directly. Keep the import library's link name.
+        set_target_properties(gentest_runtime PROPERTIES RUNTIME_OUTPUT_NAME "gentest_runtime-${PROJECT_VERSION_MAJOR}")
+    endif()
+
     # Export only explicit runtime API symbols in shared builds.
     target_compile_definitions(gentest_runtime
         PUBLIC GENTEST_RUNTIME_SHARED

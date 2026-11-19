@@ -154,7 +154,7 @@ int main() {
         const MockGeneratedFile *impl = find_file(result, "public_mocks_inline.hpp");
         t.expect(impl != nullptr, "native backend emits an implementation header");
         if (impl != nullptr) {
-            t.contains(impl->content, "dispatch_with_fallback<void, int &&>",
+            t.contains(impl->content, "dispatch_deferred<void, int &&>",
                        "dispatch preserves the declared rvalue reference used by its expectation");
         }
     }
@@ -303,7 +303,7 @@ int main() {
                        "int (::fixture::Target::*)(int) const) const noexcept>",
                        "member-function pointer types compose with a type_identity_t return type");
             t.contains(impl->content,
-                       "dispatch_with_fallback<::std::type_identity_t<void (*)(int)>, void (*)(int), const int (&)[3], "
+                       "dispatch_deferred<::std::type_identity_t<void (*)(int)>, void (*)(int), const int (&)[3], "
                        "int (::fixture::Target::*)(int) const>",
                        "expectation types compose with a type_identity_t return type");
         }

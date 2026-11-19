@@ -604,8 +604,6 @@ int write_empty_execution_reports(const CliOptions &opt) {
 } // namespace
 
 int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &opt) {
-    constexpr int kExitCaseNotFound = 3;
-
     switch (opt.mode) {
     case Mode::Help:
 #ifdef GENTEST_VERSION_STR
@@ -714,9 +712,11 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     const auto selection               = gentest::runner::select_cases(kCases, opt);
     const bool machine_measured_report = is_machine_measured_report(opt);
 
-    // Selection failures happen before fixture setup. Matched skipped cases
-    // still count as selected; excluded death tests do not.
-    if (opt.fail_on_empty && (selection.status == SelectionStatus::ZeroSelected || selection.status == SelectionStatus::DeathExcludedAll)) {
+    // A filtered-out discovery entry has an empty selection even when its name exists.
+    const bool empty_selection = selection.status == SelectionStatus::ZeroSelected ||
+                                 selection.status == SelectionStatus::DeathExcludedAll ||
+                                 selection.status == SelectionStatus::ExactRunExcluded;
+    if (opt.fail_on_empty && empty_selection) {
         return fail_before_execution(opt, fmt::format("No cases selected (--kind={}, --filter={}); --fail-on-empty is enabled{}",
                                                       kind_to_string(opt.kind), opt.filter_pat ? opt.filter_pat : "*",
                                                       selection.filtered_death ? " (death tests excluded; use --include-death)" : ""));
@@ -745,24 +745,33 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         return fail_before_execution(
             opt,
             fmt::format("jitter filter matched 0 jitter benchmarks: {}\nhint: use --list-benches to see available names", opt.filter_pat));
-    case SelectionStatus::ZeroSelected:
+    case SelectionStatus::ExactRunExcluded:
+    case SelectionStatus::ZeroSelected: {
         if (opt.mode == Mode::ListSelected)
             return 0;
+
+        const bool excluded = selection.status == SelectionStatus::ExactRunExcluded;
+        if (excluded)
+            fmt::print(stderr, "[ SKIP ] {} :: excluded by case selection\n", opt.run_name);
+
         if (machine_measured_report) {
+            if (opt.kind == KindFilter::Test)
+                return reject_machine_measured_report_unmeasured_selection(opt);
+            print_empty_machine_measured_report(opt, opt.kind != KindFilter::Jitter, opt.kind != KindFilter::Bench);
+        } else if (!excluded) {
             switch (opt.kind) {
-            case KindFilter::Test: return reject_machine_measured_report_unmeasured_selection(opt);
-            case KindFilter::Bench: print_empty_machine_measured_report(opt, true, false); return write_empty_execution_reports(opt);
-            case KindFilter::Jitter: print_empty_machine_measured_report(opt, false, true); return write_empty_execution_reports(opt);
-            case KindFilter::All: print_empty_machine_measured_report(opt, true, true); return write_empty_execution_reports(opt);
+            case KindFilter::Test: fmt::print("Executed 0 test(s).\n"); break;
+            case KindFilter::Bench: fmt::print("Executed 0 benchmark(s).\n"); break;
+            case KindFilter::Jitter: fmt::print("Executed 0 jitter benchmark(s).\n"); break;
+            case KindFilter::All: fmt::print("Executed 0 case(s).\n"); break;
             }
         }
-        switch (opt.kind) {
-        case KindFilter::Test: fmt::print("Executed 0 test(s).\n"); break;
-        case KindFilter::Bench: fmt::print("Executed 0 benchmark(s).\n"); break;
-        case KindFilter::Jitter: fmt::print("Executed 0 jitter benchmark(s).\n"); break;
-        case KindFilter::All: fmt::print("Executed 0 case(s).\n"); break;
-        }
-        return write_empty_execution_reports(opt);
+
+        // A report write failure takes precedence over a discovery skip.
+        if (const int rc = write_empty_execution_reports(opt); rc != 0)
+            return rc;
+        return excluded ? opt.skip_return_code : 0;
+    }
     case SelectionStatus::DeathExcludedRun:
         return fail_before_execution(opt, fmt::format("Case '{}' is a death test; rerun with --include-death", opt.run_name));
     case SelectionStatus::DeathExcludedAll:

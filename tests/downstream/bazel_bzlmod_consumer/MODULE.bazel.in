@@ -1,9 +1,13 @@
 module(name = "gentest_downstream_fixture")
 
 bazel_dep(name = "gentest", version = "2.0.0")
-bazel_dep(name = "rules_cc", version = "0.2.17")
+bazel_dep(name = "rules_cc", version = "0.2.17", repo_name = "consumer_cc")
 
 local_path_override(
     module_name = "gentest",
     path = "@GENTEST_SOURCE_DIR@",
 )
+
+# Build suites owned by a dependency as well as suites in the main repository.
+bazel_dep(name = "widget_checks", version = "1.0")
+local_path_override(module_name = "widget_checks", path = "widget_checks")

@@ -7,6 +7,8 @@
 
 namespace gentest::runner {
 
+inline constexpr int kExitCaseNotFound = 3;
+
 int run_from_options(std::span<const gentest::Case> cases, const CliOptions &opt);
 
 } // namespace gentest::runner

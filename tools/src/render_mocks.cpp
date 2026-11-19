@@ -356,8 +356,9 @@ std::string dispatch_block(const std::string &indent, const MockClassInfo &cls, 
     const std::string dispatch_args       = args.empty() ? std::string{} : fmt::format(", {}", args);
     const std::string method_constant_ref = method_constant_reference(cls, method, type_parts, fq_type, tpl_usage);
     const std::string raw_method_ref      = fallback_method_reference(method, type_parts, fq_type, tpl_usage);
-    block.append("{0}{1}this->gentest_mock_state_.template dispatch_with_fallback<{2}>(\n", indent, returns_value ? "return " : "",
-                 type_parts.expectation_push_types);
+    const auto        dispatch            = method.qualifiers.is_noexcept ? "dispatch_deferred" : "dispatch_with_fallback";
+    block.append("{0}{1}this->gentest_mock_state_.template {3}<{2}>(\n", indent, returns_value ? "return " : "",
+                 type_parts.expectation_push_types, dispatch);
     block.append("{0}    ::gentest::detail::mocking::method_constant_identity<{1}>(),\n", indent, method_constant_ref);
     block.append("{0}    this->gentest_mock_state_.identify({1}),\n", indent, raw_method_ref);
     block.append("{0}    \"{1}\"{2});\n", indent, fq_method_escaped, dispatch_args);

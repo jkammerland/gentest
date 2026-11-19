@@ -1,0 +1,16 @@
+load("@gentest//bazel:defs.bzl", "gentest_attach_codegen_modules", "gentest_attach_codegen_textual")
+
+gentest_attach_codegen_textual(
+    name = "headers",
+    source_hdrs = ["cases.hpp", "include/widget/config.hpp"],
+    source_includes = ["include"],
+)
+
+gentest_attach_codegen_modules(
+    name = "modules",
+    src = "cases.cppm",
+    main = "main.cpp",
+    source_hdrs = ["include/widget/config.hpp"],
+    source_includes = ["include"],
+    deps = ["@gentest//:gentest"],
+)

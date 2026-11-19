@@ -13,6 +13,15 @@ gentest_add_python_program_test(NAME selected_cases_contract
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_selected_cases.py)
 set_tests_properties(selected_cases_contract PROPERTIES LABELS "public-api;runner")
 
+add_executable(gentest_discover_exact_probe cmake/discover_exact/main.cpp)
+target_link_libraries(gentest_discover_exact_probe PRIVATE gentest::gentest)
+target_compile_features(gentest_discover_exact_probe PRIVATE cxx_std_20)
+gentest_add_python_program_test(NAME discover_exact_contract
+    PROG gentest_discover_exact_probe
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_discover_exact.py
+    ARGS ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND} "${CMAKE_GENERATOR}")
+set_tests_properties(discover_exact_contract PROPERTIES LABELS "public-api;runner;cmake")
+
 # Shared fixtures activate only when selected runnable cases acquire them.
 add_executable(gentest_fixture_selection_tests fixture_selection/main.cpp fixture_selection/cases.cpp fixture_selection/cases.hpp)
 target_link_libraries(gentest_fixture_selection_tests PRIVATE gentest::gentest)
@@ -116,7 +125,7 @@ endif()
 add_dependencies(gentest_test_suites gentest_benchmark_measurement_tests)
 add_dependencies(gentest_test_suites gentest_bench_util_value_tests)
 add_dependencies(gentest_test_suites gentest_report_stream_tests)
-add_dependencies(gentest_test_suites gentest_selection_tests)
+add_dependencies(gentest_test_suites gentest_selection_tests gentest_discover_exact_probe)
 add_dependencies(gentest_test_suites gentest_fixture_selection_tests)
 
 _gentest_resolve_supervisor(_gentest_host_supervisor)
@@ -498,7 +507,21 @@ gentest_add_python_program_test(NAME result_correctness_contract
     PROG gentest_result_correctness_tests
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_result_correctness.py
     ARGS ${PROJECT_SOURCE_DIR}/cmake/gentest/DiscoverTests.cmake ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND} "${_gentest_host_supervisor}")
+gentest_add_python_program_test(NAME measured_failure_outcomes
+    PROG gentest_result_correctness_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_measured_failure_outcomes.py
+    ARGS "$<BOOL:${GENTEST_ENABLE_ALLURE_TESTS}>")
+set_tests_properties(measured_failure_outcomes PROPERTIES LABELS "public-api;runner;reporting")
 set_tests_properties(result_correctness_contract PROPERTIES LABELS "public-api;runner;reporting;cmake")
+
+add_executable(gentest_fixture_lifetime_tests regressions/fixture_lifetime.hpp support/test_entry.cpp)
+target_link_libraries(gentest_fixture_lifetime_tests PRIVATE gentest::gentest gentest_textual_suite_mocks)
+target_compile_features(gentest_fixture_lifetime_tests PRIVATE cxx_std_20)
+gentest_attach_codegen(gentest_fixture_lifetime_tests)
+add_dependencies(gentest_test_suites gentest_fixture_lifetime_tests)
+gentest_add_python_program_test(NAME fixture_lifetime_contract
+    PROG gentest_fixture_lifetime_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_fixture_lifetime.py)
 
 add_executable(gentest_failure_diagnostics_tests diagnostics/cases.cpp diagnostics/cases.hpp support/test_entry.cpp)
 target_link_libraries(gentest_failure_diagnostics_tests PRIVATE gentest::gentest gentest_textual_suite_mocks)
@@ -1590,6 +1613,19 @@ _gentest_add_proof_test(
 _gentest_add_proof_test(
     gentest_proof_api_assertions_header_isolation
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/assertions_header_isolation_red.cpp)
+
+if(NOT GENTEST_RUNTIME_SHARED AND NOT CMAKE_CROSSCOMPILING AND (WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+    set(_runtime_postfix "$<TARGET_PROPERTY:gentest_runtime,$<UPPER_CASE:$<CONFIG>>_POSTFIX>")
+    add_test(NAME static_runtime_loader_identity COMMAND "${CMAKE_COMMAND}"
+        "-DCONSUMER=$<TARGET_FILE:gentest_proof_api_context_log_sinks>"
+        "-DRUNTIME=$<TARGET_FILE:gentest_runtime>"
+        "-DRUNTIME_DIR=$<TARGET_FILE_DIR:gentest_runtime>"
+        "-DEXPECTED_ARCHIVE=${CMAKE_STATIC_LIBRARY_PREFIX}gentest_runtime${_runtime_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}"
+        -DSTATIC_RUNTIME=ON
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckRuntimeLoaderIdentity.cmake")
+    set_tests_properties(static_runtime_loader_identity PROPERTIES LABELS "runtime")
+endif()
+
 add_executable(
     gentest_proof_measured_call_phase_body_timing
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/measured/call_phase_body_timing_red.cpp)
@@ -4650,7 +4686,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_axis_generators.cpp
     -DEXPECT_CASE_COUNT=45
-    "-DREQUIRED_SUBSTRINGS=return range_many(1);;return range_descending_int(5);;return range_descending_int(3);;return range_descending_int(1);;return range_step_zero_int(1);;return range_step_zero_int(2);;return range_step_zero_int(3);;return range_float_many(0);;return range_float_many(0.25);;return range_float_many(0.5);;return range_float_descending(1);;return range_float_descending(0.75);;return range_float_descending(0.5);;return linspace_many(0.25);;return linspace_many_int(1);;return linspace_many_int(3);;return linspace_many_int(5);;return geom_many(8);;return geom_many_float(1.5);;return geom_many_float(3);;return geom_many_float(6);;return logspace_many(1000);;return logspace_many_int(1);;return logspace_many_int(2);;return logspace_many_int(4);;return logspace_many_int(8);;.name = \"smoke/axis_generators/logspace_many(0.10000000000000001)\"")
+    "-DREQUIRED_SUBSTRINGS=return ::range_many(1);;return ::range_descending_int(5);;return ::range_descending_int(3);;return ::range_descending_int(1);;return ::range_step_zero_int(1);;return ::range_step_zero_int(2);;return ::range_step_zero_int(3);;return ::range_float_many(0);;return ::range_float_many(0.25);;return ::range_float_many(0.5);;return ::range_float_descending(1);;return ::range_float_descending(0.75);;return ::range_float_descending(0.5);;return ::linspace_many(0.25);;return ::linspace_many_int(1);;return ::linspace_many_int(3);;return ::linspace_many_int(5);;return ::geom_many(8);;return ::geom_many_float(1.5);;return ::geom_many_float(3);;return ::geom_many_float(6);;return ::logspace_many(1000);;return ::logspace_many_int(1);;return ::logspace_many_int(2);;return ::logspace_many_int(4);;return ::logspace_many_int(8);;.name = \"smoke/axis_generators/logspace_many(0.10000000000000001)\"")
 set_property(TEST gentest_codegen_emit_axis_generators APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(
@@ -4784,7 +4820,7 @@ _gentest_add_cmake_helper_test(
     -DTARGET_ARG=${_gentest_codegen_cross_target_arg}
     -DSMOKE_SOURCE=tests/smoke/codegen_type_quoting.cpp
     -DEXPECT_CASE_COUNT=21
-    "-DREQUIRED_SUBSTRINGS=return char_params('\\'');;return char_params('\\\\');;return char16_params(u'D');;return char32_params(U'F');;return char8_params(u8'C');;return utf16_cstr(u\"hello\");;return utf32_cstr(U\"Dog\");;return utf8_string_view(u8\"beta\");;return wchar_params(L'Q');;return wide_string_view(L\"Wide\")")
+    "-DREQUIRED_SUBSTRINGS=return ::char_params('\\'');;return ::char_params('\\\\');;return ::char16_params(u'D');;return ::char32_params(U'F');;return ::char8_params(u8'C');;return ::utf16_cstr(u\"hello\");;return ::utf32_cstr(U\"Dog\");;return ::utf8_string_view(u8\"beta\");;return ::wchar_params(L'Q');;return ::wide_string_view(L\"Wide\")")
 set_property(TEST gentest_codegen_emit_type_quoting APPEND PROPERTY LABELS "codegen")
 
 _gentest_add_cmake_helper_test(

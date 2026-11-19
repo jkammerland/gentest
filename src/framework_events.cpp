@@ -124,6 +124,11 @@ void dispatch(const std::shared_ptr<FrameworkRunState> &run, Hook hook, const Fr
 }
 
 auto current_subject() -> std::shared_ptr<FrameworkSubject> {
+    // Lazy acquisition can enter a shared fixture while its requesting case is current.
+    if (active_subject && active_subject->fixture) {
+        return active_subject;
+    }
+
     if (const auto &context = current_test_storage();
         context && context->framework_subject && (!active_run || context->framework_subject->run == active_run)) {
         return context->framework_subject;

@@ -139,21 +139,19 @@ auto readFile(const fs::path &path) -> std::string {
 
 // Search all output, including matches spanning a read boundary. Keep only the
 // overlapping bytes in memory even when the child writes a very large log.
-auto contains(const fs::path &path, std::string_view needle, bool line = false) -> bool {
+auto contains(const fs::path &path, std::string_view needle) -> bool {
     if (needle.empty())
         return true;
     std::ifstream input(path, std::ios::binary);
     if (!input)
         throw std::runtime_error("cannot open death-test output");
     std::array<char, 16384> buffer;
-    std::string             window = line ? "\n" : "";
+    std::string             window;
     for (;;) {
         input.read(buffer.data(), buffer.size());
         window.append(buffer.data(), static_cast<std::size_t>(input.gcount()));
         if (input.bad())
             throw std::runtime_error("cannot read death-test output");
-        if (input.eof() && line)
-            window += '\n';
         if (window.find(needle) != window.npos)
             return true;
         if (input.eof())
@@ -161,10 +159,6 @@ auto contains(const fs::path &path, std::string_view needle, bool line = false) 
         if (window.size() >= needle.size())
             window.erase(0, window.size() - needle.size() + 1);
     }
-}
-
-auto hasLine(const fs::path &path, const std::string &message) -> bool {
-    return contains(path, "\n" + message + "\n", true) || contains(path, "\n" + message + "\r\n", true);
 }
 
 void printOutput(const fs::path &path) {
@@ -222,10 +216,14 @@ auto execute(Options options) -> int {
         return 1;
     };
 
-    if (contains(output, "\n[ FAIL ]", true))
-        return fail("Death test exited non-zero but reported a normal test failure.");
-    const bool missing = !entered && !completed &&
-                         (hasLine(output, "Case not found: " + options.name) || hasLine(output, "Test not found: " + options.name));
+    const auto failure = tmp.path / "body.failure";
+    if (fs::exists(failure)) {
+        printOutput(failure);
+        if (completed)
+            std::cerr << "Death test body completed without the expected termination.\n";
+        return fail("Death test reported a normal test failure.");
+    }
+    const bool missing = phase == options.name + "\nmissing";
     if (missing && !options.skip_missing)
         return fail("Death test case not found: " + options.name);
     if (missing || (child.status == 77 && phase == options.name + "\nskipped")) {

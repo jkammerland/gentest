@@ -176,8 +176,8 @@ std::string resolve_fixture_context_issue(const std::shared_ptr<gentest::detail:
     if (!first_failure.empty()) {
         return first_failure;
     }
-    if (gentest::detail::has_bench_error()) {
-        return gentest::detail::take_bench_error();
+    if (auto error = gentest::detail::take_bench_error()) {
+        return error->empty() ? "fixture failed" : std::move(*error);
     }
     if (!ctx) {
         if (caught_runtime_skip) {
@@ -242,9 +242,9 @@ std::string format_fixture_error(std::string_view stage, std::string_view detail
 
 struct FixtureBenchStateScope {
     gentest::detail::BenchPhaseScope phase{gentest::detail::BenchPhase::None};
-    std::string                      previous_error = gentest::detail::take_bench_error();
+    std::optional<std::string>       previous_error = gentest::detail::take_bench_error();
 
-    ~FixtureBenchStateScope() { gentest::detail::bench_error_storage() = std::move(previous_error); }
+    ~FixtureBenchStateScope() { gentest::detail::pending_bench_error_storage() = std::move(previous_error); }
 };
 
 // Factories and setup may acquire other fixtures. Never hold the registry lock
@@ -481,17 +481,18 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
     for (auto &item : work) {
         gentest::detail::FrameworkSubjectScope subject(item.fixture_name, true);
         gentest::detail::RecordingTargetScope  recording_scope(gentest::detail::make_fixture_recording(item.suite, item.global_recording));
-        if (item.teardown) {
-            std::string       error;
-            const std::string label = fmt::format("fixture teardown {}", item.fixture_name);
-            if (!run_fixture_phase(label, [&](std::string &err) { item.teardown(item.instance.get(), err); }, error)) {
+        const auto                             run_phase = [&](const auto &phase) {
+            std::string error;
+            if (!run_fixture_phase(fmt::format("fixture teardown {}", item.fixture_name), phase, error)) {
                 const std::string message = fmt::format("fixture teardown failed for {}: {}", item.fixture_name, error);
                 fmt::print(stderr, "gentest: {}\n", message);
                 if (errors)
                     errors->push_back(message);
                 teardown_ok = false;
             }
-        }
+        };
+        if (item.teardown)
+            run_phase([&](std::string &error) { item.teardown(item.instance.get(), error); });
 
         {
             std::lock_guard<std::mutex> lk(reg.mtx);
@@ -500,9 +501,9 @@ bool teardown_shared_fixtures(std::vector<std::string> *errors) {
             entry.initialized  = false;
             entry.initializing = false;
         }
-        // Release the dependent before tearing down its dependencies. A custom
-        // deleter may itself query the registry, so run it outside the mutex.
-        item.instance.reset();
+
+        // Destructors can query dependencies and report failures even when the hook threw.
+        run_phase([&](std::string &) { item.instance.reset(); });
     }
     return teardown_ok;
 }
