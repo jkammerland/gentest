@@ -234,10 +234,6 @@ GENTEST_RUNTIME_API void require_owner_context(std::string_view operation) {
 }
 
 GENTEST_RUNTIME_API void require_not_adopted_context(std::string_view operation) {
-    const auto ctx = current_test_storage();
-    if (!ctx) {
-        return;
-    }
     if (current_context_role_storage() == CurrentContextRole::Adopted) {
         (void)std::fprintf(
             stderr,
@@ -249,6 +245,9 @@ GENTEST_RUNTIME_API void require_not_adopted_context(std::string_view operation)
 #endif
         std::abort();
     }
+    const auto ctx = current_test_storage();
+    if (!ctx)
+        return;
     if (!accepts_late_test_operation(ctx)) {
         fail_without_active_context(operation);
     }
@@ -266,6 +265,15 @@ void record_failure(std::string msg, const std::source_location &loc) {
 void record_failure_at(std::string msg, std::string file, unsigned line) {
     auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
     append_failure(buffer, std::move(msg), {.file = normalize_failure_file(std::move(file)), .line = line});
+}
+
+void preserve_local_fixture_skip() {
+    auto ctx = current_test();
+    if (!ctx)
+        return;
+
+    std::lock_guard<std::mutex> lock(ctx->mtx);
+    ctx->preserve_skip_reason = ctx->runtime_skip_requested.load(std::memory_order_relaxed);
 }
 
 [[noreturn]] void skip_shared_fixture_unavailable(std::string_view reason, const std::source_location &loc) {

@@ -4,6 +4,7 @@
 #include "runner_output.h"
 #include "runner_reporting.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <fmt/color.h>
@@ -266,6 +267,14 @@ CaseResult finish_invoke_result_impl(TestRunContext &state, const gentest::Case 
         return rr;
     }
 
+    if (should_skip && has_failures && !runtime_skip_reason.empty()) {
+        const auto note = fmt::format("\nSkip requested: {}", runtime_skip_reason);
+        failures.front() += note;
+        const auto first = std::ranges::find(event_kinds, 'F');
+        if (first != event_kinds.end())
+            event_lines[static_cast<std::size_t>(first - event_kinds.begin())] += note;
+        rr.timeline = event_lines;
+    }
     rr.failures = failures;
 
     if (!failures.empty()) {
