@@ -1,3 +1,4 @@
+#include "gentest/assertions.h"
 #include "gentest/context.h"
 #include "gentest/runner.h"
 
@@ -16,6 +17,16 @@ void death(void *) {
     if (std::fputs("fatal diagnostic\n", stderr) == EOF)
         return;
     std::_Exit(77);
+}
+
+void failedExpectation(void *) {
+    gentest::expect(false, "unexpected value before exit");
+    std::_Exit(23);
+}
+
+void diagnostic(void *) {
+    if (std::fputs("[ FAIL ] parser rejected input\n", stderr) != EOF)
+        std::_Exit(23);
 }
 
 void stall(void *) {
@@ -44,7 +55,7 @@ void invalid(void *) {
     std::_Exit(42);
 }
 
-enum class AsyncExit { Body, FrameTeardown, CanceledFrameTeardown };
+enum class AsyncExit { Body, FailedExpectation, FrameTeardown, CanceledFrameTeardown };
 
 struct ExitOnFrameRelease {
     ~ExitOnFrameRelease() {
@@ -57,6 +68,10 @@ struct ExitOnFrameRelease {
 // final_suspend on return or during cancellation of an unresumable task.
 gentest::awaitable<void> asyncBody(std::unique_ptr<ExitOnFrameRelease>, AsyncExit phase) {
     co_await gentest::async::yield();
+    if (phase == AsyncExit::FailedExpectation) {
+        gentest::expect(false, "unexpected value after resume");
+        std::_Exit(42);
+    }
     if (phase == AsyncExit::Body && std::fputs("async body resumed\n", stderr) != EOF)
         std::_Exit(42);
     if (phase == AsyncExit::CanceledFrameTeardown)
@@ -73,11 +88,14 @@ int main(int argc, char **argv) {
         {.name = "probe/death", .fn = death, .is_death = true},
         {.name = "probe/ordinary", .fn = death},
         {.name = "probe/caf\xc3\xa9", .fn = death, .is_death = true},
+        {.name = "probe/failed_expectation", .fn = failedExpectation, .is_death = true},
+        {.name = "probe/diagnostic", .fn = diagnostic, .is_death = true},
         {.name = "probe/stall", .fn = stall, .is_death = true},
         {.name = "probe/silence", .fn = silent, .is_death = true},
         {.name = "probe/malformed", .fn = malformed, .is_death = true},
         {.name = "probe/invalid", .fn = invalid, .is_death = true},
         {.name = "probe/async_body", .async_fn = asyncCase<AsyncExit::Body>, .is_async = true, .is_death = true},
+        {.name = "probe/async_expectation", .async_fn = asyncCase<AsyncExit::FailedExpectation>, .is_async = true, .is_death = true},
         {.name = "probe/async_teardown", .async_fn = asyncCase<AsyncExit::FrameTeardown>, .is_async = true, .is_death = true},
         {.name = "probe/async_canceled", .async_fn = asyncCase<AsyncExit::CanceledFrameTeardown>, .is_async = true, .is_death = true},
     };

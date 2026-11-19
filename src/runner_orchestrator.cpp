@@ -604,8 +604,6 @@ int write_empty_execution_reports(const CliOptions &opt) {
 } // namespace
 
 int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &opt) {
-    constexpr int kExitCaseNotFound = 3;
-
     switch (opt.mode) {
     case Mode::Help:
 #ifdef GENTEST_VERSION_STR
