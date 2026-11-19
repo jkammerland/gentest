@@ -11,6 +11,7 @@
 #include "runner_measured_report.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <cstddef>
@@ -50,9 +51,11 @@ double run_epoch_calls(const gentest::Case &c, void *ctx, std::size_t iters, std
     const auto invoke = c.measured_fn ? c.measured_fn : c.fn;
     return detail::run_call_phase_with_context(
         c, "skip requested during benchmark call phase",
-        [&] {
+        [&](const std::atomic<bool> &failed) {
             for (std::size_t i = 0; i < iters; ++i) {
                 invoke(ctx);
+                if (failed.load(std::memory_order_relaxed))
+                    return;
                 iterations_done = i + 1;
             }
         },
@@ -101,11 +104,13 @@ double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t ite
     const auto invoke = c.measured_fn ? c.measured_fn : c.fn;
     return detail::run_call_phase_with_context(
         c, "skip requested during jitter call phase",
-        [&] {
+        [&](const std::atomic<bool> &failed) {
             for (std::size_t i = 0; i < iters; ++i) {
                 auto start = clock::now();
                 invoke(ctx);
                 auto end = clock::now();
+                if (failed.load(std::memory_order_relaxed))
+                    return;
                 samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - start).count()));
                 iterations_done = i + 1;
             }
@@ -117,40 +122,32 @@ double run_jitter_epoch_calls(const gentest::Case &c, void *ctx, std::size_t ite
 double run_jitter_batch_epoch_calls(const gentest::Case &c, void *ctx, std::size_t batch_iters, std::size_t batch_samples,
                                     std::size_t &iterations_done, bool &had_assert_fail, std::vector<double> &samples_ns,
                                     MeasurementCaseFailure &failure) {
-    using clock             = std::chrono::steady_clock;
-    iterations_done         = 0;
-    std::size_t local_done  = 0;
-    auto        batch_start = clock::now();
-    bool        in_batch    = false;
-    const auto  invoke      = c.measured_fn ? c.measured_fn : c.fn;
+    using clock            = std::chrono::steady_clock;
+    iterations_done        = 0;
+    std::size_t local_done = 0;
+    const auto  invoke     = c.measured_fn ? c.measured_fn : c.fn;
+
+    // An interrupted batch has completed calls but no valid average duration.
+    const auto count_partial_batch = [&] { iterations_done += local_done; };
     return detail::run_call_phase_with_context(
         c, "skip requested during jitter call phase",
-        [&] {
+        [&](const std::atomic<bool> &failed) {
             for (std::size_t sample = 0; sample < batch_samples; ++sample) {
-                batch_start = clock::now();
-                local_done  = 0;
-                in_batch    = true;
-                for (std::size_t i = 0; i < batch_iters; ++i) {
+                const auto start = clock::now();
+                for (local_done = 0; local_done < batch_iters; ++local_done) {
                     invoke(ctx);
-                    ++local_done;
+                    if (failed.load(std::memory_order_relaxed)) {
+                        count_partial_batch();
+                        return;
+                    }
                 }
-                auto end = clock::now();
-                if (local_done != 0) {
-                    samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - batch_start).count()) /
-                                         static_cast<double>(local_done));
-                    iterations_done += local_done;
-                }
-                in_batch = false;
-            }
-        },
-        [&] {
-            if (in_batch && local_done != 0) {
-                auto end = clock::now();
-                samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - batch_start).count()) / static_cast<double>(local_done));
+                const auto end = clock::now();
+                samples_ns.push_back(ns_from_s(std::chrono::duration<double>(end - start).count()) / static_cast<double>(batch_iters));
                 iterations_done += local_done;
+                local_done = 0;
             }
         },
-        had_assert_fail, failure);
+        count_partial_batch, had_assert_fail, failure);
 }
 // NOLINTEND(bugprone-easily-swappable-parameters)
 

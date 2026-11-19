@@ -87,7 +87,9 @@ struct [[gentest::fixture(suite)]] MockOwner {
     gentest::expect(owner.calculator, &mocking::Calculator::reset).times(1);
 }
 
-struct [[gentest::fixture(suite)]] Worker {
+struct [[gentest::fixture(suite)]] Worker : gentest::FixtureTearDown {
+    gentest::CurrentContext                                  callback_context;
+    bool                                                     stale_admitted = false;
     std::latch                                               ready{1};
     std::latch                                               stop{1};
     std::thread                                              worker;
@@ -108,10 +110,37 @@ struct [[gentest::fixture(suite)]] Worker {
             worker.join();
             if (log_after_join) {
                 gentest::log("stop callback joined worker");
+
+                // Capture the callback's current context after the previous worker drained.
+                callback_context = gentest::get_current_context();
+                std::thread reporter([this, context] {
+                    stale_admitted = can_adopt(context);
+                    auto lease     = gentest::set_current_context(callback_context);
+                    {
+                        auto nested = gentest::set_current_context(gentest::get_current_context());
+                        gentest::log("nested reporter lease");
+                    }
+                    gentest::log("reporter restored outer lease");
+                });
+                reporter.join();
+
                 auto nested = gentest::set_current_context(context);
                 gentest::log("nested callback lease");
             }
         });
+    }
+
+    static bool can_adopt(const gentest::CurrentContext &context) {
+        auto lease = gentest::set_current_context(context);
+        return static_cast<bool>(gentest::get_current_context());
+    }
+
+    void tearDown() override {
+        // The handoff handle can survive case completion in this shared fixture.
+        if (callback_context) {
+            gentest::expect(!stale_admitted, "pre-stop handle reopened adoption after the last worker joined");
+            gentest::expect(!can_adopt(callback_context), "callback handle reopened the finished case");
+        }
     }
 };
 

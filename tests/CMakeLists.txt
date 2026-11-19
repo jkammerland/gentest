@@ -13,13 +13,17 @@ gentest_add_python_program_test(NAME selected_cases_contract
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_selected_cases.py)
 set_tests_properties(selected_cases_contract PROPERTIES LABELS "public-api;runner")
 
+_gentest_resolve_supervisor(_gentest_host_supervisor)
 add_executable(gentest_discover_exact_probe cmake/discover_exact/main.cpp)
+if(TARGET gentest_supervise AND NOT CMAKE_CROSSCOMPILING AND NOT GENTEST_SUPERVISE_EXECUTABLE)
+    add_dependencies(gentest_discover_exact_probe gentest_supervise)
+endif()
 target_link_libraries(gentest_discover_exact_probe PRIVATE gentest::gentest)
 target_compile_features(gentest_discover_exact_probe PRIVATE cxx_std_20)
 gentest_add_python_program_test(NAME discover_exact_contract
     PROG gentest_discover_exact_probe
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_discover_exact.py
-    ARGS ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND} "${CMAKE_GENERATOR}")
+    ARGS ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND} "${CMAKE_GENERATOR}" "${_gentest_host_supervisor}")
 set_tests_properties(discover_exact_contract PROPERTIES LABELS "public-api;runner;cmake")
 
 # Shared fixtures activate only when selected runnable cases acquire them.
@@ -128,7 +132,6 @@ add_dependencies(gentest_test_suites gentest_report_stream_tests)
 add_dependencies(gentest_test_suites gentest_selection_tests gentest_discover_exact_probe)
 add_dependencies(gentest_test_suites gentest_fixture_selection_tests)
 
-_gentest_resolve_supervisor(_gentest_host_supervisor)
 if(_gentest_host_supervisor AND (NOT CMAKE_CROSSCOMPILING OR CMAKE_CROSSCOMPILING_EMULATOR))
     # Use a real runner for the watchdog and a separate host process for each verdict.
     add_executable(gentest_supervisor_probe death_supervisor/probe.cpp)
@@ -5742,6 +5745,14 @@ set_property(TEST gentest_package_consumer_executable_path APPEND PROPERTY LABEL
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
+    if(GENTEST_BUILD_CODEGEN AND NOT CMAKE_CROSSCOMPILING AND CMAKE_VERSION VERSION_GREATER_EQUAL 4.3)
+        _gentest_add_cmake_helper_test(
+            gentest_host_tools_sbom
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckHostToolsSbom.cmake
+            package)
+    endif()
+
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING)
         _gentest_add_cmake_helper_test(
             gentest_relocated_shared_fmt_codegen

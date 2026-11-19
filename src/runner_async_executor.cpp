@@ -446,13 +446,13 @@ bool run_tests_async_batch(TestRunContext &state, std::span<const gentest::Case>
             if (run.ctxinfo->recording && run.ctxinfo->recording->occurrence && run.ctxinfo->recording->occurrence->outcome == "pending") {
                 run.ctxinfo->recording->occurrence->outcome = "canceled";
             }
-            if (adopted_work) {
+            // A stop callback can acquire a lease even if cancellation began with none.
+            if (adopted_work || has_adopted_work(run)) {
                 deferred_canceled_tasks.push_back(DeferredCanceledTask{.task                     = std::move(run.task),
                                                                        .ctx                      = run.ctxinfo,
                                                                        .run_index                = run_index,
                                                                        .record_result_on_cleanup = run.ready_to_finalize});
-            }
-            if (!adopted_work) {
+            } else {
                 {
                     gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);
                     run.task.reset();

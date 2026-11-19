@@ -154,7 +154,9 @@ and reports progress automatically when the framework suspends. The default
 - **Acknowledgement.** Acknowledge a finished program promptly: await
   `Session::wait()`, read its terminal result with `Session::inspect()`, or get
   `SignalResult::alreadyExited` from `Session::signal()`. These calls finish
-  its watchdog. The harness monitor can't see the program's exit by itself, so
+  its watchdog after it drains the program's notifications. An acknowledged
+  program that never started a subject or left one open fails the session.
+  The harness monitor can't see the program's exit by itself, so
   a program that sends `finish()` and exits without this acknowledgement can
   hit the idle timeout while the session stays open. End-of-stream on the
   program's channel is not an acknowledgement.

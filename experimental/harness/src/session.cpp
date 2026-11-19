@@ -16,6 +16,7 @@
 #include <poll.h>
 #include <spawn.h>
 #include <sys/eventfd.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -360,25 +361,24 @@ struct Session::Impl {
     }
 
     void finishWatchdog(std::size_t index) {
-        std::shared_ptr<WatchdogMonitor> watcher;
-        {
-            std::lock_guard lock(mutex);
-            watcher = watchdogs[index];
-        }
-        if (watcher) {
-            watcher->finish();
+        std::lock_guard lock(mutex);
+        auto           &channel = notificationChannels[index];
+        if (watchdogs[index] && channel) {
+            // The namespace and launcher retain copies of the producer socket.
+            // End its stream after the service exits so queued records precede EOF.
+            systemCheck(::shutdown(channel->producer().socket, SHUT_WR) == 0, "finish program notification channel");
+            channel.reset();
+            watchdogs[index]->finish();
         }
     }
 
     void disarmWatchdogs() {
+        std::lock_guard lock(mutex);
         for (std::size_t i = 0; i < watchdogs.size(); ++i) {
-            std::shared_ptr<WatchdogMonitor> watcher;
-            {
-                std::lock_guard lock(mutex);
-                watcher = watchdogs[i];
-            }
-            if (watcher) {
-                watcher->disarm();
+            // Acknowledged programs already owe a final verdict, even when the
+            // owner immediately stops the remaining programs.
+            if (watchdogs[i] && notificationChannels[i]) {
+                watchdogs[i]->disarm();
             }
         }
     }

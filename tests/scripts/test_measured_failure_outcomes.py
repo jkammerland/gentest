@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from target_command import target_command
 
 
-def check_case(binary, root, name, kind, diagnostic, allure_enabled):
+def check_case(binary, root, name, kind, diagnostic, allure_enabled, *, min_epoch=0, expected_samples=None):
     case = f"measured_outcomes/{name}"
     records = root / "records"
     junit = root / "result.xml"
@@ -17,7 +17,7 @@ def check_case(binary, root, name, kind, diagnostic, allure_enabled):
     extra = ["--allure-dir=" + str(allure)] if allure_enabled else []
     run = subprocess.run(target_command(
         binary, "--run=" + case, "--report-format=json", "--junit=" + str(junit), "--records=" + str(records),
-        "--bench-epochs=3", "--bench-warmup=0", "--bench-min-epoch-time-s=0",
+        "--bench-epochs=3", "--bench-warmup=0", f"--bench-min-epoch-time-s={min_epoch}",
         "--bench-min-total-time-s=0", "--bench-max-total-time-s=0", *extra,
     ), capture_output=True, text=True, timeout=30)
     failed = diagnostic is not None
@@ -38,6 +38,14 @@ def check_case(binary, root, name, kind, diagnostic, allure_enabled):
         result_file, = allure.glob("*-result.json")
         result = json.loads(result_file.read_text(encoding="utf-8"))
         assert (result["name"], result["status"]) == (case, "failed" if failed else "passed"), result
+
+        if failed:
+            assert diagnostic in result["statusDetails"]["message"], result
+
+    if expected_samples is not None:
+        for key, value in (("attempted_calls", 4), ("completed_samples", expected_samples)):
+            prop = occurrence.find(f"properties/property[@name='gentest.property.{key}']")
+            assert prop is not None and prop.get("value") == str(value), (case, key, ET.tostring(occurrence))
 
     if failed:
         issue, = report["issues"]
@@ -68,3 +76,11 @@ if __name__ == "__main__":
     ):
         with tempfile.TemporaryDirectory() as directory:
             check_case(binary, Path(directory), name, kind, diagnostic, allure_flag == "1")
+
+    for kind in ("bench", "jitter"):
+        # With single-call epochs, call 4 follows calibration and two valid samples.
+        # A large target instead puts call 4 first in a four-call calibration batch.
+        for skip_after, min_epoch, samples in (("true", 0, 2), ("false", 0, 2), ("false", 1e9, 0)):
+            with tempfile.TemporaryDirectory() as directory:
+                check_case(binary, Path(directory), f"{kind}_deferred({skip_after})", kind, mismatch,
+                           allure_flag == "1", min_epoch=min_epoch, expected_samples=samples)

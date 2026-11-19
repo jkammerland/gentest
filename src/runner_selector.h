@@ -14,6 +14,7 @@ enum class SelectionStatus {
     Ok,
     CaseNotFound,
     KindMismatch,
+    RegistrationTypeMismatch,
     Ambiguous,
     FilterNoBenchMatch,
     FilterNoJitterMatch,
