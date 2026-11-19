@@ -388,6 +388,23 @@ if(NOT GENTEST_BAZEL_HELPER_CONTRACT)
     //:gentest_downstream_textual
     //:gentest_downstream_module_mocks
     //:gentest_downstream_module)
+  # Each external suite should run its conditional failure. Losing the package
+  # include root silently produces a passing one-case suite instead.
+  set(_run_args ${_check_args})
+  list(TRANSFORM _run_args REPLACE "^build$" "run")
+  foreach(_suite IN ITEMS @widget_checks//network:headers @widget_checks//network:modules)
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env} ${_bazel_command}
+              ${_run_args} "${_suite}" -- --no-color
+      WORKING_DIRECTORY "${_workspace_dir}"
+      RESULT_VARIABLE _rc OUTPUT_VARIABLE _stdout ERROR_VARIABLE _stderr)
+    set(_log "${_stdout}\n${_stderr}")
+    if(NOT _rc STREQUAL "1" OR NOT _log MATCHES "\\[ FAIL \\] widget/optional"
+       OR NOT _log MATCHES "lhs=4, rhs=5" OR NOT _log MATCHES "passed 1/2; failed 1")
+      message(FATAL_ERROR "${_suite} did not execute the conditional failure (exit ${_rc}).\n${_log}")
+    endif()
+  endforeach()
+
   set(_death_args ${_check_args})
   list(TRANSFORM _death_args REPLACE "^build$" "test")
   execute_process(
