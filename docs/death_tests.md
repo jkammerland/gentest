@@ -29,6 +29,14 @@ a crash in fixture setup or teardown, and a timeout all fail the test. You can
 also require text in the child's stdout or stderr to check that it reached the
 intended failure.
 
+Each supervised death test starts with fresh fixtures, including suite and
+global fixtures. In-memory changes made by earlier tests stay in their own
+process. If the death test increments a fixture counter, the increment is lost
+when the child exits. Other tests and reruns never see it.
+
+Files and database writes can outlive the child. Arrange any required cleanup
+outside the child because an abrupt exit can skip fixture teardown and destructors.
+
 ## Run a death test
 
 `gentest_supervise` runs one named case and returns its result:
