@@ -523,7 +523,9 @@ def _gentest_textual_suite_codegen_impl(ctx):
     for index, slot in enumerate(scan_slots):
         args.add("--textual-registration-output", registration_cpps[index].path)
         args.add("--scan-slot-kind", scan_slot_kinds[index])
-        source_path = slot.path.removeprefix(source_root + "/") if source_root else slot.path
+        # The compiler searches quote roots in both the source and output trees.
+        # Keep the path below those roots in the ID used to render the include.
+        source_path = slot.path.removeprefix(slot.root.path + "/").removeprefix(source_root + "/")
         args.add("--compile-context-id", "{}:{}".format(ctx.attr.target_id, source_path))
     args.add("--artifact-manifest", artifact_manifest.path)
     for slot in scan_slots:
