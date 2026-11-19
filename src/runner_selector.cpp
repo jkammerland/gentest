@@ -79,6 +79,7 @@ SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOpti
     result.has_selection = (opt.run_name != nullptr) || (opt.filter_pat != nullptr) || !opt.include_tags.empty() ||
                            !opt.exclude_tags.empty() || !opt.exclude_patterns.empty();
 
+    const bool exact_registration = opt.exact_run || opt.death_test_marker;
     if (opt.run_name) {
         const std::string_view requested_name = opt.run_name;
 
@@ -102,8 +103,15 @@ SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOpti
                 result.ambiguous_matches = std::move(exact_kind_matches);
                 return result;
             }
-            idxs.push_back(exact_kind_matches.front());
-        } else if (opt.exact_run || opt.death_test_marker) {
+
+            // A saved registration fixes both the name and how the case must be launched.
+            const auto idx = exact_kind_matches.front();
+            if (exact_registration && cases[idx].is_death != (opt.death_test_marker != nullptr)) {
+                result.status = SelectionStatus::RegistrationTypeMismatch;
+                return result;
+            }
+            idxs.push_back(idx);
+        } else if (exact_registration) {
             // Build-system registrations name one exact case. A stale entry
             // must never launch another case that happens to share its suffix.
             result.status = SelectionStatus::CaseNotFound;
@@ -180,7 +188,7 @@ SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOpti
         return !included || excluded_tag || excluded_name;
     });
     if (idxs.empty()) {
-        result.status = opt.exact_run ? SelectionStatus::ExactRunExcluded : SelectionStatus::ZeroSelected;
+        result.status = exact_registration ? SelectionStatus::ExactRunExcluded : SelectionStatus::ZeroSelected;
         return result;
     }
 
