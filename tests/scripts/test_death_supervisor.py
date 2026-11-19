@@ -1,6 +1,7 @@
 """Exercise one supervisor invocation per child and check the parent verdict."""
 
 import os
+from contextlib import ExitStack
 from pathlib import Path
 import signal
 import socket
@@ -37,39 +38,51 @@ def child(args):
     return 3
 
 
-def wait_for_outer_cancellation(fd):
-    # Both the selected process and a descendant keep this connection open.
-    # Closing the controller's end also releases them if the check fails.
-    with socket.socket(fileno=int(fd)) as peer:
-        role = b"D" if os.fork() == 0 else b"C"
-        peer.sendall(role)
+def wait_for_outer_cancellation(port, role):
+    # Each process confirms it is alive and holds its own connection until killed.
+    with socket.create_connection(("127.0.0.1", int(port)), timeout=10) as peer, ExitStack() as stack:
+        if role == "child":
+            stack.enter_context(subprocess.Popen([sys.executable, str(Path(__file__).resolve()),
+                                                  "--outer-cancellation-child", port, "descendant"]))
+        peer.settimeout(None)
+        peer.sendall(b"C" if role == "child" else b"D")
         peer.recv(1)
     return 1
 
 
 def check_outer_cancellation(supervisor):
-    controller, peer = socket.socketpair()
-    with controller, peer, tempfile.TemporaryDirectory() as work:
-        controller.settimeout(10)
+    with socket.socket() as listener, tempfile.TemporaryDirectory() as work:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(2)
+        listener.settimeout(10)
+        port = str(listener.getsockname()[1])
         command = [supervisor, "--case", "cancel", "--", sys.executable,
-                   str(Path(__file__).resolve()), "--outer-cancellation-child", str(peer.fileno())]
+                   str(Path(__file__).resolve()), "--outer-cancellation-child", port, "child"]
         env = os.environ | {"TEST_TMPDIR": work}
-        with subprocess.Popen(command, start_new_session=True, pass_fds=(peer.fileno(),), env=env) as process:
-            peer.close()
+        with subprocess.Popen(command, start_new_session=(os.name == "posix"), env=env) as process, ExitStack() as peers:
             try:
-                ready = controller.recv(2)
-                if len(ready) == 1:
-                    ready += controller.recv(1)
-                if sorted(ready) != sorted(b"CD"):
+                connections = [peers.enter_context(listener.accept()[0]) for _ in range(2)]
+                for connection in connections:
+                    connection.settimeout(10)
+                if sorted(connection.recv(1) for connection in connections) != [b"C", b"D"]:
                     raise AssertionError("child and descendant did not confirm startup")
 
-                os.killpg(process.pid, signal.SIGKILL)
-                if process.wait(timeout=10) != -signal.SIGKILL:
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGKILL)
+                    expected_exit = -signal.SIGKILL
+                else:
+                    process.kill()
+                    expected_exit = 1
+                if process.wait(timeout=10) != expected_exit:
                     raise AssertionError("outer runner did not kill the supervisor")
-                if controller.recv(1):
-                    raise AssertionError("unexpected output after process group cancellation")
+                for connection in connections:
+                    try:
+                        if connection.recv(1):
+                            raise AssertionError("unexpected output after cancellation")
+                    except ConnectionResetError:
+                        # Windows may report an abrupt close as a reset.
+                        pass
             finally:
-                controller.close()
                 if process.poll() is None:
                     process.kill()
 
@@ -100,8 +113,7 @@ def main(supervisor, probe, *emulator):
     check("absent", ["--skip-missing"], 77, "[ SKIP ]")
     check("any", ["--expect", "missing message"], 1, "Expected substring")
     check("any", [], 1, "could not execute", [str(Path(supervisor).with_name("missing-test-executable"))])
-    if os.name == "posix":
-        check_outer_cancellation(supervisor)
+    check_outer_cancellation(supervisor)
 
     real = [*emulator, probe]
     for name, message in (("be/death", "not found"), ("probe/ordinary", "requires the death attribute")):
@@ -130,7 +142,7 @@ def main(supervisor, probe, *emulator):
 
 if __name__ == "__main__":
     if sys.argv[1] == "--outer-cancellation-child":
-        sys.exit(wait_for_outer_cancellation(sys.argv[2]))
+        sys.exit(wait_for_outer_cancellation(*sys.argv[2:4]))
     if sys.argv[1] == "--child":
         sys.exit(child(sys.argv[2:]))
     main(*sys.argv[1:])
