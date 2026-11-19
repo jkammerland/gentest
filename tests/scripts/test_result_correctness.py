@@ -40,7 +40,7 @@ def main():
         run("--run=result_correctness/pass", "--junit=" + str(report))
         assert ET.parse(report).getroot().attrib["tests"] == "1"
         for args in (("--filter=absent",), ("--filter=absent", "--kind=test"),
-                     ("--kind=bench", "--exclude=*_mock", "--report-format=json"),
+                     ("--kind=bench", "--filter=result_correctness/*", "--exclude=*_mock", "--report-format=json"),
                      ("--filter=absent", "--report-format=json"),
                      ("--filter=*body_death",)):
             report.write_text("stale evidence")

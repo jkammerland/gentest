@@ -498,6 +498,11 @@ gentest_add_python_program_test(NAME result_correctness_contract
     PROG gentest_result_correctness_tests
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_result_correctness.py
     ARGS ${PROJECT_SOURCE_DIR}/cmake/gentest/DiscoverTests.cmake ${CMAKE_COMMAND} ${CMAKE_CTEST_COMMAND} "${_gentest_host_supervisor}")
+gentest_add_python_program_test(NAME measured_failure_outcomes
+    PROG gentest_result_correctness_tests
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_measured_failure_outcomes.py
+    ARGS "$<BOOL:${GENTEST_ENABLE_ALLURE_TESTS}>")
+set_tests_properties(measured_failure_outcomes PROPERTIES LABELS "public-api;runner;reporting")
 set_tests_properties(result_correctness_contract PROPERTIES LABELS "public-api;runner;reporting;cmake")
 
 add_executable(gentest_failure_diagnostics_tests diagnostics/cases.cpp diagnostics/cases.hpp support/test_entry.cpp)

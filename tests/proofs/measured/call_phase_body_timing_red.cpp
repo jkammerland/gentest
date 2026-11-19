@@ -120,10 +120,7 @@ bool prove_call_timing(const gentest::Case &test, Exit exit) {
     retirement.worker.join();
 
     const bool interrupted = exit != Exit::Return;
-    const bool saw_error   = gentest::detail::has_bench_error();
-    if (saw_error) {
-        (void)gentest::detail::take_bench_error();
-    }
+    const bool saw_error   = gentest::detail::take_bench_error().has_value();
 
     const double expected_s = std::chrono::duration<double>(kBodyWork).count();
     if (elapsed_s != expected_s || retirement.wait_observations == 0 || !retired_before_return || !closed_before_return ||
