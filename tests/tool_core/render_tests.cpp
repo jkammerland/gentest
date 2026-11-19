@@ -260,7 +260,7 @@ int main() {
                    "render_wrappers emits direct free test wrappers");
         t.contains(rendered, "static_cast<void>(::gentest_lookup_helper_1());",
                    "render_wrappers preserves return values for parameterized free cases");
-        t.contains(rendered, "return math::sum(1, 2);", "render_wrappers forwards plain call arguments inside helpers");
+        t.contains(rendered, "return ::math::sum(1, 2);", "render_wrappers forwards plain call arguments inside helpers");
         t.contains(rendered, "if (!gentest_init_fixture(fx0_, \"fx::LocalFx\")) return;",
                    "render_wrappers initializes local free fixtures");
         t.contains(rendered,
@@ -272,7 +272,7 @@ int main() {
                    "\"fx::GlobalFx\")) return;",
                    "render_wrappers initializes global free fixtures");
         t.contains(rendered,
-                   "return fx::invoke(static_cast<decltype(fx0)&&>(fx0), 7, static_cast<decltype(fx1)&&>(fx1), "
+                   "return ::fx::invoke(static_cast<decltype(fx0)&&>(fx0), 7, static_cast<decltype(fx1)&&>(fx1), "
                    "static_cast<decltype(fx2)&&>(fx2));",
                    "render_wrappers forwards fixture-bound helper arguments");
         t.contains(rendered, "EPHEMERAL kCaseInvoke_3\nfixture::EphemeralFx\nstatic_cast<void>(::gentest_lookup_helper_3(fx_.ref()));",

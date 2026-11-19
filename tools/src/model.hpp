@@ -249,6 +249,8 @@ struct TestCaseInfo {
     std::vector<std::string> template_args;
     // Call-time arguments for free/member tests (e.g., parameterized value list joined by ',').
     std::string call_arguments;
+    std::string overload_pointer_type;
+    bool        overload_needs_object = false;
     // Free-function fixtures inferred from function signature parameter types.
     // Raw fixture type tokens as discovered from the signature; resolved after discovery.
     std::vector<std::string> free_fixture_types;

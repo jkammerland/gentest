@@ -35,4 +35,11 @@ void hex_range(int value) { EXPECT_TRUE(value >= 16 && value <= 18); }
 
 void long_double_range(long double value) { EXPECT_TRUE(value == 0.0L || value == 0.25L || value == 0.5L); }
 
+void owned(const char *) { throw std::runtime_error("called borrowed overload"); }
+
+void owned(std::string text) {
+    text += '!';
+    EXPECT_EQ(text, "a/*literal*/b!");
+}
+
 } // namespace discovery_render_regressions

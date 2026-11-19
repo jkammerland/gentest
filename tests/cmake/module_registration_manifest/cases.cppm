@@ -91,6 +91,25 @@ void exported_parameters(int value) {
     gentest::asserts::EXPECT_TRUE(value == 1 || value == 2);
 }
 
+inline int evaluations = 0;
+inline int next_value() { return ++evaluations; }
+
+#define GENTEST_REGRESSION_INLINE inline
+[[using gentest: test("module_registration/short_body") /*, skip("disabled")*/, parameters(value, next_value())]]
+GENTEST_REGRESSION_INLINE void overloaded(short value) {
+    gentest::asserts::EXPECT_EQ(value, 1);
+    gentest::asserts::EXPECT_EQ(evaluations, 1);
+    evaluations = 0;
+}
+#undef GENTEST_REGRESSION_INLINE
+
+void overloaded(int) { gentest::fail("selected the int overload"); }
+
+[[gentest::test("module_registration/commented_death"), /* ordinary comment */ gentest::death]]
+void commented_death() {
+    std::abort();
+}
+
 template <typename T>
 [[using gentest: test("module_registration/exported_template"), template(T, int, long)]]
 void exported_template() {

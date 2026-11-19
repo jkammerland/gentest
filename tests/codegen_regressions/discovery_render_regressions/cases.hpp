@@ -82,4 +82,18 @@ void hex_range(int value);
 [[using gentest: test("values/long_double_range"), range(value, 0.0, 0.25, 0.5)]]
 void long_double_range(long double value);
 
+// A literal is a better match for the unannotated overload.
+void owned(const char *);
+[[using gentest: test("values/owned"), parameters(text, "a/*literal*/b")]]
+void owned(std::string text);
+
+#define GENTEST_REGRESSION_INLINE inline
+[[using gentest: test("values/default_tail") /*, skip("disabled")*/, parameters(first, 9)]]
+GENTEST_REGRESSION_INLINE void default_tail(int first = 2, int last = 3) {
+    if (first != 9 || last != 3) {
+        throw std::runtime_error("unexpected bound or default argument");
+    }
+}
+#undef GENTEST_REGRESSION_INLINE
+
 } // namespace discovery_render_regressions

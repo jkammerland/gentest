@@ -166,6 +166,7 @@ foreach(_expected_case IN ITEMS
     "module_registration/builtin_fixture"
     "module_registration/exported_suite_fixture"
     "module_registration/exported_global_fixture"
+    "module_registration/short_body(next_value())"
     "module_registration/exported_parameters"
     "module_registration/exported_template"
     "module_registration/exported_template_alias_binding"
@@ -197,6 +198,32 @@ foreach(_case IN ITEMS
     WORKING_DIRECTORY "${_build_dir}"
     STRIP_TRAILING_WHITESPACE)
 endforeach()
+
+gentest_check_run_or_fail(
+  COMMAND "${_exe}" "--run=module_registration/short_body(next_value())" --no-color
+  WORKING_DIRECTORY "${_build_dir}"
+  OUTPUT_VARIABLE _overload_out)
+if(NOT _overload_out MATCHES "Summary: passed 1/1")
+  message(FATAL_ERROR "Expected the annotated short overload to run.\n${_overload_out}")
+endif()
+
+gentest_check_run_or_fail(
+  COMMAND "${_exe}" --list-json
+  WORKING_DIRECTORY "${_build_dir}"
+  OUTPUT_VARIABLE _inventory)
+string(JSON _size LENGTH "${_inventory}")
+math(EXPR _last "${_size} - 1")
+set(_death FALSE)
+foreach(_index RANGE 0 ${_last})
+  string(JSON _name GET "${_inventory}" ${_index} name)
+  if(_name STREQUAL "story034_module_registration/module_registration/commented_death")
+    string(JSON _death GET "${_inventory}" ${_index} is_death)
+    break()
+  endif()
+endforeach()
+if(NOT _death)
+  message(FATAL_ERROR "Expected commented_death in the death-test inventory.\n${_inventory}")
+endif()
 
 set(_blocked_junit "${_build_dir}/blocked_shared_fixture.xml")
 gentest_prepare_fixture_command(_blocked_command COMMAND
@@ -378,7 +405,7 @@ file(WRITE "${_manifest}" "${_bad_manifest_json}\n")
 file(REMOVE "${_validation_stamp}")
 _gentest_expect_manifest_validation_failure("sources[0].module mismatch")
 
-function(_gentest_expect_visibility_failure scenario expected_substring)
+function(_gentest_expect_codegen_failure scenario expected_substring)
   set(_scenario_build_dir "${_work_dir}/build_${scenario}")
   gentest_check_run_or_fail(
     COMMAND
@@ -399,33 +426,37 @@ function(_gentest_expect_visibility_failure scenario expected_substring)
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_STRIP_TRAILING_WHITESPACE)
   if(_scenario_rc EQUAL 0)
-    message(FATAL_ERROR "Expected MODULE_REGISTRATION visibility scenario '${scenario}' to fail")
+    message(FATAL_ERROR "Expected MODULE_REGISTRATION scenario '${scenario}' to fail")
   endif()
   set(_scenario_combined "${_scenario_out}\n${_scenario_err}")
   string(FIND "${_scenario_combined}" "${expected_substring}" _expected_pos)
   if(_expected_pos EQUAL -1)
     message(FATAL_ERROR
-      "Visibility scenario '${scenario}' missed '${expected_substring}'.\n${_scenario_combined}")
+      "Codegen scenario '${scenario}' missed '${expected_substring}'.\n${_scenario_combined}")
   endif()
 endfunction()
 
-_gentest_expect_visibility_failure(
+_gentest_expect_codegen_failure(
   hidden_case
   "Gentest case is not reachable after importing named module 'gentest.story034.hidden_case'")
-_gentest_expect_visibility_failure(
+_gentest_expect_codegen_failure(
   hidden_fixture
   "fixture type 'story034_hidden_fixture_detail::Fixture' is not reachable after importing named module 'gentest.story034.hidden_fixture'")
-_gentest_expect_visibility_failure(
+_gentest_expect_codegen_failure(
   hidden_template_binding
   "template binding 'detail::Hidden' names 'story034_hidden_template_binding::detail::Hidden' which is not reachable after importing named module 'gentest.story034.hidden_template_binding'")
-_gentest_expect_visibility_failure(
+_gentest_expect_codegen_failure(
   global_fragment_fixture
   "fixture type 'GlobalFragmentFixture' is not reachable after importing named module 'gentest.story034.global_fragment_fixture'")
-_gentest_expect_visibility_failure(
+_gentest_expect_codegen_failure(
   hidden_parameter
   "parameter expression 'detail::hidden_value' names 'story034_hidden_parameter::detail::hidden_value' which is not reachable after importing named module 'gentest.story034.hidden_parameter'")
-_gentest_expect_visibility_failure(
+_gentest_expect_codegen_failure(
   hidden_parameter_pack
   "parameter expression 'detail::first' names 'story034_hidden_parameter_pack::detail::first' which is not reachable after importing named module 'gentest.story034.hidden_parameter_pack'")
+
+_gentest_expect_codegen_failure(
+  omitted_default
+  "cannot bind parameter 'last' after omitted default argument 'first'")
 
 message(STATUS "Module registration manifest regression passed")

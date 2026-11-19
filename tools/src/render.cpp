@@ -139,11 +139,13 @@ struct WrapperSpec {
     std::vector<FreeFixtureUse> fixtures;   // for FreeWithFixtures
     std::vector<FreeCallArg>    free_args;  // for FreeWithFixtures
     std::string                 value_args; // comma-separated value args (may be empty)
-    bool                        method_is_template = false;
-    bool                        returns_value      = false; // whether to capture result
-    bool                        returns_async      = false;
-    bool                        is_measured        = false;
-    bool                        is_death           = false;
+    std::string                 overload_pointer_type;
+    bool                        overload_needs_object = false;
+    bool                        method_is_template    = false;
+    bool                        returns_value         = false; // whether to capture result
+    bool                        returns_async         = false;
+    bool                        is_measured           = false;
+    bool                        is_death              = false;
 };
 
 std::string build_fixture_decls(const std::vector<FreeFixtureUse> &types) {
@@ -483,24 +485,28 @@ std::string build_helper_definition(const WrapperSpec &spec, std::string_view he
                                spec.kind == WrapperKind::MemberEphemeralWithFixtures || spec.kind == WrapperKind::MemberSharedWithFixtures;
     const std::string params = build_helper_param_decls(spec.fixtures, include_self);
 
-    std::string call_expr;
-    switch (spec.kind) {
-    case WrapperKind::Free: call_expr = spec.callee + format_call_args(spec.value_args); break;
-    case WrapperKind::FreeWithFixtures: call_expr = spec.callee + format_call_args(build_helper_bound_arg_list(spec.free_args)); break;
-    case WrapperKind::MemberEphemeral:
-    case WrapperKind::MemberShared:
-        call_expr = fmt::format("{}.{}{}{}", forward_param_expr("self"), spec.method_is_template ? "template " : "", spec.method,
-                                format_call_args(spec.value_args));
-        break;
-    case WrapperKind::MemberEphemeralWithFixtures:
-    case WrapperKind::MemberSharedWithFixtures:
-        call_expr = fmt::format("{}.{}{}{}", forward_param_expr("self"), spec.method_is_template ? "template " : "", spec.method,
-                                format_call_args(build_helper_bound_arg_list(spec.free_args)));
-        break;
+    const auto  qualified = qualify_global_callee(spec.callee) + (include_self ? "::" + spec.method : "");
+    std::string target    = qualified;
+    if (!spec.overload_pointer_type.empty()) {
+        target = fmt::format("static_cast<{}>(&{})", spec.overload_pointer_type, target);
+        if (spec.overload_needs_object) {
+            target = fmt::format("({}.*{})", forward_param_expr("self"), target);
+        }
+    } else if (include_self) {
+        target = fmt::format("{}.{}{}", forward_param_expr("self"), spec.method_is_template ? "template " : "", spec.method);
     }
+    // Emit each argument once, in its declared slot. A direct call leaves
+    // omitted trailing defaults and parameter initialization to the compiler.
+    const auto        args      = spec.fixtures.empty() ? spec.value_args : build_helper_bound_arg_list(spec.free_args);
+    const std::string call_expr = target + format_call_args(args);
 
     std::string helper;
     append_format_runtime(helper, "static decltype(auto) {}({}) {{\n", helper_name, params);
+    // Other declaring headers can contribute names to the registration TU.
+    // Require the direct non-template target to remain unambiguous there.
+    if (!spec.method_is_template && spec.overload_pointer_type.empty()) {
+        append_format_runtime(helper, "    static_assert(sizeof(decltype(&{})) > 0);\n", qualified);
+    }
     append_format_runtime(helper, "    return {};\n", call_expr);
     helper += "}\n\n";
     return wrap_in_namespaces(spec.namespace_parts, helper);
@@ -529,7 +535,7 @@ static void append_wrapper(std::string &out, const WrapperSpec &spec, const Wrap
 
     switch (spec.kind) {
     case WrapperKind::Free: {
-        if (!spec.is_measured && !spec.method_is_template && spec.value_args.empty()) {
+        if (!spec.is_measured && !spec.method_is_template && spec.value_args.empty() && spec.overload_pointer_type.empty()) {
             const auto invoke = make_invoke_for_free(spec, qualify_global_callee(spec.callee), format_call_args(spec.value_args));
             append_format_runtime(out, templates.free_test, fmt::arg("w", spec.wrapper_name), fmt::arg("invoke", invoke));
             return;
@@ -898,11 +904,13 @@ void append_async_wrapper(std::string &out, const WrapperSpec &spec) {
 
 WrapperSpec build_wrapper_spec(const TestCaseInfo &test, std::size_t idx) {
     WrapperSpec spec{};
-    spec.wrapper_name       = std::string("kCaseInvoke_") + std::to_string(idx);
-    spec.value_args         = test.call_arguments; // may be empty
-    spec.namespace_parts    = test.namespace_parts;
-    spec.method_is_template = test.is_function_template;
-    spec.is_measured        = test.is_benchmark || test.is_jitter;
+    spec.wrapper_name          = std::string("kCaseInvoke_") + std::to_string(idx);
+    spec.value_args            = test.call_arguments; // may be empty
+    spec.namespace_parts       = test.namespace_parts;
+    spec.overload_pointer_type = test.overload_pointer_type;
+    spec.overload_needs_object = test.overload_needs_object;
+    spec.method_is_template    = test.is_function_template;
+    spec.is_measured           = test.is_benchmark || test.is_jitter;
     if (test.fixture_qualified_name.empty()) {
         if (!test.free_fixtures.empty()) {
             spec.kind      = WrapperKind::FreeWithFixtures;

@@ -137,7 +137,11 @@ Codegen computes these values while it generates code, so:
 
 A parameter that no axis names follows the fixture rules: it keeps its default
 argument if it has one, and is a fixture otherwise. Fixture and value
-parameters can appear in any order. See [Fixtures](fixtures.md).
+parameters can appear in any order. Supply values for earlier defaulted
+parameters when an axis binds a later parameter. For an overloaded case,
+supply all defaulted arguments so codegen can call the selected signature.
+Give annotated function templates distinct C++ names when multiple templates
+would form an overload set. See [Fixtures](fixtures.md).
 
 ## Templates
 

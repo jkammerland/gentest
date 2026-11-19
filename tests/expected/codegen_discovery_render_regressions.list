@@ -7,6 +7,7 @@
 [PASS] discovery_render_regressions/members/typed<std::string>
 [PASS] discovery_render_regressions/returns/abstract_ref
 [PASS] discovery_render_regressions/returns/noncopyable_ref
+[PASS] discovery_render_regressions/values/default_tail(9)
 [PASS] discovery_render_regressions/values/escapes("a\x41")
 [PASS] discovery_render_regressions/values/escapes("nul\0x")
 [PASS] discovery_render_regressions/values/hex_range(16)
@@ -15,3 +16,4 @@
 [PASS] discovery_render_regressions/values/long_double_range(0)
 [PASS] discovery_render_regressions/values/long_double_range(0.25)
 [PASS] discovery_render_regressions/values/long_double_range(0.5)
+[PASS] discovery_render_regressions/values/owned("a/*literal*/b")
