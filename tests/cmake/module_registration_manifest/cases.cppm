@@ -94,11 +94,19 @@ void exported_parameters(int value) {
 inline int evaluations = 0;
 inline int next_value() { return ++evaluations; }
 
-// Both the return alias and the array element alias are private to the friend.
+struct FieldValue {
+    int value;
+};
+struct Row {
+    FieldValue first, second;
+};
+
+// The registration importer can name both field types through the public records.
 class Api {
-    using Code   = int;
-    using Result = const Code (&)[2];
-    friend Result overloaded(short);
+    using Code   = FieldValue;
+    using Owner  = Row;
+    using Result = Code Owner::*const (&)[2];
+    friend Result       overloaded(short);
 };
 
 #define GENTEST_REGRESSION_INLINE inline
@@ -106,8 +114,8 @@ class Api {
 GENTEST_REGRESSION_INLINE auto overloaded(short value) -> Api::Result {
     gentest::asserts::EXPECT_EQ(value, 1);
     gentest::asserts::EXPECT_EQ(evaluations, 1);
-    evaluations                   = 0;
-    static constexpr int result[] = {1, 2};
+    evaluations                                = 0;
+    static constexpr FieldValue Row::*result[] = {&Row::first, &Row::second};
     return result;
 }
 #undef GENTEST_REGRESSION_INLINE

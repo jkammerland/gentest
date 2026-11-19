@@ -3,11 +3,17 @@
 #include "gentest/runner.h"
 #include "public/gentest_textual_suite_mocks.hpp"
 
+#include <cstdlib>
+#include <type_traits>
+
 namespace binding_values {
 inline int conversions = 0;
 
 struct Converted {
-    int value;
+    int value = 0;
+
+    Converted() = default;
+    explicit Converted(int n) : value(n) {}
 
     operator int() const {
         ++conversions;
@@ -70,6 +76,19 @@ void bound_default(bool matches, const Input &input = {.value     = select_input
                                                        .converted = ::binding_values::Converted{select_input(0)}});
 
 inline int select_input(int) { return 99; }
+inline int replacement_input(long) { return 99; }
+
+constexpr long choose_template(long) { return 7; }
+
+template <class T = decltype(choose_template(0)), int N = choose_template(0), class Qualified = const T>
+[[using gentest: test, death, parameters(matches, true, false)]]
+void bound_template(bool matches, T value = 5, Qualified other = 3) {
+    const bool exact = std::is_same_v<T, long> && std::is_same_v<Qualified, const long> && N == 7 && value == 5 && other == 3;
+    if (matches == exact)
+        std::_Exit(23);
+}
+
+constexpr int choose_template(int) { return 99; }
 
 // Both later declarations would be viable in the generated helper.
 namespace binding_values {
@@ -148,3 +167,6 @@ void bench_deferred(DeferredMismatch &fixture, bool skip_after);
 void jitter_deferred(DeferredMismatch &fixture, bool skip_after);
 
 } // namespace measured_outcomes
+
+// Later includes can introduce a macro for an identifier bound by the declaration.
+#define select_input replacement_input

@@ -478,6 +478,10 @@ std::string death_helper_body(const WrapperSpec &spec, const WrapperCall &call) 
     const std::string_view result_type = spec.returns_async ? "::gentest::awaitable<void>" : "void";
     const std::string_view await       = spec.returns_async ? "co_await " : "";
     std::string            helper;
+    // Preserve declaration-bound spellings while preprocessing the formals.
+    // Restore the consumer macros before emitting any authored row expressions.
+    for (const auto &name : formals.bound_identifiers)
+        append_format(helper, "#pragma push_macro(\"{}\")\n#undef {}\n", name, name);
     append_format(helper, "    auto gentest_invoke = [&]{}({}) -> {} {{\n", formals.template_parameters, formals.declarations, result_type);
 
     std::vector<std::string> types;
@@ -501,6 +505,8 @@ std::string death_helper_body(const WrapperSpec &spec, const WrapperCall &call) 
     append_format(helper, "        static_cast<void>({}{}({})), gentest_body_scope.finish();\n", await, call.target,
                   fmt::join(forwarded, ", "));
     helper += "    };\n";
+    for (const auto &name : formals.bound_identifiers)
+        append_format(helper, "#pragma pop_macro(\"{}\")\n", name);
     const auto op = formals.template_parameters.empty() || spec.template_args.empty()
                         ? ""
                         : fmt::format(".template operator()<{}>", fmt::join(spec.template_args, ", "));
@@ -522,6 +528,9 @@ std::string build_helper_definition(const WrapperSpec &spec, std::string_view he
         if (spec.overload_needs_object) {
             call.target = fmt::format("({}.*{})", forward_param_expr("self"), call.target);
         }
+    } else if (!spec.death_parameters.template_target.empty()) {
+        const auto &target = spec.death_parameters.template_target;
+        call.target        = include_self ? fmt::format("{}.template {}", forward_param_expr("self"), target) : target;
     } else if (include_self) {
         call.target = fmt::format("{}.{}{}", forward_param_expr("self"), spec.method_is_template ? "template " : "", spec.method);
     }

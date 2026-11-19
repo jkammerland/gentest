@@ -37,8 +37,11 @@ object with a user-defined move constructor or destructor by reference, for
 example `void rejects_input(const Input &input = make_input())`. Default
 expressions used by the generated call must be accessible from its namespace.
 If codegen cannot preserve the binding of a default expression, such as an
-overloaded operator or a private member, give the parameter an explicit value
-with `parameters(...)`.
+overloaded constructor, overloaded operator or a private member, give the
+parameter an explicit value with `parameters(...)`. For a function template,
+use `template(T, Type)` to supply a template argument whose default cannot be
+named by the generated call. A non-template case wrapper can call a function
+whose parameter type depends on an expression such as `decltype(factory(T{}))`.
 
 Each supervised death test starts with fresh fixtures, including suite and
 global fixtures. In-memory changes made by earlier tests stay in their own

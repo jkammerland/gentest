@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <iterator>
 #include <limits>
 #include <llvm/ADT/SmallBitVector.h>
@@ -839,6 +840,30 @@ QualType helper_type(QualType type, ASTContext &context) {
         return context.getLValueReferenceType(helper_type(ref->getPointeeType(), context));
     if (const auto *ref = type->getAs<RValueReferenceType>())
         return context.getRValueReferenceType(helper_type(ref->getPointeeType(), context));
+    if (const auto *member = type->getAs<MemberPointerType>(); member && !type->isDependentType()) {
+        // Parenthesize the declarator in "Value (::scope::Owner::*)", so a
+        // globally qualified owner cannot be parsed as a member of Value.
+        const auto pointee =
+            context.getParenType(TypeName::getFullyQualifiedType(helper_type(member->getPointeeType(), context), context, true));
+#if CLANG_VERSION_MAJOR >= 22
+        const auto *owner_type = member->getQualifier().getAsType();
+#elif CLANG_VERSION_MAJOR == 21
+        const auto *owner_type = member->getQualifier()->getAsType();
+#else
+        const auto *owner_type = member->getClass();
+#endif
+        const auto owner = TypeName::getFullyQualifiedType(helper_type(QualType(owner_type, 0), context), context, true);
+#if CLANG_VERSION_MAJOR >= 22
+        const auto result = context.getMemberPointerType(pointee, NestedNameSpecifier(owner.getTypePtr()), owner->getAsCXXRecordDecl());
+#elif CLANG_VERSION_MAJOR == 21
+        const auto qualifier = NestedNameSpecifier::Create(context, nullptr, owner.getTypePtr());
+        const auto result    = context.getMemberPointerType(pointee, qualifier, owner->getAsCXXRecordDecl());
+#else
+        const auto result = context.getMemberPointerType(pointee, owner.getTypePtr());
+#endif
+        // Older QualTypeNames otherwise qualifies the prepared pointee a second time.
+        return context.getParenType(context.getQualifiedType(result, type.getLocalQualifiers()));
+    }
     // QualTypeNames does not walk an array's element or a callback signature.
     if (const auto *array = context.getAsConstantArrayType(type)) {
         const auto element = TypeName::getFullyQualifiedType(helper_type(array->getElementType(), context), context, true);
@@ -878,6 +903,71 @@ std::string helper_pointer_type(const FunctionDecl &function, ASTContext &contex
     llvm::raw_string_ostream stream(text);
     signature.print(stream, policy, pointer);
     return text;
+}
+
+// Dependent expressions must not be looked up again when a wrapper is
+// instantiated. Plain parameters and bound type constructors need no lookup
+// beyond the original template declarations.
+bool can_spell_death_type(QualType type) {
+    if (!type->isDependentType() || type->getAs<TemplateTypeParmType>())
+        return true;
+    if (const auto *spec = type->getAs<TemplateSpecializationType>()) {
+        return spec->getTemplateName().getAsTemplateDecl() && llvm::all_of(spec->template_arguments(), [](const TemplateArgument &arg) {
+                   return arg.getKind() == TemplateArgument::Integral ||
+                          (arg.getKind() == TemplateArgument::Type && can_spell_death_type(arg.getAsType()));
+               });
+    }
+    if (const auto *pack = type->getAs<PackExpansionType>())
+        return can_spell_death_type(pack->getPattern());
+    if (type->isPointerType() || type->isReferenceType())
+        return can_spell_death_type(type->getPointeeType());
+    if (const auto *placeholder = type->getAs<AutoType>())
+        return !placeholder->isConstrained();
+    return false;
+}
+
+// A later include can define a macro for a bound factory, field or type.
+std::vector<std::string> bound_identifiers(const std::string &declarations, ASTContext &context) {
+    const auto           *begin = declarations.c_str();
+    Lexer                 lexer(SourceLocation{}, context.getLangOpts(), begin, begin, begin + declarations.size());
+    Token                 token;
+    std::set<std::string> names;
+    do {
+        lexer.LexFromRawLexer(token);
+        if (token.is(tok::raw_identifier) && context.Idents.get(token.getRawIdentifier()).getTokenID() == tok::identifier)
+            names.insert(token.getRawIdentifier().str());
+    } while (!token.is(tok::eof));
+    return {names.begin(), names.end()};
+}
+
+// Cast and initialization syntax can hide a constructor or conversion call.
+// Check the semantic tree before the printer unwraps it. Unlike a free
+// function, a constructor cannot be selected by a typed address.
+bool has_unbound_conversion(const Stmt &stmt) {
+    if (const auto *init = llvm::dyn_cast<CXXConstructExpr>(&stmt)) {
+        const auto *selected = init->getConstructor();
+        if (selected->getTemplatedKind() != FunctionDecl::TK_NonTemplate)
+            return true;
+        const auto supplied = llvm::count_if(init->arguments(), [](const Expr *arg) { return !llvm::isa<CXXDefaultArgExpr>(arg); });
+        if (supplied != 0) {
+            const auto candidates = selected->getParent()->lookup(selected->getDeclName());
+            if (llvm::any_of(candidates, [selected, supplied](const NamedDecl *candidate) {
+                    const auto *other = llvm::dyn_cast<CXXConstructorDecl>(candidate);
+                    return !other || (other->getCanonicalDecl() != selected->getCanonicalDecl() && !other->isCopyOrMoveConstructor() &&
+                                      (other->isVariadic() || std::cmp_greater_equal(other->getNumParams(), supplied)));
+                }))
+                return true;
+        }
+    }
+    if (const auto *call = llvm::dyn_cast<CXXMemberCallExpr>(&stmt)) {
+        if (const auto *conversion = llvm::dyn_cast_or_null<CXXConversionDecl>(call->getMethodDecl())) {
+            const auto *source = call->getImplicitObjectArgument()->IgnoreParenImpCasts()->getType()->getAsCXXRecordDecl();
+            if (!source || conversion->getTemplatedKind() != FunctionDecl::TK_NonTemplate ||
+                llvm::range_size(source->getVisibleConversionFunctions()) != 1)
+                return true;
+        }
+    }
+    return llvm::any_of(stmt.children(), [](const Stmt *child) { return child && has_unbound_conversion(*child); });
 }
 
 // Clang's pretty printer describes source syntax. Use it only for nodes whose
@@ -969,9 +1059,92 @@ class DeathDefaultPrinter final : public PrinterHelper {
         return true;
     }
 
+    void print_expression(const Expr &expr, llvm::raw_ostream &out) {
+        if (has_unbound_conversion(expr)) {
+            error = "cannot preserve overloaded construction or conversion in a death-test default";
+            return;
+        }
+        expr.printPretty(out, this, policy_);
+    }
+
+    // Mirror deduction, but resolve defaults from the declaration's AST.
+    // The original function enforces its constraints when the helper calls it.
+    void print_template_parameters(const TemplateParameterList &params, llvm::raw_ostream &out, std::size_t supplied,
+                                   std::vector<std::string> *bindings = nullptr) {
+        out << '<';
+        for (unsigned i = 0; i < params.size(); ++i) {
+            if (i != 0)
+                out << ", ";
+            const auto *param = params.getParam(i);
+            const auto  id    = param->getIdentifier() ? param->getNameAsString() : fmt::format("gentest_targ_{}", i);
+            const auto  name  = (param->isParameterPack() ? "..." : "") + id;
+            if (bindings)
+                bindings->push_back(id + (param->isParameterPack() ? "..." : ""));
+            if (const auto *type = llvm::dyn_cast<TemplateTypeParmDecl>(param)) {
+                out << "class " << name;
+                if (i >= supplied && type->hasDefaultArgument()) {
+                    out << " = ";
+                    print_type(type->getDefaultArgument().getArgument().getAsType(), out);
+                }
+            } else if (const auto *value = llvm::dyn_cast<NonTypeTemplateParmDecl>(param)) {
+                auto &context = function_.getASTContext();
+                if (!can_spell_death_type(value->getType())) {
+                    error = "cannot preserve a dependent non-type template parameter declaration in a death test";
+                    return;
+                }
+                TypeName::getFullyQualifiedType(helper_type(value->getType(), context), context, true).print(out, policy_, name);
+                if (i >= supplied && value->hasDefaultArgument())
+                    print_template_value(value->getDefaultArgument().getArgument(), out);
+            } else {
+                const auto *nested = llvm::cast<TemplateTemplateParmDecl>(param);
+                out << "template ";
+                print_template_parameters(*nested->getTemplateParameters(), out, 0);
+                out << " class " << name;
+                if (i >= supplied && nested->hasDefaultArgument())
+                    print_template_name(nested->getDefaultArgument().getArgument().getAsTemplate(), out);
+            }
+        }
+        out << '>';
+    }
+
     std::string error;
 
   private:
+    void print_template_value(const TemplateArgument &arg, llvm::raw_ostream &out) {
+        if (arg.getKind() != TemplateArgument::Expression) {
+            error = "cannot preserve this non-type template default in a death test";
+            return;
+        }
+        out << " = ";
+        const auto *expr = arg.getAsExpr();
+        // Template values are required constant expressions. Keep their exact
+        // integral type, including for an auto template parameter.
+        if (!expr->isValueDependent() && expr->getType()->isIntegralOrEnumerationType()) {
+            if (const auto result = expr->getIntegerConstantExpr(function_.getASTContext()); result && result->getBitWidth() <= 64) {
+                out << "static_cast<";
+                print_type(expr->getType(), out);
+                out << fmt::format(">(0x{:x}ULL)", result->getZExtValue());
+                return;
+            }
+        }
+        print_expression(*expr, out);
+    }
+
+    void print_template_name(TemplateName name, llvm::raw_ostream &out) {
+        const auto *decl = name.getAsTemplateDecl();
+        if (llvm::isa_and_nonnull<TemplateTemplateParmDecl>(decl)) {
+            out << " = " << decl->getName();
+            return;
+        }
+        if (!decl || inaccessible_context(decl) || decl->isInAnonymousNamespace() ||
+            (importer_ && !is_reachable_from_importer(*decl, function_, function_.getASTContext()))) {
+            error = "cannot preserve the template template default in a death test";
+            return;
+        }
+        out << " = ::";
+        decl->printQualifiedName(out, policy_);
+    }
+
     bool print_cast(const ExplicitCastExpr &cast, llvm::raw_ostream &out) {
         llvm::StringRef prefix;
         llvm::StringRef operand_prefix;
@@ -1005,7 +1178,7 @@ class DeathDefaultPrinter final : public PrinterHelper {
     }
 
     void print_type(QualType type, llvm::raw_ostream &out) {
-        if (type->isDependentType() && !type->getAs<TemplateTypeParmType>()) {
+        if (!can_spell_death_type(type)) {
             error = "cannot preserve a dependent type expression in a death-test default argument";
             return;
         }
@@ -1028,6 +1201,10 @@ class DeathDefaultPrinter final : public PrinterHelper {
         const auto *decl = reference.getDecl();
         if (const auto *parameter = llvm::dyn_cast<ParmVarDecl>(decl)) {
             out << "gentest_arg_" << parameter->getFunctionScopeIndex();
+            return true;
+        }
+        if (llvm::isa<NonTypeTemplateParmDecl>(decl)) {
+            out << decl->getName();
             return true;
         }
         if (decl->isInAnonymousNamespace() || decl->getDeclContext()->isFunctionOrMethod()) {
@@ -1762,11 +1939,33 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     // extends reference temporaries through the entire generated invocation.
     if (summary.is_death && !function_params.empty()) {
         if (function_template != nullptr) {
-            llvm::raw_string_ostream stream(death_parameters.template_parameters);
-            function_template->getTemplateParameters()->print(stream, *result.Context, policy, true);
+            const auto &params = *function_template->getTemplateParameters();
+            if (llvm::any_of(params.asArray().drop_back(), [](const NamedDecl *param) { return param->isParameterPack(); })) {
+                had_error_ = true;
+                report("cannot forward a non-final template parameter pack to a parameterized death test; use a non-template case wrapper");
+                return;
+            }
+            std::string              parameters;
+            llvm::raw_string_ostream stream(parameters);
+            DeathDefaultPrinter      printer(*func, binding_policy, module_importer_registration_);
+            std::vector<std::string> bindings;
+            printer.print_template_parameters(params, stream, combined_tpl_combos.front().size(), &bindings);
+            if (!printer.error.empty()) {
+                had_error_ = true;
+                report(printer.error + "; supply explicit template arguments with template(...)");
+                return;
+            }
+            death_parameters.template_parameters = std::move(parameters);
+            death_parameters.template_target =
+                fmt::format("{}<{}>", fixture_ctx ? func->getNameAsString() : "::" + qualified, fmt::join(bindings, ", "));
         }
         for (const auto &param : function_params) {
             const auto &decl = *param.decl;
+            if (!can_spell_death_type(decl.getType())) {
+                had_error_ = true;
+                report("cannot preserve a dependent parameter type in a death test; use a non-template case wrapper");
+                return;
+            }
             if (!death_parameters.parameter_packs.empty()) {
                 death_parameters.declarations += ", ";
             }
@@ -1778,7 +1977,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 std::string              expression;
                 llvm::raw_string_ostream expr_stream(expression);
                 DeathDefaultPrinter      printer(*func, binding_policy, module_importer_registration_);
-                decl.getDefaultArg()->printPretty(expr_stream, &printer, policy);
+                printer.print_expression(*decl.getDefaultArg(), expr_stream);
                 if (!printer.error.empty()) {
                     had_error_ = true;
                     report(printer.error + "; supply an explicit parameter value");
@@ -1787,6 +1986,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 stream << " = " << expression;
             }
         }
+        death_parameters.bound_identifiers = bound_identifiers(
+            death_parameters.template_parameters + " " + death_parameters.declarations + " " + qualified, *result.Context);
     }
 
     // Cartesian product of scalar parameter axes across names.

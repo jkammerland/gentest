@@ -432,6 +432,26 @@ int operator+(Value, int);
 ]=])
   _gentest_cdr_expect_failure("overloaded operator in default" "cannot preserve declaration-site binding for death-test default argument (CXXOperatorCallExpr)")
 
+  # Completing Late makes the Base* constructor viable after the declaration.
+  _gentest_cdr_scan(ctor_binding CONTENT [=[
+#pragma once
+struct Base {};
+struct Late;
+struct Input { Input(void *); Input(Base *); };
+[[using gentest: test, death]] inline void chosen(const Input & = Input{static_cast<Late *>(nullptr)}) {}
+struct Late : Base {};
+]=])
+  _gentest_cdr_expect_failure("constructor default lookup" "cannot preserve overloaded construction or conversion")
+
+  _gentest_cdr_scan(dependent_binding CONTENT [=[
+#pragma once
+long width(long);
+template <class T = int>
+[[using gentest: test, death]] inline void chosen(decltype(width(T{})) = 4294967303LL) {}
+int width(int);
+]=])
+  _gentest_cdr_expect_failure("dependent declaration lookup" "cannot preserve a dependent parameter type in a death test")
+
   _gentest_cdr_scan(transfer CONTENT [=[
 #pragma once
 struct Input {
