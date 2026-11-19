@@ -102,6 +102,21 @@ class PackageMetadataValidatorTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("gentest_codegen", result.stderr)
 
+    def test_matches_sbom_documents_for_one_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write_fixture(root)
+            directory = root / "share" / "sbom" / "gentest"
+            for name in ("gentest", "gentest-tools"):
+                (directory / f"{name}.spdx.json").rename(directory / f"{name}-Release.spdx.json")
+            result = self.run_validator(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            (directory / "gentest-Release.spdx.json").rename(directory / "gentest-Debug.spdx.json")
+            result = self.run_validator(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("gentest-Release.spdx.json", result.stderr)
+
     def test_rejects_duplicate_cps_documents(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

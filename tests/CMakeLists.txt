@@ -5739,6 +5739,14 @@ set_property(TEST gentest_package_consumer_executable_path APPEND PROPERTY LABEL
 
 option(GENTEST_ENABLE_PACKAGE_TESTS "Enable install + find_package consumer smoke test (FetchContent)" OFF)
 if(GENTEST_ENABLE_PACKAGE_TESTS)
+    if(GENTEST_BUILD_CODEGEN AND NOT CMAKE_CROSSCOMPILING AND CMAKE_VERSION VERSION_GREATER_EQUAL 4.3)
+        _gentest_add_cmake_helper_test(
+            gentest_host_tools_sbom
+            ${PROJECT_SOURCE_DIR}
+            ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckHostToolsSbom.cmake
+            package)
+    endif()
+
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT CMAKE_CROSSCOMPILING)
         _gentest_add_cmake_helper_test(
             gentest_relocated_shared_fmt_codegen

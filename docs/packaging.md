@@ -73,16 +73,16 @@ and projects that use the install point `GENTEST_CODEGEN_EXECUTABLE` at a
 
 ### Package metadata
 
-Two options add machine-readable package metadata to the install. Both use
-experimental CMake features and need CMake 4.3 or newer.
+Two options add machine-readable package metadata to the install. Both
+require CMake 4.3 or newer.
 
 | Option | Installs |
 | --- | --- |
 | `GENTEST_ENABLE_CPS=ON` | Common Package Specification (CPS) metadata, `share/cps/gentest/gentest.cps`. It describes the `gentest`, `gentest_main` and `gentest_runtime` components, the fmt dependency and the `BSL-1.0` license. |
-| `GENTEST_ENABLE_SBOM=ON` | Software bill of materials (SBOM) files in SPDX 3.0.1 format: `share/sbom/gentest/gentest.spdx.json` for the libraries and, when the build includes `gentest_codegen`, `share/sbom/gentest/gentest-tools.spdx.json` for it. |
+| `GENTEST_ENABLE_SBOM=ON` | SPDX 3.0.1 software bills of materials in `share/sbom/gentest/`, one for the libraries and one for the installed host tools. CMake 4.5 includes the build configuration in the filenames, for example `gentest-tools-Release.spdx.json`. |
 
-CMake gates these features behind activation values that change with each CMake
-release. With `GENTEST_ENABLE_CPS=ON`, configure stops unless
+CMake 4.3 and 4.4 require a version-specific activation value for SBOM generation.
+With `GENTEST_ENABLE_CPS=ON`, configure stops unless
 `CMAKE_EXPERIMENTAL_EXPORT_PACKAGE_DEPENDENCIES` is set. The `release-package`
 preset in `CMakePresets.json` sets it and `CMAKE_EXPERIMENTAL_GENERATE_SBOM` to
 the values for CMake 4.3.
