@@ -31,8 +31,8 @@ The runner applies the options in this order:
 4. **Exclusions.** Remove every case that has **any** `--exclude-tag=<tag>` tag
    or matches **any** `--exclude=<pattern>`. Exclusions win over every include,
    including the case `--run` resolved to.
-5. **Death tests.** Remove the cases tagged `death` unless `--include-death` is
-   given.
+5. **Death tests.** Remove the cases marked with the `death` attribute unless
+   `--include-death` is given.
 
 For example, `--tag=fast --tag=linux --exclude-tag=slow` keeps the cases tagged
 `fast` or `linux`, then removes every one of them that is also tagged `slow`.
@@ -71,20 +71,18 @@ A comma is part of an option's value, not a separator: repeat `--tag`,
 A tag matches only a whole tag, ignoring ASCII case: `--tag=FAST` selects a
 case tagged `fast`. Tags don't take wildcards.
 
-The tags of a generated case come from its attributes: the flags `fast`,
-`slow`, `linux`, `windows` and `death`, and `owner("...")`, which adds the tag
-`owner=<value>`. Codegen rejects other flag names, so a tag such as `--tag=gpu`
-selects nothing among generated cases. A hand-written case (`gentest::Case`)
-can carry any tags. [Writing tests](writing_tests.md) describes the
-attributes.
+Declare labels with `tag("gpu", "integration")`. Generated and handwritten
+cases can carry any labels, and none of their names has special behavior.
+`owner(...)` and `req(...)` are separate metadata. [Writing tests](writing_tests.md)
+describes the attributes.
 
 `--list-tags` prints every distinct tag in the executable, in ASCII lowercase
 and sorted, including the tags of skipped cases and death tests:
 
 ```text
-death
 fast
-owner=team-runtime
+gpu
+integration
 slow
 ```
 
@@ -109,10 +107,10 @@ The other listing options, such as `--list-tests` and
 The runner removes death tests from every selection unless you pass
 `--include-death`:
 
-- `--tag=death` doesn't run death tests. A tag or pattern that matches only
+- Tags do not enable death tests. A tag or pattern that matches only
   death tests gives an empty selection, which `--fail-on-empty` rejects.
 - A `--run` that resolves to a death test fails without `--include-death`:
-  `Case 'crash/fatal_path' is tagged as a death test; rerun with --include-death`.
+  `Case 'crash/fatal_path' is a death test; rerun with --include-death`.
 - When death tests are removed from a selection that keeps other cases, the run
   prints `Note: excluded 1 death test(s). Use --include-death to run them.`
   with the actual count.
@@ -148,7 +146,7 @@ These errors stop the run before any fixture is set up:
 | `--run` matches no case | `Case not found: <name>` |
 | `--run` matches more than one case | `Case name is ambiguous: <name>`, followed by the matches |
 | `--run` matches only cases of another kind | `Case '<name>' does not match --kind=<kind>` |
-| `--run` resolves to a death test without `--include-death` | `Case '<name>' is tagged as a death test; rerun with --include-death` |
+| `--run` resolves to a death test without `--include-death` | `Case '<name>' is a death test; rerun with --include-death` |
 | `--filter` with `--kind=bench` matches no benchmark | `benchmark filter matched 0 benchmarks: <pattern>`, with a hint to use `--list-benches` |
 | `--filter` with `--kind=jitter` matches no jitter case | `jitter filter matched 0 jitter benchmarks: <pattern>`, with the same hint |
 | The selection is empty and `--fail-on-empty` is given | `No cases selected (...); --fail-on-empty is enabled` |

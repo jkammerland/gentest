@@ -30,6 +30,10 @@ include, and in `import gentest;`. It needs C++20 and no serialization library.
 The [recording example](../examples/recording/) shares input preparation between
 a test, a benchmark and a jitter case.
 
+Declared `tag(...)`, `owner(...)` and `req(...)` metadata is available before
+execution. Recorded properties describe the run and do not affect selection,
+CTest discovery or declared metadata.
+
 ## Properties and records
 
 `gentest::record_property(key, value)` sets a property. Values can be null,

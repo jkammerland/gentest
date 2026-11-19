@@ -20,6 +20,7 @@ namespace gentest::codegen {
 struct AttributeSummary {
     bool                       is_case = false;
     std::optional<std::string> case_name;
+    bool                       is_death{false};
     std::vector<std::string>   tags;
     std::vector<std::string>   requirements;
     bool                       should_skip = false;

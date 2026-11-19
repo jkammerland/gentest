@@ -4,7 +4,7 @@ A death test checks that code ends the process: it aborts, crashes or exits
 with a non-zero status. gentest runs each death test in its own process, so the
 process that ends isn't your whole test run.
 
-Mark the case with the `death` tag. A plain run of the test executable leaves
+Mark the case with the `death` attribute. A plain run of the test executable leaves
 death tests out; `gentest_discover_tests()` registers each one as its own CTest
 entry, which runs the case in a separate process and checks that it died.
 
@@ -36,8 +36,8 @@ inline void fatal_path() {
 } // namespace crash
 ```
 
-The case is named `crash/fatal_path`. `death` is the only tag that makes a case
-a death test.
+The case is named `crash/fatal_path`. The `death` attribute makes it a death test. A user-defined
+`tag("death")` has no effect on execution.
 
 A death test passes when the process ends with a non-zero exit status or a
 fatal signal after the test body has started. It fails when the body returns
@@ -65,9 +65,9 @@ Each death test becomes its own CTest entry named
 starts with `death/` shows up as `death/death/...`, so give death tests another
 name prefix, such as `crash/`.
 
-Every case tag becomes a CTest label, so each death test has the label `death`.
-Run only the death tests with `ctest -L death`, or all other cases with
-`ctest -LE death`.
+Each user-defined tag becomes a CTest label. To select death tests by label,
+explicitly add a label such as `tag("fatal-path")`, then use `ctest -L fatal-path`.
+Without extra labels, use the CTest name prefix: `ctest -R '^death/'`.
 
 A death test with a [static skip](assertions.md) gets no CTest entry. The other
 arguments of `gentest_discover_tests()` are described in

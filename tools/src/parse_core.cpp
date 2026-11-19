@@ -130,7 +130,9 @@ std::size_t decode_escape(std::string_view body, std::size_t index, std::string 
 
 } // namespace
 
-std::string decode_string_literal(std::string_view value) {
+std::string decode_string_literal(std::string_view value, bool *supported_escapes) {
+    if (supported_escapes != nullptr)
+        *supported_escapes = true;
     std::string trimmed = trim_copy(value);
     if (trimmed.size() >= 2 && trimmed.front() == '"' && trimmed.back() == '"') {
         const std::string_view body{trimmed.data() + 1, trimmed.size() - 2};
@@ -145,6 +147,8 @@ std::string decode_string_literal(std::string_view value) {
             }
             const std::size_t consumed = decode_escape(body, idx + 1, decoded);
             if (consumed == 0) {
+                if (supported_escapes != nullptr)
+                    *supported_escapes = false;
                 decoded.push_back('\\');
                 ++idx;
                 continue;
@@ -541,9 +545,9 @@ auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>
         std::string name = std::string(list.substr(name_start, index - name_start));
 
         // Support scoped attribute tokens inside a list, e.g.
-        // [[gentest::test("x"), gentest::fast]].
+        // [[gentest::test("x"), gentest::tag("fast")]].
         // For gentest-qualified tokens we keep only the attribute name ("test",
-        // "fast"), while other namespaces are preserved as "ns::attr" so
+        // "tag"), while other namespaces are preserved as "ns::attr" so
         // validation can reject them explicitly.
         while (true) {
             std::size_t scope_cursor = index;

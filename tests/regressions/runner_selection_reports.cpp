@@ -173,6 +173,21 @@ int check_replay_quoting() {
     expect(command.find(R"(-ArgumentList '"--run=suite/)" + twice(right) + R"(case" "--kind=test"')") != std::string::npos,
            "PowerShell command doubles quotes in the argument list");
     expect(gentest::runner::replay_command("./t", {"--run=a b"}, ReplayShell::Posix) == "'./t' '--run=a b'", "POSIX command shape");
+
+    // Replaying a failure opts into death behavior only for a death-test descriptor.
+    CliOptions options;
+    options.executable               = "./t";
+    Case                        test = make_case("replay/case");
+    static constexpr std::array kTags{std::string_view{"death"}};
+    test.tags           = kTags;
+    const auto ordinary = gentest::runner::failure_rerun_command(options, test);
+    expect(!ordinary.empty() && ordinary.find("--include-death") == std::string::npos,
+           "a user death label does not add a death opt-in to the rerun command");
+    test.tags        = {};
+    test.is_death    = true;
+    const auto death = gentest::runner::failure_rerun_command(options, test);
+    expect(death.find("--include-death") != std::string::npos, "an untagged death test retains its death opt-in when rerun");
+
     if (g_failures != 0)
         std::cerr << command << '\n';
     return g_failures == 0 ? 0 : 1;
@@ -195,7 +210,7 @@ int check_failure_path_trim() {
     return g_failures == 0 ? 0 : 1;
 }
 
-// A hand-written death-tagged benchmark reports body entry through the death-test
+// A hand-written death-test benchmark reports body entry through the death-test
 // marker without leaving the runner: the marker names the case, and an unwritable
 // marker is a case failure.
 int check_measured_death_marker(const std::filesystem::path &directory) {
@@ -204,6 +219,7 @@ int check_measured_death_marker(const std::filesystem::path &directory) {
     Case                              bench = make_case(kName);
     bench.is_benchmark                      = true;
     bench.tags                              = kTags;
+    bench.is_death                          = true;
     const std::array cases{bench};
 
     std::error_code ec;
@@ -407,7 +423,8 @@ int check_stale_junit(const std::filesystem::path &directory) {
     bad_bench.items_per_call          = 0;
     Case                        death = make_case("stale/death");
     static constexpr std::array kTags{std::string_view{"death"}};
-    death.tags = kTags;
+    death.tags     = kTags;
+    death.is_death = true;
     const std::array  cases{first, second, bad_bench, death};
     const std::string junit_argument = "--junit=" + junit.string();
 

@@ -5,20 +5,20 @@
 
 static void list_json() {
     std::cout << R"json([
-        {"name":"demo/a","tags":["fast","owner=team-runtime","feature;parser"],"skipped":false},
-        {"name":"demo/b","tags":[],"skipped":false},
-        {"name":"demo/skip","tags":[],"skipped":true},
-        {"name":"demo/has [bracket]","tags":["fast"],"skipped":false},
-        {"name":"demo/a;b","tags":[],"skipped":false},
-        {"name":"demo/lone[","tags":[],"skipped":false},
-        {"name":"demo/lone]","tags":[],"skipped":false},
-        {"name":"demo/quote]==]","tags":[],"skipped":false},
-        {"name":"demo/suffix]=","tags":[],"skipped":false},
-        {"name":"demo/nested]=]tail]==","tags":[],"skipped":false},
-        {"name":"demo/back\\slash$\"","tags":[],"skipped":false},
-        {"name":"demo/death","tags":["death"],"skipped":false},
-        {"name":"demo/death;[","tags":["death"],"skipped":false},
-        {"name":"demo/death_skip","tags":["death"],"skipped":true}
+        {"name":"demo/a","tags":["fast","owner=team-runtime","feature;parser"],"skipped":false,"is_death":false},
+        {"name":"demo/b","tags":["death"],"skipped":false,"is_death":false},
+        {"name":"demo/skip","tags":[],"skipped":true,"is_death":false},
+        {"name":"demo/has [bracket]","tags":["fast"],"skipped":false,"is_death":false},
+        {"name":"demo/a;b","tags":[],"skipped":false,"is_death":false},
+        {"name":"demo/lone[","tags":[],"skipped":false,"is_death":false},
+        {"name":"demo/lone]","tags":[],"skipped":false,"is_death":false},
+        {"name":"demo/quote]==]","tags":[],"skipped":false,"is_death":false},
+        {"name":"demo/suffix]=","tags":[],"skipped":false,"is_death":false},
+        {"name":"demo/nested]=]tail]==","tags":[],"skipped":false,"is_death":false},
+        {"name":"demo/back\\slash$\"","tags":[],"skipped":false,"is_death":false},
+        {"name":"demo/death","tags":[],"skipped":false,"is_death":true},
+        {"name":"demo/death;[","tags":["death"],"skipped":false,"is_death":true},
+        {"name":"demo/death_skip","tags":["death"],"skipped":true,"is_death":true}
     ])json";
 }
 
@@ -49,7 +49,7 @@ static int run_one(std::string_view name) {
     }
     if (name == "demo/death" || name == "demo/death;[") {
         std::cout << "Case not found: unrelated-diagnostic\n";
-        std::cout << "fatal path\n";
+        std::cout << "fatal path: this is a death test\n";
         return 3;
     }
     if (name == "demo/death_skip") {

@@ -105,6 +105,7 @@ gentest::Case kCases[] = {
         .fixture          = {},
         .fixture_lifetime = gentest::FixtureLifetime::None,
         .suite            = "regressions",
+        .is_death         = true,
     },
     {
         .name             = "regressions/runtime_selection/death_bench",
@@ -121,6 +122,7 @@ gentest::Case kCases[] = {
         .fixture          = {},
         .fixture_lifetime = gentest::FixtureLifetime::None,
         .suite            = "regressions",
+        .is_death         = true,
     },
     {
         .name             = "regressions/runtime_selection/bench_table_case",

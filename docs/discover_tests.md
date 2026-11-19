@@ -32,7 +32,7 @@ parallel runs and repetition, see
   and `TEST_SUFFIX`. The entry runs `my_tests --run=<case> --skip-return-code=77`
   plus `EXTRA_ARGS`, with the CTest property `SKIP_RETURN_CODE 77`, so static
   and runtime skips show as skipped in CTest.
-- **Death tests** (cases tagged `death`). The CTest name gets a `death/` prefix,
+- **Death tests** (cases marked with the `death` attribute). The CTest name gets a `death/` prefix,
   after `TEST_PREFIX`: `death/crash/fatal_path`. The entry runs a CMake script
   that starts the executable with `--include-death --run=<case>` and decides
   whether the case died as expected; see [Death tests](death_tests.md). Death
@@ -110,8 +110,8 @@ select disjoint cases: a case that two calls register gets two CTest entries.
 
 ## Labels
 
-Each nonempty case tag becomes a CTest label with the tag's spelling, including
-`death` and owner tags such as `owner=team-runtime`. Labels you pass with
+Each nonempty user-defined tag becomes a CTest label with the tag's spelling.
+Owner metadata and the death-test flag do not add labels. Labels you pass with
 `PROPERTIES` stay:
 
 ```cmake

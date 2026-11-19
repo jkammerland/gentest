@@ -85,7 +85,7 @@ def main():
         variant = write_run(str(copy), directory)
     finally:
         copy.unlink()
-    expected = {name for name, entry in inventory.items() if "death" not in entry["tags"]}
+    expected = {name for name, entry in inventory.items() if not entry["is_death"]}
     uuids = set()
     for results, before, after, added in runs:
         assert set(results) == expected, (sorted(results), sorted(expected))

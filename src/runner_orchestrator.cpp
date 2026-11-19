@@ -170,6 +170,7 @@ std::string format_inventory_case_json(const gentest::Case &test) {
     append_json_key(out, "kind");
     append_json_string(out, inventory_kind(test));
     out.push_back(',');
+    fmt::format_to(std::back_inserter(out), "\"is_death\":{},", test.is_death ? "true" : "false");
     append_json_key(out, "tags");
     append_json_string_array(out, test.tags);
     out.push_back(',');
@@ -628,7 +629,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         fmt::print("  --exclude-tag=<tag>   Exclude any matching tag (repeatable)\n");
         fmt::print("  --exclude=<pattern>   Exclude matching names (*, ?, repeatable, case-sensitive)\n");
         fmt::print("  --kind=<kind>         Restrict to kind: all|test|bench|jitter (default all)\n");
-        fmt::print("  --include-death       Allow running tests tagged 'death'\n");
+        fmt::print("  --include-death       Allow running death tests\n");
         fmt::print("  --skip-return-code=N  Exit N (4..255) when every selected case skips\n");
         fmt::print("  --no-color            Disable colorized output (also disabled for dumb/captured output)\n");
         fmt::print("  --github-annotations  Emit GitHub Actions annotations (::error ...) on failures\n");
@@ -696,7 +697,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         return 0;
     case Mode::ListDeath:
         for (const auto &test : kCases) {
-            if (has_tag_ci(test, "death") && !test.should_skip) {
+            if (test.is_death && !test.should_skip) {
                 fmt::print("{}\n", test.name);
             }
         }
@@ -760,7 +761,7 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         }
         return write_empty_execution_reports(opt);
     case SelectionStatus::DeathExcludedRun:
-        return fail_before_execution(opt, fmt::format("Case '{}' is tagged as a death test; rerun with --include-death", opt.run_name));
+        return fail_before_execution(opt, fmt::format("Case '{}' is a death test; rerun with --include-death", opt.run_name));
     case SelectionStatus::DeathExcludedAll:
         if (opt.mode == Mode::ListSelected)
             return 0;
@@ -795,8 +796,8 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
         return reject_machine_measured_report_unmeasured_selection(opt);
     }
 
-    if (opt.death_test_marker && (selection.idxs.size() != 1 || !has_tag_ci(kCases[selection.idxs.front()], "death"))) {
-        return fail_before_execution(opt, "error: death-test protocol requires exactly one death-tagged case");
+    if (opt.death_test_marker && (selection.idxs.size() != 1 || !kCases[selection.idxs.front()].is_death)) {
+        return fail_before_execution(opt, "error: death-test protocol requires exactly one death test");
     }
 
     if (selection.filtered_death > 0) {

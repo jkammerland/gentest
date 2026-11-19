@@ -32,7 +32,8 @@ struct Input : gentest::FixtureSetup {
 };
 
 template <typename T, bool Reverse>
-[[using gentest: test("sum_correct"), template(T, int, long), template(Reverse, false, true), req("SUM-001"), owner("examples"), fast]]
+[[using gentest: test("sum_correct"), template(T, int, long), template(Reverse, false, true), req("SUM-001"), owner("examples"),
+  tag("fast")]]
 void sumCorrect(Input &input) {
     gentest::expect_eq(sum<T, Reverse>({}), T{0});
     gentest::expect_eq(sum<T, Reverse>(std::span<const int>(input.values).first(1)), T{1});

@@ -3019,9 +3019,9 @@ gentest_add_check_contains(
     REQUIRED_SUBSTRING "strings/concatenate [gentest:tags=slow;requires=#42]"
     ARGS --list)
 gentest_add_check_contains(
-    NAME integration_list_structured_and_legacy_owner
+    NAME integration_list_declared_metadata
     PROG $<TARGET_FILE:gentest_integration_tests>
-    REQUIRED_SUBSTRING "errors/recover [gentest:tags=owner=team-runtime;requires=BUG-123;owner=team-runtime]"
+    REQUIRED_SUBSTRING "errors/recover [gentest:requires=BUG-123;owner=team-runtime]"
     ARGS --list)
 gentest_add_cmake_script_test(
     NAME integration_list_json_inventory

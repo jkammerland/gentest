@@ -11,7 +11,7 @@
 // These stay as macros because generated registration code checks them with
 // preprocessor conditionals before using newer Case fields.
 // NOLINTBEGIN(modernize-macro-to-enum)
-#define GENTEST_CASE_API_VERSION            6
+#define GENTEST_CASE_API_VERSION            7
 #define GENTEST_CASE_API_HAS_ITEMS_PER_CALL 1
 #define GENTEST_CASE_API_HAS_OWNER          1
 // NOLINTEND(modernize-macro-to-enum)
@@ -56,6 +56,7 @@ struct Case {
     // Optional body-only entrypoint, invoked only inside the measured Call phase.
     // Descriptors without it use fn for setup, calls, and teardown.
     void (*measured_fn)(void *){nullptr};
+    bool is_death{false};
 };
 
 } // namespace gentest

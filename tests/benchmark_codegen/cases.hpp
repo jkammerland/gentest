@@ -3,7 +3,7 @@
 #include "gentest/attributes.h"
 #include "gentest/fixture.h"
 
-[[using gentest: bench("codegen/once_supplied"), bench_once, bench_warmup(0), bench_time("supplied"), fast, owner("codegen")]]
+[[using gentest: bench("codegen/once_supplied"), bench_once, bench_warmup(0), bench_time("supplied"), tag("fast"), owner("codegen")]]
 void once_supplied();
 
 [[using gentest: benchmark("codegen/once_runner"), bench_once, bench_time("runner")]]
@@ -18,7 +18,7 @@ void default_benchmark();
 [[using gentest: jitter("codegen/jitter")]]
 void default_jitter();
 
-[[using gentest: test("codegen/test"), slow]]
+[[using gentest: test("codegen/test"), tag("slow")]]
 void ordinary_test();
 
 struct LocalFixture : gentest::FixtureSetup, gentest::FixtureTearDown {

@@ -55,7 +55,7 @@ int main() {
     }
 
     {
-        auto                     attrs = parse_attribute_list(R"(test("suite/a"), slow, linux, req("#1"), owner("bar"))");
+        auto                     attrs = parse_attribute_list(R"(test("suite/a"), tag("slow", "linux"), req("#1"), owner("bar"))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(diags.empty(), "valid attributes produce no diagnostics");
@@ -69,13 +69,14 @@ int main() {
         };
         t.expect(has("slow"), "flag 'slow' present");
         t.expect(has("linux"), "flag 'linux' present");
-        t.expect(has("owner=bar"), "owner value present");
+        t.expect(!has("owner=bar"), "owner does not create a tag");
         t.expect(summary.owner && *summary.owner == "bar", "owner value is available as structured metadata");
         t.expect(summary.requirements.size() == 1 && summary.requirements[0] == "#1", "single req present");
     }
 
     {
-        auto attrs = parse_attribute_list(R"(gentest::test("suite/scoped"), gentest::slow, gentest::req("#2"), gentest::owner("ops"))");
+        auto attrs =
+            parse_attribute_list(R"(gentest::test("suite/scoped"), gentest::tag("slow"), gentest::req("#2"), gentest::owner("ops"))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(diags.empty(), "scoped gentest:: attributes produce no diagnostics");
@@ -88,7 +89,7 @@ int main() {
             return false;
         };
         t.expect(has("slow"), "scoped flag is normalized");
-        t.expect(has("owner=ops"), "scoped owner is normalized");
+        t.expect(!has("owner=ops"), "scoped owner does not create a tag");
         t.expect(summary.owner && *summary.owner == "ops", "scoped owner is available as structured metadata");
         t.expect(summary.requirements.size() == 1 && summary.requirements[0] == "#2", "scoped req present");
     }
@@ -99,6 +100,40 @@ int main() {
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(summary.had_error, "non-gentest scoped attribute errors");
         t.expect(!diags.empty(), "non-gentest scoped attribute reports a diagnostic");
+    }
+
+    // Tags are user labels; only the death attribute controls execution.
+    {
+        auto attrs =
+            parse_attribute_list(R"(test("labels"), tag("GPU", "linux", "windows", "death"), tag("gpu", "feature;parser"), owner("qa"))");
+        auto summary = validate_attributes(attrs, [&](const std::string &) { t.expect(false, "valid custom tags"); });
+        t.expect(summary.tags == std::vector<std::string>{"GPU", "linux", "windows", "death", "feature;parser"},
+                 "tags deduplicate case-insensitively and preserve spelling");
+        t.expect(!summary.is_death && summary.owner == "qa", "labels and owner have no death semantics");
+        summary = validate_attributes(parse_attribute_list("death"), [&](const std::string &) { t.expect(false, "death is valid"); });
+        t.expect(summary.is_death && summary.tags.empty(), "death creates behavior without a tag");
+        for (const auto *source :
+             {"tag", "tag()", R"(tag("a" + "b"))", "tag(42)", "tag(label)", "tag(\"\")", "death(\"x\")", "fast", "slow", "linux", "windows",
+              "typo", R"(tag("\x{67}pu"))", R"(tag("bad\x{0}label"))", R"(tag("\u{67}pu"))", R"(tag("\o{147}pu"))",
+              R"(tag("\N{LATIN SMALL LETTER G}pu"))", R"(tag("\e"))", R"(tag("\x100"))"}) {
+            std::vector<std::string> errors;
+            auto invalid = validate_attributes(parse_attribute_list(source), [&](const std::string &msg) { errors.push_back(msg); });
+            t.expect(invalid.had_error && !errors.empty(), std::string("invalid attribute rejected: ") + source);
+        }
+        summary = validate_attributes(parse_attribute_list(R"test(tag(R"label(feature;[gpu])label", "quoted\"label", "path\\name"))test"),
+                                      [&](const std::string &) { t.expect(false, "raw and escaped labels are valid"); });
+        t.expect(summary.tags == std::vector<std::string>{"feature;[gpu]", "quoted\"label", "path\\name"},
+                 "string labels decode without losing punctuation");
+        summary = validate_attributes(parse_attribute_list(R"test(tag("GPU", "\147\x70\u0075", R"(\x{67}pu)"))test"),
+                                      [&](const std::string &) { t.expect(false, "C++20 escapes and raw labels are valid"); });
+        t.expect(summary.tags == std::vector<std::string>{"GPU", R"(\x{67}pu)"},
+                 "decoded C++20 escapes deduplicate while raw escapes stay literal");
+        std::vector<std::string> nul_errors;
+        auto nul = validate_attributes(parse_attribute_list(R"(tag("bad\0label"))"), [&](const auto &msg) { nul_errors.push_back(msg); });
+        t.expect(nul.had_error && !nul_errors.empty(), "embedded NUL cannot silently truncate a generated label");
+        const auto attrs2 = parse_attribute_list(R"(tag("gpu"))");
+        t.expect(validate_fixture_attributes(attrs2, [](const auto &) {}).had_error, "tags cannot annotate fixtures");
+        t.expect(validate_namespace_attributes(attrs2, [](const auto &) {}).had_error, "tags cannot annotate namespaces");
     }
 
     // Range/linspace/geom/logspace parse smoke
@@ -122,8 +157,8 @@ int main() {
         auto                     attrs = parse_attribute_list(R"(linux, windows, test("x"))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
-        t.expect(summary.had_error, "conflicting platform flags error");
-        t.expect(!diags.empty(), "conflicting flags report a diagnostic");
+        t.expect(summary.had_error, "removed platform attributes error");
+        t.expect(!diags.empty(), "removed attributes report a diagnostic");
     }
 
     {
@@ -329,14 +364,15 @@ int main() {
     }
 
     {
-        auto attrs = parse_attribute_list(R"(benchmark("x"), bench_once, bench_warmup(0), bench_time("supplied"), fast, owner("qa"))");
+        auto attrs =
+            parse_attribute_list(R"(benchmark("x"), bench_once, bench_warmup(0), bench_time("supplied"), tag("fast"), owner("qa"))");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(!summary.had_error && diags.empty(), "once supplied benchmark metadata is valid with explicit zero warmup");
         t.expect(summary.is_benchmark && summary.benchmark.once && summary.benchmark.supplied_time,
                  "benchmark alias records once execution and supplied timing");
         t.expect(summary.benchmark.warmup_epochs == 0, "explicit zero warmup remains distinct from omitted warmup");
-        t.expect(summary.tags == std::vector<std::string>{"fast", "owner=qa"}, "benchmark controls do not become generic tags");
+        t.expect(summary.tags == std::vector<std::string>{"fast"}, "benchmark controls do not become generic tags");
     }
 
     {
@@ -561,7 +597,7 @@ int main() {
     }
 
     {
-        auto                     attrs = parse_attribute_list(R"(test("x"), slow, slow)");
+        auto                     attrs = parse_attribute_list(R"(test("x"), death, death)");
         std::vector<std::string> diags;
         auto                     summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
         t.expect(summary.had_error, "duplicate flag errors");

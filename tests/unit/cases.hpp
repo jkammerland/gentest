@@ -18,7 +18,7 @@ namespace unit {
 inline void throw_runtime_error() { throw std::runtime_error("boom"); }
 inline void no_throw() {}
 
-[[using gentest: test("arithmetic/sum"), fast]]
+[[using gentest: test("arithmetic/sum"), tag("fast")]]
 void sum_is_computed();
 
 [[using gentest: test("approx/absolute")]]
@@ -30,35 +30,35 @@ void approx_relative();
 [[using gentest: test("approx/relative_negative")]]
 void approx_relative_negative();
 
-[[using gentest: test("strings/concatenate"), req("#42"), slow]]
+[[using gentest: test("strings/concatenate"), req("#42"), tag("slow")]]
 void concatenate_strings();
 
-[[using gentest: test("conditions/negate"), linux]]
+[[using gentest: test("conditions/negate"), tag("linux")]]
 void negate_condition();
 
 [[using gentest: test("conditions/false_and_relations")]]
 void false_and_relations();
 
-[[gentest::fast]]
+[[gentest::tag("fast")]]
 void default_name_free();
 
-[[using gentest: test("attributes/close_marker_in_string_]]_ok"), fast]]
+[[using gentest: test("attributes/close_marker_in_string_]]_ok"), tag("fast")]]
 void attribute_name_with_close_marker_literal();
 
 [[maybe_unused]] constexpr const char *kCloseMarkerAttrParserRawNoise =
     R"gentest(raw "quoted" text [[not_an_attribute and stray ]] plus // and /* markers)gentest";
 
-[[using gentest: test("attributes/close_marker_after_line_comment_]]_ok"), fast]]
+[[using gentest: test("attributes/close_marker_after_line_comment_]]_ok"), tag("fast")]]
 // Parser regression: close-marker text in comments should not terminate attribute scanning ]]
 void attribute_name_with_close_marker_after_line_comment();
 
-[[using gentest: test("attributes/close_marker_after_block_comment_]]_ok"), fast]]
+[[using gentest: test("attributes/close_marker_after_block_comment_]]_ok"), tag("fast")]]
 /* Parser regression: raw-string-like text R"( [[not_attr]] )" is comment noise. */
 void attribute_name_with_close_marker_after_block_comment();
 
 [[maybe_unused]] constexpr auto kDigitSeparatedValueBeforeAttribute = 30'000'000;
 
-[[using gentest: test("attributes/digit_separator_before_attribute"), fast]]
+[[using gentest: test("attributes/digit_separator_before_attribute"), tag("fast")]]
 // A digit separator in source or comment text such as 1'000 must not hide this test. ]]
 void attribute_after_digit_separator();
 
@@ -75,7 +75,7 @@ void assert_throw_simple();
 void assert_no_throw_simple();
 
 struct DefaultNameFixture {
-    [[gentest::fast]]
+    [[gentest::tag("fast")]]
     void default_name_member() {
         EXPECT_TRUE(true);
     }

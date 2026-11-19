@@ -110,7 +110,7 @@ std::uint64_t iteration_shuffle_seed(std::uint64_t base_seed, std::size_t iterat
 std::string failure_rerun_command(const CliOptions &opt, const gentest::Case &test) {
     std::vector<std::string> arguments{fmt::format("--run={}", test.name),
                                        test.is_benchmark ? "--kind=bench" : (test.is_jitter ? "--kind=jitter" : "--kind=test")};
-    if (has_tag_ci(test, "death")) {
+    if (test.is_death) {
         arguments.emplace_back("--include-death");
     }
     arguments.emplace_back("--no-color");

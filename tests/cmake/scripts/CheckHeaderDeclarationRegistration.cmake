@@ -273,7 +273,7 @@ foreach(_metadata IN ITEMS
     "\"kind\":\"bench\""
     "\"itemsPerCall\":2"
     "\"kind\":\"jitter\""
-    "\"tags\":[\"death\"]")
+    "\"is_death\":true")
   string(FIND "${_json_inventory}" "${_metadata}" _metadata_pos)
   if(_metadata_pos EQUAL -1)
     message(FATAL_ERROR "Header-declaration JSON inventory missed metadata '${_metadata}'.\n${_json_inventory}")
@@ -725,6 +725,41 @@ string(FIND "${_conflict_stdout}${_conflict_stderr}" "conflict_b.hpp" _conflict_
 if(_conflict_diag_pos EQUAL -1 OR _conflict_a_pos EQUAL -1 OR _conflict_b_pos EQUAL -1)
   message(FATAL_ERROR "Expected both locations in conflicting-redeclaration diagnostic.\n${_conflict_stdout}\n${_conflict_stderr}")
 endif()
+
+# Punctuation inside a single label cannot impersonate another metadata field.
+# Matching labels remain valid, including text that looks like a field separator.
+foreach(_tag_variant IN ITEMS split_tag split_requirement matching)
+  set(_tag_a [=[tag("x|tag:y")]=])
+  set(_tag_b [=[tag("x", "y")]=])
+  if(_tag_variant STREQUAL "split_requirement")
+    set(_tag_a [=[tag("x|requirement:y")]=])
+    set(_tag_b [=[tag("x"), req("y")]=])
+  elseif(_tag_variant STREQUAL "matching")
+    set(_tag_b "${_tag_a}")
+  endif()
+  file(WRITE "${_conflict_a}"
+    "#pragma once\n[[using gentest: test(\"same\"), ${_tag_a}]] void conflicting_redeclaration();\n")
+  file(WRITE "${_conflict_b}"
+    "#pragma once\n#include \"conflict_a.hpp\"\n[[using gentest: test(\"same\"), ${_tag_b}]] void conflicting_redeclaration();\n")
+  execute_process(
+    COMMAND "${PROG}" --check
+      --tu-out-dir "${_work_dir}/tag_conflict_generated"
+      --textual-registration-output "${_work_dir}/tag_conflict_generated/registration.cpp"
+      "${_conflict_source}" -- -std=c++20
+    RESULT_VARIABLE _tag_rc
+    OUTPUT_VARIABLE _tag_stdout
+    ERROR_VARIABLE _tag_stderr)
+  if(_tag_variant STREQUAL "matching")
+    if(NOT _tag_rc EQUAL 0)
+      message(FATAL_ERROR "Matching punctuation labels were rejected.\n${_tag_stdout}\n${_tag_stderr}")
+    endif()
+  else()
+    string(FIND "${_tag_stdout}${_tag_stderr}" "annotated redeclarations of one entity differ" _tag_diag_pos)
+    if(_tag_rc EQUAL 0 OR _tag_diag_pos EQUAL -1)
+      message(FATAL_ERROR "Different metadata (${_tag_variant}) must not merge.\n${_tag_stdout}\n${_tag_stderr}")
+    endif()
+  endif()
+endforeach()
 
 set(_duplicate_header "${_work_dir}/duplicate_names.hpp")
 set(_duplicate_source "${_work_dir}/duplicate_names.cpp")

@@ -6,7 +6,7 @@ metadata in the same attribute as its name:
 
 ```cpp
 [[using gentest: test("bounded_value"), parameters(value, -1, 11),
-  req("LIMIT-001"), owner("examples"), fast]]
+  req("LIMIT-001"), owner("examples"), tag("fast")]]
 inline void boundedValue(int value);
 ```
 
@@ -30,8 +30,7 @@ build/examples/metadata/gentest_metadata --junit=results.xml
 
 - `--list` prints each case with its metadata and source location, for
   example
-  `metadata/bounded_value(-1) [gentest:tags=owner=examples,fast;requires=LIMIT-001;owner=examples] (cases.hpp:11)`.
-  The owner also appears as an `owner=examples` tag.
+  `metadata/bounded_value(-1) [gentest:tags=fast;requires=LIMIT-001;owner=examples] (cases.hpp:11)`.
 - `inventory.json` is a JSON array with each case's name, file and line, kind,
   tags, requirements, owner and other registry fields. It describes the
   compiled cases, not their pass or fail outcomes.
@@ -49,7 +48,7 @@ their scopes, payloads and exports, and the
 ## Learn more
 
 - [Writing tests](../../docs/writing_tests.md): the attributes, including the
-  fixed set of tags.
+  user-defined tags.
 - [Test inventory](../../docs/test_inventory.md): every `--list-json` field.
 - [Requirements traceability](../../docs/traceability_standards.md):
   requirements with `req(...)`.

@@ -41,8 +41,12 @@ def main():
         (["--tag=fast", "--kind=test", "--filter=*/A*"], []),
         (["--run=alpha", "--exclude=*/alpha"], []),
         (["--run=alpha", "--tag=slow"], []),
-        (["--tag=death"], []),
-        (["--tag=DeAtH", "--include-death"], [all_names[2]]),
+        (["--tag=death"], [all_names[1]]),
+        (["--tag=DeAtH", "--include-death"], [all_names[1]]),
+        (["--tag=gPu"], [all_names[1]]),
+        (["--tag=feature;[parser]"], [all_names[1]]),
+        (['--tag=quote"slash\\'], [all_names[1]]),
+        (["--tag=owner=qa"], []),
         (["--tag=death", "--include-death", "--exclude-tag=death"], []),
         (["--tag=missing"], []),
         (["--exclude=*"], []),
@@ -65,7 +69,6 @@ def main():
         (["--list-tags"], 1, "another listing mode"),
         (["--tag=missing", "--fail-on-empty"], 1, "No cases selected"),
         (["--exclude=*", "--fail-on-empty"], 1, "No cases selected"),
-        (["--tag=death", "--fail-on-empty"], 1, "death tests excluded"),
     ):
         result = run(binary, "--list-selected", *args, code=code)
         assert result.stdout == "" and message in result.stderr, result
@@ -73,7 +76,7 @@ def main():
     # Empty death previews stay read-only even when execution report paths exist.
     with tempfile.TemporaryDirectory() as tmp:
         report = Path(tmp) / "preview.xml"
-        result = run(binary, "--list-selected", "--tag=death", f"--junit={report}")
+        result = run(binary, "--list-selected", "--filter=*/fatal", f"--junit={report}")
         assert result.stdout == "" and result.stderr == "", result
         assert not report.exists(), report
 
@@ -86,7 +89,7 @@ def main():
 
     # Available tags include skipped/death metadata and ignore selection flags.
     result = run(binary, "--list-tags", "--tag=missing", "--kind=bench")
-    assert result.stdout.splitlines() == ["death", "fast", "slow"], result
+    assert result.stdout.splitlines() == ["death", "fast", "feature;[parser]", "gpu", 'quote"slash\\', "slow"], result
     assert result.stderr == "", result
     result = run(binary, "--list-tags", "--list-json", code=1)
     assert "another listing mode" in result.stderr, result
@@ -96,6 +99,14 @@ def main():
     assert result.stdout.splitlines() == all_names, result
     inventory = json.loads(run(binary, "--list-json").stdout)
     assert [case["name"] for case in inventory] == all_names, inventory
+    by_name = {case["name"].split("/")[-1]: case for case in inventory}
+    assert by_name["fatal"]["is_death"] and "death" not in by_name["fatal"]["tags"]
+    assert not by_name["beta"]["is_death"]
+    assert by_name["beta"]["tags"] == ["slow", "death", "GPU", "feature;[parser]", 'quote"slash\\']
+    assert by_name["beta"]["owner"] == "qa"
+    assert run(binary, "--list-death").stdout.splitlines() == [all_names[2]]
+    result = run(binary, "--tag=death", "--fail-on-empty")
+    assert "beta executed" in result.stdout, result
 
     # Execution must reject an empty selection before constructing Probe too.
     result = run(binary, "--kind=test", "--filter=missing/*", "--fail-on-empty", code=1)

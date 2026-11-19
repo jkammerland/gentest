@@ -47,12 +47,12 @@ other attributes.
 For the cases above, `./my_tests --list` prints:
 
 ```text
-math/add [gentest:tags=owner=team-runtime;requires=SSR-001;owner=team-runtime] (cases.hpp:10)
+math/add [gentest:requires=SSR-001;owner=team-runtime] (cases.hpp:10)
 math/divide [gentest:requires=SSR-002,SSR-003] (cases.hpp:15)
 ```
 
-The owner appears both as the `owner=` entry and as an `owner=team-runtime`
-tag.
+The owner is declared metadata, available even when the case is not executed.
+Use `tag(...)` separately if you want labels for selecting cases.
 
 The JUnit report holds the IDs as properties of each test case:
 

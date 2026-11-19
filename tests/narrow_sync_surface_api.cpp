@@ -11,6 +11,8 @@ namespace {
 template <typename T, typename = void> inline constexpr bool kCompleteType                                      = false;
 template <typename T> inline constexpr bool                  kCompleteType<T, std::void_t<decltype(sizeof(T))>> = true;
 
+// Mirror the public aggregate order, including its intentional padding.
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
 struct CaseLayoutMirror {
     std::string_view name;
     void (*fn)(void *);
@@ -33,6 +35,7 @@ struct CaseLayoutMirror {
     gentest::BenchmarkOptions         benchmark{};
     bool                              reports_body_start{false};
     void (*measured_fn)(void *){nullptr};
+    bool is_death{false};
 };
 
 static_assert(!kCompleteType<gentest::detail::AsyncTask>, "gentest/test.h and Case must not parse the full async implementation");
@@ -60,8 +63,9 @@ static_assert(offsetof(gentest::Case, items_per_call) == offsetof(CaseLayoutMirr
 static_assert(offsetof(gentest::Case, owner) == offsetof(CaseLayoutMirror, owner));
 static_assert(offsetof(gentest::Case, benchmark) == offsetof(CaseLayoutMirror, benchmark));
 static_assert(offsetof(gentest::Case, measured_fn) == offsetof(CaseLayoutMirror, measured_fn));
+static_assert(offsetof(gentest::Case, is_death) == offsetof(CaseLayoutMirror, is_death));
 
-[[using gentest: test("narrow_surface/metadata"), fast, req("NARROW-1"), owner("headers"), skip("compile-only")]]
+[[using gentest: test("narrow_surface/metadata"), tag("fast"), req("NARROW-1"), owner("headers"), skip("compile-only")]]
 void synchronous_case_declaration() {}
 
 } // namespace

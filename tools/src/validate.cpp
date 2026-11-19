@@ -384,6 +384,65 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 continue;
             }
             summary.param_packs.push_back(std::move(pack));
+        } else if (lowered == "tag") {
+            saw_case = true;
+            if (attr.arguments.empty()) {
+                summary.had_error = true;
+                report("'tag' requires at least one nonempty string literal");
+            }
+            for (std::size_t i = 0; i < attr.arguments.size(); ++i) {
+                auto value = attr.arguments[i];
+                // Require a single quoted literal, not an expression that merely
+                // begins and ends in quotes (for example "a" + "b").
+                const auto is_string_literal = [](std::string_view token) {
+                    if (token.size() < 2 || token.front() != '"' || token.back() != '"')
+                        return false;
+                    for (std::size_t j = 1; j + 1 < token.size(); ++j) {
+                        if (token[j] == '\\') {
+                            ++j;
+                            if (j + 1 >= token.size())
+                                return false;
+                        } else if (token[j] == '"')
+                            return false;
+                    }
+                    return true;
+                };
+                bool valid_literal = i < attr.argument_tokens.size() && is_string_literal(attr.argument_tokens[i]);
+                // Unknown escapes must not silently become different user labels.
+                if (valid_literal)
+                    value = decode_string_literal(attr.argument_tokens[i], &valid_literal);
+                if (i < attr.argument_tokens.size() && attr.argument_tokens[i].starts_with("R\"")) {
+                    const std::string_view token = attr.argument_tokens[i];
+                    const auto             open  = token.find('(', 2);
+                    if (open != std::string_view::npos && open - 2 <= 16) {
+                        const auto        delimiter = token.substr(2, open - 2);
+                        const std::string closing   = ")" + std::string(delimiter) + "\"";
+                        const auto        end       = token.find(closing, open + 1);
+                        if (delimiter.find_first_of(" \\)\t\n\r") == std::string_view::npos && end != std::string_view::npos &&
+                            end + closing.size() == token.size()) {
+                            value         = token.substr(open + 1, end - open - 1);
+                            valid_literal = true;
+                        }
+                    }
+                }
+                if (!valid_literal || value.empty() || value.find('\0') != std::string::npos) {
+                    summary.had_error = true;
+                    report("'tag' requires nonempty ordinary or raw string literals; use C++20 escapes and no NUL characters");
+                    continue;
+                }
+                // Selection compares ASCII case-insensitively; keep the first spelling.
+                auto normalize = [](std::string text) {
+                    for (char &ch : text)
+                        if (ch >= 'A' && ch <= 'Z')
+                            ch = static_cast<char>(ch + ('a' - 'A'));
+                    return text;
+                };
+                if (std::ranges::none_of(summary.tags, [&](const auto &tag) { return normalize(tag) == normalize(value); }))
+                    summary.tags.push_back(value);
+            }
+        } else if (lowered == "fast" || lowered == "slow" || lowered == "linux" || lowered == "windows") {
+            summary.had_error = true;
+            report(fmt::format("gentest attribute '{}' was removed; use tag(\"{}\") instead", lowered, lowered));
         } else if (lowered == "fixtures") {
             summary.had_error = true;
             report("'fixtures(...)' was removed; infer fixtures from function parameters instead");
@@ -400,13 +459,8 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report(fmt::format("duplicate gentest flag attribute '{}'", attr.name));
                 continue;
             }
-            if ((lowered == "linux" && seen_flags.contains("windows")) || (lowered == "windows" && seen_flags.contains("linux"))) {
-                summary.had_error = true;
-                report("conflicting gentest flags 'linux' and 'windows'");
-                continue;
-            }
             seen_flags.insert(lowered);
-            add_unique(summary.tags, attr.name);
+            summary.is_death = true;
         } else {
             if (!gentest::detail::is_allowed_value_attribute(lowered)) {
                 summary.had_error = true;
@@ -436,7 +490,6 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 saw_case      = true;
                 seen_owner    = attr.arguments.front();
                 summary.owner = attr.arguments.front();
-                add_unique(summary.tags, attr.name + "=" + attr.arguments.front());
             }
         }
     }

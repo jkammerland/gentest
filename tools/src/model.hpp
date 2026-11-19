@@ -235,6 +235,7 @@ struct TestCaseInfo {
     // True when the discovered callable returns gentest::awaitable<T>.
     bool returns_async = false;
     // Tags and metadata
+    bool                     is_death{false};
     std::vector<std::string> tags;
     std::vector<std::string> requirements;
     bool                     should_skip = false;
@@ -266,7 +267,7 @@ struct TestCaseInfo {
     std::vector<FreeCallArg> free_call_args;
     // Namespace parts for this test (used for fixture resolution).
     std::vector<std::string> namespace_parts;
-    // Structured owner metadata; the legacy owner=... tag remains in tags.
+    // Declared owner metadata, independent of user-defined tags.
     std::string owner;
 };
 

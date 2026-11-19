@@ -22,8 +22,9 @@ auto split_expression_list(std::string_view expressions) -> std::vector<std::str
 // Decode an unprefixed "..." literal token to the bytes it denotes: simple,
 // octal, hexadecimal and universal-character escapes. An escape that is not
 // valid in a narrow literal keeps its backslash. Other tokens are returned
-// trimmed and otherwise unchanged.
-auto decode_string_literal(std::string_view value) -> std::string;
+// trimmed and otherwise unchanged. If supplied, supported_escapes reports
+// whether every escape in a quoted literal was decoded.
+auto decode_string_literal(std::string_view value, bool *supported_escapes = nullptr) -> std::string;
 
 // Parse comma-separated attribute list into parsed attributes.
 auto parse_attribute_list(std::string_view list) -> std::vector<ParsedAttribute>;

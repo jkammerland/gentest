@@ -65,8 +65,8 @@ void detect_and_recover_error() {
     gentest::expect(metadata != cases.end(), "generated owner case is present in the Case snapshot");
     if (metadata != cases.end()) {
         gentest::expect_eq(metadata->owner, std::string_view{"team-runtime"}, "owner is available as structured Case metadata");
-        gentest::expect(std::ranges::find(metadata->tags, std::string_view{"owner=team-runtime"}) != metadata->tags.end(),
-                        "legacy owner tag remains available for tag selection");
+        gentest::expect(std::ranges::find(metadata->tags, std::string_view{"owner=team-runtime"}) == metadata->tags.end(),
+                        "owner metadata does not implicitly create a tag");
     }
 
     bool caught_invalid_argument = false;
