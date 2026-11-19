@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <mutex>
 #include <span>
@@ -19,9 +20,9 @@ thread_local const std::filesystem::path *death_test_marker = nullptr;
 struct DeathTestProtocolScope {
     const std::filesystem::path *previous = death_test_marker;
     explicit DeathTestProtocolScope(const std::filesystem::path *path) { death_test_marker = path; }
-    bool recordSkip(std::string_view name) const {
+    bool recordResult(std::string_view name, std::string_view status) const {
         std::ofstream result(*death_test_marker, std::ios::binary | std::ios::trunc);
-        result << name << "\nskipped";
+        result << name << '\n' << status;
         result.close();
         death_test_marker = nullptr;
         return static_cast<bool>(result);
@@ -113,16 +114,34 @@ auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runne
     events.finish();
     if (events.failed())
         return 1;
-    // Only a normal runner return can confirm a skip. Setup and teardown can
-    // exit with the same status as a real skip without returning here.
+    // Only the runner can confirm a missing or skipped case. User code can
+    // print the same diagnostic or exit with the same status.
+    if (options.death_test_marker && result == gentest::runner::kExitCaseNotFound && !protocol.recordResult(options.run_name, "missing"))
+        return 1;
     if (options.death_test_marker && options.skip_return_code != 0 && result == options.skip_return_code &&
-        !protocol.recordSkip(options.run_name))
+        !protocol.recordResult(options.run_name, "skipped"))
         return 1;
     return result;
 }
 } // namespace
 
 namespace gentest::detail {
+void record_supervised_failure(std::string_view message) {
+    if (!death_test_marker)
+        return;
+
+    // The body can exit before the runner flushes its buffered failures.
+    auto          path = *death_test_marker;
+    std::ofstream failure(path += ".failure", std::ios::binary | std::ios::app);
+    failure << message << '\n';
+    failure.close();
+    if (!failure) {
+        (void)std::fputs("Cannot record supervised assertion failure\n", stderr);
+        // A normal exit always fails an armed death test, even if its files are unwritable.
+        std::_Exit(0);
+    }
+}
+
 void notify_case_body_start() {
     if (!death_test_marker)
         return;

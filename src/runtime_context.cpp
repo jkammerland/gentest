@@ -104,6 +104,7 @@ void append_failure(TestContextLocalBuffer &buffer, std::string msg, TestContext
     }
     auto ctx = current_test_storage();
     buffer.failures.push_back(with_diagnostic_context(std::move(msg)));
+    record_supervised_failure(buffer.failures.back());
     mark_context_failed(*ctx);
     buffer.failure_locations.push_back(std::move(location));
     buffer.event_lines.push_back(buffer.failures.back());

@@ -14,13 +14,16 @@ def child(args):
     name = next(a.split("=", 1)[1] for a in args if a.startswith("--run="))
     marker = Path(next(a.split("=", 1)[1] for a in args if a.startswith("--gentest-death-marker=")))
     if name == "absent":
-        print("Case not found: absent")
+        marker.write_bytes((name + "\nmissing").encode())
         return 1
+    if name == "setup diagnostic":
+        print("Case not found: setup diagnostic")
+        return 3
     if name in ("setup", "setup77"):
         return 3 if name == "setup" else 77
     marker.write_bytes(name.encode())
     if name == "ordinary failure":
-        print("[ FAIL ] check failed")
+        marker.with_suffix(".failure").write_text("check failed")
     if name in ("teardown", "teardown77"):
         with marker.open("ab") as f:
             f.write(b"\ncompleted")
@@ -104,6 +107,7 @@ def main(supervisor, probe, *emulator):
     check("ordinary failure", [], 1, "normal test failure")
     check("returned", [], 1, "exit code was 0")
     check("setup", [], 1, "did not reach")
+    check("setup diagnostic", ["--skip-missing"], 1, "did not reach")
     check("teardown", [], 1, "body completed")
     check("setup77", [], 1, "did not reach")
     check("teardown77", [], 1, "body completed")
@@ -120,7 +124,10 @@ def main(supervisor, probe, *emulator):
         if b"fatal diagnostic" in check(name, [], 1, message, real):
             raise AssertionError(f"incorrect registration executed {name}")
     check("probe/death", ["--expect", "fatal diagnostic", "--inactivity-ms", "5000"], 0, "Death test passed", real)
+    check("probe/failed_expectation", [], 1, "unexpected value before exit", real)
+    check("probe/diagnostic", ["--expect", "[ FAIL ] parser rejected input"], 0, "Death test passed", real)
     check("probe/async_body", ["--expect", "async body resumed"], 0, "Death test passed", real)
+    check("probe/async_expectation", [], 1, "unexpected value after resume", real)
     for case in ("probe/async_teardown", "probe/async_canceled"):
         output = check(case, [], 1, "body completed", real)
         if b"async frame teardown" not in output:
