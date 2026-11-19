@@ -229,23 +229,21 @@ _gentest_run_or_fail(
   ENV ${_xmake_env}
   COMMAND "${_xmake}" ${_xmake_config_args})
 
+# Start with the module suite so its generated mock dependency must work on a clean build.
 foreach(_target IN ITEMS
+    gentest_xrepo_module
     gentest_xrepo_runtime
     gentest_installed_header_only
     gentest_xrepo_textual_mocks
     gentest_xrepo_textual
-    gentest_xrepo_header_only
-    gentest_xrepo_module_mocks
-    gentest_xrepo_module)
+    gentest_xrepo_header_only)
   _gentest_run_or_fail(
     LABEL "Build Xmake xrepo target ${_target}"
     WORKING_DIRECTORY "${_workspace_dir}"
     ENV ${_xmake_env}
     COMMAND "${_xmake}" ${_xmake_build_args} ${_target})
   string(APPEND _build_log "${_gentest_last_stdout}\n${_gentest_last_stderr}\n")
-  if(_target STREQUAL "gentest_xrepo_module_mocks")
-    set(_module_mocks_build_log "${_gentest_last_stdout}\n${_gentest_last_stderr}")
-  elseif(_target STREQUAL "gentest_xrepo_module")
+  if(_target STREQUAL "gentest_xrepo_module")
     set(_module_suite_build_log "${_gentest_last_stdout}\n${_gentest_last_stderr}")
   endif()
 endforeach()
@@ -282,18 +280,12 @@ if(_clang_scan_deps)
       "log:\n${_build_log}")
   endif()
 endif()
-string(FIND "${_module_mocks_build_log}" "--compdb" _module_mocks_compdb_flag_pos)
-if(_module_mocks_compdb_flag_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Xmake xrepo module mock codegen did not forward --compdb.\n"
-    "log:\n${_module_mocks_build_log}")
-endif()
-string(FIND "${_module_suite_build_log}" "--compdb" _module_suite_compdb_flag_pos)
-if(_module_suite_compdb_flag_pos EQUAL -1)
-  message(FATAL_ERROR
-    "Xmake xrepo module suite codegen did not forward --compdb.\n"
-    "log:\n${_module_suite_build_log}")
-endif()
+# The single suite build must run both generators, each with its compile database.
+foreach(_phase IN ITEMS --mock-aggregate-module-output --module-registration-output)
+  if(NOT _module_suite_build_log MATCHES "(${_phase}[^\n]*--compdb|--compdb[^\n]*${_phase})")
+    message(FATAL_ERROR "Missing --compdb on the ${_phase} command:\n${_module_suite_build_log}")
+  endif()
+endforeach()
 
 foreach(_expected_glob IN ITEMS
     "${_generated_glob_root}/${_textual_mock_leaf}/gentest_xrepo_mocks.hpp"

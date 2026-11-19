@@ -115,6 +115,11 @@ function(gentest_ensure_fmt)
                 GIT_TAG 12.1.0)
             FetchContent_MakeAvailable(fmt)
 
+            # The installed host tool needs to locate the shared fmt shipped by this fallback.
+            if(FMT_INSTALL AND TARGET fmt)
+                set_property(TARGET fmt PROPERTY GENTEST_FMT_INSTALL_LIBDIR "${FMT_LIB_DIR}")
+            endif()
+
             # Shared runtime and clang-tidy plugin binaries need position-independent
             # code in their fetched static dependency on every supported architecture.
             if((GENTEST_RUNTIME_SHARED OR GENTEST_BUILD_TIDY_PLUGIN) AND TARGET fmt)

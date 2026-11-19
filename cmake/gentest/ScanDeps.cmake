@@ -3,6 +3,7 @@ include_guard(GLOBAL)
 function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets)
     set(_gentest_result "")
     set(_gentest_explicit_mock_targets "")
+    set(_gentest_module_files "")
     set(_gentest_queue "${target}")
     set(_gentest_seen "")
 
@@ -24,6 +25,17 @@ function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets
         list(APPEND _gentest_seen "${_gentest_current}")
 
         if(NOT _gentest_current STREQUAL "${target}")
+            # Pass the active configuration's installed module files to the scanner.
+            get_target_property(_gentest_imported "${_gentest_current}" IMPORTED)
+            if(_gentest_imported AND ARGC GREATER 3)
+                get_property(_gentest_sets TARGET "${_gentest_current}" PROPERTY INTERFACE_CXX_MODULE_SETS)
+                foreach(_gentest_set IN LISTS _gentest_sets)
+                    set(_gentest_files "$<TARGET_PROPERTY:${_gentest_current},CXX_MODULE_SET_${_gentest_set}>")
+                    set(_gentest_files "$<TARGET_GENEX_EVAL:${_gentest_current},${_gentest_files}>")
+                    list(APPEND _gentest_module_files "${_gentest_files}")
+                endforeach()
+            endif()
+
             get_target_property(_gentest_is_explicit_mock "${_gentest_current}" GENTEST_EXPLICIT_MOCK_TARGET)
             if(_gentest_is_explicit_mock)
                 get_target_property(_gentest_explicit_codegen_dep "${_gentest_current}" GENTEST_CODEGEN_DEP_TARGET)
@@ -56,6 +68,9 @@ function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets
     if(ARGC GREATER 2)
         list(REMOVE_DUPLICATES _gentest_explicit_mock_targets)
         set(${ARGV2} "${_gentest_explicit_mock_targets}" PARENT_SCOPE)
+    endif()
+    if(ARGC GREATER 3)
+        set(${ARGV3} "${_gentest_module_files}" PARENT_SCOPE)
     endif()
 endfunction()
 

@@ -1544,10 +1544,9 @@ function(gentest_attach_codegen target)
     _gentest_collect_codegen_dep_targets_from_link_graph(
         ${target}
         _gentest_linked_codegen_dep_targets
-        _gentest_linked_explicit_mock_targets)
-    if(_gentest_linked_codegen_dep_targets)
-        list(APPEND _gentest_codegen_deps ${_gentest_linked_codegen_dep_targets})
-    endif()
+        _gentest_linked_explicit_mock_targets
+        _gentest_linked_module_files)
+    list(APPEND _gentest_codegen_deps ${_gentest_linked_codegen_dep_targets} ${_gentest_linked_module_files})
     _gentest_check_explicit_mock_defs_includes(${target} ${target} ${_gentest_linked_explicit_mock_targets})
     _gentest_collect_external_module_source_mappings(_gentest_external_module_source_mappings ${_gentest_linked_codegen_dep_targets})
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS "")
@@ -1650,7 +1649,7 @@ function(gentest_attach_codegen target)
             list(APPEND _gentest_codegen_tool_depends "${_gentest_clang_scan_deps}")
         endif()
     endif()
-    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}")
+    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}" ${_gentest_linked_module_files})
 
     if(_gentest_mode STREQUAL "module_mock_provider" OR _gentest_mode STREQUAL "header_declaration")
         # Explicit module mock providers scan their generated provider units;
@@ -1684,7 +1683,7 @@ function(gentest_attach_codegen target)
             list(APPEND _gentest_mock_inspect_command --quiet-clang)
         endif()
         _gentest_append_codegen_module_context_args(
-            _gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}")
+            _gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}" ${_gentest_linked_module_files})
         list(APPEND _gentest_mock_inspect_command ${_gentest_tus})
         list(APPEND _gentest_mock_inspect_command --)
         list(APPEND _gentest_mock_inspect_command ${_gentest_source_inspection_clang_args})
