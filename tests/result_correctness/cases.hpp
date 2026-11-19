@@ -63,4 +63,15 @@ struct LateFailure {
 [[using gentest: bench("ordinary_mismatch"), bench_once]] void       ordinary_mismatch();
 [[using gentest: bench("noexcept_match"), bench_once]] void          noexcept_match();
 
+struct DeferredMismatch : gentest::FixtureTearDown {
+    unsigned calls = 0;
+    void     mismatchOnFourthCall(bool skip_after);
+    void     tearDown() override;
+};
+
+[[using gentest: bench("bench_deferred"), parameters(skip_after, false, true)]]
+void bench_deferred(DeferredMismatch &fixture, bool skip_after);
+[[using gentest: jitter("jitter_deferred"), parameters(skip_after, false, true)]]
+void jitter_deferred(DeferredMismatch &fixture, bool skip_after);
+
 } // namespace measured_outcomes

@@ -148,4 +148,22 @@ void jitter_noexcept_mismatch() { put<noexcept_policy::NoThrow>(11); }
 void ordinary_mismatch() { put<noexcept_policy::Throw>(11); }
 void noexcept_match() { put<noexcept_policy::NoThrow>(10); }
 
+void DeferredMismatch::mismatchOnFourthCall(bool skip_after) {
+    if (++calls != 4)
+        return;
+
+    put<noexcept_policy::NoThrow>(11);
+    if (skip_after)
+        gentest::skip("skip after mismatch");
+}
+
+void DeferredMismatch::tearDown() {
+    const auto snapshot = gentest::currentMeasurement();
+    gentest::record_property("attempted_calls", calls);
+    gentest::record_property("completed_samples", snapshot ? snapshot->primary.statistics.count : 0);
+}
+
+void bench_deferred(DeferredMismatch &fixture, bool skip_after) { fixture.mismatchOnFourthCall(skip_after); }
+void jitter_deferred(DeferredMismatch &fixture, bool skip_after) { fixture.mismatchOnFourthCall(skip_after); }
+
 } // namespace measured_outcomes
