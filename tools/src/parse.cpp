@@ -144,33 +144,16 @@ bool extract_gentest_scoped_payload(std::string_view list, std::string &payload,
         payload.append(token.data(), token.size());
     };
 
-    bool        in_string        = false;
-    bool        in_char          = false;
-    bool        in_line_comment  = false;
-    bool        in_block_comment = false;
-    bool        in_raw_string    = false;
-    bool        escape           = false;
-    int         nesting_depth    = 0;
+    bool        in_string     = false;
+    bool        in_char       = false;
+    bool        in_raw_string = false;
+    bool        escape        = false;
+    int         nesting_depth = 0;
     std::string raw_delimiter;
 
     std::size_t token_start = 0;
     for (std::size_t i = 0; i < list.size(); ++i) {
-        const char ch   = list[i];
-        const char next = (i + 1 < list.size()) ? list[i + 1] : '\0';
-
-        if (in_line_comment) {
-            if (ch == '\n' || ch == '\r') {
-                in_line_comment = false;
-            }
-            continue;
-        }
-        if (in_block_comment) {
-            if (ch == '*' && next == '/') {
-                in_block_comment = false;
-                ++i;
-            }
-            continue;
-        }
+        const char ch = list[i];
         if (in_raw_string) {
             if (ch == ')') {
                 const std::size_t quote_index = i + raw_delimiter.size() + 1;
@@ -211,16 +194,6 @@ bool extract_gentest_scoped_payload(std::string_view list, std::string &payload,
             continue;
         }
 
-        if (ch == '/' && next == '/') {
-            in_line_comment = true;
-            ++i;
-            continue;
-        }
-        if (ch == '/' && next == '*') {
-            in_block_comment = true;
-            ++i;
-            continue;
-        }
         std::size_t raw_open_paren = 0;
         if (try_start_raw_string(list, i, raw_delimiter, raw_open_paren)) {
             in_raw_string = true;
@@ -546,13 +519,22 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
             break;
         }
 
-        const llvm::StringRef    attribute_text = buffer.slice(tokens[open].begin, tokens[cursor - 1].end);
+        // Rebuild from Clang tokens. Preserve the spelling inside literals and
+        // separate tokens across whitespace or comments without copying comment text.
+        std::string attribute_text = "[[";
+        for (std::size_t index = open + 2; index < cursor - 2; ++index) {
+            if (tokens[index - 1].end != tokens[index].begin) {
+                attribute_text.push_back(' ');
+            }
+            attribute_text += buffer.slice(tokens[index].begin, tokens[index].end);
+        }
+        attribute_text += "]]";
+
         std::string_view         namespace_name;
         std::string_view         args_text;
         std::string              owned_args_text;
         std::vector<std::string> mis_scoped_gentest;
-        if (!parse_attribute_namespace_and_payload(std::string_view(attribute_text.data(), attribute_text.size()), namespace_name,
-                                                   args_text, owned_args_text, mis_scoped_gentest)) {
+        if (!parse_attribute_namespace_and_payload(attribute_text, namespace_name, args_text, owned_args_text, mis_scoped_gentest)) {
             if (!mis_scoped_gentest.empty()) {
                 collected.mis_scoped_gentest.insert(collected.mis_scoped_gentest.end(), mis_scoped_gentest.begin(),
                                                     mis_scoped_gentest.end());
@@ -566,7 +548,7 @@ void scan_attributes_before(AttributeCollection &collected, llvm::StringRef buff
         }
 
         if (namespace_name != "gentest") {
-            collected.other_namespaces.push_back(attribute_text.str());
+            collected.other_namespaces.push_back(attribute_text);
             cursor = open;
             continue;
         }
@@ -607,28 +589,20 @@ auto collect_gentest_attributes_for(const FunctionDecl &func, const SourceManage
         return collected;
     }
 
-    // For declaration-producing macros, the attribute tokens live in the
-    // macro spelling buffer while the declaration name may come from an
-    // invocation argument. Scan backward from the spelled declaration start;
-    // the collector separately retains the full expansion chain for identity.
-    if (begin.isMacroID()) {
-        begin = sm.getSpellingLoc(begin);
+    // Attributes may precede a declaration inside a macro body or precede
+    // its invocation (for example, a visibility macro before the return type).
+    auto scan_at = [&](SourceLocation location) {
+        if (location.isValid()) {
+            scan_attributes_before(collected, sm.getBufferData(sm.getFileID(location)), sm.getFileOffset(location),
+                                   /*skip_decl_specifiers=*/true);
+        }
+    };
+    scan_at(sm.getSpellingLoc(begin));
+    SourceLocation caller;
+    while (begin.isMacroID() && sm.isAtStartOfImmediateMacroExpansion(begin, &caller)) {
+        begin = caller;
+        scan_at(sm.getSpellingLoc(begin));
     }
-
-    SourceLocation file_location = sm.getFileLoc(begin);
-    if (!file_location.isValid()) {
-        return collected;
-    }
-
-    const FileID file_id = sm.getFileID(file_location);
-    if (file_id.isInvalid()) {
-        return collected;
-    }
-
-    const llvm::StringRef buffer = sm.getBufferData(file_id);
-    const unsigned        offset = sm.getFileOffset(file_location);
-
-    scan_attributes_before(collected, buffer, offset, /*skip_decl_specifiers=*/true);
 
     return collected;
 }

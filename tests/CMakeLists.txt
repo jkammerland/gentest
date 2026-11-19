@@ -5254,6 +5254,7 @@ unset(_gentest_driver_mode)
 # Direct-invocation regressions for attribute discovery, axis expansion and
 # registration rendering; one scenario per defect.
 foreach(_gentest_cdr_scenario IN ITEMS
+        omitted_default_argument
         quiet_clang_parse_error
         shell_operator_arguments
         attribute_text_scan

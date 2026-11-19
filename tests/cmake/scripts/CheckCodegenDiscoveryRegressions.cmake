@@ -110,7 +110,21 @@ function(_gentest_cdr_expect_not_registered what)
   endforeach()
 endfunction()
 
-if(SCENARIO STREQUAL "quiet_clang_parse_error")
+if(SCENARIO STREQUAL "omitted_default_argument")
+  _gentest_cdr_scan(gap CONTENT [=[
+#pragma once
+[[using gentest: test, parameters(last, 9)]]
+inline void defaults(int first = 2, int last = 3) {}
+]=])
+  _gentest_cdr_expect_failure("named axis after default" "cannot bind parameter 'last' after omitted default argument 'first'")
+  _gentest_cdr_scan(overloaded CONTENT [=[
+#pragma once
+void check(int);
+[[using gentest: test]]
+inline void check(short value = 1) {}
+]=])
+  _gentest_cdr_expect_failure("overload with omitted default" "an overloaded case requires explicit values for all default arguments")
+elseif(SCENARIO STREQUAL "quiet_clang_parse_error")
   # --quiet-clang hides warnings, never a translation unit that failed to parse.
   set(_content [=[
 #pragma once
@@ -171,6 +185,11 @@ An "unterminated quote.
 #endif
 // A line comment with one " quote and an apostrophe: don't
 namespace scan {
+[ /* open */ [gentest
+    // Scope and name belong to one active attribute.
+    :: test("split_brackets")] /* close */ ] inline void split_brackets() {}
+#define FIRST_AND_SECOND inline void multi_first() {} inline void unannotated_second() {}
+[[gentest::test("multi_first")]] FIRST_AND_SECOND
 [[using gentest: test("after_skipped_text")]] inline void after_skipped_text() {}
 /* see http://example.com */ [[using gentest: test("after_block_comment")]] inline void after_block_comment() {}
 [[using gentest: test("comment_before_decl")]] /* https://example.com/x */ // trailing
@@ -190,6 +209,7 @@ inline void unannotated_free() {}
 ]=])
   _gentest_cdr_expect_success("attribute text scan")
   _gentest_cdr_expect_registered("attribute text scan"
+    "\"scan/split_brackets\"" "\"scan/multi_first\""
     "\"scan/after_skipped_text\"" "\"scan/after_block_comment\"" "\"scan/comment_before_decl\""
     "\"scan/subscript(kTable[kIndex[0]])\"" "\"scan/inline_member\"" "\"scan/plain_member\"" "\"scan/static_member\""
     "\"scan/const_ref_member\"" "\"scan/constexpr_member\"")

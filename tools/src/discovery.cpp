@@ -1200,6 +1200,39 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         return;
     }
 
+    auto policy = PrintingPolicy(result.Context->getLangOpts());
+    policy.adjustForCPlusPlus();
+    policy.SuppressScope          = false;
+    policy.FullyQualifiedName     = true;
+    policy.SuppressUnwrittenScope = false;
+
+    // Pointer calls select the declaration before converting the row values.
+    // Keep ordinary calls for unique declarations so C++ supplies their defaults.
+    const auto  candidates = func->getDeclContext()->getRedeclContext()->lookup(func->getDeclName());
+    const bool  overloaded = std::ranges::any_of(candidates, [&](const NamedDecl *candidate) {
+        const auto *other = candidate->getUnderlyingDecl()->getAsFunction();
+        // An explicit template-id excludes ordinary functions from lookup.
+        return other != nullptr && other->getCanonicalDecl() != func->getCanonicalDecl() &&
+               (!is_function_template || other->getDescribedFunctionTemplate() != nullptr);
+    });
+    std::string pointer_type;
+    const auto *method       = llvm::dyn_cast<CXXMethodDecl>(func);
+    const bool  needs_object = method != nullptr && method->isInstance();
+    if (overloaded) {
+        if (is_function_template) {
+            had_error_ = true;
+            report("cannot bind an overloaded function template; give the case template a distinct C++ name");
+            return;
+        }
+        llvm::raw_string_ostream stream(pointer_type);
+        const std::string        pointer   = needs_object ? fmt::format("({}::*)", method->getParent()->getQualifiedNameAsString()) : "(*)";
+        QualType                 signature = func->getType();
+        if (func->getReturnType()->getContainedDeducedType() != nullptr) {
+            signature = result.Context->adjustFunctionResultType(signature, func->getReturnType().getCanonicalType());
+        }
+        signature.print(stream, policy, pointer);
+    }
+
     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     auto add_case = [&](const std::vector<std::string> &tpl_ordered, const std::string &display_args, const std::string &call_args,
                         const std::vector<std::string> &free_fixture_types, const std::vector<std::string> &free_fixture_emit_types,
@@ -1229,6 +1262,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.benchmark                    = summary.benchmark;
         info.template_args                = tpl_ordered;
         info.call_arguments               = call_args;
+        info.overload_pointer_type        = pointer_type;
+        info.overload_needs_object        = needs_object;
         info.is_function_template         = is_function_template;
         info.returns_value                = !func->getReturnType()->isVoidType();
         info.returns_async                = returns_async;
@@ -1279,12 +1314,6 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         if (seen_.insert(key).second)
             out_.push_back(std::move(info));
     };
-
-    auto policy = PrintingPolicy(result.Context->getLangOpts());
-    policy.adjustForCPlusPlus();
-    policy.SuppressScope          = false;
-    policy.FullyQualifiedName     = true;
-    policy.SuppressUnwrittenScope = false;
 
     std::vector<FunctionParamInfo> function_params;
     function_params.reserve(func->parameters().size());
@@ -1361,12 +1390,25 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     std::vector<std::string>                 inferred_fixture_entity_keys;
     std::vector<std::string>                 inferred_fixture_emit_types;
     std::vector<std::optional<FixtureScope>> inferred_fixture_required_scopes;
+    const ParmVarDecl                       *omitted_default = nullptr;
     for (auto &param : function_params) {
         if (!param.name.empty() && value_axis_names.contains(param.name)) {
+            if (omitted_default != nullptr) {
+                had_error_ = true;
+                report(fmt::format("cannot bind parameter '{}' after omitted default argument '{}'; supply both values", param.name,
+                                   omitted_default->getNameAsString()));
+                return;
+            }
             param.is_value_axis = true;
             continue;
         }
         if (param.has_default_arg) {
+            if (overloaded) {
+                had_error_ = true;
+                report("an overloaded case requires explicit values for all default arguments");
+                return;
+            }
+            omitted_default = param.decl;
             continue;
         }
         param.is_fixture    = true;
