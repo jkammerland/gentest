@@ -33,6 +33,8 @@ target_sources(module_registration_manifest_tests
 
 target_link_libraries(module_registration_manifest_tests PRIVATE gentest::gentest gentest::gentest_main)
 target_compile_features(module_registration_manifest_tests PRIVATE cxx_std_20)
+target_compile_options(module_registration_manifest_tests PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Werror=inline-namespace-reopened-noninline>)
 
 gentest_attach_codegen(module_registration_manifest_tests
     MODULE_REGISTRATION

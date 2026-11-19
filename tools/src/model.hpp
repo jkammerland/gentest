@@ -277,6 +277,7 @@ struct TestCaseInfo {
     std::vector<FreeCallArg> free_call_args;
     // Namespace parts for this test (used for fixture resolution).
     std::vector<std::string> namespace_parts;
+    std::vector<std::size_t> inline_namespace_indices;
     // Declared owner metadata, independent of user-defined tags.
     std::string owner;
 };

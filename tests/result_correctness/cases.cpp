@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <string_view>
 
 namespace result_correctness {
 
@@ -49,6 +50,15 @@ void                     entered_with_input(int value, unsigned size) {
     if (value == 17 && size == sizeof(value))
         std::_Exit(23);
 }
+
+inline namespace binding {
+void bound_default(bool matches, const Input &input) {
+    const bool exact = input.value == 8 && input.precise == 0x1.0000000000001p0 && input.converted == 7 &&
+                       ::binding_values::conversions == 1 && std::string_view(input.bytes, 4) == std::string_view("\001f\000x", 4);
+    if (exact == matches)
+        std::_Exit(23);
+}
+} // namespace binding
 
 void body_death() { std::_Exit(23); }
 void body_death_77() { std::_Exit(77); }

@@ -3,6 +3,19 @@
 #include "gentest/runner.h"
 #include "public/gentest_textual_suite_mocks.hpp"
 
+namespace binding_values {
+inline int conversions = 0;
+
+struct Converted {
+    int value;
+
+    operator int() const {
+        ++conversions;
+        return value;
+    }
+};
+} // namespace binding_values
+
 namespace result_correctness {
 
 struct DeathInput {
@@ -38,6 +51,35 @@ gentest::awaitable<void> entered_async(T value) {
 
 [[using gentest: test, death]] void body_death_77();
 [[using gentest: test, death]] void runtime_skip_death();
+
+inline namespace binding {
+struct Input {
+    int         value;
+    double      precise;
+    const char *bytes;
+    int         converted;
+};
+
+inline int select_input(long) { return 7; }
+
+[[using gentest: test, death, parameters(matches, true, false)]]
+void bound_default(bool matches, const Input &input = {.value     = select_input(static_cast<int>(0)) + 1,
+                                                       .precise   = 0x1.0000000000001p0,
+                                                       .bytes     = "\001"
+                                                                    "f\000x",
+                                                       .converted = ::binding_values::Converted{select_input(0)}});
+
+inline int select_input(int) { return 99; }
+
+// Both later declarations would be viable in the generated helper.
+namespace binding_values {
+struct Converted {
+    int value;
+
+    operator int() const { return 99; }
+};
+} // namespace binding_values
+} // namespace binding
 
 struct AbortingSetup : gentest::FixtureSetup {
     void setUp() override;

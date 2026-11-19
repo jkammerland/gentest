@@ -501,6 +501,8 @@ gentest_link_mocks(gentest_failing_tests PRIVATE gentest_textual_suite_mocks)
 add_executable(gentest_result_correctness_tests result_correctness/cases.cpp result_correctness/cases.hpp support/test_entry.cpp)
 target_link_libraries(gentest_result_correctness_tests PRIVATE gentest::gentest gentest_textual_suite_mocks)
 target_compile_features(gentest_result_correctness_tests PRIVATE cxx_std_20)
+target_compile_options(gentest_result_correctness_tests PRIVATE
+    $<$<CXX_COMPILER_ID:Clang,AppleClang>:-Werror=inline-namespace-reopened-noninline>)
 gentest_attach_codegen(gentest_result_correctness_tests)
 add_dependencies(gentest_test_suites gentest_result_correctness_tests)
 gentest_add_python_program_test(NAME result_correctness_contract

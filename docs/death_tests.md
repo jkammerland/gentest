@@ -36,7 +36,9 @@ references, and values whose transfer and destruction are trivial. Pass an
 object with a user-defined move constructor or destructor by reference, for
 example `void rejects_input(const Input &input = make_input())`. Default
 expressions used by the generated call must be accessible from its namespace.
-If a default uses a private member, supply a value with `parameters(...)`.
+If codegen cannot preserve the binding of a default expression, such as an
+overloaded operator or a private member, give the parameter an explicit value
+with `parameters(...)`.
 
 Each supervised death test starts with fresh fixtures, including suite and
 global fixtures. In-memory changes made by earlier tests stay in their own

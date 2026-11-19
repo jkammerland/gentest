@@ -20,6 +20,7 @@
 #include <clang/Basic/Module.h>
 #include <clang/Basic/SourceManager.h>
 #include <clang/Basic/Version.h>
+#include <clang/Lex/Lexer.h>
 #include <clang/Sema/Sema.h>
 #if __has_include(<clang/UnifiedSymbolResolution/USRGeneration.h>)
 #include <clang/UnifiedSymbolResolution/USRGeneration.h>
@@ -326,21 +327,20 @@ void validate_enclosing_namespaces(const DeclContext *ctx, const SourceManager &
     return out;
 }
 
-[[nodiscard]] std::vector<std::string> collect_namespace_parts(const DeclContext *ctx) {
+[[nodiscard]] std::vector<std::string> collect_namespace_parts(const DeclContext        *ctx,
+                                                               std::vector<std::size_t> *inline_namespace_indices = nullptr) {
+    std::vector<const NamespaceDecl *> scopes;
+    for (; ctx != nullptr; ctx = ctx->getParent()) {
+        if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(ctx); ns != nullptr && !ns->isAnonymousNamespace())
+            scopes.push_back(ns);
+    }
+
     std::vector<std::string> parts;
-    const DeclContext       *current = ctx;
-    while (current != nullptr) {
-        if (const auto *ns = llvm::dyn_cast<NamespaceDecl>(current)) {
-            if (!ns->isAnonymousNamespace()) {
-                parts.push_back(ns->getNameAsString());
-            }
-        }
-        current = current->getParent();
+    for (const auto *ns : llvm::reverse(scopes)) {
+        if (inline_namespace_indices != nullptr && ns->isInline())
+            inline_namespace_indices->push_back(parts.size());
+        parts.push_back(ns->getNameAsString());
     }
-    if (parts.empty()) {
-        return parts;
-    }
-    std::ranges::reverse(parts);
     return parts;
 }
 
@@ -813,40 +813,261 @@ struct FunctionParamInfo {
     std::optional<std::size_t> template_binding_index;
 };
 
-// The replayed default uses the generated parameter names in unevaluated
-// operands such as sizeof(earlier). Private names are valid at the authored
-// declaration but cannot be named by a namespace-scope registration helper.
+const NamedDecl *inaccessible_context(const NamedDecl *decl) {
+    for (; decl != nullptr; decl = llvm::dyn_cast<NamedDecl>(decl->getDeclContext())) {
+        if (decl->getAccess() == AS_private || decl->getAccess() == AS_protected)
+            return decl;
+    }
+    return nullptr;
+}
+
+// Keep public aliases, including exported aliases for module-private types.
+// Desugar inaccessible typedefs inside the parameter or result type.
+QualType helper_type(QualType type, ASTContext &context) {
+    // Expressions embedded in a concrete type (decltype or a non-type
+    // template argument) also carry bindings from the declaration.
+    if (!type->isDependentType() && llvm::isa<DecltypeType, TypeOfExprType, DeducedType>(type.getTypePtr()))
+        return type.getCanonicalType();
+    if (const auto *alias = type->getAs<TypedefType>()) {
+        if (inaccessible_context(alias->getDecl()) != nullptr)
+            return helper_type(context.getQualifiedType(alias->desugar(), type.getLocalQualifiers()), context);
+        return type;
+    }
+    if (const auto *pointer = type->getAs<PointerType>())
+        return context.getQualifiedType(context.getPointerType(helper_type(pointer->getPointeeType(), context)), type.getLocalQualifiers());
+    if (const auto *ref = type->getAs<LValueReferenceType>())
+        return context.getLValueReferenceType(helper_type(ref->getPointeeType(), context));
+    if (const auto *ref = type->getAs<RValueReferenceType>())
+        return context.getRValueReferenceType(helper_type(ref->getPointeeType(), context));
+    // QualTypeNames does not walk an array's element or a callback signature.
+    if (const auto *array = context.getAsConstantArrayType(type)) {
+        const auto element = TypeName::getFullyQualifiedType(helper_type(array->getElementType(), context), context, true);
+        return context.getConstantArrayType(element, array->getSize(), nullptr, array->getSizeModifier(),
+                                            array->getIndexTypeCVRQualifiers());
+    }
+    if (const auto *array = context.getAsIncompleteArrayType(type)) {
+        const auto element = TypeName::getFullyQualifiedType(helper_type(array->getElementType(), context), context, true);
+        return context.getIncompleteArrayType(element, array->getSizeModifier(), array->getIndexTypeCVRQualifiers());
+    }
+    if (const auto *proto = type->getAs<FunctionProtoType>()) {
+        llvm::SmallVector<QualType> args;
+        for (QualType arg : proto->param_types())
+            args.push_back(TypeName::getFullyQualifiedType(helper_type(arg, context), context, true));
+        QualType result = proto->getReturnType();
+        if (result->getContainedDeducedType() != nullptr)
+            result = result.getCanonicalType();
+        auto info = proto->getExtProtoInfo();
+        if (info.ExceptionSpec.Type == EST_NoexceptTrue || info.ExceptionSpec.Type == EST_NoexceptFalse)
+            info.ExceptionSpec = info.ExceptionSpec.Type == EST_NoexceptTrue ? EST_BasicNoexcept : EST_None;
+        result = TypeName::getFullyQualifiedType(helper_type(result, context), context, true);
+        return context.getFunctionType(result, args, info);
+    }
+    if (const auto *spec = type->getAs<TemplateSpecializationType>(); spec != nullptr && !type->isDependentType()) {
+        for (const auto &arg : spec->template_arguments()) {
+            if (arg.getKind() == TemplateArgument::Expression ||
+                (arg.getKind() == TemplateArgument::Type && helper_type(arg.getAsType(), context) != arg.getAsType()))
+                return type.getCanonicalType();
+        }
+    }
+    return type;
+}
+
+std::string helper_pointer_type(const FunctionDecl &function, ASTContext &context, const PrintingPolicy &policy, llvm::StringRef pointer) {
+    const auto               signature = helper_type(QualType(function.getType()->castAs<FunctionProtoType>(), 0), context);
+    std::string              text;
+    llvm::raw_string_ostream stream(text);
+    signature.print(stream, policy, pointer);
+    return text;
+}
+
+// Clang's pretty printer describes source syntax. Use it only for nodes whose
+// syntax preserves the resolved operation. Give references and literals their
+// own spellings and stop on nodes that would require fresh overload resolution.
 class DeathDefaultPrinter final : public PrinterHelper {
   public:
-    explicit DeathDefaultPrinter(const FunctionDecl &function) : function_(function) {}
+    DeathDefaultPrinter(const FunctionDecl &function, PrintingPolicy policy, bool importer)
+        : function_(function), policy_(policy), importer_(importer) {}
 
     bool handledStmt(Stmt *stmt, llvm::raw_ostream &out) override {
-        const NamedDecl *decl = nullptr;
-        if (const auto *reference = llvm::dyn_cast<DeclRefExpr>(stmt)) {
-            decl = reference->getDecl();
+        if (!error.empty())
+            return true;
+        if (const auto *reference = llvm::dyn_cast<DeclRefExpr>(stmt))
+            return print_reference(*reference, out);
+        if (llvm::isa<IntegerLiteral, FloatingLiteral, CharacterLiteral>(stmt)) {
+            print_token(stmt->getBeginLoc(), out);
+            return true;
+        }
+        if (const auto *str = llvm::dyn_cast<StringLiteral>(stmt)) {
+            for (unsigned i = 0; i < str->getNumConcatenated(); ++i) {
+                if (i != 0)
+                    out << ' ';
+                print_token(str->getStrTokenLoc(i), out);
+            }
+            return true;
+        }
+        if (const auto *cast = llvm::dyn_cast<ExplicitCastExpr>(stmt))
+            return print_cast(*cast, out);
+        if (const auto *cast = llvm::dyn_cast<ImplicitCastExpr>(stmt); cast != nullptr && cast->getCastKind() == CK_UserDefinedConversion) {
+            // The helper has the original target type, so its initialization
+            // performs the conversion after evaluating the bound operand.
+            cast->getSubExprAsWritten()->printPretty(out, this, policy_);
+            return true;
+        }
+        if (const auto *call = llvm::dyn_cast<CallExpr>(stmt)) {
+            // A call through a pointer has no default arguments of its own.
+            if (stmt->getStmtClass() == Stmt::CallExprClass && !call->isTypeDependent() &&
+                !std::ranges::any_of(call->arguments(), [](const Expr *arg) { return llvm::isa<CXXDefaultArgExpr>(arg); }))
+                return false;
         } else if (const auto *member = llvm::dyn_cast<MemberExpr>(stmt)) {
-            decl = member->getMemberDecl();
+            if (llvm::isa<FieldDecl>(member->getMemberDecl()) && !member->isImplicitAccess() && !member->hasQualifier() &&
+                inaccessible_context(member->getMemberDecl()) == nullptr)
+                return false;
+        } else if (const auto *init = llvm::dyn_cast<CXXConstructExpr>(stmt)) {
+            const auto *temporary = llvm::dyn_cast<CXXTemporaryObjectExpr>(init);
+            if ((temporary || init->isListInitialization()) && !init->isStdInitListInitialization()) {
+                if (temporary)
+                    print_type(temporary->getTypeSourceInfo()->getType(), out);
+                out << (init->isListInitialization() ? '{' : '(');
+                for (unsigned i = 0; i < init->getNumArgs(); ++i) {
+                    const auto *arg = init->getArg(i);
+                    if (llvm::isa<CXXDefaultArgExpr>(arg)) {
+                        error = "cannot preserve a nested constructor default argument in a death-test default";
+                        break;
+                    }
+                    if (i != 0)
+                        out << ", ";
+                    arg->printPretty(out, this, policy_);
+                }
+                out << (init->isListInitialization() ? '}' : ')');
+                return true;
+            }
+        } else if (const auto *init = llvm::dyn_cast<DesignatedInitExpr>(stmt)) {
+            // A field designator identifies a member of the same aggregate.
+            if (llvm::all_of(init->designators(), [](const auto &designator) { return designator.isFieldDesignator(); }))
+                return false;
+        } else if (const auto *trait = llvm::dyn_cast<UnaryExprOrTypeTraitExpr>(stmt)) {
+            if (!trait->isArgumentType())
+                return false;
+            out << getTraitSpelling(trait->getKind()) << '(';
+            print_type(trait->getArgumentType(), out);
+            out << ')';
+            return true;
+        } else if (llvm::isa<CXXBoolLiteralExpr, CXXNullPtrLiteralExpr, ParenExpr, ExprWithCleanups, MaterializeTemporaryExpr,
+                             CXXBindTemporaryExpr, ImplicitCastExpr, InitListExpr>(stmt)) {
+            return false;
+        } else if (llvm::isa<BinaryOperator, UnaryOperator, ConditionalOperator>(stmt)) {
+            // A built-in operation on class or enum operands could acquire a
+            // new user-defined operator at the later point of emission.
+            if (llvm::all_of(stmt->children(), [](const Stmt *child) {
+                    auto type = llvm::cast<Expr>(child)->IgnoreUnlessSpelledInSource()->getType();
+                    return type->isBuiltinType() || type->isPointerType();
+                }))
+                return false;
         }
 
-        if (const auto *parameter = llvm::dyn_cast_or_null<ParmVarDecl>(decl);
-            parameter != nullptr && parameter->getDeclContext()->Equals(&function_)) {
-            out << "gentest_arg_" << parameter->getFunctionScopeIndex();
+        error = fmt::format("cannot preserve declaration-site binding for death-test default argument ({})", stmt->getStmtClassName());
+        return true;
+    }
+
+    std::string error;
+
+  private:
+    bool print_cast(const ExplicitCastExpr &cast, llvm::raw_ostream &out) {
+        llvm::StringRef prefix;
+        llvm::StringRef operand_prefix;
+        llvm::StringRef suffix;
+
+        if (const auto *named = llvm::dyn_cast<CXXNamedCastExpr>(&cast)) {
+            out << named->getCastName();
+            prefix         = "<";
+            operand_prefix = ">(";
+            suffix         = ")";
+        } else if (const auto *functional = llvm::dyn_cast<CXXFunctionalCastExpr>(&cast)) {
+            // A typedef may desugar to a multi-word type such as unsigned long.
+            prefix         = "::std::type_identity_t<";
+            operand_prefix = functional->isListInitialization() ? ">" : ">(";
+            suffix         = functional->isListInitialization() ? "" : ")";
+        } else if (llvm::isa<CStyleCastExpr>(cast)) {
+            prefix         = "((";
+            operand_prefix = ")(";
+            suffix         = "))";
+        } else {
+            error = "cannot preserve this cast in a death-test default argument";
             return true;
         }
 
-        for (; decl != nullptr; decl = llvm::dyn_cast<NamedDecl>(decl->getDeclContext())) {
-            if (decl->getAccess() == AS_private || decl->getAccess() == AS_protected) {
-                inaccessible = decl->getQualifiedNameAsString();
-                break;
-            }
-        }
-        return false;
+        out << prefix;
+        print_type(cast.getTypeAsWritten(), out);
+        out << operand_prefix;
+        cast.getSubExprAsWritten()->printPretty(out, this, policy_);
+        out << suffix;
+        return true;
     }
 
-    std::string inaccessible;
+    void print_type(QualType type, llvm::raw_ostream &out) {
+        if (type->isDependentType() && !type->getAs<TemplateTypeParmType>()) {
+            error = "cannot preserve a dependent type expression in a death-test default argument";
+            return;
+        }
+        auto &context = function_.getASTContext();
+        TypeName::getFullyQualifiedType(helper_type(type, context), context, true).print(out, policy_);
+    }
 
-  private:
+    void print_token(SourceLocation location, llvm::raw_ostream &out) {
+        // Use the expanded literal's spelling, including escapes, precision and suffix.
+        const auto &context = function_.getASTContext();
+        const auto &sources = context.getSourceManager();
+        const auto  loc     = sources.getSpellingLoc(location);
+        const auto  token   = Lexer::getSourceText(CharSourceRange::getTokenRange(loc, loc), sources, context.getLangOpts());
+        if (token.empty())
+            error = "cannot recover the literal in a death-test default argument";
+        out << token;
+    }
+
+    bool print_reference(const DeclRefExpr &reference, llvm::raw_ostream &out) {
+        const auto *decl = reference.getDecl();
+        if (const auto *parameter = llvm::dyn_cast<ParmVarDecl>(decl)) {
+            out << "gentest_arg_" << parameter->getFunctionScopeIndex();
+            return true;
+        }
+        if (decl->isInAnonymousNamespace() || decl->getDeclContext()->isFunctionOrMethod()) {
+            error = fmt::format("cannot name '{}' from a death-test default argument helper", decl->getNameAsString());
+            return true;
+        }
+        if (const auto *hidden = inaccessible_context(decl)) {
+            error = fmt::format("death-test default argument names inaccessible member '{}'", hidden->getQualifiedNameAsString());
+            return true;
+        }
+        auto &context = function_.getASTContext();
+        if (importer_ && !is_reachable_from_importer(*decl, function_, context)) {
+            error =
+                fmt::format("death-test default argument names '{}' which is not reachable after import", decl->getQualifiedNameAsString());
+            return true;
+        }
+        if (const auto *callee = llvm::dyn_cast<FunctionDecl>(decl)) {
+            if (callee->getTemplatedKind() != FunctionDecl::TK_NonTemplate || callee->getBuiltinID() != 0 ||
+                callee->isImmediateFunction() ||
+                (!llvm::isa<CXXMethodDecl>(callee) && !callee->getMostRecentDecl()->isInIdentifierNamespace(Decl::IDNS_Ordinary))) {
+                error = fmt::format("cannot bind death-test default argument to '{}'", callee->getQualifiedNameAsString());
+                return true;
+            }
+            out << "(*static_cast<" << helper_pointer_type(*callee, context, policy_, "(*)") << ">(&::";
+            decl->printQualifiedName(out, policy_);
+            out << "))";
+            return true;
+        }
+        if (!llvm::isa<VarDecl, EnumConstantDecl>(decl) || reference.hasExplicitTemplateArgs()) {
+            error = fmt::format("cannot bind death-test default argument to '{}'", decl->getQualifiedNameAsString());
+            return true;
+        }
+        out << "::";
+        decl->printQualifiedName(out, policy_);
+        return true;
+    }
+
     const FunctionDecl &function_;
+    PrintingPolicy      policy_;
+    bool                importer_;
 };
 
 // A template binding resolved to the fixture type it names.
@@ -1138,7 +1359,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
         return nm;
     };
-    const std::vector<std::string> namespace_parts = collect_namespace_parts(func->getDeclContext());
+    std::vector<std::size_t> inline_namespace_indices;
+    const auto               namespace_parts = collect_namespace_parts(func->getDeclContext(), &inline_namespace_indices);
 
     validate_enclosing_namespaces(func->getDeclContext(), *sm, validated_namespaces_, had_error_);
     const std::string suite_path = derive_namespace_path(func->getDeclContext());
@@ -1242,6 +1464,12 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
     policy.FullyQualifiedName     = true;
     policy.SuppressUnwrittenScope = false;
 
+    // QualTypeNames supplies the global :: prefix. Asking the printer to
+    // qualify those types a second time discards it on Clang.
+    auto binding_policy                    = policy;
+    binding_policy.FullyQualifiedName      = false;
+    binding_policy.SuppressInlineNamespace = 0;
+
     // Pointer calls select the declaration before converting the row values.
     // Keep ordinary calls for unique declarations so C++ supplies their defaults.
     const auto  candidates = func->getDeclContext()->getRedeclContext()->lookup(func->getDeclName());
@@ -1260,13 +1488,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             report("cannot bind an overloaded function template; give the case template a distinct C++ name");
             return;
         }
-        llvm::raw_string_ostream stream(pointer_type);
-        const std::string        pointer   = needs_object ? fmt::format("({}::*)", method->getParent()->getQualifiedNameAsString()) : "(*)";
-        QualType                 signature = func->getType();
-        if (func->getReturnType()->getContainedDeducedType() != nullptr) {
-            signature = result.Context->adjustFunctionResultType(signature, func->getReturnType().getCanonicalType());
-        }
-        signature.print(stream, policy, pointer);
+        const auto pointer = needs_object ? fmt::format("(::{}::*)", method->getParent()->getQualifiedNameAsString()) : "(*)";
+        pointer_type       = helper_pointer_type(*func, *result.Context, binding_policy, pointer);
     }
 
     DeathCallParameters death_parameters;
@@ -1306,6 +1529,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.returns_value                = !func->getReturnType()->isVoidType();
         info.returns_async                = returns_async;
         info.namespace_parts              = namespace_parts;
+        info.inline_namespace_indices     = inline_namespace_indices;
         info.free_fixture_types           = free_fixture_types;
         info.free_fixture_entity_keys     = free_fixture_entity_keys;
         info.free_fixture_emit_types      = free_fixture_emit_types;
@@ -1324,6 +1548,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         info.semantic_fingerprint +=
             fmt::format("|bench-once:{}|bench-supplied:{}|bench-warmup:{}", info.benchmark.once, info.benchmark.supplied_time,
                         info.benchmark.warmup_epochs ? std::to_string(*info.benchmark.warmup_epochs) : "default");
+        for (auto index : inline_namespace_indices)
+            info.semantic_fingerprint += fmt::format("|inline-namespace:{}", index);
         info.semantic_fingerprint += fmt::format("|death:{}", info.is_death);
         if (info.is_death) {
             info.semantic_fingerprint +=
@@ -1545,25 +1771,17 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 death_parameters.declarations += ", ";
             }
             llvm::raw_string_ostream stream(death_parameters.declarations);
-            const auto               type = TypeName::getFullyQualifiedType(decl.getType(), *result.Context, true);
-            type.print(stream, policy, fmt::format("gentest_arg_{}", death_parameters.parameter_packs.size()));
+            const auto type = TypeName::getFullyQualifiedType(helper_type(decl.getType(), *result.Context), *result.Context, true);
+            type.print(stream, binding_policy, fmt::format("gentest_arg_{}", death_parameters.parameter_packs.size()));
             death_parameters.parameter_packs.push_back(decl.isParameterPack());
             if (param.has_default_arg && !param.is_value_axis) {
                 std::string              expression;
                 llvm::raw_string_ostream expr_stream(expression);
-                DeathDefaultPrinter      printer(*func);
+                DeathDefaultPrinter      printer(*func, binding_policy, module_importer_registration_);
                 decl.getDefaultArg()->printPretty(expr_stream, &printer, policy);
-                if (!printer.inaccessible.empty()) {
+                if (!printer.error.empty()) {
                     had_error_ = true;
-                    report(fmt::format("death-test default argument names inaccessible member '{}'; supply an explicit parameter value",
-                                       printer.inaccessible));
-                    return;
-                }
-                if (module_importer_registration_ && !validate_importer_binding(*func, expression, "death-test default argument",
-                                                                                *result.Context, [&](const std::string &message) {
-                                                                                    had_error_ = true;
-                                                                                    report(message);
-                                                                                })) {
+                    report(printer.error + "; supply an explicit parameter value");
                     return;
                 }
                 stream << " = " << expression;

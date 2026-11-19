@@ -423,6 +423,15 @@ public:
 };
 ]=])
   _gentest_cdr_expect_failure("private death-test default" "default argument names inaccessible member 'WithPrivateDefault::load'")
+  # Replaying an operator expression would reopen overload resolution.
+  _gentest_cdr_scan(operator_default CONTENT [=[
+#pragma once
+struct Value {};
+int operator+(Value, int);
+[[using gentest: test, death]] inline void overloaded_operator(int = Value{} + 1) {}
+]=])
+  _gentest_cdr_expect_failure("overloaded operator in default" "cannot preserve declaration-site binding for death-test default argument (CXXOperatorCallExpr)")
+
   _gentest_cdr_scan(transfer CONTENT [=[
 #pragma once
 struct Input {

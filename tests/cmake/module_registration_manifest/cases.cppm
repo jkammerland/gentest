@@ -94,12 +94,21 @@ void exported_parameters(int value) {
 inline int evaluations = 0;
 inline int next_value() { return ++evaluations; }
 
+// Both the return alias and the array element alias are private to the friend.
+class Api {
+    using Code   = int;
+    using Result = const Code (&)[2];
+    friend Result overloaded(short);
+};
+
 #define GENTEST_REGRESSION_INLINE inline
 [[using gentest: test("module_registration/short_body") /*, skip("disabled")*/, parameters(value, next_value())]]
-GENTEST_REGRESSION_INLINE void overloaded(short value) {
+GENTEST_REGRESSION_INLINE auto overloaded(short value) -> Api::Result {
     gentest::asserts::EXPECT_EQ(value, 1);
     gentest::asserts::EXPECT_EQ(evaluations, 1);
-    evaluations = 0;
+    evaluations                   = 0;
+    static constexpr int result[] = {1, 2};
+    return result;
 }
 #undef GENTEST_REGRESSION_INLINE
 
@@ -131,10 +140,14 @@ void exported_bench() {}
 [[using gentest: jitter("module_registration/exported_jitter")]]
 void exported_jitter() {}
 
-inline int module_input() { std::_Exit(23); }
+inline namespace binding {
+inline int module_input(long) { std::_Exit(23); }
 
 [[using gentest: test("module_registration/death_input"), death]]
-void death_input(int = module_input()) {}
+void death_input(int = module_input(0)) {}
+
+inline int module_input(int) { return 99; }
+} // namespace binding
 
 namespace blocked_scope {
 
