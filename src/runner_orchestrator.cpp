@@ -714,9 +714,11 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     const auto selection               = gentest::runner::select_cases(kCases, opt);
     const bool machine_measured_report = is_machine_measured_report(opt);
 
-    // Selection failures happen before fixture setup. Matched skipped cases
-    // still count as selected; excluded death tests do not.
-    if (opt.fail_on_empty && (selection.status == SelectionStatus::ZeroSelected || selection.status == SelectionStatus::DeathExcludedAll)) {
+    // A filtered-out discovery entry has an empty selection even when its name exists.
+    const bool empty_selection = selection.status == SelectionStatus::ZeroSelected ||
+                                 selection.status == SelectionStatus::DeathExcludedAll ||
+                                 selection.status == SelectionStatus::ExactRunExcluded;
+    if (opt.fail_on_empty && empty_selection) {
         return fail_before_execution(opt, fmt::format("No cases selected (--kind={}, --filter={}); --fail-on-empty is enabled{}",
                                                       kind_to_string(opt.kind), opt.filter_pat ? opt.filter_pat : "*",
                                                       selection.filtered_death ? " (death tests excluded; use --include-death)" : ""));

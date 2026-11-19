@@ -9,6 +9,7 @@ set(CMAKE_GENTEST_DISCOVER_TESTS_DISCOVERY_MODE PRE_TEST)
 
 gentest_discover_tests(probe TEST_FILTER decode TEST_PREFIX control/)
 gentest_discover_tests(probe TEST_FILTER decode TEST_PREFIX include/ EXTRA_ARGS --tag=fast)
+gentest_discover_tests(probe TEST_FILTER decode TEST_PREFIX require-selection/ EXTRA_ARGS --tag=fast --fail-on-empty)
 gentest_discover_tests(probe TEST_FILTER decode TEST_PREFIX exclude-tag/ EXTRA_ARGS --exclude-tag=slow)
 gentest_discover_tests(probe TEST_FILTER decode TEST_PREFIX exclude-name/ EXTRA_ARGS --exclude=dec*)
 gentest_discover_tests(probe TEST_FILTER decode TEST_PREFIX stale/ PROPERTIES ENVIRONMENT GENTEST_PROBE_HIDE_DECODE=1)

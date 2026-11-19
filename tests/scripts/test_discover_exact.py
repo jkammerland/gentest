@@ -36,6 +36,11 @@ def main():
             assert case.find("skipped") is not None and "[ SKIP ] decode" in output, (prefix, output)
             assert "entered " not in output, output
 
+        strict = cases["require-selection/decode"]
+        output = strict.findtext("system-out")
+        assert strict.find("failure") is not None and "--fail-on-empty is enabled" in output, output
+        assert "entered " not in output, output
+
         stale = cases["stale/decode"]
         output = stale.findtext("system-out")
         assert stale.find("failure") is not None and "Case not found: decode" in output, output

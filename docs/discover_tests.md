@@ -32,7 +32,8 @@ parallel runs and repetition, see
   and `TEST_SUFFIX`. Each entry selects its exact case name. If that name is
   missing at execution time, the entry fails. If `--tag`, `--exclude-tag`, or
   `--exclude` in `EXTRA_ARGS` filters out the case, CTest reports it as skipped
-  (return code 77), just as it does for static and runtime skips.
+  (return code 77), just as it does for static and runtime skips. Add
+  `--fail-on-empty` to `EXTRA_ARGS` to fail the entry when these filters exclude it.
 - **Death tests.** Discovery registers each runnable `death` case with a
   `death/` prefix after `TEST_PREFIX`, for example `death/crash/fatal_path`.
   Each entry runs `gentest_supervise`. Discovery omits statically skipped death
