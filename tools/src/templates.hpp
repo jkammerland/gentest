@@ -170,7 +170,7 @@ struct gentest_local_cleanup {
 #endif
     }
 
-    template <typename T> void run(T &fixture) {
+    template <typename T> [[maybe_unused]] void run(T &fixture) {
 #if GENTEST_EXCEPTIONS_ENABLED
         try { gentest_maybe_teardown(fixture); } catch (...) { capture_teardown_exception(); }
 #else
@@ -178,7 +178,7 @@ struct gentest_local_cleanup {
 #endif
     }
 
-    template <typename T> ::gentest::awaitable<void> run_async(T &fixture) {
+    template <typename T> [[maybe_unused]] ::gentest::awaitable<void> run_async(T &fixture) {
 #if GENTEST_EXCEPTIONS_ENABLED
         try { co_await gentest_maybe_async_teardown(fixture); } catch (...) { capture_teardown_exception(); }
 #else
