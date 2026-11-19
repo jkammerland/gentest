@@ -1541,12 +1541,24 @@ function(gentest_attach_codegen target)
     if(_gentest_codegen_target)
         list(APPEND _gentest_codegen_deps ${_gentest_codegen_target})
     endif()
-    _gentest_collect_codegen_dep_targets_from_link_graph(
-        ${target}
-        _gentest_linked_codegen_dep_targets
-        _gentest_linked_explicit_mock_targets
-        _gentest_linked_module_files)
-    list(APPEND _gentest_codegen_deps ${_gentest_linked_codegen_dep_targets} ${_gentest_linked_module_files})
+    set(_gentest_module_context_args "")
+    if(CMAKE_GENERATOR MATCHES "^Ninja" AND NOT _gentest_mode STREQUAL "header_declaration")
+        set(_gentest_provider_dir "${_gentest_output_dir}/module-providers")
+        _gentest_add_module_provider_commands(${target} "${_gentest_provider_dir}/compile_commands.json")
+        list(APPEND _gentest_codegen_deps "${_gentest_provider_dir}/compile_commands.json")
+        list(APPEND _gentest_module_context_args "--module-provider-compdb=${_gentest_provider_dir}")
+        _gentest_collect_codegen_dep_targets_from_link_graph(${target}
+            _gentest_linked_codegen_dep_targets _gentest_linked_explicit_mock_targets)
+    else()
+        _gentest_collect_codegen_dep_targets_from_link_graph(${target}
+            _gentest_linked_codegen_dep_targets _gentest_linked_explicit_mock_targets _gentest_linked_module_files)
+        foreach(_gentest_files IN LISTS _gentest_linked_module_files)
+            list(APPEND _gentest_module_context_args "$<LIST:TRANSFORM,${_gentest_files},PREPEND,--external-module-file=>")
+        endforeach()
+        list(APPEND _gentest_codegen_deps ${_gentest_linked_module_files})
+    endif()
+
+    list(APPEND _gentest_codegen_deps ${_gentest_linked_codegen_dep_targets})
     _gentest_check_explicit_mock_defs_includes(${target} ${target} ${_gentest_linked_explicit_mock_targets})
     _gentest_collect_external_module_source_mappings(_gentest_external_module_source_mappings ${_gentest_linked_codegen_dep_targets})
     set_property(TARGET ${target} PROPERTY GENTEST_CODEGEN_EXTERNAL_MODULE_SOURCE_ARGS "")
@@ -1649,7 +1661,7 @@ function(gentest_attach_codegen target)
             list(APPEND _gentest_codegen_tool_depends "${_gentest_clang_scan_deps}")
         endif()
     endif()
-    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}" ${_gentest_linked_module_files})
+    _gentest_append_codegen_module_context_args(_command ${target} "${_gentest_clang_scan_deps}" ${_gentest_module_context_args})
 
     if(_gentest_mode STREQUAL "module_mock_provider" OR _gentest_mode STREQUAL "header_declaration")
         # Explicit module mock providers scan their generated provider units;
@@ -1683,7 +1695,7 @@ function(gentest_attach_codegen target)
             list(APPEND _gentest_mock_inspect_command --quiet-clang)
         endif()
         _gentest_append_codegen_module_context_args(
-            _gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}" ${_gentest_linked_module_files})
+            _gentest_mock_inspect_command ${target} "${_gentest_clang_scan_deps}" ${_gentest_module_context_args})
         list(APPEND _gentest_mock_inspect_command ${_gentest_tus})
         list(APPEND _gentest_mock_inspect_command --)
         list(APPEND _gentest_mock_inspect_command ${_gentest_source_inspection_clang_args})

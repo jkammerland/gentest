@@ -1,5 +1,36 @@
 include_guard(GLOBAL)
 
+function(_gentest_add_module_provider_commands target output)
+    get_property(multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+    set(manifest build.ninja)
+    set(ninja_deps "${CMAKE_BINARY_DIR}/CMakeFiles/rules.ninja")
+    if(multi_config)
+        set(manifest "build-$<CONFIG>.ninja")
+        list(APPEND ninja_deps "${CMAKE_BINARY_DIR}/CMakeFiles/impl-$<CONFIG>.ninja")
+    endif()
+
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.2)
+        set(target_dir "$<TARGET_INTERMEDIATE_DIR:${target}>")
+    else()
+        # Earlier Ninja generators use a fixed layout for target intermediates.
+        get_target_property(binary_dir ${target} BINARY_DIR)
+        set(target_dir "${binary_dir}/CMakeFiles/${target}.dir")
+        if(multi_config)
+            string(APPEND target_dir "/$<CONFIG>")
+        endif()
+    endif()
+
+    set(script "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/ModuleProviderCommands.cmake")
+    add_custom_command(
+        OUTPUT "${output}"
+        COMMAND "${CMAKE_COMMAND}" "-DTARGET_DIR=${target_dir}" "-DNINJA=${CMAKE_MAKE_PROGRAM}"
+            "-DMANIFEST=${manifest}" "-DOUTPUT=${output}" -P "${script}"
+        DEPENDS "${script}" "${target_dir}/CXXDependInfo.json" "${CMAKE_BINARY_DIR}/${manifest}" ${ninja_deps}
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        COMMENT "Collecting module provider commands for gentest target ${target}"
+        VERBATIM)
+endfunction()
+
 function(_gentest_collect_codegen_dep_targets_from_link_graph target out_targets)
     set(_gentest_result "")
     set(_gentest_explicit_mock_targets "")

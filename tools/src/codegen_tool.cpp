@@ -2680,6 +2680,7 @@ struct ScanDepsPreparedCommand {
 };
 
 struct ScanDepsSourceInfo {
+    std::vector<std::string> file_deps;
     std::string              provided_module_name;
     std::vector<std::string> named_module_deps;
     std::vector<std::string> module_file_args;
@@ -3019,6 +3020,10 @@ std::optional<ScanDepsInfoBySource> run_clang_scan_deps(std::span<const ScanDeps
             if (const auto named_module = command->getString("named-module"); named_module.has_value() && !named_module->empty()) {
                 info.provided_module_name = named_module->str();
             }
+
+            auto file_deps = collect_scan_deps_string_array(*command, "file-deps");
+            info.file_deps.insert(info.file_deps.end(), std::make_move_iterator(file_deps.begin()),
+                                  std::make_move_iterator(file_deps.end()));
 
             auto named_module_deps = collect_scan_deps_string_array(*command, "named-module-deps");
             info.named_module_deps.insert(info.named_module_deps.end(), std::make_move_iterator(named_module_deps.begin()),
@@ -4357,6 +4362,9 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     static llvm::cl::opt<std::string> host_clang_option{
         "host-clang", llvm::cl::desc("Path to the host Clang executable used for Clang-only codegen operations"), llvm::cl::init(""),
         llvm::cl::cat(category)};
+    static llvm::cl::opt<std::string> module_provider_compdb_option{
+        "module-provider-compdb", llvm::cl::desc("Directory of compile commands for linked module providers in the active configuration"),
+        llvm::cl::init(""), llvm::cl::cat(category)};
     static llvm::cl::list<std::string> external_module_file_option{
         "external-module-file", llvm::cl::desc("Module interface file to resolve in the importer's compile context"), llvm::cl::ZeroOrMore,
         llvm::cl::cat(category)};
@@ -4474,6 +4482,10 @@ ParsedArguments parse_arguments(int argc, const char **argv) {
     } else if (const auto scan_deps_env = get_env_value("GENTEST_CODEGEN_CLANG_SCAN_DEPS"); scan_deps_env && !scan_deps_env->empty()) {
         opts.clang_scan_deps_executable = std::filesystem::path{*scan_deps_env};
     }
+    if (!module_provider_compdb_option.getValue().empty()) {
+        opts.module_provider_compdb = std::filesystem::path{module_provider_compdb_option.getValue()};
+    }
+
     // File sets supply paths without module names. Probe these alongside explicit mappings
     // so conditional declarations use the importing translation unit's compiler flags.
     for (const auto &source_file : external_module_file_option) {
@@ -5008,6 +5020,28 @@ int run_codegen_tool(int argc, const char **argv) {
 
     const std::string compdb_dir =
         options.compilation_database ? options.compilation_database->string() : std::filesystem::current_path().string();
+
+    // These commands include CMake's synthetic BMI targets, which may be absent from the public compile database.
+    std::vector<clang::tooling::CompileCommand> provider_commands;
+    if (options.module_provider_compdb) {
+        const auto path      = *options.module_provider_compdb / "compile_commands.json";
+        const auto providers = clang::tooling::JSONCompilationDatabase::loadFromFile(path.string(), db_error,
+                                                                                     clang::tooling::JSONCommandLineSyntax::AutoDetect);
+        if (!providers) {
+            gentest::codegen::log_err("gentest_codegen: failed to load module provider commands at '{}': {}\n", path.string(), db_error);
+            return 1;
+        }
+
+        provider_commands = providers->getAllCompileCommands();
+        for (auto &command : provider_commands) {
+            command.Filename    = normalize_compdb_lookup_path(command.Filename, command.Directory);
+            command.CommandLine = expand_compile_command_response_files(command.CommandLine, command.Directory);
+            // Gentest builds its own host PCMs. A target compiler's module map may be stale or use an incompatible format.
+            std::erase_if(command.CommandLine, is_cmake_module_map_response);
+            std::ranges::replace(command.CommandLine, std::string_view{"--precompile"}, std::string_view{"-c"});
+        }
+        depfile_dependencies.push_back(path.generic_string());
+    }
 
     class SnapshotCompilationDatabase final : public clang::tooling::CompilationDatabase {
       public:
@@ -5791,6 +5825,11 @@ int run_codegen_tool(int argc, const char **argv) {
                                 scan_deps_it != scan_deps_results->end()) {
                                 external_scan_deps_succeeded = true;
                                 imported_modules             = scan_deps_it->second.named_module_deps;
+                                // Includes read while building an external PCM do not reach the importer's PPCallbacks.
+                                for (const auto &file : scan_deps_it->second.file_deps) {
+                                    depfile_dependencies.push_back(
+                                        (std::filesystem::path{external_working_directory} / file).generic_string());
+                                }
                                 std::erase(imported_modules, std::string(module_name));
                                 external_scan_deps_module_args = scan_deps_it->second.module_file_args;
                             } else {
@@ -5850,11 +5889,23 @@ int run_codegen_tool(int argc, const char **argv) {
                                            .working_directory    = std::move(external_working_directory),
                                            .forced_compiler_path = std::move(external_forced_compiler_path),
                                        },
-                                   .pcm_path = module_cache_dir / fmt::format("ext_{}_{}.pcm", stable_hash_hex(context.owner_key),
+                                   .pcm_path = module_cache_dir / fmt::format("ext_{}_{}_{}.pcm", stable_hash_hex(context.owner_key),
+                                                                              stable_hash_hex(module_name),
                                                                               stable_hash_hex(candidate.generic_string())),
                                });
                 return &it->second;
             };
+
+            // Search only the linked providers first. The same source can be built by several targets with different flags.
+            for (const auto &command : provider_commands) {
+                attempted_candidates.erase(command.Filename);
+                const std::vector<clang::tooling::CompileCommand> commands{command};
+                const std::filesystem::path                       candidate{command.Filename};
+                const auto includes = scan_include_search_paths_from_compile_commands(commands, candidate);
+                if (const auto *resolved = try_candidate(candidate, commands, includes, commands)) {
+                    return resolved;
+                }
+            }
 
             auto try_explicit_candidate_paths =
                 [&](std::string_view                          mapping_name,
@@ -6516,7 +6567,8 @@ int run_codegen_tool(int argc, const char **argv) {
             fixture.scan_slot    = 0;
             fixture.scan_context = !options.compile_context_ids.empty() ? options.compile_context_ids.front() : options.sources.front();
         }
-        depfile_dependencies = std::move(depfile_dependencies_local);
+        depfile_dependencies.insert(depfile_dependencies.end(), std::make_move_iterator(depfile_dependencies_local.begin()),
+                                    std::make_move_iterator(depfile_dependencies_local.end()));
     }
 
     merge_duplicate_mocks(mocks);
