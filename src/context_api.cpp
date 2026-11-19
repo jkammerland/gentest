@@ -12,6 +12,8 @@ struct CurrentContextAccess {
     [[nodiscard]] static auto get(const CurrentContext &context) noexcept -> const std::shared_ptr<TestContextInfo> & {
         return context.ctx_;
     }
+
+    static bool captured_during_stop(const CurrentContext &context) noexcept { return context.captured_during_stop_; }
 };
 
 } // namespace detail
@@ -29,13 +31,17 @@ auto acquire_adopted_context(const CurrentContext &context) -> bool {
     const auto                 &ctx = context_info(context);
     std::lock_guard<std::mutex> lk(ctx->adopted_mtx);
 
-    // After the last worker drains, only the still-active owner or its stop
-    // callback can nest a lease. A stale worker token cannot reopen adoption.
     const auto state = ctx->state.load(std::memory_order_acquire);
-    if (state == detail::ContextState::Closed ||
-        (state == detail::ContextState::Stopping && ctx->adopted_contexts.load(std::memory_order_relaxed) == 0 &&
-         detail::current_test_storage() != ctx))
+    if (state == detail::ContextState::Closed)
         return false;
+
+    // A fresh callback handoff can start work from zero. An older token can
+    // only nest on the active thread or join an outstanding lease during stop.
+    if (state != detail::ContextState::Running && ctx->adopted_contexts.load(std::memory_order_relaxed) == 0) {
+        if (state == detail::ContextState::Draining ||
+            (detail::current_test_storage() != ctx && !detail::CurrentContextAccess::captured_during_stop(context)))
+            return false;
+    }
 
     ctx->adopted_contexts.fetch_add(1, std::memory_order_acq_rel);
     return true;
@@ -63,7 +69,11 @@ auto CurrentContext::stop_requested() const noexcept -> bool { return stop_token
 
 auto currentNotifier() noexcept -> Notifier { return detail::context_notifier(detail::current_test_storage()); }
 
-auto get_current_context() -> CurrentContext { return CurrentContext(detail::current_test()); }
+auto get_current_context() -> CurrentContext {
+    auto       ctx         = detail::current_test();
+    const bool during_stop = ctx && ctx->state.load(std::memory_order_acquire) == detail::ContextState::DispatchingStop;
+    return CurrentContext(std::move(ctx), during_stop);
+}
 
 auto set_current_context(CurrentContext context) -> CurrentContextLease { return CurrentContextLease(std::move(context)); }
 

@@ -71,6 +71,7 @@ def main(root):
 
     suite, output = run(root, "--run=fixture_lifetime/worker_stop", 0)
     assert case(suite, "worker_stop").find("failure") is None, ET.tostring(suite)
+    assert "nested reporter lease" in output and "reporter restored outer lease" in output, output
     assert "stop callback joined worker" in output and "nested callback lease" in output, output
 
     suite, _ = run(root, "--run=fixture_lifetime/worker_exception", 1, failures=1)

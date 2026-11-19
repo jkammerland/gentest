@@ -17,3 +17,11 @@ struct LocalFx : gentest::FixtureSetup, gentest::FixtureTearDown {
 [[using gentest: test("regressions/local_fixture_teardown_noexceptions/fatal_assert")]] void fatal_assert(LocalFx &);
 
 } // namespace regressions::local_teardown_noexceptions
+
+namespace noexceptions {
+
+[[using gentest: test, death]] void fatal_require();
+[[using gentest: test, death]] void fatal_fail();
+[[using gentest: test, death]] void earlier_expectation();
+
+} // namespace noexceptions

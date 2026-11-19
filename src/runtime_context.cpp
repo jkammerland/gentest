@@ -86,6 +86,10 @@ auto normalize_failure_file(std::string file) -> std::string {
     return file;
 }
 
+auto failure_location(const std::source_location &loc) -> TestContextInfo::FailureLoc {
+    return {.file = normalize_failure_file(loc.file_name() ? loc.file_name() : ""), .line = loc.line()};
+}
+
 // A measured call phase stops at its next boundary once a failure has been
 // recorded, so a body failing on every iteration keeps only a bounded prefix.
 constexpr std::size_t max_deferred_bench_call_failures = 8;
@@ -96,14 +100,19 @@ auto defers_bench_call_failure() -> bool {
     return bench_phase() == BenchPhase::Call && (deferred_failure_depth_storage() > 0 || std::uncaught_exceptions() > 0);
 }
 
-void append_failure(TestContextLocalBuffer &buffer, std::string msg, TestContextInfo::FailureLoc location) {
+enum class FailureOutcome { Report, Terminate };
+
+void append_failure(std::string msg, TestContextInfo::FailureLoc location, FailureOutcome outcome = FailureOutcome::Report) {
+    auto      &buffer   = prepare_current_failure_buffer("assertion/expectation recorded");
     const bool deferred = defers_bench_call_failure();
     if (deferred && buffer.failures.size() >= max_deferred_bench_call_failures) {
         return;
     }
     auto ctx = current_test_storage();
     buffer.failures.push_back(with_diagnostic_context(std::move(msg)));
-    record_supervised_failure(buffer.failures.back());
+    // The no-exceptions fatal assertion is itself the expected death. Earlier failures stay on disk.
+    if (outcome == FailureOutcome::Report)
+        record_supervised_failure(buffer.failures.back());
     mark_context_failed(*ctx);
     buffer.failure_locations.push_back(std::move(location));
     buffer.event_lines.push_back(buffer.failures.back());
@@ -253,18 +262,17 @@ GENTEST_RUNTIME_API void require_not_adopted_context(std::string_view operation)
     }
 }
 
-void record_failure(std::string msg) {
-    auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
-    append_failure(buffer, std::move(msg), {.file = std::string{}, .line = 0});
-}
+void record_failure(std::string msg) { append_failure(std::move(msg), {}); }
 
-void record_failure(std::string msg, const std::source_location &loc) {
-    record_failure_at(std::move(msg), loc.file_name() == nullptr ? std::string{} : std::string(loc.file_name()), loc.line());
-}
+void record_failure(std::string msg, const std::source_location &loc) { append_failure(std::move(msg), failure_location(loc)); }
 
 void record_failure_at(std::string msg, std::string file, unsigned line) {
-    auto &buffer = prepare_current_failure_buffer("assertion/expectation recorded");
-    append_failure(buffer, std::move(msg), {.file = normalize_failure_file(std::move(file)), .line = line});
+    append_failure(std::move(msg), {.file = normalize_failure_file(std::move(file)), .line = line});
+}
+
+void terminate_after_assertion(std::string_view origin, std::string diagnostic, const std::source_location &loc) {
+    append_failure(std::move(diagnostic), failure_location(loc), FailureOutcome::Terminate);
+    terminate_no_exceptions_fatal(origin);
 }
 
 void preserve_local_fixture_skip() {

@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 
@@ -23,6 +24,31 @@ void failure_then_skip() {
 }
 
 void skip_with_teardown_failure(FailingTeardown &) { gentest::skip("skip before teardown failure"); }
+
+int exiting_factory() {
+    (void)std::fputs("input factory exited\n", stderr);
+    std::_Exit(23);
+}
+
+DeathInput::operator int() const {
+    (void)std::fputs("input conversion exited\n", stderr);
+    std::_Exit(23);
+}
+
+void                     default_factory(int) {}
+void                     explicit_factory(int) {}
+void                     implicit_conversion(int) {}
+gentest::awaitable<void> async_default_factory(int) { co_return; }
+gentest::awaitable<void> async_conversion(int) { co_return; }
+
+ReturningInput::~ReturningInput() { std::_Exit(23); }
+void                     return_with_input(const ReturningInput &) {}
+gentest::awaitable<void> async_return_with_input(const ReturningInput &) { co_await gentest::async::yield(); }
+void                     returns_normally(int) {}
+void                     entered_with_input(int value, unsigned size) {
+    if (value == 17 && size == sizeof(value))
+        std::_Exit(23);
+}
 
 void body_death() { std::_Exit(23); }
 void body_death_77() { std::_Exit(77); }
@@ -147,5 +173,23 @@ void bench_noexcept_mismatch() { put<noexcept_policy::NoThrow>(11); }
 void jitter_noexcept_mismatch() { put<noexcept_policy::NoThrow>(11); }
 void ordinary_mismatch() { put<noexcept_policy::Throw>(11); }
 void noexcept_match() { put<noexcept_policy::NoThrow>(10); }
+
+void DeferredMismatch::mismatchOnFourthCall(bool skip_after) {
+    if (++calls != 4)
+        return;
+
+    put<noexcept_policy::NoThrow>(11);
+    if (skip_after)
+        gentest::skip("skip after mismatch");
+}
+
+void DeferredMismatch::tearDown() {
+    const auto snapshot = gentest::currentMeasurement();
+    gentest::record_property("attempted_calls", calls);
+    gentest::record_property("completed_samples", snapshot ? snapshot->primary.statistics.count : 0);
+}
+
+void bench_deferred(DeferredMismatch &fixture, bool skip_after) { fixture.mismatchOnFourthCall(skip_after); }
+void jitter_deferred(DeferredMismatch &fixture, bool skip_after) { fixture.mismatchOnFourthCall(skip_after); }
 
 } // namespace measured_outcomes

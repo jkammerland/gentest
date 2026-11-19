@@ -15,3 +15,11 @@ gentest_discover_tests(probe TEST_FILTER decode TEST_PREFIX exclude-name/ EXTRA_
 gentest_discover_tests(probe TEST_FILTER decode TEST_PREFIX stale/ PROPERTIES ENVIRONMENT GENTEST_PROBE_HIDE_DECODE=1)
 gentest_discover_tests(probe TEST_FILTER decode TEST_PREFIX conflicting/ EXTRA_ARGS --run=fallback/decode)
 gentest_discover_tests(probe TEST_FILTER decode TEST_PREFIX listing/ EXTRA_ARGS --list-selected)
+
+# Change only the execution inventory of a saved ordinary entry.
+gentest_discover_tests(probe TEST_FILTER fallback/decode TEST_PREFIX changed/ EXTRA_ARGS --include-death
+    PROPERTIES ENVIRONMENT GENTEST_PROBE_BECOME_DEATH=1)
+
+gentest_discover_tests(probe TEST_FILTER terminate TEST_PREFIX control/ DEATH_EXPECT_SUBSTRING "entered terminating body")
+gentest_discover_tests(probe TEST_FILTER terminate TEST_PREFIX include/ EXTRA_ARGS --tag=fast)
+gentest_discover_tests(probe TEST_FILTER terminate TEST_PREFIX require-selection/ EXTRA_ARGS --tag=fast --fail-on-empty)

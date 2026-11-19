@@ -4,6 +4,7 @@
 
 #include <condition_variable>
 #include <csignal>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
@@ -44,6 +45,9 @@ int peer(std::string_view mode) {
     }
     for (;;) {
         const auto message = channel.receive(std::chrono::steady_clock::now() + 10s);
+        if (message.payload == "EXIT") {
+            std::_Exit(0);
+        }
         if (message.payload == "STOP") {
             requireNotification(notify.finish());
             return 0;
@@ -91,6 +95,41 @@ struct Started : gentest::NotificationObserver {
         require(changed.wait_for(lock, 3s, [&] { return started; }), "monitor did not observe subject start");
     }
 };
+
+auto completion(std::string executable, std::string mode) -> awaitable<> {
+    SessionSpec spec;
+    spec.supervisor = HARNESS_SUPERVISOR;
+    spec.topology.nodes.push_back({.name = "service"});
+    Program observed;
+    observed.node = "service";
+    observed.argv = mode == "unattached" ? std::vector<std::string>{"/bin/true"} : std::vector<std::string>{executable, "--peer", "normal"};
+    observed.watchdog             = gentest::WatchdogConfig{.inactivityTimeout = 5s};
+    auto started                  = std::make_shared<Started>();
+    observed.notificationObserver = started;
+    spec.programs.push_back(std::move(observed));
+
+    auto session = co_await Session::start(std::move(spec));
+    co_await session.launch(0);
+    if (mode != "unattached") {
+        (void)co_await session.receive(0);
+        started->wait();
+        if (mode == "owner_stop") {
+            co_await session.stop();
+            co_return;
+        }
+        session.send(0, {.tag = 1, .payload = "EXIT"});
+    }
+
+    // The service exits successfully. Immediate session cleanup must preserve
+    // the watchdog verdict even if the monitor is still draining notifications.
+    require((co_await session.wait(0)).succeeded(), "service did not exit successfully");
+    std::string failure;
+    try {
+        co_await session.stop();
+    } catch (const std::exception &error) { failure = error.what(); }
+    require(failure.find("program 0 watchdog") != std::string::npos && failure.find("before subjects finished") != std::string::npos,
+            "missing incomplete notification stream diagnostic: " + failure);
+}
 
 auto run(std::string executable, std::string mode) -> awaitable<> {
     const bool  expiry = mode == "freeze" || mode == "sibling";
@@ -191,11 +230,14 @@ int main(int argc, char **argv) {
             return peer(argv[2]);
         }
         require(argc == 2, "expected watchdog test mode");
-        const std::string mode = argv[1];
-        require(mode == "normal" || mode == "freeze" || mode == "sibling" || mode == "inspect", "unknown watchdog test mode");
+        const std::string mode            = argv[1];
+        const bool        checkCompletion = mode == "unattached" || mode == "unfinished" || mode == "owner_stop";
+        require(checkCompletion || mode == "normal" || mode == "freeze" || mode == "sibling" || mode == "inspect",
+                "unknown watchdog test mode");
         std::string error;
-        const bool  passed =
-            gentest::detail::run_async_task_blocking(run(std::filesystem::absolute(argv[0]).string(), mode), "watchdog", error);
+        const auto  executable = std::filesystem::absolute(argv[0]).string();
+        const bool passed = gentest::detail::run_async_task_blocking(checkCompletion ? completion(executable, mode) : run(executable, mode),
+                                                                     "watchdog", error);
         require(passed, error);
         return 0;
     } catch (const std::exception &error) {

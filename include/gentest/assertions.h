@@ -417,10 +417,11 @@ template <class Fn> inline void ASSERT_NO_THROW(Fn &&fn, const std::source_locat
 inline void fail(std::string_view message) {
     ::gentest::detail::require_owner_context("fail called");
 #if GENTEST_EXCEPTIONS_ENABLED
+    // Unwinding or a noexcept boundary can end a supervised child before the runner catches failure.
+    ::gentest::detail::record_supervised_failure(message);
     throw failure(std::string(message));
 #else
-    ::gentest::detail::record_failure(std::string(message));
-    ::gentest::detail::terminate_no_exceptions_fatal("gentest::fail");
+    ::gentest::detail::terminate_after_assertion("gentest::fail", std::string(message));
 #endif
 }
 

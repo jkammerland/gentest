@@ -723,10 +723,11 @@ int run_from_options(std::span<const gentest::Case> kCases, const CliOptions &op
     }
 
     switch (selection.status) {
-    case SelectionStatus::Ok:
-        if (opt.death_test_marker && !kCases[selection.idxs.front()].is_death)
+    case SelectionStatus::Ok: break;
+    case SelectionStatus::RegistrationTypeMismatch:
+        if (opt.death_test_marker)
             return fail_before_execution(opt, fmt::format("Case '{}' requires the death attribute to run under supervision", opt.run_name));
-        break;
+        return fail_before_execution(opt, fmt::format("Ordinary CTest entry '{}' now names a death test", opt.run_name));
     case SelectionStatus::CaseNotFound:
         return fail_before_execution(opt, fmt::format("Case not found: {}", opt.run_name), kExitCaseNotFound);
     case SelectionStatus::KindMismatch:
