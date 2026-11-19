@@ -18,6 +18,7 @@
 #include <libassert/assert.hpp>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace gentest::libassert_integration {
 
@@ -50,9 +51,6 @@ inline void failure_handler(const ::libassert::assertion_info &info) {
     // Prefer libassert's own pretty string; let it decide width/colors.
     std::string message = info.to_string();
 
-    // Record into the active gentest context (includes per-test logs if enabled).
-    ::gentest::detail::record_failure(message);
-
     // Heuristic: treat macros containing "EXPECT" as non-fatal (if present in the
     // toolchain); everything else fatal. This mirrors gtest/catch behavior for
     // EXPECT vs ASSERT without coupling to libassert internals.
@@ -60,17 +58,18 @@ inline void failure_handler(const ::libassert::assertion_info &info) {
     const bool             is_expect_macro = macro.find("EXPECT") != std::string_view::npos;
     const bool             is_expect_scope = is_nonfatal_scope();
 
-    if (!(is_expect_macro || is_expect_scope)) {
-        // Fatal: abort current test. Behavior depends on exception support.
-#if GENTEST_EXCEPTIONS_ENABLED
-        // Runner catches this and reports [ FAIL ].
-        // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-        throw ::gentest::assertion(std::string("libassert::") + std::string(macro));
-#else
-        // No exceptions available: delegate to gentest's generic termination path.
-        ::gentest::detail::terminate_no_exceptions_fatal("libassert");
-#endif
+    if (is_expect_macro || is_expect_scope) {
+        ::gentest::detail::record_failure(std::move(message));
+        return;
     }
+
+#if GENTEST_EXCEPTIONS_ENABLED
+    ::gentest::detail::record_failure(std::move(message));
+    // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
+    throw ::gentest::assertion(std::string("libassert::") + std::string(macro));
+#else
+    ::gentest::detail::terminate_after_assertion("libassert", std::move(message));
+#endif
 }
 
 // Install the handler globally. Call once early in program init, or rely on

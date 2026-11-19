@@ -90,7 +90,7 @@ def check_outer_cancellation(supervisor):
                     process.kill()
 
 
-def main(supervisor, probe, *emulator):
+def main(supervisor, probe, noexceptions_probe, *emulator):
     fake = [sys.executable, str(Path(__file__).resolve()), "--child"]
 
     def check(name, opts, code, message, program=fake, env=None):
@@ -125,6 +125,19 @@ def main(supervisor, probe, *emulator):
             raise AssertionError(f"incorrect registration executed {name}")
     check("probe/death", ["--expect", "fatal diagnostic", "--inactivity-ms", "5000"], 0, "Death test passed", real)
     check("probe/failed_expectation", [], 1, "unexpected value before exit", real)
+    for case, message in (("probe/noexcept_fail", "explicit failure in noexcept helper"),
+                          ("probe/async_noexcept_fail", "explicit failure in noexcept helper"),
+                          ("probe/unwind_fail", "explicit failure before unwinding")):
+        output = check(case, [], 1, "normal test failure", real)
+        if message.encode() not in output:
+            raise AssertionError((case, output))
+
+    noexceptions = [*emulator, noexceptions_probe]
+    fatal_text = ["--expect", "terminating after fatal assertion"]
+    for case in ("noexceptions/fatal_require", "noexceptions/fatal_fail"):
+        check(case, fatal_text, 0, "Death test passed", noexceptions)
+    check("noexceptions/earlier_expectation", fatal_text, 1, "independent failure before termination", noexceptions)
+
     check("probe/diagnostic", ["--expect", "[ FAIL ] parser rejected input"], 0, "Death test passed", real)
     check("probe/async_body", ["--expect", "async body resumed"], 0, "Death test passed", real)
     check("probe/async_expectation", [], 1, "unexpected value after resume", real)
