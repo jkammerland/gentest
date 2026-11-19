@@ -25,7 +25,8 @@ using DefaultStdoutLogWriterFn = void (*)(void *, std::string_view) noexcept;
 
 enum class ContextState : unsigned char {
     Running,
-    Stopping,
+    DispatchingStop,
+    Draining,
     Closed,
 };
 
@@ -213,11 +214,11 @@ inline void start_context(TestContextInfo &ctx) noexcept {
 }
 
 inline void request_context_stop(TestContextInfo &ctx) noexcept {
-    const auto state = ctx.state.load(std::memory_order_acquire);
-    if (state == ContextState::Closed) {
+    auto expected = ContextState::Running;
+    if (!ctx.state.compare_exchange_strong(expected, ContextState::DispatchingStop)) {
         return;
     }
-    ctx.state.store(ContextState::Stopping, std::memory_order_release);
+
     auto      &role_storage  = current_context_role_storage();
     const auto previous_role = role_storage;
     const bool current_owner = current_test_storage().get() == &ctx;
@@ -228,6 +229,13 @@ inline void request_context_stop(TestContextInfo &ctx) noexcept {
     (void)ctx.stop_source.request_stop();
     if (override_role) {
         role_storage = previous_role;
+    }
+
+    // Stop callbacks can start the first worker. Once dispatch returns, serialize
+    // the end of first-lease admission with any acquisition already in progress.
+    {
+        std::lock_guard<std::mutex> lk(ctx.adopted_mtx);
+        ctx.state.store(ContextState::Draining, std::memory_order_release);
     }
     notify_context_progress(ctx);
 }
