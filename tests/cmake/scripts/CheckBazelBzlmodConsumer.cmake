@@ -382,13 +382,36 @@ if(NOT _build_rc EQUAL 0)
 endif()
 
 if(NOT GENTEST_BAZEL_HELPER_CONTRACT)
-  set(_invalid_source_hdr_args ${_build_args})
-  list(REMOVE_ITEM _invalid_source_hdr_args
+  set(_check_args ${_build_args})
+  list(REMOVE_ITEM _check_args
     //:gentest_downstream_textual_mocks
     //:gentest_downstream_textual
     //:gentest_downstream_module_mocks
     //:gentest_downstream_module)
-  list(APPEND _invalid_source_hdr_args //invalid_source_hdrs:bad)
+  set(_death_args ${_check_args})
+  list(TRANSFORM _death_args REPLACE "^build$" "test")
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env} ${_bazel_command} ${_death_args}
+            --test_output=all //:downstream_death_exit //:downstream_death_skip
+    WORKING_DIRECTORY "${_workspace_dir}"
+    RESULT_VARIABLE _death_rc OUTPUT_VARIABLE _death_out ERROR_VARIABLE _death_err)
+  set(_death_output "${_death_out}\n${_death_err}")
+  if(NOT _death_rc EQUAL 0 OR NOT _death_output MATCHES "Death test passed: downstream/death/exit"
+     OR NOT _death_output MATCHES "\\[ SKIP \\] downstream/death/skip")
+    message(FATAL_ERROR "Unexpected Bazel death test results.\n${_death_out}\n${_death_err}")
+  endif()
+
+  # Bazel forwards test_arg to the child after the supervisor's own arguments.
+  execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env} ${_bazel_command} ${_death_args}
+            --test_output=all --test_arg=--repeat=2 //:downstream_death_exit
+    WORKING_DIRECTORY "${_workspace_dir}"
+    RESULT_VARIABLE _invalid_death_rc OUTPUT_VARIABLE _invalid_death_out ERROR_VARIABLE _invalid_death_err)
+  if(_invalid_death_rc EQUAL 0 OR NOT "${_invalid_death_out}\n${_invalid_death_err}" MATCHES "Death test did not reach the selected test body")
+    message(FATAL_ERROR "Bazel did not reject the invalid death test invocation.\n${_invalid_death_out}\n${_invalid_death_err}")
+  endif()
+
+  set(_invalid_source_hdr_args ${_check_args} //invalid_source_hdrs:bad)
   execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env ${_bazel_env}
             ${_bazel_command}

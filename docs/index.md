@@ -19,7 +19,7 @@ This page lists the gentest documentation by task.
 - [Parameters and templates](parameters.md): value axes, row tables, numeric ranges and template matrices.
 - [Fixtures](fixtures.md): local, suite and global lifetimes, scoping, setup and teardown, activation order.
 - [Fixture allocation hooks](fixtures_allocation.md): allocation hooks (`gentest_allocate`) for custom construction and ownership.
-- [Death tests](death_tests.md): cases that must terminate the process, and how they run under CTest.
+- [Death tests](death_tests.md): cases that must terminate the process, and how to run them.
 - [Mocks](mock_generation.md): mock targets, mock definitions headers (`DEFS`), gentest mocks with expectations and matchers, the gMock and Trompeloeil backends.
 - [Logging and threads](logging_and_threads.md): `gentest::log()`, log sinks, adopting a test's context in worker threads, live output.
 - [Benchmarks and jitter](benchmarks.md): measured cases, how timing works, JSON and CSV reports, comparing two reports.

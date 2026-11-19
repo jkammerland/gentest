@@ -7,8 +7,19 @@ enable_testing()
 # Include the in-tree helper under test.
 include("${CMAKE_CURRENT_LIST_DIR}/../../../cmake/GentestCodegen.cmake")
 
+# The standalone Windows Debug gate also builds this fixture outside the main project.
+if(NOT CMAKE_CROSSCOMPILING AND NOT GENTEST_SUPERVISE_EXECUTABLE AND NOT DEFINED GENTEST_DISCOVER_POLICY_FILTER)
+  set(_root "${CMAKE_CURRENT_LIST_DIR}/../../..")
+  add_library(fixture_notifications STATIC "${_root}/src/notification.cpp")
+  add_library(gentest::notifications ALIAS fixture_notifications)
+  target_include_directories(fixture_notifications PUBLIC "${_root}/include")
+  target_compile_features(fixture_notifications PUBLIC cxx_std_20)
+  add_subdirectory("${_root}/tools/supervise" tools/supervise)
+endif()
+
 add_executable(demo_tests "${CMAKE_CURRENT_LIST_DIR}/main.cpp")
 set_target_properties(demo_tests PROPERTIES OUTPUT_NAME "demo]=]")
+set_property(TARGET demo_tests PROPERTY TEST_LAUNCHER "${CMAKE_COMMAND};-E;env;GENTEST_FIXTURE_LAUNCHED=yes;--")
 target_compile_features(demo_tests PRIVATE cxx_std_20)
 file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/demo_program_$<CONFIG>.txt" CONTENT "$<TARGET_FILE:demo_tests>")
 
@@ -42,7 +53,7 @@ gentest_discover_tests(demo_tests
   ${_gentest_extra_args}
   ${_gentest_death_expect_arg} "fatal path"
   EXTRA_ARGS --verify-nested-quoting "--nested=]=]tail]=="
-  PROPERTIES LABELS "suffix]=")
+  PROPERTIES ENVIRONMENT "GENTEST_FIXTURE_ENV=present" LABELS "suffix]=")
 
 # Exercise post-build discovery, scalar filters, and empty inventories as well.
 gentest_discover_tests(demo_tests
@@ -51,7 +62,7 @@ gentest_discover_tests(demo_tests
   TEST_SUFFIX "/suffix"
   TEST_FILTER "demo/*;*"
   EXTRA_ARGS --verify-quoting "--value=]="
-  PROPERTIES LABELS "caller;shared"
+  PROPERTIES ENVIRONMENT "GENTEST_FIXTURE_ENV=present" LABELS "caller;shared"
   DEATH_EXPECT_SUBSTRING "fatal path")
 gentest_discover_tests(demo_tests
   DISCOVERY_MODE POST_BUILD
@@ -62,8 +73,8 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/check_list.cmake" [==[
 # CTest includes this outside the fixture project's configure-time policy scope.
 cmake_policy(SET CMP0057 NEW)
 list(LENGTH normal_discovered count)
-if(NOT count EQUAL 6)
-  message(FATAL_ERROR "Expected six list-representable names, got ${count}: ${normal_discovered}")
+if(NOT count EQUAL 8)
+  message(FATAL_ERROR "Expected eight list-representable names, got ${count}: ${normal_discovered}")
 endif()
 if(NOT "demo/a;b" IN_LIST normal_discovered)
   message(FATAL_ERROR "TEST_LIST must preserve the semicolon-bearing case")

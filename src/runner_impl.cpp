@@ -1,3 +1,4 @@
+#include "death_watchdog.h"
 #include "gentest/detail/registration_runtime.h"
 #include "gentest/detail/registry_runtime.h"
 #include "gentest/detail/runtime_context.h"
@@ -6,17 +7,25 @@
 #include "runner_orchestrator.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <fstream>
 #include <mutex>
 #include <span>
 #include <vector>
 
 namespace {
-thread_local const char *death_test_marker = nullptr;
+thread_local const std::filesystem::path *death_test_marker = nullptr;
 
 struct DeathTestProtocolScope {
-    const char *previous = death_test_marker;
-    explicit DeathTestProtocolScope(const char *path) { death_test_marker = path; }
+    const std::filesystem::path *previous = death_test_marker;
+    explicit DeathTestProtocolScope(const std::filesystem::path *path) { death_test_marker = path; }
+    bool recordSkip(std::string_view name) const {
+        std::ofstream result(*death_test_marker, std::ios::binary | std::ios::trunc);
+        result << name << "\nskipped";
+        result.close();
+        death_test_marker = nullptr;
+        return static_cast<bool>(result);
+    }
     ~DeathTestProtocolScope() {
         gentest::detail::notify_case_body_finish();
         death_test_marker = previous;
@@ -60,13 +69,56 @@ auto snapshot_cases() -> std::vector<gentest::Case> {
     return reg.cases;
 }
 
-auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runner::CliOptions &options,
+auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runner::CliOptions &parsed,
                       const gentest::RunConfiguration &configuration) -> int {
-    gentest::detail::FrameworkRunScope events(configuration);
-    DeathTestProtocolScope             protocol(options.death_test_marker);
+    std::filesystem::path marker;
+
+#if defined(_WIN32)
+    // Only a process launched by the supervisor requests its original Unicode arguments.
+    auto        options = parsed;
+    std::string exact_name;
+    if (options.death_wide) {
+        for (const auto &arg : gentest::detail::wideProcessArguments()) {
+            const std::string_view value = arg;
+            if (value.starts_with("--run="))
+                exact_name = value.substr(6);
+            constexpr std::string_view prefix = "--gentest-death-marker=";
+            if (value.starts_with(prefix)) {
+                const auto bytes = value.substr(prefix.size());
+                marker           = std::u8string(bytes.begin(), bytes.end());
+            }
+        }
+        if (exact_name.empty() || marker.empty())
+            return 1;
+        options.run_name = exact_name.c_str();
+    }
+#else
+    const auto &options = parsed;
+#endif
+    if (marker.empty() && options.death_test_marker)
+        marker = options.death_test_marker;
+    auto watched = configuration;
+    if (options.death_watchdog) {
+        try {
+            auto path        = marker;
+            watched.notifier = gentest::detail::deathWatchdogNotifier(path += ".watchdog", configuration.notifier);
+        } catch (const std::exception &e) {
+            (void)std::fprintf(stderr, "Cannot attach death-test watchdog: %s\n", e.what());
+            return 1;
+        }
+    }
+    gentest::detail::FrameworkRunScope events(watched);
+    DeathTestProtocolScope             protocol(options.death_test_marker ? &marker : nullptr);
     const int                          result = gentest::runner::run_from_options(cases, options);
     events.finish();
-    return events.failed() ? 1 : result;
+    if (events.failed())
+        return 1;
+    // Only a normal runner return can confirm a skip. Setup and teardown can
+    // exit with the same status as a real skip without returning here.
+    if (options.death_test_marker && options.skip_return_code != 0 && result == options.skip_return_code &&
+        !protocol.recordSkip(options.run_name))
+        return 1;
+    return result;
 }
 } // namespace
 
@@ -76,7 +128,7 @@ void notify_case_body_start() {
         return;
 
     const auto    context = current_test();
-    std::ofstream marker(death_test_marker, std::ios::binary | std::ios::trunc);
+    std::ofstream marker(*death_test_marker, std::ios::binary | std::ios::trunc);
     if (context)
         marker << context->display_name;
     marker.close();
@@ -87,7 +139,7 @@ void notify_case_body_start() {
 void notify_case_body_finish() noexcept {
     if (!death_test_marker)
         return;
-    std::ofstream marker(death_test_marker, std::ios::binary | std::ios::app);
+    std::ofstream marker(*death_test_marker, std::ios::binary | std::ios::app);
     marker << "\ncompleted";
 }
 

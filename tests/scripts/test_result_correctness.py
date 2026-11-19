@@ -10,7 +10,7 @@ from target_command import target_command
 
 
 def main():
-    binary, helper, cmake, ctest = sys.argv[1:5]
+    binary, helper, cmake, ctest, supervisor = sys.argv[1:6]
 
     # Discovery and the CTest commands it emits must use the target's executor too.
     executor = ";".join(argument.replace(";", r"\;") for argument in target_command(binary)[:-1])
@@ -78,7 +78,7 @@ def main():
         run("--filter=absent", "--junit=" + str(root), expected=1)
         run("--run=result_correctness/runtime_skip", "--skip-return-code=77", "--junit=" + str(root), expected=1)
 
-        # Use the same emitted discovery script and harness a downstream project uses.
+        # Use the same discovery script and host supervisor that downstream projects run.
         config = root / "configure.cmake"
         config.write_text(f'''cmake_minimum_required(VERSION 3.31)
 set(CMAKE_BINARY_DIR [==[{root}]==])
@@ -91,7 +91,7 @@ file(WRITE [==[{root / 'script.txt'}]==] "${{script}}")
 
         def discovery(filename, pattern, extra="", working_directory=None):
             command = [cmake, "-DTEST_EXECUTABLE=" + binary, "-DTEST_WORKING_DIR=" + str(working_directory or directory),
-                       "-DTEST_EXECUTOR=" + executor,
+                       "-DTEST_EXECUTOR=" + executor, "-DTEST_SUPERVISOR=" + supervisor,
                        "-DCTEST_FILE=" + str(root / filename), "-DTEST_FILTER=" + pattern,
                        "-DTEST_EXTRA_ARGS=" + extra, "-DTEST_LIST=cases", "-P", discover]
             subprocess.run(command, check=True, capture_output=True, text=True)
@@ -105,29 +105,36 @@ file(WRITE [==[{root / 'script.txt'}]==] "${{script}}")
             assert cases["result_correctness/" + name].find("skipped") is not None, cases
         assert cases["result_correctness/failure_then_skip"].find("failure") is not None, cases
 
+        supervisor_tmp = root / "supervisor-tmp"
+        supervisor_tmp.mkdir()
+        environment = {**os.environ, "TEST_TMPDIR": str(supervisor_tmp)}
         for name, extra, expected, message in (
             ("body_death", "", 0, "Death test passed"),
             ("body_death_77", "", 0, "Death test passed"),
-            ("runtime_skip_death", "", 0, "Death test skipped by test binary"),
+            ("runtime_skip_death", "", 0, "[ SKIP ]"),
             ("async_death", "", 0, "Death test passed"),
             ("body_death", "--definitely-invalid", 8, "did not reach the selected test body"),
             ("setup_death", "", 8, "did not reach the selected test body"),
             ("teardown_death", "", 8, "body completed without the expected termination"),
         ):
             discovery("CTestTestfile.cmake", "result_correctness/" + name, extra)
-            result = subprocess.run([ctest, "--test-dir", directory, "-V"], capture_output=True, text=True, timeout=30)
+            result = subprocess.run([ctest, "--test-dir", directory, "-V", "--output-junit", str(root / "ctest.xml")],
+                                    capture_output=True, text=True, timeout=30, env=environment)
             assert result.returncode == expected, result
             assert message in result.stdout + result.stderr, result
+            if name == "runtime_skip_death":
+                case = ET.parse(root / "ctest.xml").find(".//testcase[@name='death/result_correctness/runtime_skip_death']")
+                assert case is not None and case.find("skipped") is not None, result
         readonly = root / "readonly-cwd"
         readonly.mkdir()
         os.chmod(readonly, 0o555)
         try:
             discovery("CTestTestfile.cmake", "result_correctness/body_death", working_directory=readonly)
-            result = subprocess.run([ctest, "--test-dir", directory, "-V"], capture_output=True, text=True, timeout=30)
+            result = subprocess.run([ctest, "--test-dir", directory, "-V"], capture_output=True, text=True, timeout=30, env=environment)
             assert result.returncode == 0 and "Death test passed" in result.stdout + result.stderr, result
         finally:
             os.chmod(readonly, 0o755)
-        assert not list(root.rglob("gentest-death-*.started"))
+        assert not list(supervisor_tmp.iterdir())
     print("result correctness contract passed")
 
 

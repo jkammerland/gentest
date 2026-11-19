@@ -18,6 +18,8 @@ static void list_json() {
         {"name":"demo/back\\slash$\"","tags":[],"skipped":false,"is_death":false},
         {"name":"demo/death","tags":[],"skipped":false,"is_death":true},
         {"name":"demo/death;[","tags":["death"],"skipped":false,"is_death":true},
+        {"name":"demo/death_runtime_skip","tags":[],"skipped":false,"is_death":true},
+        {"name":"demo/death_missing","tags":[],"skipped":false,"is_death":true},
         {"name":"demo/death_skip","tags":["death"],"skipped":true,"is_death":true}
     ])json";
 }
@@ -48,12 +50,15 @@ static int run_one(std::string_view name) {
         return 0;
     }
     if (name == "demo/death" || name == "demo/death;[") {
+        // The punctuation-bearing case verifies that the host wrapper preserves the CTest environment and target launcher.
+        if (name == "demo/death;[" && (std::getenv("GENTEST_FIXTURE_LAUNCHED") == nullptr || std::getenv("GENTEST_FIXTURE_ENV") == nullptr))
+            return 0;
         std::cout << "Case not found: unrelated-diagnostic\n";
         std::cout << "fatal path: this is a death test\n";
         return 3;
     }
-    if (name == "demo/death_skip") {
-        std::cout << "[ SKIP ] demo/death_skip :: disabled [debug]\n";
+    if (name == "demo/death_skip" || name == "demo/death_runtime_skip") {
+        std::cout << "[ SKIP ] " << name << " :: disabled [debug]\n";
         return 77;
     }
     std::cerr << "Test not found: " << name << "\n";
@@ -88,14 +93,16 @@ int main(int argc, char **argv) {
         }
         constexpr std::string_view kRun = "--run=";
         if (arg.rfind(kRun, 0) == 0) {
+            if (arg.substr(kRun.size()) == "demo/death_missing")
+                return run_one("demo/death_missing");
             if (!marker.empty()) {
-                std::ofstream file{std::string(marker)};
+                std::ofstream file(std::string(marker), std::ios::binary);
                 file << arg.substr(kRun.size());
             }
             const int result = run_one(arg.substr(kRun.size()));
             if (result == 77 && !marker.empty()) {
-                std::ofstream file{std::string(marker), std::ios::app};
-                file << "\ncompleted";
+                std::ofstream file(std::string(marker), std::ios::binary | std::ios::trunc);
+                file << arg.substr(kRun.size()) << "\nskipped";
             }
             return result;
         }

@@ -459,6 +459,15 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             continue;
         }
 
+        if (s == "--gentest-death-wide") {
+            opt.death_wide = true;
+            continue;
+        }
+        if (s == "--gentest-death-watchdog") {
+            opt.death_watchdog = true;
+            continue;
+        }
+
         if (const OptionParseResult seed_result = parse_value_option(i, s, "--seed",
                                                                      [&](std::string_view value) {
                                                                          if (!reject_duplicate_option(opt.seed_provided, "--seed"))
@@ -820,6 +829,10 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
     if (opt.shuffle)
         opt.shuffle_seed = opt.seed_provided ? opt.seed_value : make_random_seed();
 
+    if ((opt.death_watchdog || opt.death_wide) && !opt.death_test_marker) {
+        fmt::print(stderr, "error: death-test protocol requires a marker\n");
+        return false;
+    }
     if (opt.death_test_marker && (opt.mode != Mode::Execute || !opt.run_name || !opt.include_death || opt.repeat_n != 1)) {
         fmt::print(stderr, "error: death-test protocol requires one --run case with --include-death\n");
         return false;

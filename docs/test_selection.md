@@ -117,8 +117,8 @@ The runner removes death tests from every selection unless you pass
 - With `--include-death`, `--exclude-tag` and `--exclude` remove death tests as
   usual.
 
-A death test usually ends the process, so run each one in its own process.
-`gentest_discover_tests()` does that for you; see [Death tests](death_tests.md).
+Run a selected death case with `gentest_supervise` to check its result.
+See [Death tests](death_tests.md).
 
 ## Empty selections
 

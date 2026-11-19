@@ -103,6 +103,11 @@ SelectionResult select_cases(std::span<const gentest::Case> cases, const CliOpti
                 return result;
             }
             idxs.push_back(exact_kind_matches.front());
+        } else if (opt.death_test_marker) {
+            // Build-system registrations name one exact case. A stale entry
+            // must never launch another case that happens to share its suffix.
+            result.status = SelectionStatus::CaseNotFound;
+            return result;
         } else {
             std::vector<std::size_t> suffix_matches;
             std::vector<std::size_t> suffix_kind_matches;

@@ -32,11 +32,10 @@ parallel runs and repetition, see
   and `TEST_SUFFIX`. The entry runs `my_tests --run=<case> --skip-return-code=77`
   plus `EXTRA_ARGS`, with the CTest property `SKIP_RETURN_CODE 77`, so static
   and runtime skips show as skipped in CTest.
-- **Death tests** (cases marked with the `death` attribute). The CTest name gets a `death/` prefix,
-  after `TEST_PREFIX`: `death/crash/fatal_path`. The entry runs a CMake script
-  that starts the executable with `--include-death --run=<case>` and decides
-  whether the case died as expected; see [Death tests](death_tests.md). Death
-  tests with a static skip are not registered.
+- **Death tests.** Discovery registers each runnable `death` case with a
+  `death/` prefix after `TEST_PREFIX`, for example `death/crash/fatal_path`.
+  Each entry runs `gentest_supervise`. Discovery omits statically skipped death
+  cases. See [Death tests](death_tests.md).
 
 Case names are registered verbatim, including semicolons and brackets. Only the
 cases compiled into the executable appear: a case that the preprocessor removes
@@ -62,7 +61,8 @@ gentest_discover_tests(<target>
   [EXTRA_ARGS <arg>...]
   [DISCOVERY_EXTRA_ARGS <arg>...]
   [PROPERTIES <name> <value>...]
-  [DEATH_EXPECT_SUBSTRING <text>])
+  [DEATH_EXPECT_SUBSTRING <text>]
+  [DEATH_TIMEOUT_MS <ms>] [DEATH_INACTIVITY_MS <ms>])
 ```
 
 | Argument | Meaning |
@@ -80,6 +80,8 @@ gentest_discover_tests(<target>
 | `DISCOVERY_EXTRA_ARGS <arg>...` | Arguments appended to the CTest discovery command, after `--list-json`. |
 | `PROPERTIES <name> <value>...` | CTest properties set on every entry. Case tags are added to `LABELS`; your labels stay. |
 | `DEATH_EXPECT_SUBSTRING <text>` | Text that each death test registered by this call must print. See [Death tests](#death-tests). |
+| `DEATH_TIMEOUT_MS <ms>` | Maximum duration of each death test. |
+| `DEATH_INACTIVITY_MS <ms>` | Maximum time without progress in a death test. |
 
 `EXTRA_ARGS` must be options the executable accepts. Don't pass `--run` or
 `--skip-return-code` there: every registered command already sets them, and the
@@ -123,12 +125,12 @@ A case tagged `fast` gets the labels `project`, `unit` and `fast`, so
 
 ## Death tests
 
-`DEATH_EXPECT_SUBSTRING <text>` requires `<text>` in the combined stdout and
-stderr of every death test that the call registers; there is no per-case
-setting. To give groups of death tests different texts, register each group
-with its own call and a disjoint `TEST_FILTER`.
-[Death tests](death_tests.md) shows that pattern and how the death-test script
-judges a run.
+`DEATH_EXPECT_SUBSTRING <text>` requires each registered death test to print
+`<text>` to stdout or stderr. To check different messages, register each group
+with its own `TEST_FILTER`. See [Death tests](death_tests.md) for the pass criteria.
+
+When cross-compiling, set `GENTEST_SUPERVISE_EXECUTABLE` to the host tool if it
+is outside the host codegen directory and search path.
 
 ## Discovery modes
 

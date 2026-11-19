@@ -194,6 +194,7 @@ gentest_textual_suites = [
 | `link_with` | `[]` | Libraries to link. |
 | `test` | `true` | Registers the executable as a Meson test. |
 | `test_name` | `name` | Name of that Meson test. |
+| `death_tests` | `[]` | One dictionary per [death test](../death_tests.md) to register separately. |
 | `install` | `false` | Installs the executable. |
 | `build_by_default` | `true` | Applies to the codegen step only; the executable itself is built by default either way. |
 
@@ -206,6 +207,22 @@ only).
 
 The executable links gentest through `gentest_main_dep` and
 `gentest_runtime_dep`, so it doesn't need a `dependencies` entry for gentest.
+
+### Death tests
+
+List each case by its full Gentest name in the suite dictionary.
+
+```meson
+'death_tests': [
+  {'case': 'crash/fatal_input', 'name': 'fatal_input', 'expect': 'invalid input'},
+],
+```
+
+`meson test -C build fatal_input` runs the case under `gentest_supervise`.
+A runtime skip appears as `SKIP`. The default Meson test name is
+`<suite>/death/<case>`. Each entry accepts `timeout_ms` and `inactivity_ms`
+for the supervisor, `args` for the test executable, and `timeout` in seconds
+for Meson's outer timeout (default 30).
 
 ## Mocks
 

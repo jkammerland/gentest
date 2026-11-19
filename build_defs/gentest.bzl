@@ -1,5 +1,32 @@
 load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+def _death_test_argument(value):
+    # Test args undergo Make variable expansion and Bourne shell tokenization.
+    return "'" + str(value).replace("$", "$$").replace("'", "'\\''") + "'"
+
+def gentest_death_test(name, suite, case, expect = None, timeout_ms = None, inactivity_ms = None, extra_args = [], **kwargs):
+    """Register one death case of a compiled Gentest suite as a Bazel test."""
+    supervisor = Label("//:gentest_supervise")
+    options = ["--case", case]
+    for flag, value in [("--expect", expect), ("--timeout-ms", timeout_ms), ("--inactivity-ms", inactivity_ms)]:
+        if value != None:
+            options.extend([flag, value])
+
+    # Pass the boundary explicitly so any option or child argument can contain '--'.
+    sh_test(
+        name = name,
+        srcs = [Label("//bazel:death_test.sh")],
+        data = [supervisor, suite],
+        args = [
+            "'$(rlocationpath %s)'" % supervisor,
+            "'$(rlocationpath %s)'" % suite,
+            str(len(options)),
+        ] + [_death_test_argument(arg) for arg in options + extra_args],
+        use_bash_launcher = True,
+        **kwargs
+    )
 
 GentestGeneratedInfo = provider(
     doc = "Native Bazel metadata for generated gentest mock/codegen artifacts.",
@@ -14,13 +41,13 @@ GentestGeneratedInfo = provider(
     },
 )
 
-_gentest_warning_copts = select({
-    "@bazel_tools//src/conditions:windows": ["/wd5030"],
-    "//conditions:default": ["-Wno-attributes"],
+_gentest_language_copts = select({
+    "@rules_cc//cc/compiler:msvc-cl": ["/std:c++20", "/wd5030"],
+    "@rules_cc//cc/compiler:clang-cl": ["/std:c++20", "/wd5030"],
+    "//conditions:default": ["-std=c++20", "-Wno-attributes"],
 })
 
 _gentest_common_copts = [
-    "-std=c++20",
     "-DFMT_HEADER_ONLY",
     "-Iinclude",
     "-Itests",
@@ -58,7 +85,7 @@ def _gentest_define_copts(defines):
     })
 
 def _gentest_compile_copts(defines = [], clang_args = []):
-    return _gentest_common_copts + _gentest_warning_copts + _gentest_define_copts(defines) + list(clang_args)
+    return _gentest_common_copts + _gentest_language_copts + _gentest_define_copts(defines) + list(clang_args)
 
 def _gentest_module_compile_copts(defines = [], clang_args = []):
     return _gentest_compile_copts(defines, clang_args) + ["-fmodules-embed-all-files"]

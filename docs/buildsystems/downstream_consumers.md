@@ -21,7 +21,8 @@ CMake is the primary integration: it supports every feature, and the
 | Add a mock target with | `gentest_add_mocks()` | An entry in `gentest_textual_mocks` | `gentest_add_mocks({...})` | `gentest_add_mocks_textual()`, `gentest_add_mocks_modules()` |
 | Mock backends | gentest, gMock, Trompeloeil | gentest | gentest | gentest |
 | Mock definitions in a named module | Yes | No | Yes | Yes |
-| Run the tests with | `gentest_discover_tests()` and `ctest` | `meson test` | `xmake run <target>` | `bazel test` |
+| Run the tests with | `gentest_discover_tests()` and `ctest` | `meson test` | `xmake run <target>`, `xmake test` | `bazel test` |
+| Register death tests with | `gentest_discover_tests()` | The suite's `death_tests` list | `gentest_add_death_test({...})` | `gentest_death_test()` |
 | Tested in CI on | Linux, macOS, Windows | Linux | Linux | Linux (macOS: codegen action-cache test only) |
 
 [Header registration](../writing_tests.md) (the default) reads annotated
@@ -85,8 +86,8 @@ built with. The simplest setup installs gentest and fmt into the same prefix
 and points `CMAKE_PREFIX_PATH` at it; a gentest build that fetched fmt itself
 installs it there. Otherwise, pass `fmt_DIR` as well.
 
-You can also add the gentest source tree with `add_subdirectory()`. That builds
-the runtime only. To generate code, either set `GENTEST_BUILD_CODEGEN=ON`,
+You can also add the gentest source tree with `add_subdirectory()`. To generate
+registrations, either set `GENTEST_BUILD_CODEGEN=ON`,
 which needs the LLVM/Clang development packages, or point
 `GENTEST_CODEGEN_EXECUTABLE` at a built `gentest_codegen`.
 

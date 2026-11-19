@@ -5,6 +5,7 @@ load(
     _gentest_add_mocks_textual = "gentest_add_mocks_textual",
     _gentest_attach_codegen_modules = "gentest_attach_codegen_modules",
     _gentest_attach_codegen_textual = "gentest_attach_codegen_textual",
+    _gentest_death_test = "gentest_death_test",
     _gentest_suite = "gentest_suite",
 )
 load(
@@ -17,5 +18,6 @@ gentest_add_mocks_modules = _gentest_add_mocks_modules
 gentest_add_mocks_textual = _gentest_add_mocks_textual
 gentest_attach_codegen_modules = _gentest_attach_codegen_modules
 gentest_attach_codegen_textual = _gentest_attach_codegen_textual
+gentest_death_test = _gentest_death_test
 gentest_suite = _gentest_suite
 gentest_codegen_toolchain = _gentest_codegen_toolchain

@@ -81,7 +81,7 @@ gentest_check_run_or_fail(
 set(_expected_tests [====[
   ["demo/a", "demo/b", "demo/skip", "demo/has [bracket]", "demo/a;b", "demo/lone[", "demo/lone]",
    "demo/quote]==]", "demo/suffix]=", "demo/nested]=]tail]==", "demo/back\\slash$\"", "death/demo/death", "death/demo/death;[",
-   "filtered/demo/a;b/suffix", "filtered/death/demo/death;[/suffix"]
+   "death/demo/death_runtime_skip", "death/demo/death_missing", "filtered/demo/a;b/suffix", "filtered/death/demo/death;[/suffix"]
 ]====])
 string(JSON _expected_count LENGTH "${_expected_tests}")
 string(JSON _discovered_count LENGTH "${_list_out}" tests)
@@ -96,6 +96,9 @@ foreach(_expected_index RANGE 0 ${_last})
     string(JSON _actual GET "${_list_out}" tests ${_actual_index} name)
     if(_actual STREQUAL _expected)
       set(_found TRUE)
+      if(_actual STREQUAL "death/demo/death")
+        string(JSON _harness GET "${_list_out}" tests ${_actual_index} command 0)
+      endif()
       break()
     endif()
   endforeach()
@@ -178,7 +181,14 @@ if(_pos EQUAL -1)
   message(FATAL_ERROR "Expected death harness success message. Output:\n${_death_out}")
 endif()
 
-# Exercise the actual generated death harness, including failures before main().
+foreach(_skipped IN ITEMS demo/death_runtime_skip demo/death_missing)
+  string(FIND "${_death_out}" "death/${_skipped} (Skipped)" _skip_pos)
+  if(_skip_pos EQUAL -1)
+    message(FATAL_ERROR "Expected CTest to skip '${_skipped}':\n${_death_out}")
+  endif()
+endforeach()
+
+# Reuse the supervisor selected by the actual CTest entry for negative controls.
 set(_config "${BUILD_CONFIG}")
 if(_config STREQUAL "")
   set(_config "${BUILD_TYPE}")
@@ -187,16 +197,14 @@ file(READ "${_build_dir}/demo_program_${_config}.txt" _program)
 include("${CMAKE_CURRENT_LIST_DIR}/CheckModuleFixtureCommon.cmake")
 gentest_fixture_program_command(_fixture_emu "${_program}")
 list(POP_BACK _fixture_emu _fixture_program)
-set(_harness "${_build_dir}/GentestCheckDeath.cmake")
-function(check_death_result program args expected_message)
-  # Only the built target uses QEMU; missing/non-executable controls test host launch errors.
-  set(_emu_def)
-  if("${program}" STREQUAL "${_program}" AND NOT "${_fixture_emu}" STREQUAL "")
-    string(REPLACE ";" "\\;" _emu_escaped "${_fixture_emu}")
-    set(_emu_def "-DEMU:STRING=${_emu_escaped}")
+function(check_death_result program case_name expected_message)
+  # Only the built target uses QEMU. The launch failures run directly on the host.
+  set(_emu)
+  if("${program}" STREQUAL "${_program}")
+    set(_emu ${_fixture_emu})
   endif()
   execute_process(
-    COMMAND "${CMAKE_COMMAND}" "-DPROG=${program}" "-DARGS=${args}" ${_emu_def} -P "${_harness}"
+    COMMAND "${_harness}" --case "${case_name}" -- ${_emu} "${program}"
     RESULT_VARIABLE _rc OUTPUT_VARIABLE _out ERROR_VARIABLE _err)
   set(_all "${_out}\n${_err}")
   string(FIND "${_all}" "${expected_message}" _found)
@@ -211,12 +219,12 @@ function(check_death_result program args expected_message)
     message(FATAL_ERROR "Expected death harness failure: ${_all}")
   endif()
 endfunction()
-check_death_result("${_build_dir}/missing-executable" "" "process could not execute")
+check_death_result("${_build_dir}/missing-executable" "demo/death" "process could not execute")
 file(WRITE "${_build_dir}/not-executable" "not a program")
-check_death_result("${_build_dir}/not-executable" "" "process could not execute")
-check_death_result("${_program}" "--run=demo/a" "exit code was 0")
-check_death_result("${_program}" "--run=demo/fail" "normal test failure")
-check_death_result("${_program}" "--run=demo/death" "Death test passed")
+check_death_result("${_build_dir}/not-executable" "demo/death" "process could not execute")
+check_death_result("${_program}" "demo/a" "exit code was 0")
+check_death_result("${_program}" "demo/fail" "normal test failure")
+check_death_result("${_program}" "demo/death" "Death test passed")
 if(WIN32 AND _config STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
   # This fixture invokes the death harness directly, outside the runtime death
   # tests' DISABLED properties. Keep the other discovery/harness checks active.
@@ -224,7 +232,7 @@ if(WIN32 AND _config STREQUAL "Debug" AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS
   message(STATUS "GENTEST_KNOWN_SKIP: windows-debug-abort: Application may suspend for debugger attachment.")
 else()
   message(STATUS "Run aborting death-harness probe...")
-  check_death_result("${_program}" "--run=demo/abort" "Death test passed")
+  check_death_result("${_program}" "demo/abort" "Death test passed")
 endif()
 
 message(STATUS "gentest_discover_tests fixture passed")

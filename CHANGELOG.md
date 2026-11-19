@@ -44,6 +44,7 @@
 
 ### Added
 
+- Run death tests with `gentest_supervise` from CTest, Bazel, Meson, Xmake, or the command line.
 - `when_all` and `when_any` compose awaitables, returning an owning tuple or variant after joining every input.
 - Custom callback awaitables with typed, move-only results that resume on the owning test runner.
 - Sixteen runnable async examples in eight stages.

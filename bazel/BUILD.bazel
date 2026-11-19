@@ -1,4 +1,5 @@
 exports_files([
+    "death_test.sh",
     "defs.bzl",
     "local_exec_tools.bzl",
     "toolchain.bzl",

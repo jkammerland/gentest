@@ -9,6 +9,7 @@ py = import('python').find_installation('python3')
 gentest_codegen = gentest_sp.get_variable('gentest_codegen')
 gentest_codegen_tool_args = gentest_sp.get_variable('gentest_codegen_tool_args')
 gentest_main_dep = gentest_sp.get_variable('gentest_main_dep')
+gentest_supervise = gentest_sp.get_variable('gentest_supervise')
 gentest_runtime_dep = gentest_sp.get_variable('gentest_runtime_dep')
 gentest_public_include_path = gentest_sp.get_variable('gentest_public_include_path')
 gentest_third_party_include_path = gentest_sp.get_variable('gentest_third_party_include_path')
@@ -328,6 +329,22 @@ foreach suite_decl : gentest_textual_suites
   if suite_decl.get('test', true)
     test(suite_decl.get('test_name', suite_name), suite_target)
   endif
+
+  # Each declaration gets its own native test and Meson's exit-code 77 skip.
+  foreach death : suite_decl.get('death_tests', [])
+    death_args = ['--case', death['case']]
+    if death.has_key('expect')
+      death_args += ['--expect', death['expect']]
+    endif
+    foreach option : ['timeout_ms', 'inactivity_ms']
+      if death.has_key(option)
+        death_args += ['--' + option.replace('_', '-'), death[option].to_string()]
+      endif
+    endforeach
+    test(death.get('name', suite_name + '/death/' + death['case']), gentest_supervise,
+         args: death_args + ['--', suite_target] + death.get('args', []),
+         timeout: death.get('timeout', 30))
+  endforeach
 
   gentest_textual_suite_targets += {suite_name: suite_target}
   gentest_textual_suite_codegen_targets += {suite_name: suite_codegen}

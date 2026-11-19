@@ -4,6 +4,7 @@ load(
     "gentest_add_mocks_textual",
     "gentest_attach_codegen_modules",
     "gentest_attach_codegen_textual",
+    "gentest_death_test",
 )
 load(":quote_headers.bzl", "categorized_headers")
 
@@ -46,6 +47,20 @@ gentest_attach_codegen_textual(
     mock_targets = [":gentest_downstream_textual_mocks"],
     deps = [":codegen_headers"],
     source_includes = ["tests"],
+)
+
+gentest_death_test(
+    name = "downstream_death_exit",
+    suite = ":gentest_downstream_textual",
+    case = "downstream/death/exit",
+    expect = "fatal 'input' $5; 42",
+    timeout_ms = 10000,
+)
+
+gentest_death_test(
+    name = "downstream_death_skip",
+    suite = ":gentest_downstream_textual",
+    case = "downstream/death/skip",
 )
 
 gentest_add_mocks_modules(

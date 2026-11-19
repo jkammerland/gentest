@@ -48,6 +48,11 @@ if(NOT DEFINED GENTEST_CODEGEN_TARGET)
         "CMake target that resolves to a runnable host gentest_codegen (alternative to GENTEST_CODEGEN_EXECUTABLE; cross builds require an imported executable target).")
 endif()
 
+if(NOT DEFINED GENTEST_SUPERVISE_EXECUTABLE)
+    set(GENTEST_SUPERVISE_EXECUTABLE "" CACHE FILEPATH
+        "Path to a host-built gentest_supervise executable for discovered death tests.")
+endif()
+
 if(NOT DEFINED GENTEST_CODEGEN_DEFAULT_CLANG_ARGS)
     set(GENTEST_CODEGEN_DEFAULT_CLANG_ARGS "-Wno-unknown-attributes;-Wno-attributes;-Wno-unknown-warning-option" CACHE STRING
         "Default extra clang arguments for gentest_codegen. Set empty to disable.")

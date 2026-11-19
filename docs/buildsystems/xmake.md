@@ -171,6 +171,26 @@ target uses, and the include directories of helper-created targets in `deps`.
 It doesn't see the include directories or modules of your other Xmake targets;
 pass those through `includes`, a `deps` table or `clang_args`.
 
+### Death tests
+
+To register a [death test](../death_tests.md), call `gentest_add_death_test`
+after declaring the suite target. Use the full Gentest case name.
+
+```lua
+gentest_add_death_test({
+    name = "fatal_input",
+    suite = "my_tests",
+    case = "crash/fatal_input",
+    expect = "invalid input",
+})
+```
+
+Run it with `xmake test fatal_input/death`. The helper uses the installed
+`bin/gentest_supervise` or builds the supervisor alongside an in-tree suite.
+It accepts optional `timeout_ms`, `inactivity_ms` and extra test executable
+`args`. Xmake counts a runtime skip as a successful test and the supervisor
+prints `[ SKIP ]` with the case name.
+
 ## Mocks
 
 `gentest_add_mocks({...})` turns the current target into a mock target that

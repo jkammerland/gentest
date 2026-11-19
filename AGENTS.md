@@ -100,9 +100,9 @@ editing.
 - `gentest_attach_codegen()` without `MODULE_REGISTRATION` uses header registration. Use Ninja or Ninja Multi-Config.
 - `OUTPUT_DIR` must be a concrete path without generator expressions in every mode, and unique per target; multi-config generators add their configuration subdirectory automatically.
 - Cross-compiling (target = arm/riscv/etc, host runs codegen):
-  - `GENTEST_BUILD_CODEGEN` defaults to `OFF` for cross builds. Native builds default it to `ON` when installing, otherwise to `gentest_BUILD_TESTING`. A native install with `-DGENTEST_BUILD_CODEGEN=OFF` installs only the runtime, and its consumers must select a host tool.
+  - `GENTEST_BUILD_CODEGEN` defaults to `OFF` for cross builds. Native builds default it to `ON` when installing, otherwise to `gentest_BUILD_TESTING`. A native install with `-DGENTEST_BUILD_CODEGEN=OFF` includes the runtime and death-test supervisor. Consumers that generate registrations must select a host code generator.
   - Build the host tool separately, then point the target build at it with `GENTEST_CODEGEN_EXECUTABLE`:
-    - Host tool (native) build: `cmake --workflow --preset=host-codegen` (writes `build/host-codegen/tools/gentest_codegen`), or `cmake -S . -B build/host -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON` followed by `cmake --build build/host --target gentest_codegen`.
+    - Host tool (native) build: `cmake --workflow --preset=host-codegen` (builds `gentest_codegen` and `gentest_supervise` in `build/host-codegen/tools`), or `cmake -S . -B build/host -Dgentest_BUILD_TESTING=OFF -DGENTEST_BUILD_CODEGEN=ON` followed by `cmake --build build/host --target gentest_codegen gentest_supervise`.
     - Target build: `cmake -S <proj> -B build/target -DCMAKE_TOOLCHAIN_FILE=<toolchain.cmake> -DGENTEST_BUILD_CODEGEN=OFF -DGENTEST_CODEGEN_EXECUTABLE=<path-to-host-gentest_codegen>`
   - `find_package(gentest CONFIG REQUIRED)` includes `GentestCodegen.cmake`. Native consumers find `gentest_codegen` in the installed prefix; cross consumers must set a host `GENTEST_CODEGEN_EXECUTABLE` (or `GENTEST_CODEGEN_TARGET`) before `gentest_attach_codegen()`.
   - Consumer cross builds: [docs/buildsystems/host_toolchain_sysroots.md](docs/buildsystems/host_toolchain_sysroots.md). Testing this repository under QEMU: [docs/cross_compile/linux_qemu.md](docs/cross_compile/linux_qemu.md).

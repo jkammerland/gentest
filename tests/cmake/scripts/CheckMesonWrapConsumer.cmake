@@ -141,6 +141,7 @@ file(COPY "${SOURCE_DIR}/meson_options.txt" DESTINATION "${_subproject_root}")
 file(COPY "${SOURCE_DIR}/meson" DESTINATION "${_subproject_root}")
 file(COPY "${SOURCE_DIR}/include" DESTINATION "${_subproject_root}")
 file(COPY "${SOURCE_DIR}/src" DESTINATION "${_subproject_root}")
+file(COPY "${SOURCE_DIR}/tools/supervise" DESTINATION "${_subproject_root}/tools")
 file(MAKE_DIRECTORY "${_subproject_root}/tests")
 file(MAKE_DIRECTORY "${_subproject_root}/third_party")
 file(COPY "${SOURCE_DIR}/third_party/include" DESTINATION "${_subproject_root}/third_party")
@@ -359,6 +360,25 @@ if(NOT _header_only_run_rc EQUAL 0)
     "Meson header-only consumer run failed.\n"
     "stdout:\n${_header_only_run_out}\n"
     "stderr:\n${_header_only_run_err}")
+endif()
+
+# Require both verdicts from Meson's own test runner.
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_meson_env} "${_meson}" test -C "${_out_dir}"
+          --verbose downstream_death_exit downstream_death_skip
+  RESULT_VARIABLE _death_rc OUTPUT_VARIABLE _death_out ERROR_VARIABLE _death_err)
+if(NOT _death_rc EQUAL 0 OR NOT _death_out MATCHES "Death test passed: downstream/death/exit"
+   OR NOT _death_out MATCHES "downstream_death_skip[ ]+SKIP" OR NOT _death_out MATCHES "\\[ SKIP \\] downstream/death/skip")
+  message(FATAL_ERROR "Unexpected Meson death test results.\n${_death_out}\n${_death_err}")
+endif()
+
+# Ensure a framework failure reaches Meson as a failing test.
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_meson_env} "${_meson}" test -C "${_out_dir}"
+          --verbose --test-args=--repeat=2 downstream_death_exit
+  RESULT_VARIABLE _invalid_rc OUTPUT_VARIABLE _invalid_out ERROR_VARIABLE _invalid_err)
+if(_invalid_rc EQUAL 0 OR NOT "${_invalid_out}\n${_invalid_err}" MATCHES "Death test did not reach the selected test body")
+  message(FATAL_ERROR "Meson did not reject the invalid death test invocation.\n${_invalid_out}\n${_invalid_err}")
 endif()
 
 set(_consumer_bin "${_meson_textual_dir}/gentest_downstream_textual")

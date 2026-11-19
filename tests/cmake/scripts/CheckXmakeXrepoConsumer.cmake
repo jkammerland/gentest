@@ -381,6 +381,31 @@ _gentest_run_or_fail(
   WORKING_DIRECTORY "${_workspace_dir}"
   COMMAND "${_installed_header_only_bin}" "--run=downstream/xrepo/header_only" "--kind=test")
 
+# Xmake represents a runtime skip as a successful test with the supervisor's diagnostic.
+_gentest_run_or_fail(
+  LABEL "Run native Xmake death tests" WORKING_DIRECTORY "${_workspace_dir}" ENV ${_xmake_env}
+  COMMAND "${_xmake}" test -P "${_workspace_dir}" -F "${_workspace_dir}/xmake.lua" -y "downstream_death_*/death")
+if(NOT _gentest_last_stdout MATCHES "Death test passed: downstream/death/exit"
+   OR NOT _gentest_last_stdout MATCHES "\\[ SKIP \\] downstream/death/skip")
+  message(FATAL_ERROR "Missing native Xmake death test verdicts.\n${_gentest_last_stdout}\n${_gentest_last_stderr}")
+endif()
+
+# Append a failing declaration to the scratch project to exercise Xmake's failure exit.
+file(APPEND "${_workspace_dir}/xmake.lua" [=[
+
+gentest_add_death_test({
+    name = "downstream_death_wrong_output", suite = "gentest_installed_header_only",
+    case = "downstream/death/exit", expect = "missing diagnostic",
+})
+]=])
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env ${_xmake_env} "${_xmake}" test -y downstream_death_wrong_output/death
+  WORKING_DIRECTORY "${_workspace_dir}"
+  RESULT_VARIABLE _wrong_rc OUTPUT_VARIABLE _wrong_out ERROR_VARIABLE _wrong_err)
+if(_wrong_rc EQUAL 0 OR NOT "${_wrong_out}\n${_wrong_err}" MATCHES "Expected substring not found")
+  message(FATAL_ERROR "Xmake did not reject the missing diagnostic.\n${_wrong_out}\n${_wrong_err}")
+endif()
+
 foreach(_case IN ITEMS
     "downstream/xrepo/test"
     "downstream/xrepo/mock"

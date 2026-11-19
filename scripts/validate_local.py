@@ -165,7 +165,7 @@ def make_plan(host: str, source: Path, output: Path, base: Path, jobs: int) -> l
         package.tools.append(cpack)
         package.commands.append(Command([cpack, "--config", str(output / "work/package/CPackConfig.cmake"),
                                          "-B", str(output / "work/package/artifacts")], source))
-        cmake_stage("host-codegen", "host-codegen", clang, clangxx, targets=("gentest_codegen",), tests=False)
+        cmake_stage("host-codegen", "host-codegen", clang, clangxx, targets=("gentest_codegen", "gentest_supervise"), tests=False)
         codegen = output / "work/host-codegen/tools/gentest_codegen"
         for arch in ("aarch64", "riscv64"):
             name = arch + "-qemu"

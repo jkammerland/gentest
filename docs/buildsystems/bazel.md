@@ -160,6 +160,29 @@ gentest_attach_codegen_textual(
 )
 ```
 
+### Death tests
+
+Declare one Bazel target per [death test](../death_tests.md). The suite can
+use either header or module registration.
+
+```starlark
+load("@gentest//bazel:defs.bzl", "gentest_death_test")
+
+gentest_death_test(
+    name = "fatal_input",
+    suite = ":service_tests",
+    case = "crash/fatal_input",
+    expect = "invalid input",
+)
+```
+
+`bazel test //:fatal_input` launches `gentest_supervise` with the suite from
+the target's runfiles. The test uses Bazel's Bash toolchain, including on
+Windows. Set `timeout_ms` for a total deadline,
+`inactivity_ms` for a progress deadline, or `extra_args` for the test executable.
+Bazel counts a runtime skip as a successful test. Its test log records
+`[ SKIP ]` with the case name.
+
 ## Mocks
 
 `gentest_add_mocks_textual` creates a library of gentest mocks from a mock

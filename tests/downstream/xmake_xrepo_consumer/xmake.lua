@@ -95,6 +95,7 @@ target("gentest_xrepo_runtime")
 -- The installed helper must also work without package-provided Gentest links.
 target("gentest_installed_header_only")
     set_kind("binary")
+    set_runenv("GENTEST_XREPO_DEATH_FIXTURE", "installed suite")
     gentest_attach_codegen({
         name = "gentest_installed_header_only",
         kind = "textual",
@@ -102,6 +103,19 @@ target("gentest_installed_header_only")
         main = "tests/main.cpp",
         output_dir = path.join(current_gen_root(), fixture_output_leaf("installed_header_only", "ih")),
     })
+
+gentest_add_death_test({
+    name = "downstream_death_exit",
+    suite = "gentest_installed_header_only",
+    case = "downstream/death/exit",
+    expect = "fatal input 42",
+    timeout_ms = 10000,
+})
+gentest_add_death_test({
+    name = "downstream_death_skip",
+    suite = "gentest_installed_header_only",
+    case = "downstream/death/skip",
+})
 
 target("gentest_xrepo_textual_mocks")
     set_kind("static")

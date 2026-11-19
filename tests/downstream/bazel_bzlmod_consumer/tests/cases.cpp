@@ -6,6 +6,8 @@
 #include "include_semantics.hpp"
 #include "private_case_value.hpp"
 
+#include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -27,6 +29,14 @@ bool contains(std::string_view haystack, std::string_view needle) { return hayst
 } // namespace
 
 namespace downstream {
+
+void fatal_input() {
+    std::fputs("fatal 'input' $5; 42\n", stderr);
+    std::fflush(stderr);
+    std::_Exit(23);
+}
+
+void skipped_input() { gentest::skip("optional input unavailable"); }
 
 void downstream_test(SuiteFixture &suite_fx, GlobalFixture &global_fx) {
     EXPECT_EQ(suite_fx.value, 7);

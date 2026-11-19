@@ -19,6 +19,13 @@ namespace {
 
 constexpr std::string_view kAsyncCannotResumeMessage = "cannot resume async test";
 
+void finish_manual_body(AsyncCaseRun &run) {
+    if (run.manual_body == ManualBodyState::Active) {
+        gentest::detail::notify_case_body_finish();
+        run.manual_body = ManualBodyState::Inactive;
+    }
+}
+
 auto suspend_location_text(std::string_view file, unsigned line) -> std::string {
     if (file.empty() || line == 0) {
         return {};
@@ -130,6 +137,8 @@ auto BatchAsyncScheduler::has_ready() const noexcept -> bool { return core_.has_
 void BatchAsyncScheduler::cancel_owner(std::size_t owner) {
     if (owner < runs_.size()) {
         gentest::runner::detail::CurrentTestContextScope scope(runs_[owner].ctxinfo);
+        // The task will never resume. Frame destruction and cancellation callbacks are teardown.
+        finish_manual_body(runs_[owner]);
         core_.cancel_owner(owner);
     }
 }
@@ -154,6 +163,7 @@ auto BatchAsyncScheduler::finish_unresumable(const StopCallback &should_stop, co
         run.message          = format_cannot_resume_message(suspended);
         {
             gentest::runner::detail::CurrentTestContextScope current_scope(run.ctxinfo);
+            finish_manual_body(run);
             if (!suspended.file.empty() && suspended.line != 0) {
                 gentest::detail::record_failure_at(run.message, suspended.file, suspended.line);
             } else {
@@ -243,9 +253,9 @@ auto BatchAsyncScheduler::resume_one_ready() -> bool {
             }
             core_.clear_suspend_state(frame);
             try {
-                if (run.manual_body_pending) {
+                if (run.manual_body == ManualBodyState::Pending) {
                     gentest::detail::notify_case_body_start();
-                    run.manual_body_pending = false;
+                    run.manual_body = ManualBodyState::Active;
                 }
                 (void)ready.resume();
             } catch (const std::exception &e) {

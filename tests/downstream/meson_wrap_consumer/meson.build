@@ -49,6 +49,10 @@ gentest_textual_suites = [
     'declaration_headers': ['tests/header_only_cases.hpp'],
     'source_includes': ['tests'],
     'test_name': 'meson_downstream_header_only',
+    'death_tests': [
+      {'case': 'downstream/death/exit', 'name': 'downstream_death_exit', 'expect': 'fatal input 42', 'timeout_ms': 10000},
+      {'case': 'downstream/death/skip', 'name': 'downstream_death_skip'},
+    ],
   },
 ]
 

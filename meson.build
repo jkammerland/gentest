@@ -129,6 +129,24 @@ gentest_notifications_dep = declare_dependency(
   link_with: libgentest_notifications,
 )
 
+# The supervisor and the suite run on the same test platform.
+supervisor_dependencies = [gentest_notifications_dep]
+if host_machine.system() == 'windows'
+  supervisor_process = 'tools/supervise/process_windows.cpp'
+  shell32 = cpp.find_library('shell32')
+  supervisor_dependencies += [shell32]
+  runtime_deps += [shell32]
+else
+  supervisor_process = 'tools/supervise/process_posix.cpp'
+endif
+gentest_supervise = executable(
+  'gentest_supervise',
+  ['tools/supervise/main.cpp', supervisor_process, 'src/death_watchdog.cpp'],
+  include_directories: include_directories('src'),
+  dependencies: supervisor_dependencies,
+  build_by_default: false,
+)
+
 libgentest_runtime = static_library(
   'gentest_runtime',
   [
@@ -136,6 +154,7 @@ libgentest_runtime = static_library(
     'src/bench_stats.cpp',
     'src/benchmark.cpp',
     'src/context_api.cpp',
+    'src/death_watchdog.cpp',
     'src/framework_events.cpp',
     'src/recording.cpp',
     'src/recording_report.cpp',
@@ -387,6 +406,9 @@ consumer_exe = executable(
 )
 
 test('meson_consumer_textual', consumer_exe)
+
+death_probe = executable('gentest_death_probe', 'tests/death_supervisor/probe.cpp', dependencies: gentest_runtime_dep)
+test('meson_death', gentest_supervise, args: ['--case', 'probe/death', '--expect', 'fatal diagnostic', '--', death_probe])
 
 # Convenience: run the CMake-based cross-compile POC from Meson.
 bash = find_program('bash', required: false)
