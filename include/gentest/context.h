@@ -35,9 +35,11 @@ class CurrentContext {
     friend struct detail::CurrentContextAccess;
     friend GENTEST_RUNTIME_API auto get_current_context() -> CurrentContext;
 
-    explicit CurrentContext(std::shared_ptr<detail::TestContextInfo> ctx) noexcept : ctx_(std::move(ctx)) {}
+    explicit CurrentContext(std::shared_ptr<detail::TestContextInfo> ctx, bool captured_during_stop) noexcept
+        : ctx_(std::move(ctx)), captured_during_stop_(captured_during_stop) {}
 
     std::shared_ptr<detail::TestContextInfo> ctx_{};
+    bool                                     captured_during_stop_ = false;
 };
 
 // Legacy context spelling. Prefer CurrentContext; stop_token() separately exposes cooperative cancellation.

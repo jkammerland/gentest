@@ -104,7 +104,9 @@ after a failure under `--fail-fast`.
 > the case never finishes and the run hangs.
 
 A `std::stop_callback` registered on `context.stop_token()` runs as if on an
-adopted thread: it can log, but it must not assert.
+adopted thread: it can log, but it must not assert. To start a logging worker
+from that callback, capture `gentest::get_current_context()` inside the callback
+and have the worker adopt it before the callback returns.
 
 ## Coroutines and async cases
 
