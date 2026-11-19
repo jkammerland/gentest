@@ -73,8 +73,8 @@ class GENTEST_RUNTIME_API FrameworkRunScope {
     std::shared_ptr<FrameworkSubject>  previous_subject_;
 };
 
-// Case scopes cover all phases. A fixture scope outside a case creates its own
-// short-lived subject; nested fixture work inherits the current case subject.
+// Case scopes cover all phases. Shared fixture setup and teardown each have
+// their own subject, including fixtures acquired from inside a running case.
 class GENTEST_RUNTIME_API FrameworkSubjectScope {
   public:
     explicit FrameworkSubjectScope(std::string_view name, bool fixture = false);

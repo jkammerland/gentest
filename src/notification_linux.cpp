@@ -136,7 +136,11 @@ void drainEvent(int fd) noexcept {
 
 bool readable(int fd) noexcept {
     pollfd descriptor{.fd = fd, .events = POLLIN, .revents = 0};
-    return ::poll(&descriptor, 1, 0) > 0 && (static_cast<unsigned>(descriptor.revents) & static_cast<unsigned>(POLLIN | POLLHUP)) != 0;
+    int    result;
+    do {
+        result = ::poll(&descriptor, 1, 0);
+    } while (result < 0 && errno == EINTR);
+    return result > 0 && (static_cast<unsigned>(descriptor.revents) & static_cast<unsigned>(POLLIN | POLLHUP)) != 0;
 }
 
 void signalProcess(int pidfd, int signal) noexcept {
@@ -800,6 +804,17 @@ struct WatchdogMonitor::State {
         observerReady.notify_all();
     }
 
+    void checkProducerFault() {
+        if (readable(descriptors.fault) && !model.failure()) {
+            std::uint64_t reason{};
+            const auto    received = ::read(descriptors.fault, &reason, sizeof(reason));
+            recordFailure(failureFor(producer,
+                                     received == sizeof(reason) && reason == 1 ? WatchdogFailureCode::producer_overload
+                                                                               : WatchdogFailureCode::transport_error,
+                                     "producer reported a terminal notification fault"));
+        }
+    }
+
     void supervise() {
         auto                             idleDeadline = deadlineAfter(Clock::now(), config.inactivityTimeout);
         std::optional<Clock::time_point> stopAt;
@@ -826,14 +841,7 @@ struct WatchdogMonitor::State {
                 recordFailure(
                     failureFor(producer, WatchdogFailureCode::observation_failure, "observer threw or its bounded queue overflowed"));
             }
-            if (readable(descriptors.fault) && !model.failure()) {
-                std::uint64_t reason{};
-                const auto    received = ::read(descriptors.fault, &reason, sizeof(reason));
-                recordFailure(failureFor(producer,
-                                         received == sizeof(reason) && reason == 1 ? WatchdogFailureCode::producer_overload
-                                                                                   : WatchdogFailureCode::transport_error,
-                                         "producer reported a terminal notification fault"));
-            }
+            checkProducerFault();
 
             bool receiveDrained = eof;
 
@@ -853,7 +861,7 @@ struct WatchdogMonitor::State {
                     if (received == 0) {
                         eof            = true;
                         receiveDrained = true;
-                        if (!disarmed.load() && (model.activeSubjects() != 0 || !sawSubject)) {
+                        if (!disarmed.load() && !stopping && (model.activeSubjects() != 0 || !sawSubject)) {
                             recordFailure(failureFor(producer, WatchdogFailureCode::transport_error,
                                                      "notification channel closed before subjects finished"));
                         }
@@ -916,6 +924,11 @@ struct WatchdogMonitor::State {
                 receiveBatch();
             }
 
+            // A producer can signal its fault descriptor during the last socket drain.
+            if ((processExited || finishing) && receiveDrained) {
+                checkProducerFault();
+            }
+
             const auto now = Clock::now();
             if (!disarmed.load() && !finishing && !stopping && !model.failure()) {
                 {
@@ -933,9 +946,6 @@ struct WatchdogMonitor::State {
                 recordFailure(*model.failure());
                 stopping = true;
             }
-            if (finishing && !stopping && receiveDrained) {
-                return;
-            }
             if (processExited && (receiveDrained || stopping)) {
                 {
                     std::lock_guard lock(mutex);
@@ -945,6 +955,9 @@ struct WatchdogMonitor::State {
                     recordFailure(
                         failureFor(producer, WatchdogFailureCode::process_exited, "process exited before notification subjects finished"));
                 }
+                return;
+            }
+            if (finishing && !stopping && receiveDrained) {
                 return;
             }
             if (stopping && !stopAt) {
@@ -1091,7 +1104,6 @@ void WatchdogMonitor::disarm() noexcept {
 void WatchdogMonitor::finish() noexcept {
     {
         std::lock_guard lock(state_->mutex);
-        state_->disarmed.store(true);
         state_->requestedFinish = true;
     }
     signalEvent(state_->wake);

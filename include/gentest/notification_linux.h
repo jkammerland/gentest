@@ -109,10 +109,10 @@ class WatchdogMonitor {
     void setProcessOwner(int pidfd, int stopEventFd = -1);
     void addEscalationPidfd(int pidfd);
     void start();
-    // The owner reports a normally reaped service here when its escalation
-    // pidfd represents a containing process rather than the service itself.
-    // Disable progress deadlines while continuing to drain during shutdown.
-    void                                 disarm() noexcept;
+    // Allow subjects to remain open during owner-directed shutdown.
+    void disarm() noexcept;
+    // Drain pending records. After reaping an armed process, close() joins the
+    // monitor so outcome() includes the verdict on its final subject state.
     void                                 finish() noexcept;
     void                                 requestStop() noexcept;
     void                                 fail(WatchdogFailure failure) noexcept;

@@ -517,6 +517,48 @@ void measurementBoundaries() {
           "measurement phases changed subjects");
 }
 
+void twoSharedFixtureSubjects() {
+    using gentest::detail::SharedFixtureScope;
+    const auto create = +[](std::string_view, std::string &) -> std::shared_ptr<void> { return std::make_shared<int>(1); };
+    gentest::detail::register_shared_fixture(
+        SharedFixtureScope::Suite, "notifications", "first", create,
+        +[](void *, std::string &) { (void)gentest::currentNotifier().progress("first setup"); }, nullptr);
+    gentest::detail::register_shared_fixture(
+        SharedFixtureScope::Suite, "notifications", "second", create,
+        +[](void *, std::string &) { (void)gentest::currentNotifier().progress("second setup"); }, nullptr);
+
+    // As in generated two-parameter bindings, the runner acquires the first
+    // fixture before the case starts and the wrapper acquires the second inside it.
+    auto test = makeCase(
+        "notifications/two_fixtures", +[](void *) {
+            std::string error;
+            check(gentest::detail::get_shared_fixture(SharedFixtureScope::Suite, "notifications", "second", error) != nullptr,
+                  "second fixture acquisition failed");
+            (void)gentest::currentNotifier().progress("case body");
+        });
+    test.fixture          = "first";
+    test.fixture_lifetime = gentest::FixtureLifetime::MemberSuite;
+    auto sink             = std::make_shared<CaptureSink>();
+    check(run({&test, 1}, sink) == 0, "two-fixture run failed");
+
+    // The first start for a shared fixture covers setup. Teardown starts a new subject.
+    const auto subject = [&](NotificationKind kind, std::string_view label) {
+        for (const auto &record : std::span(sink->records).first(sink->size.load())) {
+            if (record.kind == kind && record.text.data() == label) {
+                return record.subject;
+            }
+        }
+        throw std::runtime_error("missing notification: " + std::string(label));
+    };
+    const auto first  = subject(NotificationKind::subject_started, "first");
+    const auto second = subject(NotificationKind::subject_started, "second");
+    const auto body   = subject(NotificationKind::subject_started, test.name);
+    check(first != second && first != body && second != body, "fixtures and case shared a subject");
+    check(subject(NotificationKind::progress, "first setup") == first, "first fixture setup used the wrong subject");
+    check(subject(NotificationKind::progress, "second setup") == second, "second fixture setup used the wrong subject");
+    check(subject(NotificationKind::progress, "case body") == body, "case subject was not restored after fixture setup");
+}
+
 unsigned      fixtureTeardowns = 0;
 std::uint64_t blockingSubject  = 0;
 void          fixtureSetup(void *, std::string &error) {
@@ -594,6 +636,7 @@ int main() {
         adoptedAndRepeatedSubjects();
         physicalRetirementPrecedesTerminal();
         measurementBoundaries();
+        twoSharedFixtureSubjects();
         fixturesAndInfrastructureFailure();
         check(!gentest::currentNotifier().active(), "notifier escaped run scope");
     } catch (const std::exception &error) {

@@ -115,7 +115,7 @@ void waitReady(int fd, char expected = 'R') {
     require(received == 1 && byte == expected, "child readiness failed");
 }
 
-enum class ChildMode { spin, normal, flood, silent };
+enum class ChildMode { spin, normal, flood, silent, stop };
 
 void childBody(gentest::LinuxNotificationChannel &channel, int readyFd, ChildMode mode) {
     closeDescriptors(channel.releaseMonitor());
@@ -172,13 +172,17 @@ void processCase(ChildMode mode, bool freeze, bool slowObserver, bool throwingOb
     auto observer    = std::make_shared<Observer>();
     observer->block  = slowObserver;
     observer->throws = throwingObserver;
-    gentest::WatchdogConfig         config{.inactivityTimeout = mode == ChildMode::normal ? 3s : 200ms,
+    gentest::WatchdogConfig         config{.inactivityTimeout = (mode == ChildMode::normal || mode == ChildMode::stop) ? 3s : 200ms,
                                            .maximumSilence    = 2s,
                                            .maximumSubjects   = 16};
     gentest::WatchdogMonitorOptions options{.observerCapacity = slowObserver ? 2u : 256u, .shutdownGrace = 50ms, .shutdownCutoff = 500ms};
     gentest::WatchdogMonitor        monitor(channel.releaseMonitor(), identity, config, observer, options);
     monitor.setProcessOwner(child.pidfd);
     monitor.start();
+    if (mode == ChildMode::stop) {
+        observer->awaitEntry();
+        monitor.requestStop();
+    }
     if (freeze || slowObserver) {
         observer->awaitEntry();
     }
@@ -198,6 +202,9 @@ void processCase(ChildMode mode, bool freeze, bool slowObserver, bool throwingOb
     if (mode == ChildMode::normal) {
         require(!result.failure && WIFEXITED(status) && WEXITSTATUS(status) == 0, "normal service failed");
         require(observer->sequences == std::vector<std::uint64_t>({1, 2, 3}), "records lost or reordered");
+    } else if (mode == ChildMode::stop) {
+        require(result.stopRequested && result.processExited && !result.failure, "requested stop rejected the unfinished subject");
+        require(result.killSent && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL, "requested stop did not retire child");
     } else {
         if (!result.failure) {
             throw std::runtime_error("failure was not recorded");
@@ -215,12 +222,26 @@ void processCase(ChildMode mode, bool freeze, bool slowObserver, bool throwingOb
     }
 }
 
+void sendRecord(int socket, gentest::NotificationKind kind, std::uint64_t sequence) {
+    gentest::Notification        notification{.producer  = identity,
+                                              .subject   = 1,
+                                              .sequence  = sequence,
+                                              .kind      = kind,
+                                              .allowance = {},
+                                              .topic     = {},
+                                              .payload   = kind == gentest::NotificationKind::subject_finished ? "" : "drain"};
+    gentest::EncodedNotification record;
+    require(gentest::encodeNotification(notification, record) == gentest::NotifyResult::accepted, "drain record encode failed");
+    require(::send(socket, record.bytes.data(), record.size, MSG_NOSIGNAL) == static_cast<ssize_t>(record.size),
+            "drain record send failed");
+}
+
 // The enforcement thread sees an empty socket, then the child sends its last
 // records and exits before the monitor looks at the pidfd. The seam makes that
 // microsecond window deterministic instead of relying on repetition.
 struct ExitRace {
     static inline int               release{-1};
-    static inline pid_t             child{-1};
+    static inline std::atomic<bool> finishRequested{false};
     static inline std::atomic<bool> fired{false};
 
     static void afterReceiveDrained() noexcept {
@@ -229,13 +250,14 @@ struct ExitRace {
         }
         const char byte = 'G';
         static_cast<void>(::write(release, &byte, 1));
-        siginfo_t exited{};
-        // WNOWAIT leaves the zombie for the test's own waitpid.
-        while (::waitid(P_PID, static_cast<id_t>(child), &exited, WEXITED | WNOWAIT) < 0 && errno == EINTR) {}
+        // Hold enforcement until the launcher has reaped the child and requested its final drain.
+        finishRequested.wait(false);
     }
 };
 
-void exitAfterFinalRecordsCase() {
+enum class FinalRecords { finished, unfinished, producerFault };
+
+void exitAfterFinalRecordsCase(FinalRecords records, bool retainProducer = false) {
     auto channel = gentest::LinuxNotificationChannel::create();
     int  ready[2];
     int  release[2];
@@ -248,13 +270,23 @@ void exitAfterFinalRecordsCase() {
         ::close(release[1]);
         try {
             closeDescriptors(channel.releaseMonitor());
-            auto              sink = gentest::LinuxNotificationSink::attach(channel.releaseProducer(), identity);
-            gentest::Notifier notifier(sink, identity, 1);
-            require(notifier.start("late finish") == gentest::NotifyResult::accepted, "exit race start rejected");
+            const auto socket = channel.producer().socket;
+            sendRecord(socket, gentest::NotificationKind::subject_started, 1);
             readyByte(ready[1]);
             waitReady(release[0], 'G');
-            require(notifier.finish() == gentest::NotifyResult::accepted, "exit race finish rejected");
-            require(sink->close(3s), "exit race sink drain failed");
+
+            // Put the optional finish beyond one 64-packet receive batch. For a
+            // terminal producer fault, keep the packets and fault in the same drain.
+            const std::uint64_t lastProgress = records == FinalRecords::producerFault ? 1 : 71;
+            for (std::uint64_t sequence = 2; sequence <= lastProgress; ++sequence) {
+                sendRecord(socket, gentest::NotificationKind::progress, sequence);
+            }
+            if (records != FinalRecords::unfinished) {
+                sendRecord(socket, gentest::NotificationKind::subject_finished, lastProgress + 1);
+            }
+            if (records == FinalRecords::producerFault) {
+                require(::eventfd_write(channel.producer().fault, 1) == 0, "exit race producer fault failed");
+            }
             ::_exit(0);
         } catch (const std::exception &error) {
             std::cerr << "exit race child failed: " << error.what() << '\n';
@@ -263,33 +295,44 @@ void exitAfterFinalRecordsCase() {
     }
     ::close(ready[1]);
     ::close(release[0]);
-    closeDescriptors(channel.releaseProducer());
+    if (!retainProducer) {
+        closeDescriptors(channel.releaseProducer());
+    }
     child.pidfd = static_cast<int>(::syscall(SYS_pidfd_open, child.pid, 0));
     require(child.pidfd >= 0, "exit race pidfd_open failed");
     waitReady(ready[0]);
     ::close(ready[0]);
 
     ExitRace::release = release[1];
-    ExitRace::child   = child.pid;
+    ExitRace::finishRequested.store(false);
     ExitRace::fired.store(false);
+    auto                     observer = std::make_shared<Observer>();
     gentest::WatchdogMonitor monitor(channel.releaseMonitor(), identity,
-                                     {.inactivityTimeout = 3s, .maximumSilence = 2s, .maximumSubjects = 16});
+                                     {.inactivityTimeout = 3s, .maximumSilence = 2s, .maximumSubjects = 16}, observer);
     monitor.setProcessOwner(child.pidfd);
     gentest::detail::watchdogReceiveDrainedHook.store(&ExitRace::afterReceiveDrained);
     monitor.start();
-    const bool completed = monitor.waitFor(5s);
-    gentest::detail::watchdogReceiveDrainedHook.store(nullptr);
+    const int status = child.reap();
+    monitor.finish();
+    ExitRace::finishRequested.store(true);
+    ExitRace::finishRequested.notify_one();
     monitor.close();
+    gentest::detail::watchdogReceiveDrainedHook.store(nullptr);
     ::close(release[1]);
+
     const auto result = monitor.outcome();
-    const int  status = child.reap();
-    require(completed && ExitRace::fired.load(), "exit race seam did not run");
-    require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "exit race child failed");
-    if (result.failure) {
-        throw std::runtime_error("records sent just before exit were not drained: code=" +
-                                 std::to_string(static_cast<int>(result.failure->code)) + " detail=" + result.failure->detail);
+    require(ExitRace::fired.load() && WIFEXITED(status) && WEXITSTATUS(status) == 0, "exit race child failed");
+    require(result.processExited && !result.stopRequested && !result.killSent, "final drain did not report the collected process");
+    if (records == FinalRecords::producerFault) {
+        require(result.failure && result.failure->code == gentest::WatchdogFailureCode::producer_overload,
+                "final drain missed the terminal producer fault");
+    } else if (records == FinalRecords::finished) {
+        require(observer->sequences.size() == 72 && !result.failure, "final drain lost records or rejected a clean exit");
+    } else {
+        const auto expected = retainProducer ? gentest::WatchdogFailureCode::process_exited : gentest::WatchdogFailureCode::transport_error;
+        require(observer->sequences.size() == 71, "final drain lost observer records");
+        require(result.failure && result.failure->code == expected, "final drain accepted unfinished work or reported the wrong cause");
     }
-    require(result.processExited && !result.stopRequested && !result.killSent, "clean exit was treated as a failure");
 }
 
 void malformedCase(bool wrongIdentity, bool eof) {
@@ -411,20 +454,6 @@ void progressCoalescingCase() {
     const std::vector<std::string> expected{"1:first", "2:suspend", "2:phase", "4:quiet", "2:suspend", "5:"};
     require(firstSubject == expected, "coalescing dropped or reordered a distinct record");
     require(secondProgress >= 1, "coalescing dropped another subject's progress");
-}
-
-void sendRecord(int socket, gentest::NotificationKind kind, std::uint64_t sequence) {
-    gentest::Notification        notification{.producer  = identity,
-                                              .subject   = 1,
-                                              .sequence  = sequence,
-                                              .kind      = kind,
-                                              .allowance = {},
-                                              .topic     = {},
-                                              .payload   = "drain"};
-    gentest::EncodedNotification record;
-    require(gentest::encodeNotification(notification, record) == gentest::NotifyResult::accepted, "drain record encode failed");
-    require(::send(socket, record.bytes.data(), record.size, MSG_NOSIGNAL) == static_cast<ssize_t>(record.size),
-            "drain record send failed");
 }
 
 void disarmCase(bool beforeStart) {
@@ -802,7 +831,11 @@ int main() {
         processCase(ChildMode::silent, false, false, false);
         processCase(ChildMode::flood, false, true, false);
         processCase(ChildMode::spin, false, false, true);
-        exitAfterFinalRecordsCase();
+        processCase(ChildMode::stop, false, false, false);
+        exitAfterFinalRecordsCase(FinalRecords::finished);
+        exitAfterFinalRecordsCase(FinalRecords::unfinished);
+        exitAfterFinalRecordsCase(FinalRecords::unfinished, true);
+        exitAfterFinalRecordsCase(FinalRecords::producerFault);
         malformedCase(false, false);
         malformedCase(true, false);
         malformedCase(false, true);
