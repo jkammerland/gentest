@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0 - Unreleased
+## 2.0.0 - 2026-11-19
 
 ### Upgrading
 
@@ -77,7 +77,7 @@
 - Nested awaitables and built-in waits inherit cooperative cancellation; explicit stop tokens override it.
 - Deadline waits request stop on timeout and join the operation, so cleanup can extend past the deadline.
 - Discovered cases report runtime skips to CTest with exit code 77 (#238).
-- Discovered death tests pass only if the case body started; setup deaths and CLI errors fail (#238).
+- Death tests require termination inside the case body. An exit in an argument factory, a normal return, or an earlier failed expectation fails the test (#328, #336, #345).
 - `Approx` defines exact equality, signed zero, NaN, infinity, and zero tolerance (#238).
 - Successful runs that execute no cases write a fresh zero-test JUnit report (#238).
 - Benchmark and jitter loops call a body-only generated entrypoint (#299).
@@ -100,6 +100,12 @@
 
 ### Fixed
 
+- Generated tests call the annotated overload. Codegen diagnoses named parameter rows that would put a value in the wrong argument slot (#332).
+- Ordinary CTest entries run their exact discovered case and fail if it disappears or becomes a death test. Filtered entries skip unless `--fail-on-empty` is set (#331, #341).
+- Local fixture cleanup preserves failures after a skip, and shared fixture destruction and stop callbacks retain their reporting context (#334, #343, #347).
+- Benchmarks and jitter tests stop on the first failed call, retain its diagnostic, and omit invalid timing samples (#329, #342).
+- Bazel discovers annotated headers through package-relative include paths and external repositories. Xmake resolves mock module output in absolute directories and finds shared fmt in a private SDK (#333, #337, #340, #344).
+- Release archives preserve Git blob contents and executable modes across time zones and checkout line-ending settings (#327).
 - `gentest_attach_codegen()` and `gentest_add_mocks()` no longer skip or misclassify files with more than one dot in their names, such as `more.cases.hpp` or `my.tests.cppm`.
 - A mock target with module `DEFS` in the source directory configures when the build directory is inside the source tree (`cmake -S . -B build`), instead of failing with "Base directories in file set cannot be subdirectories of each other".
 - CMake rejects helpers from a second Gentest copy before they can replace the selected helpers, preventing mixed source runtime and installed-package integration (#320).
