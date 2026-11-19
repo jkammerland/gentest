@@ -990,6 +990,7 @@ template <typename T> [[nodiscard]] inline auto make_async_task(awaitable<T> ope
 }
 
 GENTEST_RUNTIME_API auto run_async_task_blocking(awaitable<void> task, std::string_view label, std::string &error_out) -> bool;
+GENTEST_RUNTIME_API auto run_canceled_fixture_teardown(awaitable<void> task, std::string &error_out) -> bool;
 
 } // namespace detail
 

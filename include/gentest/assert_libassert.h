@@ -66,7 +66,7 @@ inline void failure_handler(const ::libassert::assertion_info &info) {
 #if GENTEST_EXCEPTIONS_ENABLED
     ::gentest::detail::record_failure(std::move(message));
     // NOLINTNEXTLINE(bugprone-std-exception-baseclass): framework control signal bypasses std::exception handlers.
-    throw ::gentest::assertion(std::string("libassert::") + std::string(macro));
+    throw ::gentest::detail::recorded_assertion(std::string("libassert::") + std::string(macro));
 #else
     ::gentest::detail::terminate_after_assertion("libassert", std::move(message));
 #endif

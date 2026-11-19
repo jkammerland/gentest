@@ -70,13 +70,17 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
 
     void attach_child_frame(const AsyncFramePtr &child, std::coroutine_handle<> parent) override { core_.attach_child(child, parent); }
 
-    [[nodiscard]] auto run(AsyncTask &task, std::string &blocked_reason) -> BlockingAsyncStatus {
+    [[nodiscard]] auto run(AsyncTask &task, std::string &blocked_reason, bool wait_for_work) -> BlockingAsyncStatus {
         AsyncSchedulerScope scheduler_scope(this);
         task.set_scheduler(this);
         task.frame()->framework_context = ctx_;
         core_.register_frame(0, task.frame());
         core_.post(task.frame());
 
+        // A canceled hook can repeatedly post itself without ever becoming idle.
+        // Bound scheduler turns for that hook so later fixture releases still run.
+        constexpr std::size_t max_cleanup_resumes = 1024;
+        std::size_t           cleanup_resumes     = 0;
         while (true) {
             while (true) {
                 core_.post_due_timers();
@@ -88,6 +92,11 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
                 if (frame->is_canceled() || frame->done()) {
                     continue;
                 }
+                if (!wait_for_work && cleanup_resumes++ == max_cleanup_resumes) {
+                    blocked_reason = "canceled fixture teardown exceeded its ready-work limit";
+                    return BlockingAsyncStatus::Blocked;
+                }
+
                 try {
                     gentest::runner::detail::CurrentTestContextScope current_scope(ctx_);
                     core_.clear_suspend_state(frame);
@@ -109,6 +118,11 @@ class BlockingAsyncScheduler final : public AsyncScheduler {
             if (!task.handle() || task.handle().done()) {
                 cancel_all_waiters();
                 return BlockingAsyncStatus::Completed;
+            }
+
+            // Cancellation runs ready cleanup work but cannot wait for an external producer.
+            if (!wait_for_work) {
+                break;
             }
 
             if ((!ctx_ || ctx_->adopted_contexts.load(std::memory_order_acquire) == 0) && !core_.has_work()) {
@@ -216,7 +230,7 @@ auto set_current_async_scheduler(AsyncScheduler *scheduler) noexcept -> AsyncSch
     return previous;
 }
 
-auto run_async_task_blocking(gentest::awaitable<void> operation, std::string_view label, std::string &error_out) -> bool {
+static auto run_async_task(gentest::awaitable<void> operation, std::string_view label, std::string &error_out, bool wait_for_work) -> bool {
     error_out.clear();
     auto ctx = make_context(label);
 
@@ -230,7 +244,7 @@ auto run_async_task_blocking(gentest::awaitable<void> operation, std::string_vie
     auto        status = BlockingAsyncStatus::Blocked;
     {
         BlockingAsyncScheduler scheduler(ctx);
-        status = task_ptr ? scheduler.run(*task_ptr, blocked_reason) : BlockingAsyncStatus::Blocked;
+        status = task_ptr ? scheduler.run(*task_ptr, blocked_reason, wait_for_work) : BlockingAsyncStatus::Blocked;
     }
     const auto exception = task_ptr ? task_ptr->exception() : std::exception_ptr{};
 
@@ -267,6 +281,14 @@ auto run_async_task_blocking(gentest::awaitable<void> operation, std::string_vie
         error_out = first_failure_or_empty(ctx);
     }
     return error_out.empty();
+}
+
+auto run_async_task_blocking(awaitable<void> task, std::string_view label, std::string &error_out) -> bool {
+    return run_async_task(std::move(task), label, error_out, true);
+}
+
+auto run_canceled_fixture_teardown(awaitable<void> task, std::string &error_out) -> bool {
+    return run_async_task(std::move(task), "async local fixture teardown", error_out, false);
 }
 
 } // namespace gentest::detail

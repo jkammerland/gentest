@@ -130,6 +130,7 @@ struct gentest_local_cleanup {
 #if GENTEST_EXCEPTIONS_ENABLED
     std::exception_ptr pending;
     bool body_failed = false;
+    bool teardown_blocked = false;
 
     void capture_body_exception() {
         pending = std::current_exception();
@@ -153,9 +154,15 @@ struct gentest_local_cleanup {
                 pending = std::current_exception();
                 ::gentest::detail::preserve_local_fixture_skip();
             }
-        } catch (const ::gentest::assertion &) {
-            // Fatal assertions already carry a recorded diagnostic.
+        } catch (const ::gentest::detail::blocked_exception &) {
+            // Let the runner classify a blocked dependency after the remaining hooks.
+            if (!teardown_blocked) pending = std::current_exception();
+            teardown_blocked = true;
+        } catch (const ::gentest::detail::recorded_assertion &) {
+            // The assertion API already recorded its full diagnostic.
             if (!pending) pending = std::current_exception();
+        } catch (const ::gentest::assertion &e) {
+            ::gentest::detail::record_failure(fmt::format("fixture teardown failed: {}", e.message()));
         } catch (const std::exception &e) {
             ::gentest::detail::record_failure(fmt::format("fixture teardown failed: {}", e.what()));
         } catch (...) {
@@ -175,14 +182,6 @@ struct gentest_local_cleanup {
         try { gentest_maybe_teardown(fixture); } catch (...) { capture_teardown_exception(); }
 #else
         gentest_maybe_teardown(fixture);
-#endif
-    }
-
-    template <typename T> [[maybe_unused]] ::gentest::awaitable<void> run_async(T &fixture) {
-#if GENTEST_EXCEPTIONS_ENABLED
-        try { co_await gentest_maybe_async_teardown(fixture); } catch (...) { capture_teardown_exception(); }
-#else
-        co_await gentest_maybe_async_teardown(fixture);
 #endif
     }
 };
@@ -222,73 +221,82 @@ template <typename BodyFn, typename TeardownFn>
 #endif
 }
 
-template <typename TeardownFn>
+// Both completion and cancellation consume the same stack. Claim a hook before
+// entering it so cancellation never restarts a suspended teardown coroutine.
+template <std::size_t Capacity>
 struct gentest_async_local_teardown_guard {
-    TeardownFn                                  *teardown = nullptr;
-    ::gentest::detail::ContextCancelHookToken    cancel_hook;
-    bool                                         ran      = false;
+    struct hook {
+        void *fixture;
+        ::gentest::awaitable<void> (*invoke)(void *);
+    };
+    std::array<hook, Capacity> hooks{};
+    std::size_t count = 0;
+    bool teardown_started = false;
+    ::gentest::detail::ContextCancelHookToken cancel_hook =
+        ::gentest::detail::register_context_cancel_hook({&run, this});
 
-    explicit gentest_async_local_teardown_guard(TeardownFn *teardown_fn)
-        : teardown(teardown_fn),
-          cancel_hook(::gentest::detail::register_context_cancel_hook(::gentest::detail::ContextCancelHookState{&run, this})) {}
-
-    gentest_async_local_teardown_guard(const gentest_async_local_teardown_guard &)            = delete;
+    gentest_async_local_teardown_guard() = default;
+    gentest_async_local_teardown_guard(const gentest_async_local_teardown_guard &) = delete;
     gentest_async_local_teardown_guard &operator=(const gentest_async_local_teardown_guard &) = delete;
 
     ~gentest_async_local_teardown_guard() {
         ::gentest::detail::unregister_context_cancel_hook(cancel_hook);
-        run_blocking();
+        run(this);
+    }
+
+    template <typename T> void arm(T &fixture) {
+        if constexpr (std::is_base_of_v<gentest::AsyncFixtureTearDown, T> || std::is_base_of_v<gentest::FixtureTearDown, T>) {
+            hooks[count++] = {std::addressof(fixture), [](void *ptr) {
+                return gentest_maybe_async_teardown(*static_cast<T *>(ptr));
+            }};
+        }
+    }
+
+    ::gentest::awaitable<void> next() {
+        const auto entry = hooks[--count];
+        return entry.invoke(entry.fixture);
     }
 
     static void run(void *user_data) noexcept {
-        auto *state = static_cast<gentest_async_local_teardown_guard *>(user_data);
-        if (!state) return;
-        state->run_blocking();
-    }
-
-    ::gentest::awaitable<void> run_now() {
-        if (!ran && teardown) {
-            ran = true;
-            co_await (*teardown)();
-        }
-        co_return;
-    }
-
-    void run_blocking() noexcept {
-        if (ran || !teardown) return;
-        std::string error;
-        if (!::gentest::detail::run_async_task_blocking(run_now(), "async local fixture teardown", error)) {
-            std::string msg = "async local fixture teardown failed";
-            if (!error.empty()) {
-                msg += ": ";
-                msg += error;
+        auto &state = *static_cast<gentest_async_local_teardown_guard *>(user_data);
+        while (state.count) {
+            std::string error;
+            // If the body was canceled, start teardown with its normal timer and worker support.
+            // An interrupted hook has already been claimed. Drain the remaining hooks without blocking.
+            const bool completed = state.teardown_started
+                ? ::gentest::detail::run_canceled_fixture_teardown(state.next(), error)
+                : ::gentest::detail::run_async_task_blocking(state.next(), "async local fixture teardown", error);
+            if (!completed) {
+                ::gentest::detail::record_failure(fmt::format("async local fixture teardown failed: {}", error));
             }
-            ::gentest::detail::record_failure(std::move(msg));
         }
     }
-
 };
 
-template <typename BodyFn, typename TeardownFn>
-[[maybe_unused]] inline ::gentest::awaitable<void> gentest_run_async_with_local_teardown(BodyFn &&body, TeardownFn &&teardown) {
+template <std::size_t Capacity, typename BodyFn>
+[[maybe_unused]] inline ::gentest::awaitable<void> gentest_run_async_with_local_teardown(BodyFn &&body) {
     gentest_local_cleanup cleanup;
-    auto teardown_fn = [&]() -> ::gentest::awaitable<void> {
-        co_await teardown(cleanup);
-        cleanup.rethrow_pending();
-    };
-    gentest_async_local_teardown_guard<decltype(teardown_fn)> teardown_state{&teardown_fn};
+    gentest_async_local_teardown_guard<Capacity> guard;
 #if GENTEST_EXCEPTIONS_ENABLED
     try {
-        co_await body();
+        co_await body(guard);
     } catch (...) {
         cleanup.capture_body_exception();
     }
 #else
-    ::gentest::detail::NoExceptionsFatalHookScope fatal_scope(&decltype(teardown_state)::run, &teardown_state);
-    co_await body();
+    ::gentest::detail::NoExceptionsFatalHookScope fatal_scope(&decltype(guard)::run, &guard);
+    co_await body(guard);
 #endif
-    co_await teardown_state.run_now();
-    co_return;
+
+    guard.teardown_started = true;
+    while (guard.count) {
+#if GENTEST_EXCEPTIONS_ENABLED
+        try { co_await guard.next(); } catch (...) { cleanup.capture_teardown_exception(); }
+#else
+        co_await guard.next();
+#endif
+    }
+    cleanup.rethrow_pending();
 }
 
 template <typename Handle>
