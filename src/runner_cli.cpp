@@ -524,6 +524,17 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
             continue;
         }
 
+        // Discovery owns the full case name. Both spellings share one selection slot.
+        if (const auto result = parse_value_option(i, s, "--gentest-run-exact",
+                                                   [&](std::string_view value) {
+                                                       opt.exact_run = true;
+                                                       return set_unique_string_option(opt.run_name, "--gentest-run-exact", value);
+                                                   });
+            result != OptionParseResult::NoMatch) {
+            if (result == OptionParseResult::Error)
+                return false;
+            continue;
+        }
         if (const OptionParseResult run_result = parse_value_option(
                 i, s, "--run", [&](std::string_view value) { return set_unique_string_option(opt.run_name, "--run", value); });
             run_result != OptionParseResult::NoMatch) {
@@ -828,6 +839,11 @@ bool parse_cli(std::span<const char *> args, CliOptions &out_opt) {
 
     if (opt.shuffle)
         opt.shuffle_seed = opt.seed_provided ? opt.seed_value : make_random_seed();
+
+    if (opt.exact_run && opt.mode != Mode::Execute) {
+        fmt::print(stderr, "error: discovered cases require execution mode\n");
+        return false;
+    }
 
     if ((opt.death_watchdog || opt.death_wide) && !opt.death_test_marker) {
         fmt::print(stderr, "error: death-test protocol requires a marker\n");

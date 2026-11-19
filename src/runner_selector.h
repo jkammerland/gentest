@@ -18,6 +18,7 @@ enum class SelectionStatus {
     FilterNoBenchMatch,
     FilterNoJitterMatch,
     ZeroSelected,
+    ExactRunExcluded,
     DeathExcludedRun,
     DeathExcludedAll,
 };
