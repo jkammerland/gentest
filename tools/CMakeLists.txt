@@ -234,7 +234,12 @@ else()
     endif()
 endif()
 
-llvm_map_components_to_libnames(_gentest_llvm_support Support)
+# Registering compiler target prefixes needs the configured targets' Info libraries in component builds.
+if(LLVM_LINK_LLVM_DYLIB AND TARGET LLVM)
+    set(_gentest_llvm_support LLVM)
+else()
+    llvm_map_components_to_libnames(_gentest_llvm_support Support AllTargetsInfos)
+endif()
 
 # LLVM 23 moved USR generation out of clangIndex into its own component.
 # Retain clangIndex below for the rest of the indexing API and add the new
@@ -248,8 +253,7 @@ endif()
 # otherwise fall back to per-component linking.
 if(TARGET clang-cpp)
     # Some distro builds of clang-cpp still require the monolithic LLVM DSO.
-    # Link it when available; otherwise fall back to LLVMSupport because this
-    # tool directly uses llvm::InitLLVM.
+    # Packages without a monolithic library provide the required LLVM components.
     target_link_libraries(gentest_codegen_support INTERFACE clang-cpp ${_gentest_clang_usr_library} ${_gentest_fmt_target})
     # If we discovered a monolithic libLLVM DSO, link it to satisfy LLVMSupport
     # RTTI/vtables required by our TU and by clang-cpp on some platforms.
