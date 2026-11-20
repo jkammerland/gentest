@@ -10,7 +10,7 @@ if(NOT _clangxx OR NOT _scan_deps)
 endif()
 
 function(check_driver name guard)
-  cmake_parse_arguments(CASE "GNU_DEPS" "" "DRIVER;FLAGS" ${ARGN})
+  cmake_parse_arguments(CASE "GNU_DEPS" "" "DRIVER;FLAGS;FORWARDED_OUTPUT" ${ARGN})
   set(_dir "${BUILD_ROOT}/provider_driver/${name}")
   set(_provider "${_dir}/linked/api.cppm")
   set(_consumer "${_dir}/consumer.cppm")
@@ -39,8 +39,20 @@ export namespace driver {
   if(CASE_GNU_DEPS)
     list(APPEND _provider_flags -MD -MF "${_dir}/original.d" -MT original.o)
   endif()
+  set(_provider_define -DPROVIDER_VALUE=73)
+  if(CASE_FORWARDED_OUTPUT)
+    # The forwarded -include operand really is a file named "-o". Preserve it
+    # and the native define between the forwarded output option and its path.
+    set(_original "${_dir}/original provider.bmi")
+    file(WRITE "${_original}" "CMake provider output")
+    file(SHA256 "${_original}" _before)
+    file(WRITE "${_dir}/-o" "#define FORWARDED_VALUE 73\n")
+    string(REPLACE "@BMI@" "${_original}" _output_flags "${CASE_FORWARDED_OUTPUT}")
+    list(APPEND _provider_flags ${_output_flags} -clang:-MD "/clang:-MF${_original}.d" /clang:-include -clang:-o "/I${_dir}")
+    set(_provider_define)
+  endif()
   gentest_fixture_make_compdb_entry(_provider_cmd DIRECTORY "${_dir}" FILE "${_provider}"
-    ARGUMENTS ${CASE_DRIVER} ${_provider_flags} -DPROVIDER_VALUE=73 -c "${_provider}")
+    ARGUMENTS ${CASE_DRIVER} ${_provider_flags} ${_provider_define} -c "${_provider}")
   gentest_fixture_write_compdb("${_dir}/linked/compile_commands.json" "${_provider_cmd}")
   gentest_fixture_make_compdb_entry(_consumer_cmd DIRECTORY "${_dir}" FILE "${_consumer}"
     ARGUMENTS ${CASE_DRIVER} ${CASE_FLAGS} -c "${_consumer}")
@@ -58,6 +70,16 @@ export namespace driver {
   file(READ "${_out}/cases.gentest.h" _registration)
   if(NOT _registration MATCHES "::driver::registeredCase")
     message(FATAL_ERROR "${name} did not register the authored case")
+  endif()
+
+  if(CASE_FORWARDED_OUTPUT)
+    file(SHA256 "${_original}" _after)
+    if(NOT _after STREQUAL _before)
+      message(FATAL_ERROR "${name} changed the provider output: ${_before} -> ${_after}")
+    endif()
+    if(EXISTS "${_original}.d")
+      message(FATAL_ERROR "${name} wrote the provider's dependency file while generating a private PCM")
+    endif()
   endif()
 
   # Host PCM compilation must not emit the GNU provider's object dependency file.
@@ -84,3 +106,8 @@ check_driver(explicit_gnu "${_arm} && defined(__linux__)" DRIVER clang++ FLAGS "
 check_driver(override_cl "defined(_M_X64) && !defined(__aarch64__)" DRIVER "${_cl_triple}-clang-cl" FLAGS ${_x64_cl})
 check_driver(override_to_gnu "${_arm} && defined(__linux__)" DRIVER "${_cl_triple}-clang-cl"
   FLAGS --driver-mode=g++ "--target=${_gnu_triple}" -std=c++20 GNU_DEPS)
+
+check_driver(forwarded_separate "defined(_WIN32)" DRIVER cl.exe FLAGS ${_x64_cl}
+  FORWARDED_OUTPUT -clang:-o -DPROVIDER_VALUE=FORWARDED_VALUE "/clang:@BMI@")
+check_driver(forwarded_joined "defined(_WIN32)" DRIVER cl.exe FLAGS ${_x64_cl}
+  FORWARDED_OUTPUT "/clang:-o@BMI@" -DPROVIDER_VALUE=FORWARDED_VALUE)
