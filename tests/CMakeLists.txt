@@ -1620,6 +1620,14 @@ _gentest_add_proof_test(
     gentest_proof_api_assertions_header_isolation
     ${CMAKE_CURRENT_SOURCE_DIR}/proofs/api_context/assertions_header_isolation_red.cpp)
 
+if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME elf_runtime_loader_import_name COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_elf_loader_identity.py
+        "${CMAKE_CXX_COMPILER}" "${CMAKE_COMMAND}" "${CMAKE_OBJDUMP}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckRuntimeLoaderIdentity.cmake")
+    set_tests_properties(elf_runtime_loader_import_name PROPERTIES LABELS "runtime")
+endif()
+
 if(NOT GENTEST_RUNTIME_SHARED AND NOT CMAKE_CROSSCOMPILING AND (WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
     set(_runtime_postfix "$<TARGET_PROPERTY:gentest_runtime,$<UPPER_CASE:$<CONFIG>>_POSTFIX>")
     add_test(NAME static_runtime_loader_identity COMMAND "${CMAKE_COMMAND}"

@@ -3,9 +3,11 @@
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
   execute_process(COMMAND "${CMAKE_COMMAND}" -E env LC_ALL=C "${OBJDUMP}" -p "${CONSUMER}"
     COMMAND_ERROR_IS_FATAL ANY OUTPUT_VARIABLE _headers)
-  string(REGEX MATCHALL "\n[ \t]+NEEDED[ \t]+[^\r\n]+" _imports "${_headers}")
-  list(TRANSFORM _imports REPLACE "^\n[ \t]+NEEDED[ \t]+" "")
-  list(FILTER _imports INCLUDE REGEX "gentest_runtime")
+  # Library names can contain semicolons. Keep every matching name intact for
+  # the string comparison below, which accepts exactly one expected import.
+  set(_needed "\n[ \t]+NEEDED[ \t]+")
+  string(REGEX MATCHALL "${_needed}[^\r\n]*gentest_runtime[^\r\n]*" _entries "${_headers}")
+  string(REGEX REPLACE "${_needed}" "" _imports "${_entries}")
 else()
   file(GET_RUNTIME_DEPENDENCIES
     EXECUTABLES "${CONSUMER}"
