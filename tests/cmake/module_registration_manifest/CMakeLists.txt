@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.31)
 project(gentest_module_registration_manifest LANGUAGES CXX)
 
+# The cases import gentest on a toolchain without standard-library module sources.
+set(CMAKE_CXX_STDLIB_MODULES_JSON "")
+
 if(NOT DEFINED GENTEST_SOURCE_DIR OR "${GENTEST_SOURCE_DIR}" STREQUAL "")
     message(FATAL_ERROR "GENTEST_SOURCE_DIR must point at the gentest source tree")
 endif()
