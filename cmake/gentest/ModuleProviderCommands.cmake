@@ -12,6 +12,17 @@ while(queue)
     endif()
     list(APPEND visited "${dir}")
 
+    # CMake can link an import-error descriptor when the toolchain has no
+    # standard-library module sources. That node has no compilation rules.
+    if(NOT dir STREQUAL TARGET_DIR AND NOT EXISTS "${dir}/CXXDependInfo.json" AND EXISTS "${dir}/CXXModules.json")
+        file(READ "${dir}/CXXModules.json" module_info)
+        string(JSON import_error_type ERROR_VARIABLE json_error TYPE "${module_info}" import-error)
+        string(JSON provided_modules ERROR_VARIABLE json_error GET "${module_info}" modules)
+        if(import_error_type STREQUAL "OBJECT" AND provided_modules STREQUAL "{}")
+            continue()
+        endif()
+    endif()
+
     file(READ "${dir}/CXXDependInfo.json" info)
     foreach(edge IN ITEMS linked-target-dirs forward-modules-from-target-dirs)
         string(JSON count LENGTH "${info}" "${edge}")
