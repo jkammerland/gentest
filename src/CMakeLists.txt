@@ -109,6 +109,12 @@ target_link_libraries(gentest_runtime
         ${GENTEST_FMT_LINK_TARGET})
 if(WIN32)
     target_link_libraries(gentest_runtime PRIVATE shell32)
+
+    # The module BMI carries the producer's fmt configuration. Its importers
+    # must see the same declarations when they include fmt headers.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_definitions(gentest_runtime INTERFACE FMT_USE_CONSTEVAL=0)
+    endif()
 endif()
 
 target_include_directories(gentest_runtime
