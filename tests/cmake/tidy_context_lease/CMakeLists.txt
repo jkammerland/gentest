@@ -12,7 +12,7 @@ endif()
 
 add_subdirectory("${GENTEST_SOURCE_DIR}" gentest-build EXCLUDE_FROM_ALL)
 
-add_library(gentest_tidy_context_bad OBJECT bad_cases.cpp)
+add_library(gentest_tidy_context_bad OBJECT bad_cases.cpp attributes.cpp)
 target_compile_features(gentest_tidy_context_bad PRIVATE cxx_std_20)
 target_link_libraries(gentest_tidy_context_bad PRIVATE gentest::gentest)
 

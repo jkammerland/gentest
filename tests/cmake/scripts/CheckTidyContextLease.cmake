@@ -221,7 +221,6 @@ gentest_check_run_or_fail(
 
 set(_tidy_common_args
   "--load=${_plugin_path}"
-  "--checks=-*,gentest-context-lease"
   "--config={}"
   "--header-filter=.*"
   "-p" "${_fixture_build_dir}")
@@ -248,6 +247,7 @@ execute_process(
   COMMAND
     "${_clang_tidy}"
     ${_tidy_common_args}
+    "--checks=-*,gentest-context-lease"
     "--warnings-as-errors=gentest-context-lease"
     "${SOURCE_DIR}/bad_cases.cpp"
   WORKING_DIRECTORY "${_work_dir}"
@@ -263,12 +263,18 @@ _gentest_tidy_assert_contains("${_bad_tidy_text}" "thread-like callback" "negati
 _gentest_tidy_assert_contains("${_bad_tidy_text}" "coroutine body" "negative tidy fixture")
 _gentest_tidy_assert_contains("${_bad_tidy_text}" "cannot run from a worker/adopted context" "negative tidy fixture")
 _gentest_tidy_assert_contains("${_bad_tidy_text}" "gentest::set_current_context()" "negative tidy fixture")
+foreach(_call IN ITEMS record_property record_data)
+  _gentest_tidy_assert_contains("${_bad_tidy_text}"
+    "gentest::${_call} in thread-like callback cannot run from a worker/adopted context"
+    "recording in a worker inside a managed coroutine")
+endforeach()
 
 message(STATUS "Run tidy context lease positive fixture...")
 execute_process(
   COMMAND
     "${_clang_tidy}"
     ${_tidy_common_args}
+    "--checks=-*,gentest-context-lease"
     "--warnings-as-errors=gentest-context-lease"
     "${SOURCE_DIR}/good_cases.cpp"
   WORKING_DIRECTORY "${_work_dir}"
@@ -282,4 +288,11 @@ if(NOT _good_tidy_rc EQUAL 0)
     "stderr:\n${_good_tidy_err}")
 endif()
 
-message(STATUS "Observed gentest-context-lease tidy diagnostics")
+message(STATUS "Check attributes on declarations and definitions...")
+gentest_check_run_or_fail(
+  COMMAND "${_clang_tidy}" ${_tidy_common_args} "--checks=-*,gentest-attributes" "${SOURCE_DIR}/attributes.cpp"
+  OUTPUT_VARIABLE _attribute_output)
+foreach(_attribute IN ITEMS typo_in_declaration typo_in_definition)
+  _gentest_tidy_assert_contains("${_attribute_output}"
+    "unknown gentest attribute '${_attribute}' [gentest-attributes]" "attribute diagnostics")
+endforeach()
