@@ -26,6 +26,10 @@ if(PROBE_GENERATOR STREQUAL "Ninja Multi-Config")
   else()
     list(APPEND _configs RelWithDebInfo)
   endif()
+
+  # An uninstalled third configuration can alias a facade and lose its private
+  # module dependency in CMake's imported-target graph.
+  set(ENV{CMAKE_CONFIGURATION_TYPES} "${_configs}")
 endif()
 
 set(_args -G "${PROBE_GENERATOR}"
