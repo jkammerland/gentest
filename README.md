@@ -136,7 +136,7 @@ combine.
 Build the gentest runtime and your tests with the target toolchain. In CMake,
 set `GENTEST_CODEGEN_EXECUTABLE` to a code generator built for the build
 machine. The [Arm Linux walkthrough](docs/buildsystems/host_toolchain_sysroots.md#cross-compile-a-cmake-project)
-runs the tests under QEMU. For QNX, see the [QNX toolchain limitations](docs/buildsystems/host_toolchain_sysroots.md#qnx-toolchains).
+runs the tests under QEMU. See also [QNX toolchains](docs/buildsystems/host_toolchain_sysroots.md#qnx-toolchains).
 
 ## Named modules
 
