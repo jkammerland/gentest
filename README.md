@@ -4,8 +4,7 @@
 
 gentest is a C++20 test framework. Tests are plain functions marked with
 standard C++ attributes. At build time a Clang-based tool, `gentest_codegen`,
-reads the attributes and writes the registration code, so you don't need
-registration macros.
+reads the attributes and writes the registration code.
 
 ```cpp
 #include "gentest/test.h"
@@ -40,41 +39,37 @@ void emplace_matrix() {
 - **Fixtures from the signature.** Declare fixtures as function parameters,
   several per case. Local fixtures are fresh for each case; suite and global
   fixtures are shared, with optional setup and teardown.
-- **Generated mocks.** Generate mocks for virtual and non-virtual members,
+- **Generated mocks.** Generate mocks for virtual and non-virtual members/classes,
   including static members and member templates. Non-virtual calls use the
-  mock type; see [Mocks](docs/mock_generation.md). The CMake helper also
-  supports gMock and Trompeloeil backends.
+  mock type; see [Mocks](docs/mock_generation.md). 
 - **More than pass or fail.** Declare benchmarks, jitter measurements and
   death tests with attributes.
 - **Async tests.** Write tests and fixture setup with C++20 coroutines.
   [Async support](docs/async.md) is experimental.
 - **Fits your tooling.** Select cases by name or user-defined tag and expose
-  each case through CTest. Runs can write JUnit XML, Allure results and GitHub
+  each case through your test runner (e.g CTest). Runs can write JUnit XML, Allure results and GitHub
   Actions annotations. CMake, Meson, Xmake and Bazel are supported, as are
   named modules.
 
 ## Requirements
 
-- CMake 3.31 or newer with Ninja or Ninja Multi-Config, or one of the
-  [other supported build systems](docs/buildsystems/downstream_consumers.md).
-- A C++20 compiler and standard library with `std::stop_token`: Clang, GCC
-  or MSVC. On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
-- LLVM/Clang 19 or newer on the build machine for `gentest_codegen`.
-  Building the tool requires matching LLVM and Clang development packages;
-  running it requires that Clang installation and its built-in headers.
-  Your tests can use a different compiler. The installation guides below
-  list the packages to install.
+- CMake 3.31 or one of the [other supported build systems](docs/buildsystems/downstream_consumers.md).
+- A C++20 compiler: e.g Clang, GCC, MSVC, AppleClang.
 
-Named modules add [compiler and dependency-scanning requirements](docs/modules.md#requirements).
+For modules, check [compiler and dependency-scanning requirements](docs/modules.md#requirements).
 
 ## Quick start
 
 Install gentest first. You build it from source: the guides for
-[Linux](docs/install/linux.md), [macOS](docs/install/macos.md) and
-[Windows](docs/install/windows.md) list the packages, install gentest to a user
+[Linux](docs/install/linux.md), [macOS](docs/install/macos.md) and [Windows](docs/install/windows.md) list the packages, install gentest to a user
 prefix and run a first project. Then build this small CMake project against
-that install. On Windows, add the configure options the Windows guide shows
-for your compiler.
+that install. 
+
+TODO: WHERE IS CROSS-COMPILING? E.g for QNX?
+
+>[!NOTE] 
+>On Windows, add the configure options the Windows guide shows for your compiler.
+
 
 `CMakeLists.txt`:
 
