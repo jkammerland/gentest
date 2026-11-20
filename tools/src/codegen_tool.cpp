@@ -36,6 +36,7 @@
 #include <clang/Tooling/CompilationDatabase.h>
 #include <clang/Tooling/JSONCompilationDatabase.h>
 #include <clang/Tooling/Tooling.h>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
 #include <fmt/format.h>
@@ -5034,11 +5035,22 @@ int run_codegen_tool(int argc, const char **argv) {
 
         provider_commands = providers->getAllCompileCommands();
         for (auto &command : provider_commands) {
-            command.Filename    = normalize_compdb_lookup_path(command.Filename, command.Directory);
-            command.CommandLine = expand_compile_command_response_files(command.CommandLine, command.Directory);
+            auto &args       = command.CommandLine;
+            command.Filename = normalize_compdb_lookup_path(command.Filename, command.Directory);
+            args             = expand_compile_command_response_files(args, command.Directory);
+
+            // The raw Ninja database lacks the driver-mode and target inference applied to the authored database.
+            // Preserve the provider compiler's dialect before replacing it with host Clang for the scan and PCM build.
+            if (const auto compiler = compiler_arg_index_for_resource_dir_probe(args)) {
+                args.erase(args.begin(), args.begin() + static_cast<std::ptrdiff_t>(*compiler));
+            }
+            if (!args.empty()) {
+                clang::tooling::addTargetAndModeForProgramName(args, args.front());
+            }
+
             // Gentest builds its own host PCMs. A target compiler's module map may be stale or use an incompatible format.
-            std::erase_if(command.CommandLine, is_cmake_module_map_response);
-            std::ranges::replace(command.CommandLine, std::string_view{"--precompile"}, std::string_view{"-c"});
+            std::erase_if(args, is_cmake_module_map_response);
+            std::ranges::replace(args, std::string_view{"--precompile"}, std::string_view{"-c"});
         }
         depfile_dependencies.push_back(path.generic_string());
     }

@@ -75,7 +75,7 @@ inline auto gentest_version() -> int { return 1; }
 } // namespace gentest
 ]=])
 
-set(_variants "relative" "absolute")
+set(_variants "relative" "absolute" "provider" "wrapped_provider")
 foreach(_variant IN LISTS _variants)
   set(_case_dir "${_work_dir}/case_${_variant}")
   set(_generated_dir "${_case_dir}/generated")
@@ -114,6 +114,31 @@ void resolves_external_module_through_modmap() {
 } // namespace gentest::consumer_cases
 ]=])
 
+  # A linked provider owns its own compile flags and need not be reachable
+  # from the importer's include paths. Ninja may prefix its cl.exe with a launcher.
+  set(_include_args "/I${_external_dir}")
+  set(_provider_args)
+  if(_variant MATCHES "provider$")
+    set(_include_args)
+    set(_provider_dir "${_case_dir}/linked")
+    set(_provider "${_provider_dir}/api.cppm")
+    gentest_fixture_write_file("${_provider}" [=[
+export module gentest;
+export namespace gentest {
+inline int gentest_version() { return GENTEST_PROVIDER_VERSION; }
+}
+]=])
+    set(_provider_driver cl.exe)
+    if(_variant STREQUAL "wrapped_provider")
+      list(PREPEND _provider_driver sccache)
+    endif()
+    gentest_fixture_make_compdb_entry(_provider_entry
+      DIRECTORY "${_case_dir}" FILE "${_provider}"
+      ARGUMENTS ${_provider_driver} /nologo /TP -std:c++20 -Zi /EHsc /DGENTEST_PROVIDER_VERSION=42 /FS /c "${_provider}")
+    gentest_fixture_write_compdb("${_provider_dir}/compile_commands.json" "${_provider_entry}")
+    set(_provider_args "--module-provider-compdb=${_provider_dir}")
+  endif()
+
   gentest_fixture_make_compdb_entry(
     _entry
     DIRECTORY "${_case_dir}"
@@ -121,7 +146,8 @@ void resolves_external_module_through_modmap() {
     ARGUMENTS
       "cl"
       "/std:c++20"
-      "/I${_external_dir}"
+      "/EHsc"
+      ${_include_args}
       "@CMakeFiles/gentest_consumer.dir/cases.cppm.modmap"
       "${_consumer}")
   gentest_fixture_write_compdb("${_compdb}" "${_entry}")
@@ -131,6 +157,7 @@ void resolves_external_module_through_modmap() {
     --compdb "${_case_dir}"
     --clang-scan-deps "${_clang_scan_deps}"
     --host-clang "${_clangxx}"
+    ${_provider_args}
     --tu-out-dir "${_generated_dir}"
     --artifact-manifest "${_generated_dir}/artifact_manifest.json"
     --tu-header-output "${_generated_dir}/consumer.gentest.h"
