@@ -22,6 +22,7 @@
 #include <clang/Basic/DiagnosticOptions.h>
 #include <clang/Basic/Version.h>
 #include <clang/Driver/Driver.h>
+#include <clang/Driver/ToolChain.h>
 #if CLANG_VERSION_MAJOR >= 22
 #include <clang/Options/Options.h>
 #else
@@ -58,6 +59,7 @@
 #include <llvm/Support/Program.h>
 #include <llvm/Support/SHA256.h>
 #include <llvm/Support/StringSaver.h>
+#include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <map>
 #include <memory>
@@ -2028,20 +2030,15 @@ bool has_explicit_cxx_standard_arg(std::span<const std::string> args) {
     return false;
 }
 
-bool prefers_msvc_style_standard_flag(std::span<const std::string> args) {
+bool uses_cl_driver_mode(std::span<const std::string> args) {
     if (args.empty()) {
         return false;
     }
-    const std::string compiler_name = std::filesystem::path{args.front()}.filename().replace_extension().string();
-    if (compiler_name == "cl" || compiler_name == "clang-cl") {
-        return true;
+    llvm::SmallVector<const char *, 32> flags;
+    for (const auto &arg : args.subspan(1)) {
+        flags.push_back(arg.c_str());
     }
-    for (const auto &arg : args) {
-        if (arg == "--driver-mode=cl" || arg == "/clang:--driver-mode=cl") {
-            return true;
-        }
-    }
-    return false;
+    return clang::driver::IsClangCL(clang::driver::getDriverMode(args.front(), flags));
 }
 
 // Extensions the clang driver itself maps to a C or C++ header.
@@ -2066,7 +2063,7 @@ void force_header_language(clang::tooling::CommandLineArguments &command_line) {
             return;
         }
     }
-    if (prefers_msvc_style_standard_flag(command_line)) {
+    if (uses_cl_driver_mode(command_line)) {
         command_line.insert(command_line.begin() + 1, "/TP");
         return;
     }
@@ -2074,7 +2071,7 @@ void force_header_language(clang::tooling::CommandLineArguments &command_line) {
 }
 
 std::string_view default_cxx_standard_arg(std::span<const std::string> args) {
-    return prefers_msvc_style_standard_flag(args) ? "/std:c++20" : "-std=c++20";
+    return uses_cl_driver_mode(args) ? "/std:c++20" : "-std=c++20";
 }
 
 std::vector<std::string> read_response_file_arguments(const std::filesystem::path &path) {
@@ -3149,6 +3146,11 @@ clang::tooling::CompileCommand retarget_compile_command(clang::tooling::CompileC
 
 std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang::tooling::CommandLineArguments &command_line);
 
+// In CL mode these dash options select the C runtime. GNU uses the same prefixes for dependency output.
+[[nodiscard]] bool is_cl_runtime_option(std::string_view argument, bool cl_driver_mode) {
+    return cl_driver_mode && (argument == "-MD" || argument == "-MDd" || argument == "-MT" || argument == "-MTd");
+}
+
 [[nodiscard]] bool is_compile_output_option(std::string_view argument) {
     return argument == "-o" || argument == "-MF" || argument == "-MT" || argument == "-MQ" || argument == "-MJ" ||
            argument == "--dependency-file" || argument == "/Fo" || argument == "/Fd" || argument == "/Fe";
@@ -3212,6 +3214,7 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
     bool              skip_value        = false;
     const std::size_t compiler_index    = compiler_arg_index_for_resource_dir_probe(command.CommandLine).value_or(0);
     const auto        delimiter         = compile_command_delimiter(command.CommandLine, compiler_index);
+    const bool        cl_driver_mode    = uses_cl_driver_mode(std::span{command.CommandLine}.subspan(compiler_index));
     for (std::size_t idx = compiler_index + 1; idx < command.CommandLine.size(); ++idx) {
         const std::string_view argument = command.CommandLine[idx];
         if (delimiter && idx >= *delimiter) {
@@ -3224,6 +3227,10 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
         }
         if (skip_value) {
             skip_value = false;
+            continue;
+        }
+        if (is_cl_runtime_option(argument, cl_driver_mode)) {
+            normalized.emplace_back(argument);
             continue;
         }
         if (is_compile_output_option(argument) || is_msvc_module_mapping_value_flag(argument)) {
@@ -3340,8 +3347,13 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
     clang::tooling::CommandLineArguments deferred_system_includes;
     const std::string                    normalized_target = normalize_compdb_lookup_path(file.str(), compdb_dir);
     if (!sanitized_command_line.empty()) {
-        const std::size_t compiler_index = compiler_arg_index_for_resource_dir_probe(sanitized_command_line).value_or(0);
-        const auto       &compiler_arg   = sanitized_command_line[compiler_index];
+        // LLVM inspected the launcher name when loading an authored command. Infer from its wrapped compiler before substitution.
+        if (const auto compiler = compiler_arg_index_for_resource_dir_probe(sanitized_command_line); compiler && *compiler != 0) {
+            sanitized_command_line.erase(sanitized_command_line.begin(),
+                                         sanitized_command_line.begin() + static_cast<std::ptrdiff_t>(*compiler));
+            clang::tooling::addTargetAndModeForProgramName(sanitized_command_line, sanitized_command_line.front());
+        }
+        const auto       &compiler_arg = sanitized_command_line.front();
         const std::string probed_compiler_path =
             compiler_for_resource_dir_probe(sanitized_command_line, std::string(default_compiler_path));
         const auto compiler_arg_is_explicit_path = [&]() {
@@ -3408,8 +3420,7 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
         if (!resource_dir.empty()) {
             adjusted.emplace_back(std::string("-resource-dir=") + resource_dir);
         }
-        if (!default_sysroot.empty() && !has_sysroot_arg(sanitized_command_line) &&
-            !prefers_msvc_style_standard_flag(sanitized_command_line)) {
+        if (!default_sysroot.empty() && !has_sysroot_arg(sanitized_command_line) && !uses_cl_driver_mode(sanitized_command_line)) {
             adjusted.emplace_back("-isysroot");
             adjusted.emplace_back(default_sysroot);
         }
@@ -3434,7 +3445,7 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
             adjusted.emplace_back("c++-module");
         }
         bool skip_next_arg = false;
-        for (std::size_t i = compiler_index + 1; i < sanitized_command_line.size(); ++i) {
+        for (std::size_t i = 1; i < sanitized_command_line.size(); ++i) {
             const auto &arg = sanitized_command_line[i];
             if (skip_next_arg) {
                 skip_next_arg = false;
@@ -3557,7 +3568,7 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
     // demoted to input files themselves. Matching on the emitted argument
     // rather than on `file` keeps the comparison working when the compile
     // database spells the input relative to its directory.
-    if (std::ranges::find(sanitized_command_line, std::string("--driver-mode=cl")) != sanitized_command_line.end()) {
+    if (uses_cl_driver_mode(sanitized_command_line)) {
         const auto normalized_file = normalize_compdb_lookup_path(file.str(), "");
         const auto input_it        = std::ranges::find_if(adjusted, [&](const std::string &arg) {
             return arg.starts_with('/') && normalize_compdb_lookup_path(arg, "") == normalized_file;
@@ -3670,11 +3681,16 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
     command.reserve(adjusted_command_line.size() + 4);
     command.push_back(adjusted_command_line.front());
 
-    bool skip_next_arg = false;
+    const bool cl_driver_mode = uses_cl_driver_mode(adjusted_command_line);
+    bool       skip_next_arg  = false;
     for (std::size_t i = 1; i < adjusted_command_line.size(); ++i) {
         const auto &arg = adjusted_command_line[i];
         if (skip_next_arg) {
             skip_next_arg = false;
+            continue;
+        }
+        if (is_cl_runtime_option(arg, cl_driver_mode)) {
+            command.push_back(arg);
             continue;
         }
         if (arg == "-c" || arg == "--precompile" || arg == "/c") {
@@ -3724,7 +3740,6 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
         command.emplace_back("-x");
         command.emplace_back("c++-module");
     }
-    const bool cl_driver_mode = std::ranges::find(adjusted_command_line, std::string("--driver-mode=cl")) != adjusted_command_line.end();
     if (cl_driver_mode && source_file.starts_with('/')) {
         // In cl driver mode an absolute POSIX source path is misparsed as an
         // option (e.g. /Users/... as /U). Emit the output option before "--"
@@ -4163,7 +4178,7 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
             ++index;
             continue;
         }
-        if (is_known_compiler_driver(arg)) {
+        if (is_known_compiler_driver(arg) || clang::driver::ToolChain::getTargetAndModeFromProgramName(arg).TargetIsValid) {
             return index;
         }
         return std::nullopt;
@@ -4678,6 +4693,9 @@ void diagnose_missing_mock_phase_manifest(MockPhaseCommand mock_phase, const Col
 
 int run_codegen_tool(int argc, const char **argv) {
     llvm::InitLLVM llvm_init(argc, argv);
+
+    // Clang validates executable target prefixes against LLVM's registry when it loads compile commands.
+    llvm::InitializeAllTargetInfos();
 
     // Dispatch the validator after expanding a response file, just as the
     // ordinary LLVM option parser does for code generation.
