@@ -39,37 +39,32 @@ void emplace_matrix() {
 - **Fixtures from the signature.** Declare fixtures as function parameters,
   several per case. Local fixtures are fresh for each case; suite and global
   fixtures are shared, with optional setup and teardown.
-- **Generated mocks.** Generate mocks for virtual and non-virtual members/classes,
-  including static members and member templates. Non-virtual calls use the
-  mock type; see [Mocks](docs/mock_generation.md). 
+- **Generated mocks.** Mock classes with virtual or non-virtual methods,
+  including static members and member templates. See [Mocks](docs/mock_generation.md).
 - **More than pass or fail.** Declare benchmarks, jitter measurements and
   death tests with attributes.
 - **Async tests.** Write tests and fixture setup with C++20 coroutines.
   [Async support](docs/async.md) is experimental.
-- **Fits your tooling.** Select cases by name or user-defined tag and expose
-  each case through your test runner (e.g CTest). Runs can write JUnit XML, Allure results and GitHub
-  Actions annotations. CMake, Meson, Xmake and Bazel are supported, as are
-  named modules.
+- **Fits your tooling.** Select cases by name or user-defined tag. Run them
+  with CTest, Meson, Xmake or Bazel. CTest can list each case individually.
+  Reports include JUnit XML, Allure results and GitHub Actions annotations.
 
 ## Requirements
 
-- CMake 3.31 or one of the [other supported build systems](docs/buildsystems/downstream_consumers.md).
-- A C++20 compiler: e.g Clang, GCC, MSVC, AppleClang.
+- Clang, GCC, MSVC or AppleClang with a C++20 standard library that provides
+  `std::stop_token`.
+- LLVM/Clang 19 or newer on the build machine for code generation.
+- CMake 3.31 or newer with Ninja or Ninja Multi-Config, or
+  [Meson, Xmake or Bazel](docs/buildsystems/downstream_consumers.md).
 
-For modules, check [compiler and dependency-scanning requirements](docs/modules.md#requirements).
+For named modules, see the [module requirements](docs/modules.md#requirements).
 
 ## Quick start
 
-Install gentest first. You build it from source: the guides for
-[Linux](docs/install/linux.md), [macOS](docs/install/macos.md) and [Windows](docs/install/windows.md) list the packages, install gentest to a user
-prefix and run a first project. Then build this small CMake project against
-that install. 
-
-TODO: WHERE IS CROSS-COMPILING? E.g for QNX?
-
->[!NOTE] 
->On Windows, add the configure options the Windows guide shows for your compiler.
-
+Install gentest from source on [Linux](docs/install/linux.md),
+[macOS](docs/install/macos.md) or [Windows](docs/install/windows.md).
+To build for another machine, start with [Cross-compiling](#cross-compiling).
+For a native build, create these two files in a new directory.
 
 `CMakeLists.txt`:
 
@@ -114,8 +109,10 @@ inline void addition() {
 Annotated declarations go in headers that the target lists or that its `.cpp`
 files include; see [Writing tests](docs/writing_tests.md).
 
-Configure, build and test, with `CMAKE_PREFIX_PATH` pointing at the gentest
-install:
+Point `CMAKE_PREFIX_PATH` at your gentest installation, then build and run the test.
+
+> [!NOTE]
+> On Windows, use the [configure command for your compiler](docs/install/windows.md#write-your-first-test-project).
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=/path/to/gentest/install
@@ -137,6 +134,13 @@ Run the test executable directly for more control:
 [Command-line options](docs/command_line.md) describes every option and exit
 code, and [Test selection](docs/test_selection.md) explains how the selectors
 combine.
+
+### Cross-compiling
+
+Build the gentest runtime and your tests with the target toolchain. In CMake,
+set `GENTEST_CODEGEN_EXECUTABLE` to a code generator built for the build
+machine. The [Arm Linux walkthrough](docs/buildsystems/host_toolchain_sysroots.md#cross-compile-a-cmake-project)
+runs the tests under QEMU. For QNX, see the [QNX toolchain limitations](docs/buildsystems/host_toolchain_sysroots.md#qnx-toolchains).
 
 ## Named modules
 
@@ -215,12 +219,6 @@ an installed gentest:
 - Feature walkthroughs: [parameters](examples/parameterized/), [fixtures](examples/fixtures/),
   [mocks](examples/mocking/), [benchmarks and jitter](examples/measured/),
   [recording](examples/recording/), [metadata](examples/metadata/) and [async](examples/async/).
-
-## Cross-compiling
-
-`gentest_codegen` runs on the build machine, so a cross build needs a host
-build of it; in CMake, pass its path as `-DGENTEST_CODEGEN_EXECUTABLE=<path>`.
-See [Host toolchains and cross-compiling](docs/buildsystems/host_toolchain_sysroots.md).
 
 ## Contributing
 

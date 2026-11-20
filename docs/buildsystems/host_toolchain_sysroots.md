@@ -30,8 +30,7 @@ subdirectory.
 
 ### Build gentest_codegen for the build machine
 
-Build only the code generator, with the `host-codegen` preset of the gentest
-checkout:
+Build the host tools with the `host-codegen` preset of the gentest checkout:
 
 ```bash
 cd gentest
@@ -40,7 +39,8 @@ cmake --build --preset=host-codegen
 cd ..
 ```
 
-This writes `gentest/build/host-codegen/tools/gentest_codegen`. The build needs
+This builds `gentest_codegen` and the death-test supervisor, `gentest_supervise`,
+in `gentest/build/host-codegen/tools/`. The build needs
 Ninja and the LLVM/Clang development packages, version 19 or newer. If CMake
 can't find them, add `-DLLVM_DIR=...` and `-DClang_DIR=...` to the first
 `cmake` command (see [Install gentest on Linux](../install/linux.md)). The
@@ -188,6 +188,24 @@ set(GENTEST_CODEGEN_TARGET host_gentest_codegen)
 
 A cross build rejects a target that isn't imported, because a target built in
 the cross build can't run on the build machine.
+
+## QNX toolchains
+
+Gentest's cross-build CI covers Arm and RISC-V Linux. For a QNX port, the
+target SDK must provide C++20 `std::stop_token`, and the host code generator
+must be able to parse the test headers against the QNX sysroot.
+
+For 64-bit Arm, QNX SDP 8 uses the `q++` variant `gcc_ntoaarch64le`.
+When the toolchain sets `CMAKE_CXX_COMPILER_TARGET` to that value, Gentest
+passes `--target=gcc_ntoaarch64le` to host Clang and picks up
+`-Vgcc_ntoaarch64le` from the compile command. Clang 23 rejects both.
+Overriding `--target` alone leaves the unsupported `-V` option in place.
+See [CMake's QNX toolchain example](https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html#cross-compiling-for-qnx)
+and [QNX's compiler example](https://www.qnx.com/developers/docs/qnxeverywhere/com.qnx.doc.qpg/topic/port_No_build_system.html).
+
+If the binary can run only on the device, omit `gentest_discover_tests()`
+from the example above. Deploy `my_tests` and its shared libraries to the
+device and run `./my_tests --run=demo/addition` there.
 
 ## How codegen finds the host Clang
 
