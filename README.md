@@ -45,9 +45,8 @@ void emplace_matrix() {
   death tests with attributes.
 - **Async tests.** Write tests and fixture setup with C++20 coroutines.
   [Async support](docs/async.md) is experimental.
-- **Fits your tooling.** Select cases by name or user-defined tag. Run them
-  with CTest, Meson, Xmake or Bazel. CTest can list each case individually.
-  Reports include JUnit XML, Allure results and GitHub Actions annotations.
+- **Fits your tooling.** Select cases by name or user-defined tag. Runs can
+  write JUnit XML, Allure results and GitHub Actions annotations.
 
 ## Requirements
 
@@ -83,8 +82,6 @@ target_compile_features(my_tests PRIVATE cxx_std_20)
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
 gentest_attach_codegen(my_tests)
-# One CTest test per case. To run every case in one process instead:
-# add_test(NAME my_tests COMMAND my_tests)
 gentest_discover_tests(my_tests)
 ```
 
