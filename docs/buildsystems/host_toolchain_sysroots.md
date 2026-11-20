@@ -192,8 +192,8 @@ the cross build can't run on the build machine.
 ## QNX toolchains
 
 Gentest's cross-build CI covers Arm and RISC-V Linux. For a QNX port, the
-target SDK must provide C++20 `std::stop_token`, and the host code generator
-must be able to parse the test headers against the QNX sysroot.
+host code generator must be able to parse the test headers against the QNX
+sysroot.
 
 For 64-bit Arm, QNX SDP 8 uses the `q++` variant `gcc_ntoaarch64le`.
 When the toolchain sets `CMAKE_CXX_COMPILER_TARGET` to that value, Gentest
