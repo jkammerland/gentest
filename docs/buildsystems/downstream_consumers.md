@@ -75,6 +75,8 @@ lookup order for each tool and explains when to set them.
 
 ## CMake
 
+The supported CMake generators are Ninja and Ninja Multi-Config.
+
 The installed package provides the `gentest::gentest`, `gentest::gentest_main`
 and `gentest::gentest_runtime` targets and the CMake functions
 `gentest_attach_codegen()`, `gentest_add_mocks()`, `gentest_link_mocks()` and

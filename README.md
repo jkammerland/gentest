@@ -52,7 +52,7 @@ void emplace_matrix() {
 
 - A C++20 compiler such as Clang, GCC, MSVC or AppleClang.
 - LLVM/Clang 19 or newer on the build machine for code generation.
-- CMake 3.31 or newer with Ninja or Ninja Multi-Config, or
+- CMake 3.31 or newer, or
   [Meson, Xmake or Bazel](docs/buildsystems/downstream_consumers.md).
 
 For named modules, see the [module requirements](docs/modules.md#requirements).
