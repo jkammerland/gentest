@@ -3311,6 +3311,13 @@ std::string compiler_for_resource_dir_probe(const clang::tooling::CommandLineArg
                                             const std::string                          &default_compiler_path);
 bool        is_clang_like_compiler(std::string_view path);
 
+void unwrap_compiler_launcher(clang::tooling::CommandLineArguments &command_line) {
+    if (const auto compiler = compiler_arg_index_for_resource_dir_probe(command_line); compiler && *compiler != 0) {
+        command_line.erase(command_line.begin(), command_line.begin() + static_cast<std::ptrdiff_t>(*compiler));
+        clang::tooling::addTargetAndModeForProgramName(command_line, command_line.front());
+    }
+}
+
 clang::tooling::CommandLineArguments
 build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_line, llvm::StringRef file,
                             const std::function<std::string(const std::string &)> &resource_dir_for_compiler,
@@ -3347,12 +3354,7 @@ build_adjusted_command_line(const clang::tooling::CommandLineArguments &command_
     clang::tooling::CommandLineArguments deferred_system_includes;
     const std::string                    normalized_target = normalize_compdb_lookup_path(file.str(), compdb_dir);
     if (!sanitized_command_line.empty()) {
-        // LLVM inspected the launcher name when loading an authored command. Infer from its wrapped compiler before substitution.
-        if (const auto compiler = compiler_arg_index_for_resource_dir_probe(sanitized_command_line); compiler && *compiler != 0) {
-            sanitized_command_line.erase(sanitized_command_line.begin(),
-                                         sanitized_command_line.begin() + static_cast<std::ptrdiff_t>(*compiler));
-            clang::tooling::addTargetAndModeForProgramName(sanitized_command_line, sanitized_command_line.front());
-        }
+        unwrap_compiler_launcher(sanitized_command_line);
         const auto       &compiler_arg = sanitized_command_line.front();
         const std::string probed_compiler_path =
             compiler_for_resource_dir_probe(sanitized_command_line, std::string(default_compiler_path));
@@ -5261,6 +5263,10 @@ int run_codegen_tool(int argc, const char **argv) {
     for (std::size_t i = 0; i < options.sources.size(); ++i) {
         if (!compile_commands[i].empty()) {
             tool_compile_commands[i] = compile_commands[i];
+            // ClangTool inserts -fsyntax-only before the first "--" it sees.
+            // Give it the compiler command so an env launcher's delimiter cannot intercept that option.
+            for (auto &command : tool_compile_commands[i])
+                unwrap_compiler_launcher(command.CommandLine);
             continue;
         }
 

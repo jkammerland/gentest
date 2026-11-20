@@ -17,6 +17,12 @@ endif()
 include("${GENTEST_SOURCE_DIR}/tests/cmake/GentestFixtureDependency.cmake")
 gentest_fixture_add_gentest(gentest)
 
+if(TEST_ENV_LAUNCHER)
+    # Put the real launcher in both the Ninja rule and the exported compile command.
+    string(REPLACE "<CMAKE_CXX_COMPILER>" "\"${CMAKE_COMMAND}\" -E env GENTEST_TEST_LAUNCHER=1 -- <CMAKE_CXX_COMPILER>"
+        CMAKE_CXX_COMPILE_OBJECT "${CMAKE_CXX_COMPILE_OBJECT}")
+endif()
+
 add_executable(cpp_source_module_tests)
 
 target_sources(cpp_source_module_tests
