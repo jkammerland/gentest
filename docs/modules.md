@@ -9,24 +9,25 @@ Each test target uses one of two ways to register cases:
 - **Header registration** (the default): annotated declarations live in headers,
   and the test code uses gentest with `#include`. See
   [Writing tests](writing_tests.md).
-- **Module registration** (`MODULE_REGISTRATION`, this page): cases live in
-  named-module interface units, and the test code uses `import gentest;`.
+- **Module registration** (`MODULE_REGISTRATION`, this page): cases are
+  exported from named-module interface units.
 
 A header registration target can't contain named-module sources or import a
 named module.
 
 ## Requirements
 
-Module registration needs a gentest install that includes gentest's module
-interfaces, and a toolchain that CMake can scan for module dependencies.
+CMake module registration needs a compiler that supports module dependency
+scanning. To use `import gentest;`, also build gentest with its public module
+interfaces.
 
 | Component | Requirement |
 |---|---|
 | CMake | 3.31 or newer. |
-| Generator | Ninja or Ninja Multi-Config, with Ninja 1.11 or newer, for gentest and for your project. |
+| Generator | Ninja or Ninja Multi-Config, with Ninja 1.11 or newer. |
 | GCC | 15 or newer. 16 or newer when you build with `-fsanitize=thread`. |
 | Clang | 16 or newer (19.1 or newer for `clang-cl`), with a matching `clang-scan-deps`. CMake looks for it next to the compiler and on `PATH`; set `CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS` if it isn't found. |
-| AppleClang | Not supported: CMake has no module dependency scanning for AppleClang (as of CMake 4.5). Use Homebrew LLVM, as [Install gentest on macOS](install/macos.md) shows. |
+| AppleClang | CMake 4.5 does not support module dependency scanning with AppleClang. The [macOS guide](install/macos.md#use-named-modules) uses LLVM Clang. |
 | MSVC | 19.34 (Visual Studio 2022 17.4) or newer, the oldest version that CMake scans for modules. |
 | `gentest_codegen` | A `clang-scan-deps` executable, whichever compiler builds your code. Codegen uses it for every module registration target and every module mock target. CMake looks for it by itself, or set `GENTEST_CODEGEN_CLANG_SCAN_DEPS`; [Host toolchains and cross-compiling](buildsystems/host_toolchain_sysroots.md) lists where it looks. |
 
@@ -41,9 +42,9 @@ gentest builds and installs its modules `gentest`, `gentest.mock` and
 
 | Value | Effect |
 |---|---|
-| `OFF` (default) | No module interfaces. `import gentest;` fails in your project. |
-| `ON` | Builds and installs them. If the toolchain can't build them, configure stops with `GENTEST_ENABLE_PUBLIC_MODULES=ON was requested, but the current toolchain cannot support gentest's public modules: <reason>`. |
-| `AUTO` | Builds them if the toolchain can. Otherwise configure continues without them and prints `gentest: public named modules disabled automatically: <reason>`. |
+| `OFF` (default) | Omit the module interfaces. |
+| `ON` | Build the module interfaces. Configuration fails if the toolchain can't build them. |
+| `AUTO` | Build the module interfaces when the toolchain supports them. |
 
 Add `-DGENTEST_ENABLE_PUBLIC_MODULES=ON` to the gentest configure command on the
 install page for your platform ([Linux](install/linux.md),
@@ -130,10 +131,9 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-CTest runs `demo/addition` and `demo/fixture`. On macOS, also pass
-`-DCMAKE_CXX_COMPILER` with Homebrew LLVM's `clang++`, as
-[Install gentest on macOS](install/macos.md) shows; CMake finds the
-`clang-scan-deps` beside it.
+CTest runs `demo/addition` and `demo/fixture`. If CMake selects AppleClang on
+macOS, set `CMAKE_CXX_COMPILER` to LLVM's `clang++`, as in the
+[macOS guide](install/macos.md#use-named-modules).
 
 What each part does:
 

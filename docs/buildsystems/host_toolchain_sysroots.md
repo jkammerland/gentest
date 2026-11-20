@@ -86,9 +86,7 @@ cmake --build gentest-aarch64-build
 cmake --install gentest-aarch64-build
 ```
 
-A cross build doesn't build `gentest_codegen` (`GENTEST_BUILD_CODEGEN` defaults
-to `OFF`), and configure prints
-`gentest: installing runtime without codegen; consumers must select a host tool`.
+Cross builds leave `GENTEST_BUILD_CODEGEN` off by default.
 If CMake finds no fmt package for the target, the gentest build fetches fmt and
 installs it into the same prefix.
 
@@ -101,7 +99,6 @@ cmake_minimum_required(VERSION 3.31)
 project(my_tests LANGUAGES CXX)
 
 include(CTest)
-set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(gentest CONFIG REQUIRED)
 
 add_executable(my_tests cases.hpp)
@@ -191,9 +188,7 @@ the cross build can't run on the build machine.
 
 ## QNX toolchains
 
-Gentest's cross-build CI covers Arm and RISC-V Linux. For a QNX port, the
-host code generator must be able to parse the test headers against the QNX
-sysroot.
+For QNX, the host Clang needs to parse your test headers against the QNX sysroot.
 
 For 64-bit Arm, QNX SDP 8 uses the `q++` variant `gcc_ntoaarch64le`.
 When the toolchain sets `CMAKE_CXX_COMPILER_TARGET` to that value, Gentest
@@ -282,11 +277,8 @@ requirements.
 
 ## Cross-compile with Meson, Xmake or Bazel
 
-CI tests cross builds only with CMake (see
-[Cross-testing gentest under QEMU](../cross_compile/linux_qemu.md)). The other
-build systems follow the same rules: a `gentest_codegen` built for the build
-machine, a gentest runtime built for the target, and target flags that you pass
-to codegen yourself.
+Build the runtime for the target. Configure the integration to run a host
+`gentest_codegen` with the target compiler flags.
 
 ### Meson
 

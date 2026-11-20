@@ -7,17 +7,12 @@ in more detail.
 
 ## Requirements
 
-| Component | Requirement |
+| Component | Tools used in this guide |
 | --- | --- |
 | macOS SDK | The Xcode Command Line Tools. |
 | Build tools | CMake 3.31 or newer, Ninja, and Git. |
-| Code generator | Homebrew LLVM, version 19 or newer. `gentest_codegen` links its LLVM and Clang libraries, which Xcode doesn't provide, so you need it even if you compile with AppleClang. |
-| Compiler for your tests | Homebrew LLVM's `clang++`, or AppleClang 17 (Xcode 26) or newer. |
-
-Older AppleClang releases fail gentest's configure check for
-`std::stop_token`, so use Xcode 26 or newer, or Homebrew LLVM. Named modules
-(`import gentest;`) need Homebrew LLVM and Ninja 1.11 or newer; see
-[Use named modules](#use-named-modules).
+| Code generator | Matching LLVM and Clang development packages, version 19 or newer. The commands below install them with Homebrew. |
+| Compiler for your tests | LLVM Clang, or AppleClang 17 (Xcode 26) or newer. |
 
 Install the tools:
 
@@ -74,7 +69,7 @@ otherwise the build downloads fmt and installs it into the gentest prefix.
 
 ## Write your first test project
 
-Create a folder next to the gentest checkout with two files.
+Create these two files in your project folder.
 [Write your first test project](linux.md#write-your-first-test-project)
 explains what each part does.
 
@@ -85,7 +80,6 @@ cmake_minimum_required(VERSION 3.31)
 project(first_test LANGUAGES CXX)
 
 include(CTest)
-set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(gentest CONFIG REQUIRED)
 
 add_executable(first_tests cases.hpp)
@@ -148,14 +142,11 @@ then reads Clang's builtin headers from the LLVM release it was built with,
 instead of from AppleClang. [Host toolchains and cross-compiling](../buildsystems/host_toolchain_sysroots.md)
 explains how codegen picks its host Clang.
 
-CMake doesn't support C++ module scanning with AppleClang, so named modules
-need Homebrew LLVM.
-
 ## Use named modules
 
-Public named modules (`import gentest;`) are off by default. Turn them on with
-Homebrew LLVM and Ninja 1.11 or newer by configuring the gentest build again,
-then build and install:
+CMake doesn't support module dependency scanning with AppleClang. Start with
+the LLVM Clang build above and Ninja 1.11 or newer. To use `import gentest;`,
+enable the public modules, rebuild and install:
 
 ```bash
 cmake -S "$gentest_source" -B "$gentest_source/build/install" \

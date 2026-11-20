@@ -1,8 +1,7 @@
 # CTest integration (`gentest_discover_tests`)
 
-`gentest_discover_tests()` registers every case of a test executable as its own
-CTest entry, so `ctest` can run, filter, label and parallelize them, and run
-each death test in a separate process.
+`gentest_discover_tests()` registers cases from a test executable as individual
+CTest entries. You can run them by name or label and run several in parallel.
 
 ```cmake
 include(CTest)
@@ -20,10 +19,8 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-After each build of `my_tests`, CMake runs `my_tests --list-json` and writes one
-CTest entry per case. This step is called CTest discovery: unlike the codegen
-scan, it asks the built executable for its cases. For rerunning failed entries,
-parallel runs and repetition, see
+Discovery reads the case list from `my_tests --list-json`. For rerunning failed
+entries, parallel runs and repetition, see
 [CTest workflows](runner_workflows.md#ctest-workflows).
 
 ## What it registers
@@ -138,7 +135,7 @@ is outside the host codegen directory and search path.
 
 | Mode | When CTest discovery runs |
 | --- | --- |
-| `POST_BUILD` | After every build of the target, as a post-build step. A discovery failure fails the build. This is the default. |
+| `POST_BUILD` | After the executable is linked. A discovery failure fails the build. This is the default. |
 | `PRE_TEST` | When CTest starts and the saved list is missing or older than the executable. Use it when the executable can't run at build time. |
 
 Set `CMAKE_GENTEST_DISCOVER_TESTS_DISCOVERY_MODE` to change the default for

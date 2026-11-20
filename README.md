@@ -71,12 +71,8 @@ cmake_minimum_required(VERSION 3.31)
 project(my_tests LANGUAGES CXX)
 
 include(CTest)
-# Compile as ISO C++20.
-set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(gentest CONFIG REQUIRED)
 
-# The annotated header is the whole test target; codegen adds the generated
-# registration sources to it.
 add_executable(my_tests cases.hpp)
 target_compile_features(my_tests PRIVATE cxx_std_20)
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
@@ -133,20 +129,14 @@ combine.
 
 ### Cross-compiling
 
-Build the gentest runtime and your tests with the target toolchain. In CMake,
-set `GENTEST_CODEGEN_EXECUTABLE` to a code generator built for the build
-machine. The [Arm Linux walkthrough](docs/buildsystems/host_toolchain_sysroots.md#cross-compile-a-cmake-project)
+Run `gentest_codegen` on the build machine and compile the runtime and your
+tests with the target toolchain. The [Arm Linux walkthrough](docs/buildsystems/host_toolchain_sysroots.md#cross-compile-a-cmake-project)
 runs the tests under QEMU. See also [QNX toolchains](docs/buildsystems/host_toolchain_sysroots.md#qnx-toolchains).
 
 ## Named modules
 
-Cases can also live in named-module interface units that use
-`import gentest;`. Build gentest with `-DGENTEST_ENABLE_PUBLIC_MODULES=ON` and
-attach codegen with
-`gentest_attach_codegen(<target> MODULE_REGISTRATION FILE_SET <name>)`.
-[examples/hello_modules](examples/hello_modules) is a complete project, and
-[Named modules](docs/modules.md) covers the requirements, what to export and
-link, and module mocks.
+You can export test cases from a C++ module. The [module example](examples/hello_modules)
+uses `import gentest;`. See [Named modules](docs/modules.md) for setup.
 
 ## Documentation
 
@@ -164,7 +154,7 @@ contributor and design-history pages.
 | [Parameters and templates](docs/parameters.md) | Value axes, rows, numeric ranges, template matrices |
 | [Fixtures](docs/fixtures.md) | Local, suite and global lifetimes, setup and teardown, activation order |
 | [Fixture allocation hooks](docs/fixtures_allocation.md) | Custom construction and ownership with `gentest_allocate` |
-| [Death tests](docs/death_tests.md) | Cases that must terminate the process, and how CTest runs them |
+| [Death tests](docs/death_tests.md) | Check that a test terminates its process |
 | [Mocks](docs/mock_generation.md) | Mock targets, mock definitions headers, gentest mocks, the gMock and Trompeloeil backends |
 | [Logging and threads](docs/logging_and_threads.md) | `gentest::log()`, log sinks, worker threads, live output |
 | [Benchmarks and jitter](docs/benchmarks.md) | Measured cases, timing reports, comparing two reports |
@@ -190,10 +180,10 @@ contributor and design-history pages.
 | Page | What it covers |
 | --- | --- |
 | [Install gentest on Linux](docs/install/linux.md) | Build and install gentest from source, then run a first project |
-| [Install gentest on macOS](docs/install/macos.md) | The same with Homebrew LLVM, which codegen always needs; tests can also build with AppleClang 17 (Xcode 26) |
-| [Install gentest on Windows](docs/install/windows.md) | The same with an LLVM release package, using Clang or MSVC |
+| [Install gentest on macOS](docs/install/macos.md) | Build with LLVM Clang or AppleClang |
+| [Install gentest on Windows](docs/install/windows.md) | Build with Clang or MSVC |
 | [Choosing a build system](docs/buildsystems/downstream_consumers.md) | Support matrix and settings for CMake, Meson, Xmake and Bazel |
-| [Meson](docs/buildsystems/meson.md) | gentest as a Meson wrap or subproject, without named modules |
+| [Meson](docs/buildsystems/meson.md) | Use gentest as a Meson wrap or subproject |
 | [Xmake](docs/buildsystems/xmake.md) | An installed gentest from Xmake, with the installed helper functions |
 | [Bazel](docs/buildsystems/bazel.md) | The Bzlmod source package and its codegen toolchain |
 | [Host toolchains and cross-compiling](docs/buildsystems/host_toolchain_sysroots.md) | Host Clang selection, sysroots, cross builds of your project |

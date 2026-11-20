@@ -8,16 +8,14 @@ explains each step in more detail, and
 
 ## Requirements
 
-| Component | Requirement |
+| Component | Tools used in this guide |
 | --- | --- |
 | Visual Studio | Visual Studio 2022 with the Desktop development with C++ workload. Both Clang and MSVC builds use its libraries and the Windows SDK. |
-| Code generator | The LLVM archive `clang+llvm-<version>-x86_64-pc-windows-msvc.tar.xz` from the [LLVM releases](https://github.com/llvm/llvm-project/releases), version 19 or newer. It contains the CMake packages and libraries that `gentest_codegen` links. |
+| Code generator | Matching LLVM and Clang development packages, version 19 or newer. The x64 `clang+llvm` archive from the [LLVM releases](https://github.com/llvm/llvm-project/releases) includes both. |
 | Build tools | CMake 3.31 or newer, Ninja, and Git. |
 | Compiler for your tests | LLVM's `clang++` or MSVC's `cl`. |
 
-Build gentest and your project in `RelWithDebInfo` (or `Release`). Prebuilt
-LLVM packages contain release-mode libraries, and gentest's Windows tests run
-in `RelWithDebInfo`.
+Use `RelWithDebInfo` or `Release` with the prebuilt LLVM libraries in this guide.
 
 ## Prepare a developer shell
 
@@ -108,7 +106,7 @@ next section shows.
 
 ## Write your first test project
 
-Create a folder next to the gentest checkout with two files.
+Create these two files in your project folder.
 [Write your first test project](linux.md#write-your-first-test-project)
 explains what each part does.
 
@@ -119,7 +117,6 @@ cmake_minimum_required(VERSION 3.31)
 project(first_test LANGUAGES CXX)
 
 include(CTest)
-set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(gentest CONFIG REQUIRED)
 
 add_executable(first_tests cases.hpp)

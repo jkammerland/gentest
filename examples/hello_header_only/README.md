@@ -1,8 +1,7 @@
 # Hello: a header-only test target
 
-This example shows the common layout. The test target's only source is
-[cases.hpp](cases.hpp), a header of `inline` cases, and codegen adds the
-generated registration sources to the target. No `.cpp` file is needed.
+Both tests are defined in [cases.hpp](cases.hpp). Codegen adds their
+registration to the target.
 
 Build it against an installed gentest and run it:
 
