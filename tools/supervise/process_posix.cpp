@@ -83,8 +83,6 @@ struct SpawnAttributes {
 // an outer test runner kills the supervisor, EOF still reaches the guardian.
 [[noreturn]] void watchSupervisor(const std::array<int, 2> &pipe) noexcept {
     ::close(pipe[1]);
-    if (::setpgid(0, 0) == -1)
-        ::_exit(1);
 
     for (int fd = STDIN_FILENO; fd <= STDERR_FILENO; ++fd) {
         if (fd != pipe[0])
@@ -92,7 +90,10 @@ struct SpawnAttributes {
     }
     char byte{};
     while (::read(pipe[0], &byte, 1) == -1 && errno == EINTR) {}
-    ::kill(0, SIGKILL);
+
+    // If the supervisor died before creating this group, there are no children
+    // to kill and the guardian still belongs to the launcher's group.
+    ::kill(-::getpid(), SIGKILL);
     ::_exit(1);
 }
 
@@ -134,9 +135,8 @@ class ChildGroup {
             check(forkError, "fork supervised process group guardian");
         }
 
-        // Establish the group before spawning its first member. A concurrent
-        // SIGKILL either precedes that launch or closes the pipe after the
-        // child's spawn attributes have assigned the group.
+        // Only the parent creates the group. Concurrent setpgid calls for the
+        // same guardian can fail on Darwin. Spawn joins the established group.
         if (::setpgid(guardian_, guardian_) == -1) {
             const int error = errno;
             stop();
