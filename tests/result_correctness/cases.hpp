@@ -45,11 +45,11 @@ struct ReturningInput {
 [[using gentest: test, death]] void                     return_with_input(const ReturningInput &input = {});
 [[using gentest: test, death]] gentest::awaitable<void> async_return_with_input(const ReturningInput &input = {});
 
-[[using gentest: test, death]] void entered_with_input(int value = 17, unsigned size = sizeof(value));
+[[using gentest: test, death]] void entered_with_input(int value = 17, unsigned size = sizeof(decltype(value)));
 [[using gentest: test, death]] void returns_normally(int value = 17);
 
 template <class T>
-[[using gentest: test, death, template(T, int), parameters(value, 17)]]
+[[using gentest: test, death, template(T, int), parameters(value, 17, 18)]]
 gentest::awaitable<void> entered_async(T value) {
     co_await gentest::async::yield();
     entered_with_input(value);

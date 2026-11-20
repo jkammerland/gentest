@@ -126,6 +126,7 @@ file(WRITE [==[{root / 'script.txt'}]==] "${{script}}")
             ("binding/bound_template<>(false)", "", 8, "exit code was 0"),
             ("entered_with_input", "", 0, "Death test passed"),
             ("entered_async<int>(17)", "", 0, "Death test passed"),
+            ("entered_async<int>(18)", "", 8, "exit code was 0", "[ PASS ] result_correctness/entered_async<int>(18)"),
             ("returns_normally", "", 8, "exit code was 0"),
             ("return_with_input", "", 8, "body completed without the expected termination"),
             ("async_return_with_input", "", 8, "body completed without the expected termination"),
