@@ -44,6 +44,10 @@ def child(args):
 def wait_for_outer_cancellation(port, role):
     # Each process confirms it is alive and holds its own connection until killed.
     with socket.create_connection(("127.0.0.1", int(port)), timeout=10) as peer, ExitStack() as stack:
+        # The supervisor starts its own session. A group kill by the outer runner
+        # must reach the supervised processes through their guardian.
+        if os.name == "posix" and os.getpgrp() == os.getsid(0):
+            raise AssertionError(f"{role} remained in the supervisor's process group")
         if role == "child":
             stack.enter_context(subprocess.Popen([sys.executable, str(Path(__file__).resolve()),
                                                   "--outer-cancellation-child", port, "descendant"]))
@@ -53,7 +57,7 @@ def wait_for_outer_cancellation(port, role):
     return 1
 
 
-def check_outer_cancellation(supervisor):
+def check_outer_cancellation(supervisor, *, kill_group=False):
     with socket.socket() as listener, tempfile.TemporaryDirectory() as work:
         listener.bind(("127.0.0.1", 0))
         listener.listen(2)
@@ -70,12 +74,11 @@ def check_outer_cancellation(supervisor):
                 if sorted(connection.recv(1) for connection in connections) != [b"C", b"D"]:
                     raise AssertionError("child and descendant did not confirm startup")
 
-                if os.name == "posix":
+                if kill_group:
                     os.killpg(process.pid, signal.SIGKILL)
-                    expected_exit = -signal.SIGKILL
                 else:
                     process.kill()
-                    expected_exit = 1
+                expected_exit = -signal.SIGKILL if os.name == "posix" else 1
                 if process.wait(timeout=10) != expected_exit:
                     raise AssertionError("outer runner did not kill the supervisor")
                 for connection in connections:
@@ -118,6 +121,8 @@ def main(supervisor, probe, noexceptions_probe, *emulator):
     check("any", ["--expect", "missing message"], 1, "Expected substring")
     check("any", [], 1, "could not execute", [str(Path(supervisor).with_name("missing-test-executable"))])
     check_outer_cancellation(supervisor)
+    if os.name == "posix":
+        check_outer_cancellation(supervisor, kill_group=True)
 
     real = [*emulator, probe]
     for name, message in (("be/death", "not found"), ("probe/ordinary", "requires the death attribute")):
