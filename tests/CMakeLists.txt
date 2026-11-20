@@ -5375,6 +5375,17 @@ _gentest_add_cmake_helper_test(
     -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
 set_property(TEST gentest_codegen_module_provider_driver APPEND PROPERTY LABELS "codegen")
 
+# CMake 4.4 supports the clang-cl module scanner for this Windows cross fixture.
+if(CMAKE_VERSION VERSION_GREATER_EQUAL 4.4)
+    _gentest_add_cmake_helper_test(
+        gentest_codegen_installed_cl_provider_output
+        ${PROJECT_SOURCE_DIR}/tests/cmake/module_provider_scan
+        ${PROJECT_SOURCE_DIR}/tests/cmake/scripts/CheckInstalledClProviderOutput.cmake
+        modules
+        -DGENTEST_SOURCE_DIR=${PROJECT_SOURCE_DIR})
+    set_property(TEST gentest_codegen_installed_cl_provider_output APPEND PROPERTY LABELS "codegen")
+endif()
+
 _gentest_add_cmake_helper_test(
     gentest_codegen_separate_module_flag_strip
     ${PROJECT_SOURCE_DIR}

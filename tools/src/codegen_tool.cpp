@@ -95,6 +95,11 @@ using gentest::codegen::TestCaseInfo;
 static constexpr std::string_view kMissingCompdbSyntheticCommandMarker = "__gentest_missing_compdb_entry__";
 
 namespace {
+#if CLANG_VERSION_MAJOR >= 22
+namespace driver_options = clang;
+#else
+namespace driver_options = clang::driver;
+#endif
 using gentest::codegen::scan::is_global_module_fragment_scan_line;
 using gentest::codegen::scan::is_preprocessor_directive_scan_line;
 using gentest::codegen::scan::is_private_module_fragment_scan_line;
@@ -3182,11 +3187,6 @@ std::optional<std::size_t> compiler_arg_index_for_resource_dir_probe(const clang
     }
     unsigned missing_index = 0;
     unsigned missing_count = 0;
-#if CLANG_VERSION_MAJOR >= 22
-    namespace driver_options = clang;
-#else
-    namespace driver_options = clang::driver;
-#endif
     // Option spellings overlap between drivers: cl's -J is a flag, while
     // Flang's -J consumes a value. Match the actual driver's grammar.
     const auto driver_mode = clang::driver::getDriverMode(command_line[compiler_index], arguments);
@@ -3636,6 +3636,49 @@ class ModuleScratchDirectory {
     bool                  failed_ = false;
 };
 
+// clang-cl collects /clang: and -clang: arguments into a separate GNU argument list.
+// Parse both dialects so an output's operand can be separate, joined or interleaved with CL options.
+std::set<std::size_t> forwarded_cl_output_indices(std::span<const std::string> command) {
+    llvm::SmallVector<const char *, 32> flags;
+    for (const auto &arg : command.subspan(1)) {
+        flags.push_back(arg.c_str());
+    }
+    const auto &table         = driver_options::getDriverOptTable();
+    unsigned    missing_index = 0;
+    unsigned    missing_count = 0;
+    const auto  cl_args = table.ParseArgs(flags, missing_index, missing_count, llvm::opt::Visibility(driver_options::options::CLOption));
+
+    llvm::SmallVector<const char *, 16> forwarded;
+    llvm::SmallVector<std::size_t, 16>  positions;
+    for (const auto *arg : cl_args.filtered(driver_options::options::OPT__SLASH_clang)) {
+        forwarded.push_back(arg->getValue());
+        positions.push_back(arg->getIndex() + 1U);
+    }
+    llvm::opt::InputArgList gnu_args(forwarded.begin(), forwarded.end());
+    std::set<std::size_t>   outputs;
+    for (unsigned i = 0; i < forwarded.size();) {
+        const auto start = i;
+        const auto arg   = table.ParseOneArg(gnu_args, i, llvm::opt::Visibility(driver_options::options::ClangOption));
+        if (!arg) {
+            continue;
+        }
+        namespace opt = driver_options::options;
+        switch (arg->getOption().getID()) {
+        case opt::OPT_o:
+        case opt::OPT_fmodule_output:
+        case opt::OPT_fmodule_output_EQ:
+        case opt::OPT_MD:
+        case opt::OPT_MMD:
+        case opt::OPT_MF:
+        case opt::OPT_MJ:
+        case opt::OPT_MT:
+        case opt::OPT_MQ: outputs.insert(positions.begin() + start, positions.begin() + i); break;
+        default: break;
+        }
+    }
+    return outputs;
+}
+
 clang::tooling::CommandLineArguments build_module_precompile_command(const clang::tooling::CommandLineArguments &adjusted_command_line,
                                                                      std::string_view source_file, std::string_view working_directory,
                                                                      const std::filesystem::path &pcm_path,
@@ -3681,12 +3724,16 @@ clang::tooling::CommandLineArguments build_module_precompile_command(const clang
     command.reserve(adjusted_command_line.size() + 4);
     command.push_back(adjusted_command_line.front());
 
-    const bool cl_driver_mode = uses_cl_driver_mode(adjusted_command_line);
-    bool       skip_next_arg  = false;
+    const bool cl_driver_mode    = uses_cl_driver_mode(adjusted_command_line);
+    const auto forwarded_outputs = cl_driver_mode ? forwarded_cl_output_indices(adjusted_command_line) : std::set<std::size_t>{};
+    bool       skip_next_arg     = false;
     for (std::size_t i = 1; i < adjusted_command_line.size(); ++i) {
         const auto &arg = adjusted_command_line[i];
         if (skip_next_arg) {
             skip_next_arg = false;
+            continue;
+        }
+        if (forwarded_outputs.contains(i)) {
             continue;
         }
         if (is_cl_runtime_option(arg, cl_driver_mode)) {
