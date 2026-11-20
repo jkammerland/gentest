@@ -1627,6 +1627,7 @@ if(NOT GENTEST_RUNTIME_SHARED AND NOT CMAKE_CROSSCOMPILING AND (WIN32 OR APPLE O
         "-DRUNTIME=$<TARGET_FILE:gentest_runtime>"
         "-DRUNTIME_DIR=$<TARGET_FILE_DIR:gentest_runtime>"
         "-DEXPECTED_ARCHIVE=${CMAKE_STATIC_LIBRARY_PREFIX}gentest_runtime${_runtime_postfix}${CMAKE_STATIC_LIBRARY_SUFFIX}"
+        "-DOBJDUMP=${CMAKE_OBJDUMP}"
         -DSTATIC_RUNTIME=ON
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/CheckRuntimeLoaderIdentity.cmake")
     set_tests_properties(static_runtime_loader_identity PROPERTIES LABELS "runtime")

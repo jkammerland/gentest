@@ -24,6 +24,7 @@ if(NOT CMAKE_CROSSCOMPILING AND (WIN32 OR APPLE OR CMAKE_SYSTEM_NAME STREQUAL "L
         "-DCONSUMER=$<TARGET_FILE:runtime_shared_context_consumer>"
         "-DRUNTIME=$<TARGET_FILE:gentest_runtime>"
         "-DRUNTIME_DIR=$<TARGET_FILE_DIR:gentest_runtime>"
+        "-DOBJDUMP=${CMAKE_OBJDUMP}"
         "-DPOSTFIX=$<TARGET_PROPERTY:gentest_runtime,$<UPPER_CASE:$<CONFIG>>_POSTFIX>"
         "-DDLL_PREFIX=${CMAKE_SHARED_LIBRARY_PREFIX}"
         -P "${GENTEST_SOURCE_DIR}/tests/cmake/scripts/CheckRuntimeLoaderIdentity.cmake"

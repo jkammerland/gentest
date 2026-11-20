@@ -1,16 +1,32 @@
-# Inspect the linked executable, including imports the loader cannot resolve.
-file(GET_RUNTIME_DEPENDENCIES
-  EXECUTABLES "${CONSUMER}"
-  DIRECTORIES "${RUNTIME_DIR}"
-  PRE_INCLUDE_REGEXES "gentest_runtime"
-  PRE_EXCLUDE_REGEXES ".*"
-  RESOLVED_DEPENDENCIES_VAR _resolved
-  UNRESOLVED_DEPENDENCIES_VAR _unresolved)
+# Read ELF imports directly. The linker records their names in DT_NEEDED,
+# including on musl systems without a glibc loader cache.
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E env LC_ALL=C "${OBJDUMP}" -p "${CONSUMER}"
+    COMMAND_ERROR_IS_FATAL ANY OUTPUT_VARIABLE _headers)
+  string(REGEX MATCHALL "\n[ \t]+NEEDED[ \t]+[^\r\n]+" _imports "${_headers}")
+  list(TRANSFORM _imports REPLACE "^\n[ \t]+NEEDED[ \t]+" "")
+  list(FILTER _imports INCLUDE REGEX "gentest_runtime")
+else()
+  file(GET_RUNTIME_DEPENDENCIES
+    EXECUTABLES "${CONSUMER}"
+    DIRECTORIES "${RUNTIME_DIR}"
+    PRE_INCLUDE_REGEXES "gentest_runtime"
+    PRE_EXCLUDE_REGEXES ".*"
+    RESOLVED_DEPENDENCIES_VAR _resolved
+    UNRESOLVED_DEPENDENCIES_VAR _unresolved)
+  if(_unresolved)
+    message(FATAL_ERROR "Unresolved Gentest runtime imports: ${_unresolved}")
+  endif()
+  foreach(_path IN LISTS _resolved)
+    cmake_path(GET _path FILENAME _name)
+    list(APPEND _imports "${_name}")
+  endforeach()
+endif()
 
 if(STATIC_RUNTIME)
   cmake_path(GET RUNTIME FILENAME _archive)
-  if(NOT _archive STREQUAL EXPECTED_ARCHIVE OR NOT EXISTS "${RUNTIME}" OR _resolved OR _unresolved)
-    message(FATAL_ERROR "Expected ${EXPECTED_ARCHIVE} and no runtime import, got ${RUNTIME}; ${_resolved}; ${_unresolved}")
+  if(NOT _archive STREQUAL EXPECTED_ARCHIVE OR NOT EXISTS "${RUNTIME}" OR _imports)
+    message(FATAL_ERROR "Expected ${EXPECTED_ARCHIVE} and no runtime import, got ${RUNTIME}; ${_imports}")
   endif()
   return()
 endif()
@@ -22,16 +38,11 @@ elseif(CMAKE_HOST_APPLE)
 else()
   set(_identity "libgentest_runtime${POSTFIX}.so.2")
 endif()
-if(NOT EXISTS "${RUNTIME_DIR}/${_identity}" OR _unresolved)
-  message(FATAL_ERROR "Missing runtime ${_identity} in ${RUNTIME_DIR}; unresolved imports: ${_unresolved}")
+if(NOT EXISTS "${RUNTIME_DIR}/${_identity}")
+  message(FATAL_ERROR "Missing runtime ${_identity} in ${RUNTIME_DIR}")
 endif()
-list(LENGTH _resolved _count)
-if(NOT _count EQUAL 1)
-  message(FATAL_ERROR "Expected exactly one Gentest runtime import, got '${_resolved}'")
-endif()
-cmake_path(GET _resolved FILENAME _loaded_name)
-if(NOT _loaded_name STREQUAL _identity)
-  message(FATAL_ERROR "Consumer imports '${_loaded_name}', expected '${_identity}'")
+if(NOT _imports STREQUAL _identity)
+  message(FATAL_ERROR "Consumer imports '${_imports}', expected '${_identity}'")
 endif()
 
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
