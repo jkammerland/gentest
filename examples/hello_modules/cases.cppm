@@ -6,17 +6,15 @@ using namespace gentest::asserts;
 
 export namespace hello_modules {
 
-[[using gentest: test("addition")]]
+[[gentest::test]]
 void addition() {
     const auto value = 2 + 2;
-    gentest::expect_true(value == 4, "module addition result");
-    EXPECT_EQ(value, 4);
+    EXPECT_EQ(value, 4, "module addition result");
 }
 
-[[using gentest: test("predicate")]]
+[[gentest::test]]
 void predicate() {
     const auto predicate = [] { return true; };
-    gentest::expect_true(predicate());
     EXPECT_TRUE(predicate());
 }
 

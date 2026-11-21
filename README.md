@@ -19,9 +19,12 @@ reads the attributes and writes the registration code.
 
 using namespace gentest::asserts;
 
+namespace containers {
+
 [[gentest::test]]
-inline void basic() {
-    EXPECT_TRUE(1 + 1 == 2);
+inline void starts_empty() {
+    const std::vector<int> values;
+    EXPECT_TRUE(values.empty());
 }
 
 // Two template axes in one attribute list: four cases (int or long, vector or list).
@@ -33,6 +36,10 @@ void emplace_matrix() {
     EXPECT_EQ(values.size(), std::size_t{1});
 }
 
+} // namespace containers
+
+namespace payments {
+
 [[gentest::test("payment_succeeds")]]
 inline void paymentSucceeds() {
     shop::mocks::PaymentGatewayMock gateway;
@@ -41,6 +48,10 @@ inline void paymentSucceeds() {
     shop::Checkout checkout(gateway);
     EXPECT_TRUE(checkout.pay(250));
 }
+
+} // namespace payments
+
+namespace trig {
 
 struct SineInput {
     double angle = 0.0;
@@ -64,6 +75,8 @@ inline void sineThroughput(SineInput &input) {
 inline void sineLatency(SineInput &input) {
     gentest::doNotOptimizeAway(std::sin(input.nextAngle()));
 }
+
+} // namespace trig
 ```
 
 The [mocking example](examples/mocking/) shows how to generate `public/payment_mocks.hpp`.
@@ -128,16 +141,22 @@ gentest_discover_tests(my_tests)
 
 using namespace gentest::asserts;
 
-[[using gentest: test("demo/addition"), tag("fast")]]
+namespace demo {
+
+[[using gentest: test, tag("fast")]]
 inline void addition() {
     const auto value = 2 + 2;
-    gentest::expect_true(value == 4);
     EXPECT_EQ(value, 4);
 }
+
+} // namespace demo
 ```
 
 Annotated declarations go in headers that the target lists or that its `.cpp`
 files include; see [Writing tests](docs/writing_tests.md).
+
+The checks also have lowercase names, such as `gentest::expect_eq` for
+`EXPECT_EQ`; see [Assertions](docs/assertions.md#check-values).
 
 Point `CMAKE_PREFIX_PATH` at your gentest installation, then build and run the test.
 

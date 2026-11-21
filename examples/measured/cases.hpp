@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <span>
 
+using namespace gentest::asserts;
+
 namespace measured {
 
 // The same implementation is checked for correctness and measured below.
@@ -35,9 +37,9 @@ template <typename T, bool Reverse>
 [[using gentest: test("sum_correct"), template(T, int, long), template(Reverse, false, true), req("SUM-001"), owner("examples"),
   tag("fast")]]
 void sumCorrect(Input &input) {
-    gentest::expect_eq(sum<T, Reverse>({}), T{0});
-    gentest::expect_eq(sum<T, Reverse>(std::span<const int>(input.values).first(1)), T{1});
-    gentest::expect_eq(sum<T, Reverse>(input.values), T{2080});
+    EXPECT_EQ(sum<T, Reverse>({}), T{0});
+    EXPECT_EQ(sum<T, Reverse>(std::span<const int>(input.values).first(1)), T{1});
+    EXPECT_EQ(sum<T, Reverse>(input.values), T{2080});
 }
 
 template <typename T, bool Reverse>

@@ -150,11 +150,17 @@ Create `cases.hpp`:
 
 #include "gentest/test.h"
 
-[[gentest::test("demo/addition")]]
+using namespace gentest::asserts;
+
+namespace demo {
+
+[[gentest::test]]
 inline void addition() {
     const auto value = 2 + 2;
-    gentest::expect_eq(value, 4, "addition result");
+    EXPECT_EQ(value, 4, "addition result");
 }
+
+} // namespace demo
 ```
 
 Configure in the same shell, which keeps `$llvm_prefix` and `$gentest_prefix`
@@ -178,7 +184,7 @@ the same name.
 In `cases.hpp`, change the expected value to `5`:
 
 ```cpp
-    gentest::expect_eq(value, 5, "addition result");
+    EXPECT_EQ(value, 5, "addition result");
 ```
 
 Rebuild and run only that case:
@@ -193,13 +199,13 @@ The command exits with a nonzero status. The output looks like this, with
 
 ```text
 [ FAIL ] demo/addition :: 1 issue(s) (0 ms)
-EXPECT_EQ    failed at <project>/cases.hpp:8: addition result; lhs=4, rhs=5
+EXPECT_EQ    failed at <project>/cases.hpp:12: addition result; lhs=4, rhs=5
 
 Rerun: './build/first_tests' '--run=demo/addition' '--kind=test' '--no-color'
 Summary: passed 0/1; failed 1; skipped 0; blocked 0; xfail 0; xpass 0.
 Failed tests:
-  demo/addition (cases.hpp:6):
-    EXPECT_EQ    failed at <project>/cases.hpp:8: addition result; lhs=4, rhs=5
+  demo/addition (cases.hpp:10):
+    EXPECT_EQ    failed at <project>/cases.hpp:12: addition result; lhs=4, rhs=5
 ```
 
 The `Rerun:` line runs just this case again. `--run` accepts any full name
@@ -223,8 +229,12 @@ Replace `cases.hpp` with:
 
 #include "gentest/attributes.h"
 
-[[gentest::test("demo/addition")]]
+namespace demo {
+
+[[gentest::test]]
 void addition();
+
+} // namespace demo
 ```
 
 Add `cases.cpp`:
@@ -234,10 +244,16 @@ Add `cases.cpp`:
 
 #include "gentest/test.h"
 
+using namespace gentest::asserts;
+
+namespace demo {
+
 void addition() {
     const auto value = 2 + 2;
-    gentest::expect_eq(value, 4, "addition result");
+    EXPECT_EQ(value, 4, "addition result");
 }
+
+} // namespace demo
 ```
 
 Change the target to `add_executable(first_tests cases.cpp cases.hpp)`, then

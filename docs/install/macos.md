@@ -97,11 +97,17 @@ gentest_discover_tests(first_tests)
 
 #include "gentest/test.h"
 
-[[gentest::test("demo/addition")]]
+using namespace gentest::asserts;
+
+namespace demo {
+
+[[gentest::test]]
 inline void addition() {
     const auto value = 2 + 2;
-    gentest::expect_eq(value, 4, "addition result");
+    EXPECT_EQ(value, 4, "addition result");
 }
+
+} // namespace demo
 ```
 
 From that folder, build with the same compiler you used for gentest, and run

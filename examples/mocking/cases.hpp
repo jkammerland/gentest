@@ -3,6 +3,8 @@
 #include "gentest/test.h"
 #include "public/payment_mocks.hpp"
 
+using namespace gentest::asserts;
+
 namespace mocking {
 
 [[gentest::test("payment_succeeds")]]
@@ -11,7 +13,7 @@ inline void paymentSucceeds() {
     gentest::expect(gateway, &shop::PaymentGateway::charge).times(1).with(250).returns(true);
 
     shop::Checkout checkout(gateway);
-    gentest::expect_true(checkout.pay(250));
+    EXPECT_TRUE(checkout.pay(250));
 }
 
 [[gentest::test("payment_declined")]]
@@ -20,7 +22,7 @@ inline void paymentDeclined() {
     gentest::expect(gateway, &shop::PaymentGateway::charge).times(1).with(250).returns(false);
 
     shop::Checkout checkout(gateway);
-    gentest::expect_false(checkout.pay(250));
+    EXPECT_FALSE(checkout.pay(250));
 }
 
 [[using gentest: test("invalid_amount"), parameters(cents, -1, 0)]]
@@ -29,7 +31,7 @@ inline void invalidAmount(int cents) {
     gentest::expect(gateway, &shop::PaymentGateway::charge).times(0);
 
     shop::Checkout checkout(gateway);
-    gentest::expect_false(checkout.pay(cents));
+    EXPECT_FALSE(checkout.pay(cents));
 }
 
 } // namespace mocking

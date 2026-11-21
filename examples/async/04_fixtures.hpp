@@ -7,6 +7,7 @@
 namespace async_examples::fixtures {
 
 using namespace gentest;
+using namespace gentest::asserts;
 using namespace gentest::async;
 
 // A local fixture is set up and torn down for each case.
@@ -36,15 +37,15 @@ struct [[gentest::fixture(suite)]] Server : AsyncFixtureSetup {
 
 [[gentest::test("local_connection")]]
 inline auto localConnection(Connection &connection, Server &server) -> awaitable<> {
-    expect_true(connection.connected);
-    expect_eq(server.port, 8080);
+    EXPECT_TRUE(connection.connected);
+    EXPECT_EQ(server.port, 8080);
     co_return;
 }
 
 [[gentest::test("shared_server")]]
 inline auto sharedServer(Server &server) -> awaitable<> {
     co_await yield();
-    expect_eq(server.port, 8080);
+    EXPECT_EQ(server.port, 8080);
 }
 
 } // namespace async_examples::fixtures

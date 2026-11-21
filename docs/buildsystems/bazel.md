@@ -61,10 +61,14 @@ gentest_attach_codegen_textual(
 
 using namespace gentest::asserts;
 
-[[using gentest: test("demo/addition")]]
+namespace demo {
+
+[[gentest::test]]
 inline void addition() {
     EXPECT_EQ(2 + 2, 4);
 }
+
+} // namespace demo
 ```
 
 Build and run:

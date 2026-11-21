@@ -18,6 +18,7 @@
 namespace async_examples::worker {
 
 using namespace gentest;
+using namespace gentest::asserts;
 using namespace gentest::async;
 
 // A complete, small backend. No Gentest registration or loop interface is needed.
@@ -126,8 +127,8 @@ struct [[gentest::fixture(suite)]] Infrastructure {
 inline auto callbackValueOnRunner(Infrastructure &infrastructure) -> awaitable<> {
     const auto runner = std::this_thread::get_id();
     auto       value  = co_await Read{infrastructure.loop};
-    expect_eq(*value, 42);
-    expect_true(std::this_thread::get_id() == runner);
+    EXPECT_EQ(*value, 42);
+    EXPECT_TRUE(std::this_thread::get_id() == runner);
 }
 
 [[gentest::test("bounded_callback")]]
@@ -138,7 +139,7 @@ inline auto boundedCallback(Infrastructure &infrastructure) -> awaitable<> {
         fail("backend did not complete the read");
         co_return;
     }
-    expect_eq(*result.value(), 42);
+    EXPECT_EQ(*result.value(), 42);
 }
 
 [[gentest::test("backend_error")]]
@@ -147,7 +148,7 @@ inline auto backendError(Infrastructure &infrastructure) -> awaitable<> {
     try {
         (void)co_await Read{infrastructure.loop, Reply::unavailable};
     } catch (const std::runtime_error &) { rejected = true; }
-    expect_true(rejected);
+    EXPECT_TRUE(rejected);
 }
 
 } // namespace async_examples::worker

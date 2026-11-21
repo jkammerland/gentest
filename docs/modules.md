@@ -99,13 +99,12 @@ struct Counter : gentest::FixtureSetup {
     int value = 0;
 };
 
-[[using gentest: test("addition")]]
+[[gentest::test]]
 void addition() {
-    gentest::expect_true(2 + 2 == 4, "basic arithmetic");
     EXPECT_EQ(2 + 2, 4);
 }
 
-[[using gentest: test("fixture")]]
+[[gentest::test("fixture")]]
 void uses_fixture(Counter& counter) {
     EXPECT_EQ(counter.value, 7);
 }
