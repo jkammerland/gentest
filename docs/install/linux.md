@@ -6,20 +6,18 @@ write a first test, make it fail, and rerun just that case.
 
 ## Requirements
 
-| Component | Requirement |
+| Component | Tools used in this guide |
 | --- | --- |
-| Compiler for your tests | A C++20 compiler and standard library that provide `std::stop_token`. Clang and GCC both work. |
-| Build tools | CMake 3.31 or newer, Ninja (or Ninja Multi-Config), and Git. |
+| Compiler for your tests | A C++20 compiler and standard library. The example uses Clang. |
+| Build tools | CMake 3.31 or newer, Ninja, and Git. |
 | Code generator | LLVM and Clang development packages of one major version, 19 or newer, plus that version's `clang++` with its builtin headers. `gentest_codegen` links these libraries and runs on your build machine. |
-| fmt | An installed fmt CMake package. Without one, the build downloads fmt 12.1.0. |
 
 The commands below use one LLVM installation both to build your tests and as
 the host Clang for `gentest_codegen`. If you build your tests with another
 compiler, its C++ standard library must be ABI-compatible with the one that
 built gentest. [Host toolchains and cross-compiling](../buildsystems/host_toolchain_sysroots.md)
-covers separate compilers and cross builds. Named modules have extra
-[requirements](../modules.md#requirements): a module-capable compiler, Ninja
-1.11 or newer and `clang-scan-deps`.
+covers separate compilers and cross builds. For named modules, see the
+[module requirements](../modules.md#requirements).
 
 ### Install the packages
 
@@ -111,10 +109,10 @@ Keep these points in mind:
 
 You put annotated test declarations in headers that your test target lists or
 includes, and `gentest_codegen` generates their registration at build time.
-Define cases in a header as `inline` functions, not `static` and not in an
-anonymous namespace. [Writing tests](../writing_tests.md) has the full rules.
+This example defines its case as an `inline` function in the header.
+[Writing tests](../writing_tests.md) covers other layouts.
 
-Create a folder next to the gentest checkout:
+Create a folder for your project:
 
 ```bash
 mkdir gentest-first-test
@@ -128,7 +126,6 @@ cmake_minimum_required(VERSION 3.31)
 project(first_test LANGUAGES CXX)
 
 include(CTest)
-set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(gentest CONFIG REQUIRED)
 
 add_executable(first_tests cases.hpp)
@@ -139,7 +136,6 @@ gentest_attach_codegen(first_tests)
 gentest_discover_tests(first_tests)
 ```
 
-- `set(CMAKE_CXX_EXTENSIONS OFF)` compiles in ISO C++ mode.
 - `find_package(gentest)` provides the `gentest::` targets and the CMake
   functions.
 - `gentest::gentest_main` links the runtime and supplies `main()`.
@@ -219,8 +215,7 @@ to a passing project.
 
 ## Keep definitions in a source file
 
-A case defined in a header must be `inline`. To keep the definition in a
-`.cpp` file instead, leave only the annotated declaration in the header.
+To define `addition()` in a `.cpp` file, leave its annotated declaration in the header.
 Replace `cases.hpp` with:
 
 ```cpp
@@ -277,13 +272,13 @@ The [examples index](../../examples/README.md) lists every example.
 
 ## Install the runtime without the code generator
 
-To install only the headers, runtime and CMake package, add
+To install gentest without building `gentest_codegen`, add
 `-DGENTEST_BUILD_CODEGEN=OFF` to the configure command (with
 `-Dgentest_INSTALL=ON`). This build doesn't need the LLVM and Clang
 development packages.
 
-Projects that use such an install must name a `gentest_codegen` that runs on
-the build machine and comes from the same gentest version:
+If your project generates test registrations or mocks, point it at a
+`gentest_codegen` from the same gentest version that runs on the build machine:
 
 ```bash
 cmake -S . -B build -G Ninja \

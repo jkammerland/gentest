@@ -9,12 +9,12 @@ that uses it, on Windows. The setup steps are in
 - Work in a 64-bit Developer PowerShell, started as shown in
   [Prepare a developer shell](install/windows.md#prepare-a-developer-shell).
 - Generate with Ninja (`-G Ninja`).
-- Use the LLVM archive `clang+llvm-<version>-x86_64-pc-windows-msvc.tar.xz`,
+- Check that your LLVM installation includes the LLVM and Clang CMake packages,
   and put its `bin` folder on `PATH`.
 - Pass `-DLLVM_DIR=<llvm>\lib\cmake\llvm` and `-DClang_DIR=<llvm>\lib\cmake\clang`
   when you configure gentest, or set them as environment variables.
-- With LLVM 23, make zlib, zstd and libxml2 available.
-- Build gentest and your project in `RelWithDebInfo` or `Release`. If gentest
+- With the LLVM 23 release archive, make zlib, zstd and libxml2 available.
+- With prebuilt release libraries, use `RelWithDebInfo` or `Release`. If gentest
   was built with Clang, use its C runtime settings in your project.
 
 ## The developer environment is missing

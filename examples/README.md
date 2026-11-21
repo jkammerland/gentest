@@ -1,16 +1,11 @@
 # Examples
 
-Each directory here is a small CMake project that builds a test executable
-against an installed gentest. Start with a hello example, then open the feature
-you need.
+Start with a hello example to build your first test executable, then pick a
+feature to try.
 
 ## Build an example
 
-The examples need CMake 3.31 or newer, Ninja, a C++20 compiler, a gentest
-install that includes `gentest_codegen` (a native install does by default), and
-a host Clang that codegen can find (see
-[Host toolchains and cross-compiling](../docs/buildsystems/host_toolchain_sysroots.md)).
-Install gentest first ([Linux](../docs/install/linux.md),
+Install gentest and its code generator ([Linux](../docs/install/linux.md),
 [macOS](../docs/install/macos.md), [Windows](../docs/install/windows.md)).
 Then, from the repository root, point `CMAKE_PREFIX_PATH` at the install prefix:
 
@@ -20,21 +15,19 @@ cmake --build build/examples/hello_header_only
 ctest --test-dir build/examples/hello_header_only --output-on-failure
 ```
 
-The same commands build the other examples; change the directory name. Each
-example's README adds the commands specific to it.
+For another test example, use its directory name. Each example's README
+includes its setup.
 
 ## Hello examples
 
 | Example | What it shows |
 | --- | --- |
-| [`examples/hello_header_only/`](hello_header_only/) | The common layout: the test target's only source is a header of `inline` cases. |
+| [`examples/hello_header_only/`](hello_header_only/) | Test cases defined in a single header. |
 | [`examples/hello/`](hello/) | Declarations in a header, definitions in a `.cpp` file. |
 | [`examples/hello_modules/`](hello_modules/) | Cases in a named-module interface unit, with `import gentest;` and module registration (`MODULE_REGISTRATION`). |
 
-The module example needs a gentest install configured with
-`-DGENTEST_ENABLE_PUBLIC_MODULES=ON`, Ninja 1.11 or newer, a compiler that CMake
-can scan for module dependencies, and `clang-scan-deps` for codegen (with any
-compiler). See [Named modules: requirements](../docs/modules.md#requirements).
+To run the module example, install gentest with its public modules enabled.
+See the [module requirements](../docs/modules.md#requirements).
 
 ## Feature examples
 

@@ -4,8 +4,7 @@
 
 gentest is a C++20 test framework. Tests are plain functions marked with
 standard C++ attributes. At build time a Clang-based tool, `gentest_codegen`,
-reads the attributes and writes the registration code, so you don't need
-registration macros.
+reads the attributes and writes the registration code.
 
 ```cpp
 #include "gentest/test.h"
@@ -40,41 +39,30 @@ void emplace_matrix() {
 - **Fixtures from the signature.** Declare fixtures as function parameters,
   several per case. Local fixtures are fresh for each case; suite and global
   fixtures are shared, with optional setup and teardown.
-- **Generated mocks.** Generate mocks for virtual and non-virtual members,
-  including static members and member templates. Non-virtual calls use the
-  mock type; see [Mocks](docs/mock_generation.md). The CMake helper also
-  supports gMock and Trompeloeil backends.
+- **Generated mocks.** Mock classes with virtual or non-virtual methods,
+  including static members and member templates. See [Mocks](docs/mock_generation.md).
 - **More than pass or fail.** Declare benchmarks, jitter measurements and
   death tests with attributes.
 - **Async tests.** Write tests and fixture setup with C++20 coroutines.
   [Async support](docs/async.md) is experimental.
-- **Fits your tooling.** Select cases by name or user-defined tag and expose
-  each case through CTest. Runs can write JUnit XML, Allure results and GitHub
-  Actions annotations. CMake, Meson, Xmake and Bazel are supported, as are
-  named modules.
+- **Fits your tooling.** Select cases by name or user-defined tag. Runs can
+  write JUnit XML, Allure results and GitHub Actions annotations.
 
 ## Requirements
 
-- CMake 3.31 or newer with Ninja or Ninja Multi-Config, or one of the
-  [other supported build systems](docs/buildsystems/downstream_consumers.md).
-- A C++20 compiler and standard library with `std::stop_token`: Clang, GCC
-  or MSVC. On macOS, AppleClang support starts at Xcode 26 / AppleClang 17.
-- LLVM/Clang 19 or newer on the build machine for `gentest_codegen`.
-  Building the tool requires matching LLVM and Clang development packages;
-  running it requires that Clang installation and its built-in headers.
-  Your tests can use a different compiler. The installation guides below
-  list the packages to install.
+- A C++20 compiler such as Clang, GCC, MSVC or AppleClang.
+- LLVM/Clang 19 or newer on the build machine for code generation.
+- CMake 3.31 or newer, or
+  [Meson, Xmake or Bazel](docs/buildsystems/downstream_consumers.md).
 
-Named modules add [compiler and dependency-scanning requirements](docs/modules.md#requirements).
+For named modules, see the [module requirements](docs/modules.md#requirements).
 
 ## Quick start
 
-Install gentest first. You build it from source: the guides for
-[Linux](docs/install/linux.md), [macOS](docs/install/macos.md) and
-[Windows](docs/install/windows.md) list the packages, install gentest to a user
-prefix and run a first project. Then build this small CMake project against
-that install. On Windows, add the configure options the Windows guide shows
-for your compiler.
+Install gentest from source on [Linux](docs/install/linux.md),
+[macOS](docs/install/macos.md) or [Windows](docs/install/windows.md).
+To build for another machine, start with [Cross-compiling](#cross-compiling).
+For a native build, create these two files in a new directory.
 
 `CMakeLists.txt`:
 
@@ -83,19 +71,13 @@ cmake_minimum_required(VERSION 3.31)
 project(my_tests LANGUAGES CXX)
 
 include(CTest)
-# Compile as ISO C++20.
-set(CMAKE_CXX_EXTENSIONS OFF)
 find_package(gentest CONFIG REQUIRED)
 
-# The annotated header is the whole test target; codegen adds the generated
-# registration sources to it.
 add_executable(my_tests cases.hpp)
 target_compile_features(my_tests PRIVATE cxx_std_20)
 target_link_libraries(my_tests PRIVATE gentest::gentest_main)
 
 gentest_attach_codegen(my_tests)
-# One CTest test per case. To run every case in one process instead:
-# add_test(NAME my_tests COMMAND my_tests)
 gentest_discover_tests(my_tests)
 ```
 
@@ -119,8 +101,10 @@ inline void addition() {
 Annotated declarations go in headers that the target lists or that its `.cpp`
 files include; see [Writing tests](docs/writing_tests.md).
 
-Configure, build and test, with `CMAKE_PREFIX_PATH` pointing at the gentest
-install:
+Point `CMAKE_PREFIX_PATH` at your gentest installation, then build and run the test.
+
+> [!NOTE]
+> On Windows, use the [configure command for your compiler](docs/install/windows.md#write-your-first-test-project).
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=/path/to/gentest/install
@@ -143,15 +127,16 @@ Run the test executable directly for more control:
 code, and [Test selection](docs/test_selection.md) explains how the selectors
 combine.
 
+### Cross-compiling
+
+Run `gentest_codegen` on the build machine and compile the runtime and your
+tests with the target toolchain. The [Arm Linux walkthrough](docs/buildsystems/host_toolchain_sysroots.md#cross-compile-a-cmake-project)
+runs the tests under QEMU. See also [QNX toolchains](docs/buildsystems/host_toolchain_sysroots.md#qnx-toolchains).
+
 ## Named modules
 
-Cases can also live in named-module interface units that use
-`import gentest;`. Build gentest with `-DGENTEST_ENABLE_PUBLIC_MODULES=ON` and
-attach codegen with
-`gentest_attach_codegen(<target> MODULE_REGISTRATION FILE_SET <name>)`.
-[examples/hello_modules](examples/hello_modules) is a complete project, and
-[Named modules](docs/modules.md) covers the requirements, what to export and
-link, and module mocks.
+You can export test cases from a C++ module. The [module example](examples/hello_modules)
+uses `import gentest;`. See [Named modules](docs/modules.md) for setup.
 
 ## Documentation
 
@@ -169,7 +154,7 @@ contributor and design-history pages.
 | [Parameters and templates](docs/parameters.md) | Value axes, rows, numeric ranges, template matrices |
 | [Fixtures](docs/fixtures.md) | Local, suite and global lifetimes, setup and teardown, activation order |
 | [Fixture allocation hooks](docs/fixtures_allocation.md) | Custom construction and ownership with `gentest_allocate` |
-| [Death tests](docs/death_tests.md) | Cases that must terminate the process, and how CTest runs them |
+| [Death tests](docs/death_tests.md) | Check that a test terminates its process |
 | [Mocks](docs/mock_generation.md) | Mock targets, mock definitions headers, gentest mocks, the gMock and Trompeloeil backends |
 | [Logging and threads](docs/logging_and_threads.md) | `gentest::log()`, log sinks, worker threads, live output |
 | [Benchmarks and jitter](docs/benchmarks.md) | Measured cases, timing reports, comparing two reports |
@@ -195,10 +180,10 @@ contributor and design-history pages.
 | Page | What it covers |
 | --- | --- |
 | [Install gentest on Linux](docs/install/linux.md) | Build and install gentest from source, then run a first project |
-| [Install gentest on macOS](docs/install/macos.md) | The same with Homebrew LLVM, which codegen always needs; tests can also build with AppleClang 17 (Xcode 26) |
-| [Install gentest on Windows](docs/install/windows.md) | The same with an LLVM release package, using Clang or MSVC |
+| [Install gentest on macOS](docs/install/macos.md) | Build with LLVM Clang or AppleClang |
+| [Install gentest on Windows](docs/install/windows.md) | Build with Clang or MSVC |
 | [Choosing a build system](docs/buildsystems/downstream_consumers.md) | Support matrix and settings for CMake, Meson, Xmake and Bazel |
-| [Meson](docs/buildsystems/meson.md) | gentest as a Meson wrap or subproject, without named modules |
+| [Meson](docs/buildsystems/meson.md) | Use gentest as a Meson wrap or subproject |
 | [Xmake](docs/buildsystems/xmake.md) | An installed gentest from Xmake, with the installed helper functions |
 | [Bazel](docs/buildsystems/bazel.md) | The Bzlmod source package and its codegen toolchain |
 | [Host toolchains and cross-compiling](docs/buildsystems/host_toolchain_sysroots.md) | Host Clang selection, sysroots, cross builds of your project |
@@ -220,12 +205,6 @@ an installed gentest:
 - Feature walkthroughs: [parameters](examples/parameterized/), [fixtures](examples/fixtures/),
   [mocks](examples/mocking/), [benchmarks and jitter](examples/measured/),
   [recording](examples/recording/), [metadata](examples/metadata/) and [async](examples/async/).
-
-## Cross-compiling
-
-`gentest_codegen` runs on the build machine, so a cross build needs a host
-build of it; in CMake, pass its path as `-DGENTEST_CODEGEN_EXECUTABLE=<path>`.
-See [Host toolchains and cross-compiling](docs/buildsystems/host_toolchain_sysroots.md).
 
 ## Contributing
 

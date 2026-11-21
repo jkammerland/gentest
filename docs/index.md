@@ -6,8 +6,8 @@ This page lists the gentest documentation by task.
 
 - [README](../README.md): what gentest is, a first example, requirements and the quick start.
 - [Install gentest on Linux](install/linux.md): build and install gentest from source, write a first project, make a case fail and rerun it.
-- [Install gentest on macOS](install/macos.md): the same steps with Homebrew LLVM, which `gentest_codegen` always needs; your tests can also use AppleClang 17 (Xcode 26), except with named modules.
-- [Install gentest on Windows](install/windows.md): the same steps with an LLVM release package, using Clang or MSVC.
+- [Install gentest on macOS](install/macos.md): build with LLVM Clang or AppleClang and run a first test.
+- [Install gentest on Windows](install/windows.md): build with Clang or MSVC and run a first test.
 - [Examples](../examples/README.md): small CMake projects, from a one-header test target to one walkthrough per feature.
 
 ## Write tests
@@ -40,7 +40,7 @@ This page lists the gentest documentation by task.
 ## Integrate with your build
 
 - [Choosing a build system](buildsystems/downstream_consumers.md): support matrix and settings for CMake, Meson, Xmake and Bazel.
-- [Meson](buildsystems/meson.md): gentest as a Meson wrap or subproject; header registration only, no named modules.
+- [Meson](buildsystems/meson.md): use gentest as a Meson wrap or subproject.
 - [Xmake](buildsystems/xmake.md): an installed gentest from Xmake, with the installed helper functions.
 - [Bazel](buildsystems/bazel.md): the Bzlmod source package and the codegen exec toolchain.
 - [Host toolchains and cross-compiling](buildsystems/host_toolchain_sysroots.md): how codegen finds its host Clang, target sysroots, cross builds of your project.
