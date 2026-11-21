@@ -7,8 +7,11 @@ standard C++ attributes. At build time a Clang-based tool, `gentest_codegen`,
 reads the attributes and writes the registration code.
 
 ```cpp
+#include "gentest/bench_util.h"
 #include "gentest/test.h"
+#include "public/payment_mocks.hpp"
 
+#include <cmath>
 #include <cstddef>
 #include <list>
 #include <vector>
@@ -28,7 +31,34 @@ void emplace_matrix() {
     values.emplace_back(T{1});
     EXPECT_EQ(values.size(), std::size_t{1});
 }
+
+[[gentest::test("payment_succeeds")]]
+inline void paymentSucceeds() {
+    shop::mocks::PaymentGatewayMock gateway;
+    gentest::expect(gateway, &shop::PaymentGateway::charge).times(1).with(250).returns(true);
+
+    shop::Checkout checkout(gateway);
+    EXPECT_TRUE(checkout.pay(250));
+}
+
+struct SineInput {
+    double angle = 1.2345;
+};
+
+[[gentest::bench("sine_throughput")]]
+inline void sineThroughput(SineInput &input) {
+    gentest::clobberMemory();
+    gentest::doNotOptimizeAway(std::sin(input.angle));
+}
+
+[[gentest::jitter("sine_latency")]]
+inline void sineLatency(SineInput &input) {
+    gentest::clobberMemory();
+    gentest::doNotOptimizeAway(std::sin(input.angle));
+}
 ```
+
+The [mocking example](examples/mocking/) shows how to generate `public/payment_mocks.hpp`.
 
 ## Why gentest
 
