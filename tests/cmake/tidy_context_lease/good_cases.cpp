@@ -68,4 +68,19 @@ auto leased_coroutine_context(gentest::CurrentContext context) -> DetachedTask {
     co_return;
 }
 
+template <typename T> using TestTask = gentest::awaitable<T>;
+
+template <typename T> auto managed_helper(T value) -> TestTask<T> {
+    co_await gentest::async::yield();
+    gentest::log("resumed helper");
+    gentest::expect_true(true);
+    co_return value;
+}
+
+auto owning_coroutine_context() -> gentest::awaitable<> {
+    const int value = co_await managed_helper(42);
+    gentest::expect_eq(value, 42);
+    gentest::record_property("answer", value);
+}
+
 } // namespace

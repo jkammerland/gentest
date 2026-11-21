@@ -109,4 +109,14 @@ auto leased_coroutine_outcome_context(gentest::CurrentContext context) -> Detach
     co_return;
 }
 
+auto worker_in_managed_coroutine() -> gentest::awaitable<> {
+    co_await gentest::async::yield();
+    std::thread worker([context = gentest::get_current_context()] {
+        auto lease = gentest::set_current_context(context);
+        gentest::record_property("worker", 1);
+        gentest::record_data("bytes", {}, "application/octet-stream");
+    });
+    worker.join();
+}
+
 } // namespace

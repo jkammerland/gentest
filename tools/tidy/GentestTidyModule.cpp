@@ -4,13 +4,17 @@
 #include <clang-tidy/ClangTidy.h>
 #include <clang-tidy/ClangTidyCheck.h>
 #include <clang-tidy/ClangTidyModule.h>
-#include <clang-tidy/ClangTidyModuleRegistry.h>
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/ASTTypeTraits.h>
+#include <clang/AST/DeclTemplate.h>
 #include <clang/AST/RecursiveASTVisitor.h>
 #include <clang/AST/StmtCXX.h>
 #include <clang/ASTMatchers/ASTMatchFinder.h>
+#include <clang/Basic/Version.h>
 #include <clang/Tooling/Tooling.h>
+#if CLANG_VERSION_MAJOR < 22
+#include <clang-tidy/ClangTidyModuleRegistry.h>
+#endif
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -175,6 +179,8 @@ class ThreadLikeCallableUseVisitor : public RecursiveASTVisitor<ThreadLikeCallab
   public:
     ThreadLikeCallableUseVisitor(const NamedDecl &target, ASTContext &context) : target_(target.getCanonicalDecl()), context_(context) {}
 
+    // RecursiveASTVisitor dispatches to this exact method on the derived class.
+    // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
     bool VisitDeclRefExpr(DeclRefExpr *expr) {
         const auto *decl = dyn_cast_or_null<NamedDecl>(expr ? expr->getDecl() : nullptr);
         if (!decl || decl->getCanonicalDecl() != target_) {
@@ -259,6 +265,10 @@ std::optional<GentestRuntimeCallAccess> gentest_runtime_call_access(const CallEx
     }
 
     static constexpr std::string_view kOwnerOnlyNames[] = {
+        "gentest::record_property",
+        "gentest::record_data",
+        "gentest::record_json",
+        "gentest::record_cbor",
         "gentest::fail",
         "gentest::skip",
         "gentest::skip_if",
@@ -377,6 +387,7 @@ const Stmt *declaration_lifetime_owner(const VarDecl &var, ASTContext &context) 
 
 class SetCurrentContextCallFinder : public RecursiveASTVisitor<SetCurrentContextCallFinder> {
   public:
+    // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method): RecursiveASTVisitor callback.
     bool VisitCallExpr(CallExpr *call) {
         if (call && is_current_context_lease_call(*call)) {
             found_ = true;
@@ -409,6 +420,8 @@ class ActiveContextLeaseVisitor : public RecursiveASTVisitor<ActiveContextLeaseV
     ActiveContextLeaseVisitor(ASTContext &context, const CallExpr &target, SourceLocation before, bool require_lease_after_latest_suspend)
         : context_(context), target_(target), before_(before), require_lease_after_latest_suspend_(require_lease_after_latest_suspend) {}
 
+    // RecursiveASTVisitor dispatches these callbacks by name.
+    // NOLINTBEGIN(bugprone-derived-method-shadowing-base-method)
     bool VisitDeclStmt(DeclStmt *decl_stmt) {
         if (!decl_stmt) {
             return true;
@@ -453,6 +466,7 @@ class ActiveContextLeaseVisitor : public RecursiveASTVisitor<ActiveContextLeaseV
         }
         return true;
     }
+    // NOLINTEND(bugprone-derived-method-shadowing-base-method)
 
     bool found() const {
         if (lease_.isInvalid()) {
@@ -503,6 +517,27 @@ struct RiskyExecutionContext {
     bool        require_lease_after_latest_suspend = false;
 };
 
+bool is_gentest_awaitable(QualType return_type) {
+    const auto          type = return_type.getCanonicalType();
+    const TemplateDecl *task = nullptr;
+    if (const auto *record = dyn_cast_or_null<ClassTemplateSpecializationDecl>(type->getAsCXXRecordDecl())) {
+        task = record->getSpecializedTemplate();
+    } else if (const auto *dependent = type->getAs<TemplateSpecializationType>()) {
+        // An awaitable<T> in an uninstantiated helper has no specialized record yet.
+        task = dependent->getTemplateName().getAsTemplateDecl();
+    }
+    return task && qualified_name_is(*task, "gentest::awaitable");
+}
+
+std::optional<RiskyExecutionContext> coroutine_execution_context(const CoroutineBodyStmt &body) {
+    // The gentest scheduler restores the owning context when it resumes an awaitable.
+    const auto *function = dyn_cast<FunctionDecl>(body.getPromiseDecl()->getDeclContext());
+    if (function && is_gentest_awaitable(function->getReturnType())) {
+        return std::nullopt;
+    }
+    return RiskyExecutionContext{.body = &body, .kind = "coroutine body", .require_lease_after_latest_suspend = true};
+}
+
 std::optional<RiskyExecutionContext> find_risky_execution_context(const CallExpr &call, ASTContext &context) {
     DynTypedNode current = DynTypedNode::create(call);
     for (int depth = 0; depth < 64; ++depth) {
@@ -516,15 +551,15 @@ std::optional<RiskyExecutionContext> find_risky_execution_context(const CallExpr
             return RiskyExecutionContext{.body = lambda->getBody(), .kind = "thread-like callback"};
         }
         if (const auto *coroutine_body = current.get<CoroutineBodyStmt>()) {
-            return RiskyExecutionContext{.body = coroutine_body, .kind = "coroutine body", .require_lease_after_latest_suspend = true};
+            return coroutine_execution_context(*coroutine_body);
         }
         if (const auto *function = current.get<FunctionDecl>(); function) {
             if (const auto *method = dyn_cast<CXXMethodDecl>(function); method && method->getParent() && method->getParent()->isLambda()) {
                 continue;
             }
             const Stmt *body = function->getBody();
-            if (body && isa<CoroutineBodyStmt>(body)) {
-                return RiskyExecutionContext{.body = body, .kind = "coroutine body", .require_lease_after_latest_suspend = true};
+            if (const auto *coroutine_body = dyn_cast_or_null<CoroutineBodyStmt>(body)) {
+                return coroutine_execution_context(*coroutine_body);
             }
             if (body && callable_decl_is_used_in_thread_like_context(*function, context)) {
                 return RiskyExecutionContext{.body = body, .kind = "thread-like callback"};
@@ -542,7 +577,7 @@ class GentestAttributesCheck : public clang::tidy::ClangTidyCheck {
     GentestAttributesCheck(llvm::StringRef Name, clang::tidy::ClangTidyContext *Context) : clang::tidy::ClangTidyCheck(Name, Context) {}
 
     void registerMatchers(MatchFinder *Finder) override {
-        Finder->addMatcher(functionDecl(isDefinition()).bind("func"), this);
+        Finder->addMatcher(traverse(TK_IgnoreUnlessSpelledInSource, functionDecl().bind("func")), this);
         Finder->addMatcher(cxxRecordDecl(isDefinition(), unless(isImplicit())).bind("record"), this);
         Finder->addMatcher(namespaceDecl().bind("ns"), this);
     }
@@ -631,18 +666,14 @@ class GentestContextLeaseCheck : public clang::tidy::ClangTidyCheck {
         if (!risky_context || !risky_context->body) {
             return;
         }
-        const bool has_lease = has_prior_context_lease(*risky_context->body, *runtime_call, call_loc, *context,
-                                                       risky_context->require_lease_after_latest_suspend);
-
         if (*runtime_access == GentestRuntimeCallAccess::OwnerOnly) {
-            diag(call_loc,
-                 "gentest outcome call %0 in %1 cannot run from a worker/adopted context; report results back and assert on the owning "
-                 "test")
+            diag(call_loc, "%0 in %1 cannot run from a worker/adopted context; call it from the owning test")
                 << gentest_runtime_call_name(*runtime_call) << risky_context->kind;
             return;
         }
 
-        if (has_lease) {
+        if (has_prior_context_lease(*risky_context->body, *runtime_call, call_loc, *context,
+                                    risky_context->require_lease_after_latest_suspend)) {
             return;
         }
 
@@ -664,7 +695,8 @@ class GentestTidyModule : public clang::tidy::ClangTidyModule {
 
 } // namespace gentest::tidy
 
-// NOLINTNEXTLINE(cert-err58-cpp)
+// clang-tidy registers the module when it loads the shared library.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization,cert-err58-cpp)
 static clang::tidy::ClangTidyModuleRegistry::Add<gentest::tidy::GentestTidyModule> X("gentest-module",
                                                                                      "Gentest attributes validation checks");
 
