@@ -6,6 +6,10 @@ gentest is a C++20 test framework. Tests are plain functions marked with
 standard C++ attributes. At build time a Clang-based tool, `gentest_codegen`,
 reads the attributes and writes the registration code.
 
+## Example cases
+
+### Tests and templates
+
 ```cpp
 #include "gentest/test.h"
 
@@ -27,6 +31,74 @@ void emplace_matrix() {
     C<T> values;
     values.emplace_back(T{1});
     EXPECT_EQ(values.size(), std::size_t{1});
+}
+```
+
+### Mock a dependency
+
+The [full mock example](examples/mocking/) generates `PaymentGatewayMock`
+from the `PaymentGateway` interface. This test checks what checkout sends
+to the gateway.
+
+```cpp
+#include "gentest/test.h"
+#include "public/payment_mocks.hpp"
+
+[[gentest::test]]
+inline void paymentSucceeds() {
+    shop::mocks::PaymentGatewayMock gateway;
+    gentest::expect(gateway, &shop::PaymentGateway::charge).times(1).with(250).returns(true);
+
+    shop::Checkout checkout(gateway);
+    gentest::expect_true(checkout.pay(250));
+}
+```
+
+### Benchmark and measure jitter
+
+`bench` measures average time per call. `jitter` measures how much call times
+vary. See [Benchmarks and jitter](docs/benchmarks.md).
+
+```cpp
+#include "gentest/bench_util.h"
+
+#include <cmath>
+
+struct SineInput {
+    double angle = 1.2345;
+};
+
+[[gentest::bench("sine_throughput")]]
+inline void sineThroughput(SineInput &input) {
+    gentest::clobberMemory();
+    gentest::doNotOptimizeAway(std::sin(input.angle));
+}
+
+[[gentest::jitter("sine_latency")]]
+inline void sineLatency(SineInput &input) {
+    gentest::clobberMemory();
+    gentest::doNotOptimizeAway(std::sin(input.angle));
+}
+```
+
+### Async test (experimental)
+
+An [async test](docs/async.md) can await a result and check it with the usual
+assertions.
+
+```cpp
+#include "gentest/async.h"
+#include "gentest/test.h"
+
+inline auto answer() -> gentest::awaitable<int> {
+    co_await gentest::async::yield();
+    co_return 42;
+}
+
+[[gentest::test]]
+inline auto checksAsyncAnswer() -> gentest::awaitable<> {
+    const int value = co_await answer();
+    gentest::expect_eq(value, 42);
 }
 ```
 
