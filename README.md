@@ -14,6 +14,7 @@ reads the attributes and writes the registration code.
 #include <cmath>
 #include <cstddef>
 #include <list>
+#include <numbers>
 #include <vector>
 
 using namespace gentest::asserts;
@@ -42,19 +43,26 @@ inline void paymentSucceeds() {
 }
 
 struct SineInput {
-    double angle = 1.2345;
+    double angle = 0.0;
+
+    double nextAngle() {
+        constexpr double full_turn = 2.0 * std::numbers::pi;
+        angle += 0.01;
+        if (angle >= full_turn) {
+            angle -= full_turn;
+        }
+        return angle;
+    }
 };
 
 [[gentest::bench("sine_throughput")]]
 inline void sineThroughput(SineInput &input) {
-    gentest::clobberMemory();
-    gentest::doNotOptimizeAway(std::sin(input.angle));
+    gentest::doNotOptimizeAway(std::sin(input.nextAngle()));
 }
 
 [[gentest::jitter("sine_latency")]]
 inline void sineLatency(SineInput &input) {
-    gentest::clobberMemory();
-    gentest::doNotOptimizeAway(std::sin(input.angle));
+    gentest::doNotOptimizeAway(std::sin(input.nextAngle()));
 }
 ```
 
