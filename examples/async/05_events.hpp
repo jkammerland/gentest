@@ -10,6 +10,7 @@
 namespace async_examples::events {
 
 using namespace gentest;
+using namespace gentest::asserts;
 using namespace gentest::async;
 
 struct Connected {
@@ -28,8 +29,8 @@ struct [[gentest::fixture(suite)]] Notifications : FixtureSetup {
 [[gentest::test("named_typed_value")]]
 inline auto namedTypedValue(Notifications &notifications) -> awaitable<> {
     const auto &message = co_await notifications.connected.wait("primary");
-    expect_eq(message.peer, std::string{"localhost"});
-    expect_eq(message.port, 8080);
+    EXPECT_EQ(message.peer, std::string{"localhost"});
+    EXPECT_EQ(message.port, 8080);
 }
 
 // Waiting observes the latched value; it does not consume another case's message.
@@ -37,7 +38,7 @@ inline auto namedTypedValue(Notifications &notifications) -> awaitable<> {
 inline auto anotherObserver(Notifications &notifications) -> awaitable<> {
     co_await yield();
     const auto &message = co_await notifications.connected.wait("primary");
-    expect_eq(message.port, 8080);
+    EXPECT_EQ(message.port, 8080);
 }
 
 [[gentest::test("one_shot_value")]]
@@ -47,7 +48,7 @@ inline auto oneShotValue() -> awaitable<> {
 
     reply.set_value(std::make_unique<int>(42));
     auto value = co_await std::move(response);
-    expect_eq(*value, 42);
+    EXPECT_EQ(*value, 42);
 }
 
 } // namespace async_examples::events

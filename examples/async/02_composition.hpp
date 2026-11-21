@@ -12,6 +12,7 @@
 namespace async_examples::composition {
 
 using namespace gentest;
+using namespace gentest::asserts;
 using namespace gentest::async;
 
 inline auto answer(int value) -> awaitable<int> {
@@ -29,9 +30,9 @@ inline auto collectAllResults() -> awaitable<> {
     bool completed             = false;
     auto [first, second, done] = co_await when_all(answer(19), answer(23), markComplete(completed));
 
-    expect_eq(first, 19);
-    expect_eq(second, 23);
-    expect_true(completed);
+    EXPECT_EQ(first, 19);
+    EXPECT_EQ(second, 23);
+    EXPECT_TRUE(completed);
     static_assert(std::is_same_v<decltype(done), std::monostate>);
 }
 
@@ -53,9 +54,9 @@ inline auto firstResultJoinsLoser() -> awaitable<> {
     auto result  = co_await when_any(longOperation(stopped), answer(42));
 
     // The losing operation has observed stop and finished before when_any returns.
-    expect_eq(result.index(), std::size_t{1});
-    expect_eq(std::get<1>(result), 42);
-    expect_true(stopped);
+    EXPECT_EQ(result.index(), std::size_t{1});
+    EXPECT_EQ(std::get<1>(result), 42);
+    EXPECT_TRUE(stopped);
 }
 
 } // namespace async_examples::composition

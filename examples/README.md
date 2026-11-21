@@ -18,6 +18,10 @@ ctest --test-dir build/examples/hello_header_only --output-on-failure
 For another test example, use its directory name. Each example's README
 includes its setup.
 
+The examples use the uppercase checks from `gentest::asserts`, such as
+`EXPECT_EQ`. Each check also has a lowercase name, such as
+`gentest::expect_eq`; see [Assertions](../docs/assertions.md#check-values).
+
 ## Hello examples
 
 | Example | What it shows |

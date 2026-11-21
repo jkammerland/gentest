@@ -11,6 +11,7 @@
 namespace async_examples::polling {
 
 using namespace gentest;
+using namespace gentest::asserts;
 using namespace gentest::async;
 
 // This loop is entirely user-owned. Replace it with io_context::poll_one(),
@@ -49,7 +50,7 @@ inline auto driveUserLoop(Infrastructure &infrastructure) -> awaitable<> {
     }
 
     const int value = co_await replies.wait("read");
-    expect_eq(value, 42);
+    EXPECT_EQ(value, 42);
 }
 
 } // namespace async_examples::polling

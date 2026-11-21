@@ -16,6 +16,8 @@
 #include <string>
 #include <vector>
 
+using namespace gentest::asserts;
+
 namespace recording {
 struct Snapshot {
     std::string      device;
@@ -45,7 +47,7 @@ struct Input : gentest::FixtureSetup, gentest::FixtureTearDown {
 
 [[using gentest: test("sum"), req("SUM-001")]]
 inline void sum(Input &input, Environment &) {
-    gentest::expect_eq(std::accumulate(input.snapshot.samples.begin(), input.snapshot.samples.end(), 0), 10);
+    EXPECT_EQ(std::accumulate(input.snapshot.samples.begin(), input.snapshot.samples.end(), 0), 10);
     gentest::record_property("observed_sum", 10);
 }
 

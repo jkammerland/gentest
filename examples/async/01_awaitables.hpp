@@ -6,6 +6,7 @@
 namespace async_examples::cases {
 
 using namespace gentest;
+using namespace gentest::asserts;
 using namespace gentest::async;
 
 inline auto answer() -> awaitable<int> {
@@ -16,7 +17,7 @@ inline auto answer() -> awaitable<int> {
 [[gentest::test("yield_and_return")]]
 inline auto yieldAndReturn() -> awaitable<> {
     const int value = co_await answer();
-    expect_eq(value, 42);
+    EXPECT_EQ(value, 42);
 }
 
 } // namespace async_examples::cases

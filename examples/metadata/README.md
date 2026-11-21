@@ -30,7 +30,7 @@ build/examples/metadata/gentest_metadata --junit=results.xml
 
 - `--list` prints each case with its metadata and source location, for
   example
-  `metadata/bounded_value(-1) [gentest:tags=fast;requires=LIMIT-001;owner=examples] (cases.hpp:11)`.
+  `metadata/bounded_value(-1) [gentest:tags=fast;requires=LIMIT-001;owner=examples] (cases.hpp:13)`.
 - `inventory.json` is a JSON array with each case's name, file and line, kind,
   tags, requirements, owner and other registry fields. It describes the
   compiled cases, not their pass or fail outcomes.

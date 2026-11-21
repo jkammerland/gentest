@@ -13,6 +13,7 @@
 namespace async_examples::cancellation {
 
 using namespace gentest;
+using namespace gentest::asserts;
 using namespace gentest::async;
 
 // A runner-thread backend with one pending read and no incoming reply.
@@ -80,19 +81,19 @@ inline auto stopAndJoinRegistration() -> awaitable<> {
 
     // The read registers first. Yield finishes next and requests its stop.
     auto result = co_await when_any(Read{backend}, yield());
-    expect_eq(result.index(), std::size_t{1});
-    expect_true(backend.stop.stop_requested());
-    expect_true(backend.acknowledged);
-    expect_true(backend.retired);
-    expect_true(!backend.callback);
+    EXPECT_EQ(result.index(), std::size_t{1});
+    EXPECT_TRUE(backend.stop.stop_requested());
+    EXPECT_TRUE(backend.acknowledged);
+    EXPECT_TRUE(backend.retired);
+    EXPECT_TRUE(!backend.callback);
 
     // An expired deadline needs no registration for an operation that is not ready.
     Backend expired;
     auto    immediate = co_await wait_for(Read{expired}, 0ms);
-    expect_true(immediate.timed_out());
-    expect_false(expired.stop.stop_possible());
-    expect_false(expired.retired);
-    expect_true(!expired.callback);
+    EXPECT_TRUE(immediate.timed_out());
+    EXPECT_FALSE(expired.stop.stop_possible());
+    EXPECT_FALSE(expired.retired);
+    EXPECT_TRUE(!expired.callback);
 }
 
 } // namespace async_examples::cancellation

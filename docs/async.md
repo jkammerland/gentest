@@ -11,6 +11,7 @@ ready cases while it waits. Async tests are experimental.
 namespace async_examples::cases {
 
 using namespace gentest;
+using namespace gentest::asserts;
 using namespace gentest::async;
 
 inline auto answer() -> awaitable<int> {
@@ -21,7 +22,7 @@ inline auto answer() -> awaitable<int> {
 [[gentest::test("yield_and_return")]]
 inline auto yieldAndReturn() -> awaitable<> {
     const int value = co_await answer();
-    expect_eq(value, 42);
+    EXPECT_EQ(value, 42);
 }
 
 } // namespace async_examples::cases
@@ -65,7 +66,7 @@ coroutines together. With `answer()` from stage 1:
 
 ```cpp
 auto [left, right] = co_await when_all(answer(), answer());
-expect_eq(left + right, 84);
+EXPECT_EQ(left + right, 84);
 ```
 
 `when_all()` starts its operations and waits for every one to finish. The result
@@ -105,7 +106,7 @@ if (result.timed_out()) {
     fail("request-1 did not receive a reply");
     co_return;
 }
-expect_eq(result.value(), 42);
+EXPECT_EQ(result.value(), 42);
 ```
 
 A timeout is a returned status; the case chooses whether to fail, skip or
