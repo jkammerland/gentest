@@ -10,8 +10,7 @@ namespace hello {
 
 void addition() {
     const auto value = 2 + 2;
-    gentest::expect_true(value == 4, "addition result");
-    EXPECT_EQ(value, 4);
+    EXPECT_EQ(value, 4, "addition result");
 }
 
 void greeting() {

@@ -4,22 +4,23 @@
 
 #include <string>
 
+using namespace gentest::asserts;
+
 namespace hello {
 
-[[using gentest: test("addition")]]
+[[gentest::test]]
 inline void addition() {
     const auto value = 2 + 2;
-    gentest::expect_true(value == 4, "addition result");
-    gentest::asserts::EXPECT_EQ(value, 4);
+    EXPECT_EQ(value, 4, "addition result");
 }
 
-[[using gentest: test("greeting")]]
+[[gentest::test]]
 inline void greeting() {
     std::string message = "hello";
     message += " gentest";
 
-    gentest::asserts::EXPECT_TRUE(message.starts_with("hello"));
-    gentest::asserts::EXPECT_EQ(message, "hello gentest");
+    EXPECT_TRUE(message.starts_with("hello"));
+    EXPECT_EQ(message, "hello gentest");
 }
 
 } // namespace hello

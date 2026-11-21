@@ -62,10 +62,14 @@ target("my_tests")
 
 using namespace gentest::asserts;
 
-[[using gentest: test("demo/addition")]]
+namespace demo {
+
+[[gentest::test]]
 inline void addition() {
     EXPECT_EQ(2 + 2, 4);
 }
+
+} // namespace demo
 ```
 
 `tests/main.cpp` (the helper links gentest's runtime but not its `main()`):

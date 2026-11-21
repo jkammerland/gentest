@@ -4,10 +4,10 @@
 
 namespace hello {
 
-[[using gentest: test("addition")]]
+[[gentest::test]]
 void addition();
 
-[[using gentest: test("greeting")]]
+[[gentest::test]]
 void greeting();
 
 } // namespace hello

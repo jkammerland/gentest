@@ -55,7 +55,6 @@ endforeach()
 
 foreach(_token IN ITEMS
     "#include \"gentest/test.h\""
-    "gentest::expect_true"
     "EXPECT_EQ")
   _assert_contains("${_hello_cases}" "${_token}" "include example source contract")
 endforeach()
@@ -71,7 +70,7 @@ endforeach()
 foreach(_token IN ITEMS
     "#include \"gentest/test.h\""
     "inline void"
-    "gentest::expect_true"
+    "EXPECT_TRUE"
     "EXPECT_EQ")
   _assert_contains("${_header_only_cases}" "${_token}" "header-only example source contract")
 endforeach()
@@ -90,7 +89,7 @@ endforeach()
 foreach(_token IN ITEMS
     "export module gentest_hello_modules.cases;"
     "import gentest;"
-    "gentest::expect_true"
+    "EXPECT_EQ"
     "EXPECT_TRUE")
   _assert_contains("${_module_cases}" "${_token}" "module example source contract")
 endforeach()
@@ -122,7 +121,7 @@ foreach(_token IN ITEMS
 endforeach()
 
 foreach(_token IN ITEMS
-    "expect_true"
+    "EXPECT_EQ"
     "GENTEST_ENABLE_PUBLIC_MODULES=AUTO")
   _assert_contains("${_modules_doc}" "${_token}" "modules doc contract")
 endforeach()

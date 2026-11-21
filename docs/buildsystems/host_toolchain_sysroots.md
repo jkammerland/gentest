@@ -118,10 +118,14 @@ gentest_discover_tests(my_tests)
 
 using namespace gentest::asserts;
 
-[[using gentest: test("demo/addition")]]
+namespace demo {
+
+[[gentest::test]]
 inline void addition() {
     EXPECT_EQ(2 + 2, 4);
 }
+
+} // namespace demo
 ```
 
 Configure with the same toolchain file. Add the target prefix to
