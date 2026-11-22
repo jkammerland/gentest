@@ -10,6 +10,7 @@
 - Add `FILE_SET gentest_explicit_mock_defs DESTINATION include` when installing `gentest_add_mocks()` targets.
 - Review nice-mode mocks that relied on ignored extra calls, and shared fixtures expected to set up when unused.
 - Drop `GENTEST_USE_BOOST_JSON` and the `allure-boost-json` vcpkg feature; Allure output no longer needs them.
+- Update scripts that read `gentest_discover_tests()` registrations, for example through `ctest --show-only=json-v1`. Ordinary entries now run `<exe> --gentest-run-exact=<case> --skip-return-code=77` instead of `--run=<case>`. `--run` still works when you call the runner yourself.
 - Empty `--allure-dir` before a run whose report should not include earlier results; runs no longer remove them.
 - `OUTPUT`, `NO_INCLUDE_SOURCES`, `--output`, `--template`, `--no-include-sources`, `GENTEST_NO_INCLUDE_SOURCES`, and `EXPECT_SUBSTRING` fail with an error saying they were removed in gentest 2.0.0. Every 1.x release rejected them too; [DEPRECATIONS.md](DEPRECATIONS.md) lists their replacements.
 

@@ -26,8 +26,11 @@ entries, parallel runs and repetition, see
 ## What it registers
 
 - **Ordinary cases.** The CTest name is the case name, between `TEST_PREFIX`
-  and `TEST_SUFFIX`. Each entry selects its exact case name. If that name is
-  missing or names a death test at execution time, the entry fails.
+  and `TEST_SUFFIX`. Each entry runs
+  `my_tests --gentest-run-exact=<case> --skip-return-code=77` followed by
+  `EXTRA_ARGS`. Unlike `--run`, `--gentest-run-exact` accepts only the full
+  case name. If that name is missing or names a death test at execution time,
+  the entry fails.
 - **Death tests.** Discovery registers each runnable `death` case with a
   `death/` prefix after `TEST_PREFIX`, for example `death/crash/fatal_path`.
   Each entry runs `gentest_supervise`. Discovery omits statically skipped death
@@ -83,8 +86,8 @@ gentest_discover_tests(<target>
 | `DEATH_TIMEOUT_MS <ms>` | Maximum duration of each death test. |
 | `DEATH_INACTIVITY_MS <ms>` | Maximum time without progress in a death test. |
 
-`EXTRA_ARGS` must be options the executable accepts. Don't pass `--run` or
-`--skip-return-code` there. Discovery supplies the case selection and skip return code.
+`EXTRA_ARGS` must be options the executable accepts. Don't pass `--run`,
+`--gentest-run-exact` or `--skip-return-code` there. Discovery supplies the case selection and skip return code.
 
 ## Filtering
 
