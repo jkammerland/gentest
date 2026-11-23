@@ -244,7 +244,7 @@ fixture teardown:
 ## Reports from CTest runs
 
 [`gentest_discover_tests()`](discover_tests.md) registers one CTest test per
-case, and each one runs the executable with `--run=<case>`. Pass report options
+case, and each one runs the executable with `--gentest-run-exact=<case>`. Pass report options
 with `EXTRA_ARGS`. All per-case runs can write into one Allure directory:
 
 ```cmake
