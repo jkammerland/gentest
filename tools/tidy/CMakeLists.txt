@@ -200,6 +200,8 @@ target_include_directories(gentest_tidy
         ${CLANG_INCLUDE_DIRS}
         ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
+target_include_directories(gentest_tidy PRIVATE "${PROJECT_SOURCE_DIR}/include")
+
 target_link_libraries(gentest_tidy
     PRIVATE
         ${_gentest_tidy_link_targets})
