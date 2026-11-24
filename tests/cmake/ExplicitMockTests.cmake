@@ -15,11 +15,11 @@ foreach(_gentest_explicit_mock_validation_group IN ITEMS
         native_additional
         native_rejections
         native_module_rejections)
-    # Only these groups link and run consumers; the others stop at configure
-    # time or in gentest_codegen and never compile the runtime.
+    # These groups build a fresh target consumer for each scenario with the
+    # same toolchain. Share the runtime across those builds, including under QEMU.
     set(_gentest_explicit_mock_validation_prefix NONE)
     if(_gentest_explicit_mock_validation_group MATCHES "^native_(smoke|additional)$")
-        set(_gentest_explicit_mock_validation_prefix MODULES)
+        set(_gentest_explicit_mock_validation_prefix TARGET_MODULES)
     endif()
     gentest_add_fixture_prefix_test(
         ${_gentest_explicit_mock_validation_prefix}

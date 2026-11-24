@@ -30,6 +30,10 @@ macro(gentest_fixture_add_gentest binary_dir)
     if(DEFINED GENTEST_FIXTURE_PREFIX AND NOT "${GENTEST_FIXTURE_PREFIX}" STREQUAL "")
         # The prefix also carries fmt when the producer fetched it.
         list(PREPEND CMAKE_PREFIX_PATH "${GENTEST_FIXTURE_PREFIX}")
+        if(CMAKE_CROSSCOMPILING)
+            # The matched install is a target package root alongside the sysroot.
+            list(PREPEND CMAKE_FIND_ROOT_PATH "${GENTEST_FIXTURE_PREFIX}")
+        endif()
         find_package(gentest CONFIG REQUIRED PATHS "${GENTEST_FIXTURE_PREFIX}" NO_DEFAULT_PATH)
         message(STATUS "gentest fixture: using the shared prebuilt gentest from '${GENTEST_FIXTURE_PREFIX}'")
         if(DEFINED GENTEST_FIXTURE_PREFIX_CONFIG AND NOT "${GENTEST_FIXTURE_PREFIX_CONFIG}" STREQUAL "")
