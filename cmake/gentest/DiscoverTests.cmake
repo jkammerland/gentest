@@ -143,6 +143,7 @@ function(gentest_discover_tests_impl)
       TIMEOUT ${arg_TEST_DISCOVERY_TIMEOUT}
       OUTPUT_VARIABLE output
       ERROR_VARIABLE error_output
+      ENCODING UTF8
       RESULT_VARIABLE result
     )"
   )

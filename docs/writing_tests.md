@@ -296,7 +296,7 @@ On functions:
 | `bench_warmup` | an integer, 0 or more | Warmup epochs for this benchmark. |
 | `bench_time` | `"runner"` or `"supplied"` | Who times the benchmark: the runner (the default), or your code (needs `bench_once`). |
 | `parameters` | a parameter name, then values | One case per value. See [Parameters](parameters.md). |
-| `parameters_pack` | a tuple of names, then tuples of values | One case per row of values. |
+| `parameters_pack` | a tuple of names, then tuples of values with optional row IDs | One case per row of values. |
 | `range` | name, start, step, end; or name, `"start:step:end"` | One case per value from start to end. |
 | `linspace` | name, start, end, count | `count` evenly spaced values. |
 | `geom` (aliases `geomspace`, `geospace`) | name, start, factor, count | A geometric sequence of `count` values. |

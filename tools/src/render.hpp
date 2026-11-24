@@ -44,6 +44,6 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
 std::string render_fixture_registrations(const std::vector<FixtureDeclInfo> &fixtures);
 
 // Utility for escaping string literals in generated C++.
-std::string escape_string(std::string_view value);
+std::string escape_string(std::string_view value, bool ascii_only = false);
 
 } // namespace gentest::codegen::render

@@ -1518,7 +1518,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         q += '>';
         return q;
     };
-    auto make_display = [&](const std::string &base, const std::vector<std::string> &tpl_ordered, const std::string &call_args) {
+    std::string row_suffix;
+    auto        make_display = [&](const std::string &base, const std::vector<std::string> &tpl_ordered, const std::string &call_args) {
         std::string nm = base;
         if (is_function_template) {
             nm += '<';
@@ -1529,6 +1530,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             }
             nm += '>';
         }
+        nm += row_suffix;
         if (!call_args.empty()) {
             nm += '(';
             nm += call_args;
@@ -2253,20 +2255,23 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         return out;
     };
 
-    using NameMap = std::map<std::string, std::string>;
-    NameMap current;
+    struct ParameterValue {
+        std::string_view expression;
+        bool             has_row_id = false;
+    };
+    std::map<std::string, ParameterValue> current;
 
-    auto set_value = [&](const std::string &name, const std::string &value) -> std::optional<std::string> {
+    auto set_value = [&](const std::string &name, ParameterValue value) -> std::optional<ParameterValue> {
         auto it = current.find(name);
         if (it == current.end()) {
             current.emplace(name, value);
             return std::nullopt;
         }
-        std::string prev = it->second;
-        it->second       = value;
+        const auto prev = it->second;
+        it->second      = value;
         return prev;
     };
-    auto restore_value = [&](const std::string &name, const std::optional<std::string> &prev) {
+    auto restore_value = [&](const std::string &name, const std::optional<ParameterValue> &prev) {
         if (prev.has_value())
             current[name] = *prev;
         else
@@ -2334,10 +2339,10 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             // String parameters receive "..." literals verbatim. For any other
             // parameter type the quotes only protect an expression (or name a
             // single character) and are removed.
-            const bool quoted_expression =
-                kind != TypeKind::String && it->second.size() >= 2 && it->second.front() == '"' && it->second.back() == '"';
+            const auto [value, has_row_id] = it->second;
+            const bool  quoted_expression  = kind != TypeKind::String && value.size() >= 2 && value.front() == '"' && value.back() == '"';
             std::string expr =
-                quote_for_type(kind, quoted_expression ? decode_string_literal(it->second) : it->second, param.type_spelling);
+                quote_for_type(kind, quoted_expression ? decode_string_literal(value) : std::string(value), param.type_spelling);
             if (module_importer_registration_ &&
                 !validate_importer_binding(*func, expr, "parameter expression", *result.Context, [&](const std::string &message) {
                     had_error_ = true;
@@ -2346,7 +2351,8 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
                 return;
             }
             value_exprs_for_call.push_back(expr);
-            value_exprs_for_display.push_back(expr);
+            if (!has_row_id)
+                value_exprs_for_display.push_back(expr);
             FreeCallArg arg{};
             arg.kind             = FreeCallArgKind::Value;
             arg.value_expression = std::move(expr);
@@ -2366,7 +2372,7 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
             return;
         }
         for (const auto &nv : scalar_axes[idx]) {
-            const auto prev = set_value(nv.first, nv.second);
+            const auto prev = set_value(nv.first, {.expression = nv.second});
             visit_scalars(idx + 1, tpl_combo);
             restore_value(nv.first, prev);
         }
@@ -2383,15 +2389,30 @@ void TestCaseCollector::run(const MatchFinder::MatchResult &result) {
         }
         const auto &pp = summary.param_packs[idx];
         for (const auto &row : pp.rows) {
-            std::vector<std::pair<std::string, std::optional<std::string>>> prev;
+            // Escape case-name delimiters and bytes that CTest treats as list syntax.
+            const auto suffix_size = row_suffix.size();
+            const bool has_row_id  = !row.id.empty();
+            if (has_row_id) {
+                row_suffix += '[';
+                for (const unsigned char ch : row.id) {
+                    if (std::string_view("[]%;\\/").find(static_cast<char>(ch)) == std::string_view::npos)
+                        row_suffix += static_cast<char>(ch);
+                    else
+                        row_suffix += fmt::format("%{:02X}", static_cast<unsigned>(ch));
+                }
+                row_suffix += ']';
+            }
+
+            std::vector<std::pair<std::string, std::optional<ParameterValue>>> prev;
             prev.reserve(pp.names.size());
             for (std::size_t i = 0; i < pp.names.size(); ++i) {
-                prev.emplace_back(pp.names[i], set_value(pp.names[i], row[i]));
+                prev.emplace_back(pp.names[i], set_value(pp.names[i], {.expression = row.values[i], .has_row_id = has_row_id}));
             }
             visit_packs(idx + 1, tpl_combo);
             for (auto &it : std::ranges::reverse_view(prev)) {
                 restore_value(it.first, it.second);
             }
+            row_suffix.resize(suffix_size);
         }
     };
 

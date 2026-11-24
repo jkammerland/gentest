@@ -173,6 +173,17 @@ gentest_add_python_program_test(NAME regression_temporary_directory
     PROG gentest_regression_temporary_directory
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_temporary_directory.py)
 
+gentest_add_suite(regression_parameter_row_ids
+    TARGET gentest_regression_parameter_row_ids
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/parameter_row_ids.cpp
+    OUTPUT_DIR regressions/parameter_row_ids
+    NO_CTEST)
+gentest_discover_tests(gentest_regression_parameter_row_ids TEST_FILTER "row_ids/matrix*" FAIL_ON_EMPTY)
+gentest_add_python_program_test(NAME regression_parameter_row_ids
+    PROG gentest_regression_parameter_row_ids
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_parameter_row_ids.py
+    ARGS "${CMAKE_CTEST_COMMAND}" "${CMAKE_BINARY_DIR}" "$<CONFIG>")
+
 gentest_add_suite(regression_local_fixture_teardown_noexceptions
     TARGET gentest_regression_local_fixture_teardown_noexceptions
     CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/local_fixture_teardown_noexceptions.cpp

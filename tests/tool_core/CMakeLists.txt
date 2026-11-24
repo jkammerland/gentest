@@ -37,7 +37,7 @@ add_executable(gentest_core_tests
     ${_gentest_tool_core_src_dir}/validate.cpp)
 
 target_compile_features(gentest_core_tests PRIVATE cxx_std_20)
-target_include_directories(gentest_core_tests PRIVATE ${_gentest_tool_core_src_dir})
+target_include_directories(gentest_core_tests PRIVATE ${_gentest_tool_core_src_dir} ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(gentest_core_tests PRIVATE fmt::fmt)
 
 add_test(NAME gentest_core_parse_validate

@@ -69,6 +69,33 @@ first tuple names the parameters; every further tuple is one row with one value
 per name. Several packs, and packs together with axes, combine as every
 combination of their rows and values.
 
+### Name parameter rows
+
+To give each row a stable case name, place a string ID before its values.
+Every row in that pack needs its own ID.
+
+```cpp
+[[using gentest: test("accepts"), parameters_pack((input, accepted),
+    ("empty input", "", false), ("decimal", "42", true))]]
+inline void accepts(std::string_view input, bool accepted) {
+    gentest::expect_eq(!input.empty(), accepted);
+}
+```
+
+These cases are `accepts[empty input]` and `accepts[decimal]`. The name keeps
+the ID when you edit the row's values. A namespace qualifies the name as usual.
+Use `--run='accepts[empty input]'` to run one row.
+
+Template arguments appear before the IDs. Each named pack adds its own
+bracketed ID, in attribute order. Values from axes and unnamed packs appear
+in parentheses after the IDs, in function parameter order. CTest discovery and
+JUnit use the same full case names as the runner.
+
+Use nonblank ordinary string literals with valid UTF-8 and no control
+characters. Gentest diagnoses duplicate IDs within a pack and duplicate full
+case names. In generated names, `[` and `]` appear as `%5B` and `%5D`, and
+`%`, `;`, `/`, and `\` appear as `%25`, `%3B`, `%2F`, and `%5C`.
+
 ### How values are written
 
 Codegen pastes each value into the generated call as a C++ expression, so the

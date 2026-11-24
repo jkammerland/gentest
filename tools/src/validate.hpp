@@ -71,8 +71,12 @@ struct AttributeSummary {
     std::vector<LogspaceSpec> parameter_logspaces;
     // Parameter packs: bundle multiple arguments per test row to avoid Cartesian products.
     struct ParamPack {
-        std::vector<std::string>              names; // function parameter names, in order
-        std::vector<std::vector<std::string>> rows;
+        struct Row {
+            std::string              id;
+            std::vector<std::string> values;
+        };
+        std::vector<std::string> names; // function parameter names, in order
+        std::vector<Row>         rows;
     };
     std::vector<ParamPack>     param_packs;
     std::optional<std::string> owner;

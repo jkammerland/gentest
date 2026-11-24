@@ -383,6 +383,15 @@ namespace dup {
 ]=])
   _gentest_cdr_expect_failure("display name collision" "duplicate test name 'dup/p(1)'")
 
+  _gentest_cdr_scan(named_row_collision CODEGEN_ARGS --quiet-clang CONTENT [=[
+#pragma once
+namespace dup {
+[[using gentest: test("p"), parameters_pack((i), ("row", 1))]] inline void with_row(int i) { (void)i; }
+[[using gentest: test("p[row]")]] inline void spelled_out() {}
+} // namespace dup
+]=])
+  _gentest_cdr_expect_failure("named row display name collision" "duplicate test name 'dup/p[row]'")
+
   _gentest_cdr_scan(distinct CODEGEN_ARGS --quiet-clang CONTENT [=[
 #pragma once
 namespace dup {
