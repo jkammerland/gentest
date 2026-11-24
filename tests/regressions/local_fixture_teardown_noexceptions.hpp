@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gentest/runner.h"
+#include "gentest/temporary_directory.h"
 
 #include <cstdio>
 
@@ -14,7 +15,8 @@ struct LocalFx : gentest::FixtureSetup, gentest::FixtureTearDown {
     }
 };
 
-[[using gentest: test("regressions/local_fixture_teardown_noexceptions/fatal_assert")]] void fatal_assert(LocalFx &);
+[[using gentest: test("regressions/local_fixture_teardown_noexceptions/fatal_assert")]] void fatal_assert(LocalFx &,
+                                                                                                          gentest::TemporaryDirectory &);
 
 } // namespace regressions::local_teardown_noexceptions
 

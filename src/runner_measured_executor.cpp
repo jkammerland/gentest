@@ -512,7 +512,7 @@ struct MeasuredBodyScope {
 
 template <typename Result, typename CallFn>
 bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn &&run_call, Result &out_result,
-                       MeasurementCaseFailure &out_failure) {
+                       MeasurementCaseFailure &out_failure, gentest::detail::TemporaryDirectories &temporary_directories) {
     using clock = std::chrono::steady_clock;
 
     // A statically skipped measurement never reaches fixture allocation/setup.
@@ -529,7 +529,7 @@ bool run_measured_case(const gentest::Case &c, const BenchConfig &config, CallFn
         return false;
     }
 
-    gentest::detail::MeasurementState measurement{.test = c};
+    gentest::detail::MeasurementState measurement{.test = c, .temporary_directories = temporary_directories};
     gentest::detail::MeasurementScope measurement_scope(measurement);
 
     const auto case_start         = clock::now();
@@ -772,7 +772,16 @@ TimedRunStatus run_measured_cases(std::span<const gentest::Case> kCases, std::sp
         Result                                 result{};
         MeasurementCaseFailure                 failure{};
         ++status.total;
-        if (!run_measured_case(c, config, run_call, result, failure)) {
+
+        gentest::detail::TemporaryDirectories directories;
+        bool                                  ok = run_measured_case(c, config, run_call, result, failure, directories);
+        for (const auto &issue : gentest::detail::finishTemporaryDirectories(directories, !ok && !failure.skipped, c.name)) {
+            failure.reason  = failure.reason.empty() ? issue : fmt::format("{}\n{}", failure.reason, issue);
+            failure.phase   = "teardown";
+            failure.skipped = false;
+            ok              = false;
+        }
+        if (!ok) {
             if (failure.skipped) {
                 if (failure.infra_failure) {
                     print_failure_logs(failure.logs);

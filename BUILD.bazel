@@ -278,6 +278,8 @@ cc_library(
         'src/runner_test_executor.h',
         'src/runner_test_plan.cpp',
         'src/runner_test_plan.h',
+        'src/temporary_directory.cpp',
+        'src/temporary_directory_internal.h',
     ],
     hdrs = glob([
         'include/gentest/*.h',
@@ -287,7 +289,12 @@ cc_library(
     ], allow_empty = False),
     copts = _gentest_public_copts,
     includes = ['include', 'third_party/include'],
-    linkopts = _gentest_linkopts,
+    linkopts = _gentest_linkopts + select({
+        '@rules_cc//cc/compiler:msvc-cl': ['-DEFAULTLIB:advapi32.lib'],
+        '@rules_cc//cc/compiler:clang-cl': ['-DEFAULTLIB:advapi32.lib'],
+        '@rules_cc//cc/compiler:mingw-gcc': ['-ladvapi32'],
+        '//conditions:default': [],
+    }),
     # Defines are shell-tokenized, so the quotes of the string literal are escaped.
     local_defines = ['GENTEST_VERSION_STR=\\"' + _gentest_version + '\\"'],
     deps = [':gentest_bench_escape', ':gentest_death_watchdog', ':gentest_notifications', '@fmt//:fmt'],

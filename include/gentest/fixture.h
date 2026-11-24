@@ -1,8 +1,8 @@
 #pragma once
 
-// Compatibility shim: keep the historical include path working for handwritten
-// detail users, while generated code now includes the explicit unstable
-// generated-runtime devkit directly.
+// Fixture hooks and utilities. Keep the generated-runtime declarations
+// available here for handwritten callers of those helpers.
 
 #include "gentest/detail/fixture_api.h"
 #include "gentest/detail/generated_runtime.h"
+#include "gentest/temporary_directory.h"

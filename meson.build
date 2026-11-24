@@ -135,7 +135,7 @@ if host_machine.system() == 'windows'
   supervisor_process = 'tools/supervise/process_windows.cpp'
   shell32 = cpp.find_library('shell32')
   supervisor_dependencies += [shell32]
-  runtime_deps += [shell32]
+  runtime_deps += [shell32, cpp.find_library('advapi32')]
 else
   supervisor_process = 'tools/supervise/process_posix.cpp'
 endif
@@ -181,6 +181,7 @@ libgentest_runtime = static_library(
     'src/runner_selector.cpp',
     'src/runner_test_executor.cpp',
     'src/runner_test_plan.cpp',
+    'src/temporary_directory.cpp',
   ],
   objects: libgentest_bench_escape.extract_all_objects(recursive: false),
   link_with: libgentest_notifications,

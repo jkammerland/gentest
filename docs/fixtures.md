@@ -169,6 +169,46 @@ fixture.
 Benchmark and jitter cases set up their fixtures before the timed loop and tear
 them down after it; see [Benchmarks and jitter](benchmarks.md).
 
+## Temporary directories
+
+Take a `gentest::TemporaryDirectory&` parameter for a case that writes files.
+Each invocation gets a fresh directory under the system temporary directory.
+`path()` returns its absolute path while the fixture is active.
+For a case declared in a named module, use `export import gentest;` to make
+the fixture type visible to the generated registration source. See
+[Export what codegen registers](modules.md#export-what-codegen-registers).
+
+```cpp
+#pragma once
+#include "gentest/temporary_directory.h"
+#include "gentest/test.h"
+
+#include <filesystem>
+#include <fstream>
+
+namespace files {
+
+[[gentest::test]] inline void writesOutput(gentest::TemporaryDirectory& workspace) {
+    workspace.keepOnFailure();
+    const auto output = workspace.path() / "result.txt";
+    std::ofstream(output) << "ok\n";
+    gentest::expect_true(std::filesystem::is_regular_file(output));
+}
+
+} // namespace files
+```
+
+Creation reserves the directory atomically across processes. On POSIX, Gentest
+creates it with mode `0700`. On Windows filesystems with ACL support, Gentest
+grants the owner and SYSTEM access. Files and directories created inside the
+temporary directory inherit those permissions.
+
+Gentest removes the directory and its contents after the fixture hooks run.
+Call `keepOnFailure()` to keep it when the case encounters an assertion failure
+or an unhandled exception, including failures in teardown and expected failures.
+Gentest prints retained paths to stderr and reports cleanup errors as case
+failures. A process killed before cleanup can leave its directory behind.
+
 ## When shared fixtures are set up
 
 - A shared fixture is created and set up, or activated, the first time a
