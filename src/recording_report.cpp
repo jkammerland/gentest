@@ -1,4 +1,5 @@
 #include "runner_json.h"
+#include "runner_paths.h"
 #include "runner_reporting.h"
 
 #include <algorithm>
@@ -76,11 +77,11 @@ BagExport export_bag(const RecordingBag &bag, std::string_view token, std::size_
 void write_file(const std::filesystem::path &path, std::string_view bytes) {
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     if (!out)
-        throw std::runtime_error("cannot open " + path.string());
+        throw std::runtime_error("cannot open " + reportPathText(path));
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     out.close();
     if (!out)
-        throw std::runtime_error("cannot write " + path.string());
+        throw std::runtime_error("cannot write " + reportPathText(path));
 }
 
 std::filesystem::path create_bundle(const std::filesystem::path &root) {
@@ -92,13 +93,12 @@ std::filesystem::path create_bundle(const std::filesystem::path &root) {
         if (std::filesystem::create_directory(path))
             return path;
     }
-    throw std::runtime_error("cannot create a fresh recording directory in " + root.string());
+    throw std::runtime_error("cannot create a fresh recording directory in " + reportPathText(root));
 }
 } // namespace
 
-void prepare_record_reports(RunAccumulator &acc, const gentest::detail::RecordingSession &session, const char *records_dir,
-                            const char *junit_path, const char *allure_dir) {
-    if (!records_dir && !junit_path && !allure_dir)
+void prepare_record_reports(RunAccumulator &acc, const gentest::detail::RecordingSession &session, const ReportConfig &cfg) {
+    if (!cfg.records_dir && !cfg.junit_path && !cfg.allure_dir)
         return;
     try {
         std::map<const RecordingBag *, BagExport> bags;
@@ -120,7 +120,7 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
         }
         std::string index_path;
         try {
-            if (records_dir || (junit_path && has_records)) {
+            if (cfg.records_dir || (cfg.junit_path && has_records)) {
                 std::string index = R"({"schemaVersion":1,"run":)" + bags.at(&session.run).json + ",\"suites\":[";
                 bool        first = true;
                 for (const auto &[name, bag] : session.suites) {
@@ -142,8 +142,10 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
                                          json_string(c->outcome), bags.at(&c->data).json);
                 }
                 index += "],\"errors\":" + string_array(acc.infra_errors) + "}\n";
-                const auto root =
-                    records_dir ? std::filesystem::path(records_dir) : std::filesystem::path(std::string(junit_path) + ".records");
+                const auto junit = cfg.junit_path ? argumentPath(cfg.junit_path, cfg.utf8_paths) : std::filesystem::path{};
+                auto       root  = cfg.records_dir ? argumentPath(cfg.records_dir, cfg.utf8_paths) : junit;
+                if (!cfg.records_dir)
+                    root += ".records";
                 const auto bundle = create_bundle(root);
                 for (const auto &[bag, exported] : bags) {
                     (void)bag;
@@ -153,10 +155,10 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
                 write_file(bundle / "index.json.tmp", index);
                 std::filesystem::rename(bundle / "index.json.tmp", bundle / "index.json");
                 const auto absolute_index = std::filesystem::absolute(bundle / "index.json");
-                if (junit_path) {
-                    const auto base     = std::filesystem::absolute(std::filesystem::path(junit_path)).parent_path();
+                if (cfg.junit_path) {
+                    const auto base     = std::filesystem::absolute(junit).parent_path();
                     const auto relative = absolute_index.lexically_relative(base);
-                    index_path          = (relative.empty() ? absolute_index : relative).generic_string();
+                    index_path          = reportPathText(relative.empty() ? absolute_index : relative);
                 }
             }
 
@@ -171,7 +173,7 @@ void prepare_record_reports(RunAccumulator &acc, const gentest::detail::Recordin
             const auto applicable = gentest::detail::recording_bags(session, c);
             const bool has_data =
                 std::ranges::any_of(applicable, [](const RecordingBag *bag) { return !bag->properties.empty() || !bag->records.empty(); });
-            if (allure_dir && has_data) {
+            if (cfg.allure_dir && has_data) {
                 std::string scopes      = R"({"schemaVersion":1,"caseId":)" + std::to_string(c.id) + ",\"scopes\":[";
                 bool        first_scope = true;
                 for (auto bag : applicable) {

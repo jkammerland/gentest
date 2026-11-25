@@ -23,7 +23,7 @@ class DeathWatchdog {
 };
 
 #if defined(_WIN32)
-auto wideProcessArguments() -> std::vector<std::string>;
+auto wideProcessArguments(int first = 1) -> std::vector<std::string>;
 #endif
 
 // Keep a caller-supplied notifier active while forwarding the same events to the supervisor.

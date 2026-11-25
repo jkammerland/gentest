@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -26,9 +27,9 @@ class AllureReport {
   private:
     bool write_file(RunAccumulator &acc, std::string_view label, const std::string &name, std::string_view contents);
 
-    std::string dir_;
-    std::string program_; // The executable's name without directory or extension; may be empty.
-    std::size_t next_result_ = 0;
+    std::filesystem::path dir_;
+    std::string           program_; // The executable's name without directory or extension; may be empty.
+    std::size_t           next_result_ = 0;
 };
 
 } // namespace gentest::runner

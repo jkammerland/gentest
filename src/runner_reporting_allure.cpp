@@ -1,6 +1,7 @@
 #include "runner_reporting_allure.h"
 
 #include "runner_json.h"
+#include "runner_paths.h"
 #include "runner_reporting.h"
 
 #include <algorithm>
@@ -154,30 +155,31 @@ AllureReport::AllureReport(RunAccumulator &acc, const ReportConfig &cfg, bool &r
     if (cfg.allure_dir == nullptr) {
         return;
     }
+    auto            directory = argumentPath(cfg.allure_dir, cfg.utf8_paths);
     std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(cfg.allure_dir), ec);
+    std::filesystem::create_directories(directory, ec);
     if (ec) {
         record_allure_failure(acc, fmt::format("failed to prepare Allure report directory: {} ({})", cfg.allure_dir, ec.message()));
         report_ok = false;
         return;
     }
-    dir_ = cfg.allure_dir;
+    dir_ = std::move(directory);
     if (cfg.executable != nullptr) {
-        program_ = std::filesystem::path(cfg.executable).stem().string();
+        program_ = reportPathText(argumentPath(cfg.executable, cfg.utf8_paths).stem());
     }
 }
 
 bool AllureReport::write_file(RunAccumulator &acc, std::string_view label, const std::string &name, std::string_view contents) {
-    const std::filesystem::path path = std::filesystem::path(dir_) / name;
+    const std::filesystem::path path = dir_ / name;
     std::ofstream               out(path, std::ios::binary);
     if (!out) {
-        record_allure_failure(acc, fmt::format("failed to open {}: {}", label, path.string()));
+        record_allure_failure(acc, fmt::format("failed to open {}: {}", label, reportPathText(path)));
         return false;
     }
     out.write(contents.data(), static_cast<std::streamsize>(contents.size()));
     out.flush();
     if (!out) {
-        record_allure_failure(acc, fmt::format("failed to write {}: {}", label, path.string()));
+        record_allure_failure(acc, fmt::format("failed to write {}: {}", label, reportPathText(path)));
         return false;
     }
     return true;

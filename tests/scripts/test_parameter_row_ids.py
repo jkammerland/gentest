@@ -24,7 +24,7 @@ def main(binary, ctest, build_dir, config):
         f'row_ids/matrix<{kind}>[{name}][strict]({step})': f'row payload {numbers[0]} {numbers[1]} {step}'
         for kind in ('int', 'long') for name, numbers in rows.items() for step in (3, 4)
     }
-    failed_name = 'row_ids/fails[bad input\'s "id"]'
+    failed_name = 'row_ids/fails[bad input\'s "id" \u03bb]'
     other_name = 'row_ids/fails[other]'
     inventory = json.loads(run(binary, '--list-json').stdout)
     assert sorted(case['name'] for case in inventory) == sorted([*payload_by_name, failed_name, other_name]), inventory
@@ -43,10 +43,21 @@ def main(binary, ctest, build_dir, config):
         assert case['command'][-2:] == [f'--gentest-run-exact={case["name"]}', '--skip-return-code=77'], case
 
     with tempfile.TemporaryDirectory() as directory:
-        report = Path(directory) / 'rows.xml'
-        run(binary, '--filter=row_ids/matrix*', f'--junit={report}')
+        root = Path(directory)
+        report = root / 'rows-\u03bb.xml'
+        allure = root / 'allure-\u03bb'
+        records = root / 'records-\u03bb'
+        run(binary, '--filter=row_ids/matrix*', f'--junit={report}', f'--allure-dir={allure}', f'--records={records}')
         cases = ET.parse(report).findall('.//testcase')
         assert sorted(case.attrib['name'] for case in cases) == sorted(payload_by_name), cases
+
+        results = [json.loads(path.read_text(encoding='utf-8')) for path in allure.glob('*-result.json')]
+        assert sorted(case['name'] for case in results) == sorted(payload_by_name), results
+
+        indexes = list(records.glob('run-*/index.json'))
+        assert len(indexes) == 1, indexes
+        recording = json.loads(indexes[0].read_text(encoding='utf-8'))
+        assert sorted(case['name'] for case in recording['cases']) == sorted(payload_by_name), recording
 
     failed = run(binary, f'--run={failed_name}', expected=1)
     commands = re.findall(r'^Rerun: (.+)$', failed.stderr, re.MULTILINE)

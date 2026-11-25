@@ -17,7 +17,7 @@ inline void matrix(T input, int expected, Mode mode, int step) {
     gentest::log(fmt::format("row payload {} {} {}", static_cast<int>(input), expected, step));
 }
 
-[[using gentest: test("fails"), parameters_pack((value), ("bad input's \"id\"", 17), ("other", 23))]] inline void fails(int value) {
+[[using gentest: test("fails"), parameters_pack((value), ("bad input's \"id\" \u03BB", 17), ("other", 23))]] inline void fails(int value) {
     gentest::expect_eq(value, 23, "row value mismatch");
 }
 

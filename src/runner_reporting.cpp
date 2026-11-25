@@ -1,6 +1,7 @@
 #include "runner_reporting.h"
 
 #include "gentest/detail/utf8.h"
+#include "runner_paths.h"
 #include "runner_reporting_allure.h"
 
 #include <algorithm>
@@ -153,14 +154,14 @@ template <typename OnFailure>
 bool preflight_output_file(OnFailure &&on_failure, const std::filesystem::path &path, std::string_view label) {
     std::ofstream out(path, std::ios::binary);
     if (!out) {
-        on_failure(fmt::format("failed to open {}: {}", label, path.string()));
+        on_failure(fmt::format("failed to open {}: {}", label, reportPathText(path)));
         return false;
     }
     static constexpr char kProbe = '\n';
     out.write(&kProbe, 1);
     out.flush();
     if (!out) {
-        on_failure(fmt::format("failed to write {}: {}", label, path.string()));
+        on_failure(fmt::format("failed to write {}: {}", label, reportPathText(path)));
         return false;
     }
     return true;
@@ -250,6 +251,7 @@ void emit_github_annotations(const RunAccumulator &acc, FILE *stream) {
 }
 
 bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
+    const auto   junit_path  = cfg.junit_path ? argumentPath(cfg.junit_path, cfg.utf8_paths) : std::filesystem::path{};
     bool         report_ok   = true;
     bool         junit_ready = cfg.junit_path != nullptr;
     AllureReport allure(acc, cfg, report_ok);
@@ -258,7 +260,7 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
         if (!cfg.junit_path) {
             return;
         }
-        std::ofstream out(cfg.junit_path, std::ios::binary);
+        std::ofstream out(junit_path, std::ios::binary);
         if (!out) {
             record_runner_level_failure(acc, "gentest/reporting/junit", fmt::format("failed to open JUnit report: {}", cfg.junit_path));
             report_ok = false;
@@ -337,8 +339,8 @@ bool write_reports(RunAccumulator &acc, const ReportConfig &cfg) {
     };
     if (cfg.junit_path) {
         if (!preflight_output_file(
-                [&](std::string message) { record_runner_level_failure(acc, "gentest/reporting/junit", std::move(message)); },
-                cfg.junit_path, "JUnit report")) {
+                [&](std::string message) { record_runner_level_failure(acc, "gentest/reporting/junit", std::move(message)); }, junit_path,
+                "JUnit report")) {
             report_ok   = false;
             junit_ready = false;
         }

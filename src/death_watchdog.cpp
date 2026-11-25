@@ -239,7 +239,7 @@ void DeathWatchdog::finish() {
 }
 
 #if defined(_WIN32)
-auto wideProcessArguments() -> std::vector<std::string> {
+auto wideProcessArguments(int first) -> std::vector<std::string> {
     int   count{};
     auto *wide = CommandLineToArgvW(GetCommandLineW(), &count);
     if (!wide)
@@ -249,7 +249,7 @@ auto wideProcessArguments() -> std::vector<std::string> {
         ~FreeArguments() { LocalFree(value); }
     } guard{wide};
     std::vector<std::string> args;
-    for (int i = 1; i < count; ++i) {
+    for (int i = first; i < count; ++i) {
         const auto value = std::filesystem::path(wide[i]).u8string();
         args.emplace_back(value.begin(), value.end());
     }
