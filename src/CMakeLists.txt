@@ -60,6 +60,7 @@ add_library(gentest_runtime ${_gentest_runtime_libtype}
     ${PROJECT_SOURCE_DIR}/src/runner_selector.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_test_executor.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_test_plan.cpp
+    ${PROJECT_SOURCE_DIR}/src/temporary_directory.cpp
     ${PROJECT_SOURCE_DIR}/src/runner_impl.cpp)
 
 # The fallback escape must remain opaque even in unity and IPO-enabled builds.
@@ -108,7 +109,7 @@ target_link_libraries(gentest_runtime
         gentest::notifications
         ${GENTEST_FMT_LINK_TARGET})
 if(WIN32)
-    target_link_libraries(gentest_runtime PRIVATE shell32)
+    target_link_libraries(gentest_runtime PRIVATE advapi32 shell32)
 
     # The module BMI carries the producer's fmt configuration. Its importers
     # must see the same declarations when they include fmt headers.

@@ -50,7 +50,7 @@ void check_shared_payloads() {
         }
 
         // The Allure-only path prepares attachments without publishing a records bundle.
-        gentest::runner::prepare_record_reports(acc, *scope.session, nullptr, nullptr, "unused-allure-path");
+        gentest::runner::prepare_record_reports(acc, *scope.session, {.allure_dir = "unused-allure-path"});
         expect(acc.infra_errors.empty(), "preparing recording reports failed");
         expect(acc.report_items.size() == case_count, "missing reported cases");
         for (auto &item : acc.report_items) {

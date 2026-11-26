@@ -67,11 +67,12 @@ struct ReportConfig {
     const char *allure_dir = nullptr;
     // The program's argv[0], when known. Allure results are named after it, so tests of the
     // same name in different programs stay apart in a shared report.
-    const char *executable = nullptr;
+    const char *executable  = nullptr;
+    const char *records_dir = nullptr;
+    bool        utf8_paths  = false;
 };
 
-void prepare_record_reports(RunAccumulator &acc, const gentest::detail::RecordingSession &session, const char *records_dir,
-                            const char *junit_path, const char *allure_dir);
+void prepare_record_reports(RunAccumulator &acc, const gentest::detail::RecordingSession &session, const ReportConfig &cfg);
 
 void record_failure_summary(RunAccumulator &acc, std::string_view name, std::vector<std::string> issues, std::string_view file = {},
                             unsigned line = 0);

@@ -164,6 +164,26 @@ gentest_add_python_program_test(NAME regression_cleanup_outcomes
     PROG gentest_regression_cleanup_outcomes
     SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_cleanup_outcomes.py)
 
+gentest_add_suite(regression_temporary_directory
+    TARGET gentest_regression_temporary_directory
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/temporary_directory.cpp
+    OUTPUT_DIR regressions/temporary_directory
+    NO_CTEST)
+gentest_add_python_program_test(NAME regression_temporary_directory
+    PROG gentest_regression_temporary_directory
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_temporary_directory.py)
+
+gentest_add_suite(regression_parameter_row_ids
+    TARGET gentest_regression_parameter_row_ids
+    CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/parameter_row_ids.cpp
+    OUTPUT_DIR regressions/parameter_row_ids
+    NO_CTEST)
+gentest_discover_tests(gentest_regression_parameter_row_ids TEST_FILTER "row_ids/matrix*" FAIL_ON_EMPTY)
+gentest_add_python_program_test(NAME regression_parameter_row_ids
+    PROG gentest_regression_parameter_row_ids
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_parameter_row_ids.py
+    ARGS "${CMAKE_CTEST_COMMAND}" "${CMAKE_BINARY_DIR}" "$<CONFIG>")
+
 gentest_add_suite(regression_local_fixture_teardown_noexceptions
     TARGET gentest_regression_local_fixture_teardown_noexceptions
     CASES ${CMAKE_CURRENT_SOURCE_DIR}/regressions/local_fixture_teardown_noexceptions.cpp
@@ -183,6 +203,10 @@ target_compile_definitions(gentest_regression_local_fixture_teardown_noexception
         FMT_USE_EXCEPTIONS=0
         FMT_EXCEPTIONS=0
         _HAS_EXCEPTIONS=0)
+gentest_add_python_program_test(NAME regression_temporary_directory_noexceptions
+    PROG gentest_regression_local_fixture_teardown_noexceptions
+    SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_temporary_directory.py
+    ARGS noexceptions)
 target_compile_options(gentest_regression_async_local_fixture_teardown_noexceptions
     PRIVATE
         $<$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>:/EHs-c->
@@ -1552,6 +1576,7 @@ gentest_add_cmake_script_test(
 if(WIN32 AND GENTEST_SKIP_WINDOWS_DEBUG_DEATH_TESTS)
     set_tests_properties(
         regression_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
+        regression_temporary_directory_noexceptions
         regression_local_fixture_teardown_noexceptions_fatal_assert_termination_message
         regression_async_local_fixture_teardown_noexceptions_fatal_assert_runs_teardown
         regression_async_local_fixture_teardown_noexceptions_fatal_assert_termination_message

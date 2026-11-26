@@ -3,6 +3,7 @@
 #include "gentest/detail/runtime_context.h"
 #include "runner_output.h"
 #include "runner_reporting.h"
+#include "temporary_directory_internal.h"
 
 #include <algorithm>
 #include <cmath>
@@ -132,13 +133,22 @@ CaseResult finish_invoke_result_impl(TestRunContext &state, const gentest::Case 
         rr.logs             = ctxinfo->logs;
         event_lines         = ctxinfo->event_lines;
         event_kinds         = ctxinfo->event_kinds;
-        rr.timeline         = event_lines;
         should_skip         = runtime_skipped && ctxinfo->runtime_skip_requested.load(std::memory_order_relaxed);
         runtime_skip_reason = ctxinfo->runtime_skip_reason;
         runtime_skip_kind   = ctxinfo->runtime_skip_kind;
         is_xfail            = ctxinfo->xfail_requested;
         xfail_reason        = ctxinfo->xfail_reason;
     }
+
+    // Finish directories after teardown has recorded any failures or exceptions.
+    for (auto &issue :
+         gentest::detail::finishTemporaryDirectories(ctxinfo->temporary_directories, !failures.empty() || threw_non_skip, test.name)) {
+        failures.push_back(issue);
+        event_lines.push_back(std::move(issue));
+        event_kinds.push_back('F');
+        is_xfail = false;
+    }
+    rr.timeline = event_lines;
 
     const bool has_failures = !failures.empty();
 

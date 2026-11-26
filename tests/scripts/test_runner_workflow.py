@@ -33,7 +33,7 @@ def printed_command(command, expected):
         prefix = target_command("__target__")[:-1]
         invocation = " ".join(shlex.quote(arg) for arg in prefix)
         invocation = (invocation + " " + command).lstrip()
-    result = subprocess.run(invocation, shell=os.name != "nt", capture_output=True, text=True, env=ENV, timeout=30)
+    result = subprocess.run(invocation, shell=os.name != "nt", capture_output=True, text=True, encoding="utf-8", env=ENV, timeout=30)
     assert result.returncode == expected, (command, result.returncode, result.stdout, result.stderr)
     return result
 

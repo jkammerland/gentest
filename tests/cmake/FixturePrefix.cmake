@@ -58,16 +58,21 @@ endfunction()
 # (gentest_register_package_fixture), so with GENTEST_ENABLE_PACKAGE_TESTS=ON it
 # is the same setup the package consumer tests already require. Variants:
 #   MODULES  clang fixture compilers, public modules enabled when supported
+#   TARGET_MODULES  MODULES with the fixture's target toolchain in a cross build
 #   CLANG    clang fixture compilers, public modules off
 #   DEFAULT  the outer build's compilers, public modules off
 #   NONE     no shared prefix: the fixture builds gentest from source
-# Returns no arguments where the installed package cannot stand in for the
-# fixture's own build: native fixtures cannot share a cross-target ABI, and
-# multi-config outer builds pass fixtures no build type to match. Windows
-# consumers inherit compatible native LLVM settings only after cache validation.
 function(gentest_fixture_prefix_package_args out_var variant)
     set(${out_var} "" PARENT_SCOPE)
-    if(variant STREQUAL "NONE" OR CMAKE_CROSSCOMPILING OR CMAKE_CONFIGURATION_TYPES)
+    if(variant STREQUAL "NONE" OR CMAKE_CONFIGURATION_TYPES)
+        return()
+    endif()
+
+    # Only fixtures that use the same target toolchain can consume a cross-built
+    # runtime. They still inject the separately built host code generator.
+    if(variant STREQUAL "TARGET_MODULES" AND (NOT CMAKE_CROSSCOMPILING OR CMAKE_TOOLCHAIN_FILE))
+        set(variant MODULES)
+    elseif(CMAKE_CROSSCOMPILING)
         return()
     endif()
 

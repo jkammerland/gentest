@@ -316,6 +316,14 @@ std::string_view machine_measured_report_format_name(const CliOptions &opt) {
     return opt.measured_report_format == MeasuredReportFormat::Json ? std::string_view("json") : std::string_view("csv");
 }
 
+auto report_config(const CliOptions &opt) -> ReportConfig {
+    return {.junit_path  = opt.junit_path,
+            .allure_dir  = opt.allure_dir,
+            .executable  = opt.executable,
+            .records_dir = opt.records_dir,
+            .utf8_paths  = opt.utf8_paths};
+}
+
 // An invocation that fails before any case runs still replaces requested reports, so a
 // report left by an earlier run cannot be mistaken for this one. Previews write nothing.
 int fail_before_execution(const CliOptions &opt, const std::string &message, int exit_code = 1) {
@@ -323,7 +331,7 @@ int fail_before_execution(const CliOptions &opt, const std::string &message, int
     if (opt.mode == Mode::Execute && (opt.junit_path || opt.allure_dir)) {
         RunAccumulator acc;
         record_runner_level_failure(acc, "gentest/selection", message);
-        write_reports(acc, ReportConfig{.junit_path = opt.junit_path, .allure_dir = opt.allure_dir, .executable = opt.executable});
+        write_reports(acc, report_config(opt));
         // The first entry is the message already printed; later ones are report-write failures.
         for (std::size_t i = 1; i < acc.infra_errors.size(); ++i)
             fmt::print(stderr, "{}\n", acc.infra_errors[i]);
@@ -512,7 +520,8 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
         }
     }
 
-    prepare_record_reports(state.acc, *recording_run.session, opt.records_dir, opt.junit_path, opt.allure_dir);
+    const auto reports = report_config(opt);
+    prepare_record_reports(state.acc, *recording_run.session, reports);
     if (state.record_results) {
         const bool ran_any_case = !selection.idxs.empty();
         bool       should_write = false;
@@ -522,11 +531,7 @@ int run_execution(std::span<const gentest::Case> kCases, const CliOptions &opt, 
             should_write = !state.acc.report_items.empty() || !state.acc.infra_errors.empty();
         }
         if (should_write) {
-            gentest::runner::write_reports(state.acc, gentest::runner::ReportConfig{
-                                                          .junit_path = opt.junit_path,
-                                                          .allure_dir = opt.allure_dir,
-                                                          .executable = opt.executable,
-                                                      });
+            write_reports(state.acc, reports);
         }
     }
 
@@ -591,9 +596,10 @@ int write_empty_execution_reports(const CliOptions &opt) {
     const bool                         recording = opt.junit_path || opt.allure_dir || opt.records_dir;
     gentest::detail::RecordingRunScope run(recording);
     RunAccumulator                     acc;
-    prepare_record_reports(acc, *run.session, opt.records_dir, opt.junit_path, opt.allure_dir);
+    const auto                         reports = report_config(opt);
+    prepare_record_reports(acc, *run.session, reports);
     if (opt.junit_path || opt.allure_dir)
-        write_reports(acc, ReportConfig{.junit_path = opt.junit_path, .allure_dir = opt.allure_dir, .executable = opt.executable});
+        write_reports(acc, reports);
     if (opt.github_annotations)
         emit_github_annotations(acc, stderr);
     for (const auto &error : acc.infra_errors)

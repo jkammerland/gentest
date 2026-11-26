@@ -222,9 +222,11 @@ GENTEST_RUNTIME_API void record_supervised_failure(std::string_view message);
 GENTEST_RUNTIME_API void record_failure(std::string msg);
 GENTEST_RUNTIME_API void record_failure(std::string msg, const std::source_location &loc);
 GENTEST_RUNTIME_API void record_failure_at(std::string msg, std::string file, unsigned line);
+GENTEST_RUNTIME_API void finish_fatal_temporary_directories() noexcept;
 
 [[noreturn]] inline void terminate_no_exceptions_fatal(std::string_view origin) {
     ::gentest::detail::run_noexceptions_fatal_hook();
+    ::gentest::detail::finish_fatal_temporary_directories();
     (void)std::fputs("gentest: exceptions are disabled; terminating after fatal assertion", stderr);
     if (!origin.empty()) {
         (void)std::fputs(" (origin: ", stderr);

@@ -89,6 +89,7 @@ struct CliOptions {
     const char *allure_dir        = nullptr;
     const char *records_dir       = nullptr;
     const char *death_test_marker = nullptr;
+    bool        utf8_paths        = false;
 
     // Include tags are alternatives; exclusions remove any matching case.
     std::vector<std::string_view> include_tags;

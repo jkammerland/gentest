@@ -4,7 +4,9 @@
 #include "gentest/detail/runtime_context.h"
 #include "gentest/runner.h"
 #include "runner_cli.h"
+#include "runner_entry.h"
 #include "runner_orchestrator.h"
+#include "runner_paths.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -75,7 +77,7 @@ auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runne
     std::filesystem::path marker;
 
 #if defined(_WIN32)
-    // Only a process launched by the supervisor requests its original Unicode arguments.
+    // A supervised test can supply a main() that uses narrow arguments.
     auto        options = parsed;
     std::string exact_name;
     if (options.death_wide) {
@@ -97,7 +99,7 @@ auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runne
     const auto &options = parsed;
 #endif
     if (marker.empty() && options.death_test_marker)
-        marker = options.death_test_marker;
+        marker = gentest::runner::argumentPath(options.death_test_marker, options.utf8_paths);
     auto watched = configuration;
     if (options.death_watchdog) {
         try {
@@ -122,6 +124,16 @@ auto run_sorted_cases(std::span<const gentest::Case> cases, const gentest::runne
         !protocol.recordResult(options.run_name, "skipped"))
         return 1;
     return result;
+}
+
+auto run_registered_cases(std::span<const char *> args, const gentest::RunConfiguration &configuration, bool utf8_paths = false) -> int {
+    gentest::runner::CliOptions opt{};
+    if (!gentest::runner::parse_cli(args, opt))
+        return 1;
+
+    opt.utf8_paths   = utf8_paths;
+    const auto cases = snapshot_cases();
+    return run_sorted_cases(cases, opt, configuration);
 }
 } // namespace
 
@@ -170,6 +182,25 @@ void register_cases(std::span<const Case> cases) {
 }
 
 auto snapshot_registered_cases() -> std::vector<Case> { return snapshot_cases(); }
+
+#if defined(_WIN32)
+auto runWindowsMain() -> int {
+    // The narrow Windows argv can replace characters in case selectors and paths.
+    std::vector<std::string> arguments;
+    try {
+        arguments = wideProcessArguments(0);
+    } catch (const std::exception &error) {
+        (void)std::fprintf(stderr, "Cannot read arguments: %s\n", error.what());
+        return 1;
+    }
+
+    std::vector<const char *> argv;
+    argv.reserve(arguments.size());
+    for (const auto &argument : arguments)
+        argv.push_back(argument.c_str());
+    return run_registered_cases(argv, {}, /*utf8_paths=*/true);
+}
+#endif
 } // namespace gentest::detail
 
 namespace gentest {
@@ -189,12 +220,7 @@ auto run_cases(std::span<const Case> cases, std::span<const char *> args, const 
 auto run_all_tests(std::span<const char *> args) -> int { return run_all_tests(args, {}); }
 
 auto run_all_tests(std::span<const char *> args, const RunConfiguration &configuration) -> int {
-    gentest::runner::CliOptions opt{};
-    if (!gentest::runner::parse_cli(args, opt))
-        return 1;
-
-    const auto cases = gentest::detail::snapshot_registered_cases();
-    return run_sorted_cases(cases, opt, configuration);
+    return run_registered_cases(args, configuration);
 }
 
 auto run_all_tests(int argc, char **argv) -> int { return run_all_tests(argc, argv, {}); }

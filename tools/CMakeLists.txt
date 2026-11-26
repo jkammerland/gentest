@@ -222,6 +222,7 @@ list(REMOVE_DUPLICATES _gentest_codegen_support_includes)
 if(_gentest_codegen_support_includes)
     target_include_directories(gentest_codegen_headers SYSTEM INTERFACE ${_gentest_codegen_support_includes})
 endif()
+target_include_directories(gentest_codegen PRIVATE "${PROJECT_SOURCE_DIR}/include")
 
 if(LLVM_ENABLE_RTTI)
     target_compile_definitions(gentest_codegen_headers INTERFACE LLVM_ENABLE_RTTI)

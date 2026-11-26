@@ -762,11 +762,58 @@ int main() {
             t.expect(summary.param_packs[0].names == std::vector<std::string>{"s", "n"}, "raw-string pack names");
             const std::vector<std::vector<std::string>> expected{{R"expr(R"tag(a",b)tag")expr", "7"},
                                                                  {R"expr(u8R"other(()"[,]>)other")expr", "9"}};
-            t.expect(summary.param_packs[0].rows == expected, "raw-string cells retain exact spelling and row boundaries");
+            std::vector<std::vector<std::string>>       values;
+            for (const auto &row : summary.param_packs[0].rows) {
+                t.expect(row.id.empty(), "unnamed row has no identifier");
+                values.push_back(row.values);
+            }
+            t.expect(values == expected, "raw-string cells retain exact spelling and row boundaries");
         }
         auto expressions = gentest::codegen::split_expression_list(R"expr("quoted,cell", R"(raw",cell)", 3)expr");
         t.expect(expressions == std::vector<std::string>{R"("quoted,cell")", R"expr(R"(raw",cell)")expr", "3"},
                  "expression splitting preserves ordinary and raw string literals");
+    }
+
+    // Row IDs are decoded independently of the C++ values passed to a case.
+    {
+        const auto attrs =
+            parse_attribute_list(R"attrs(test, parameters_pack((s, n), ("empty, input", "", 7), ("\u03BB", "a,b", 9)))attrs");
+        std::vector<std::string> diags;
+        const auto               summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+        t.expect(!summary.had_error && diags.empty(), "named rows validate");
+        t.expect(summary.param_packs.size() == 1, "named pack is retained");
+        if (summary.param_packs.size() == 1) {
+            const auto &rows = summary.param_packs.front().rows;
+            t.expect(rows.size() == 2, "named pack retains both rows");
+            if (rows.size() == 2) {
+                t.expect(rows[0].id == "empty, input" && rows[0].values == std::vector<std::string>{R"("")", "7"},
+                         "identifier is removed from the value tuple");
+                t.expect(rows[1].id == "\xCE\xBB" && rows[1].values == std::vector<std::string>{R"("a,b")", "9"},
+                         "Unicode identifier is decoded while value spelling is preserved");
+            }
+        }
+    }
+    {
+        const std::vector<std::pair<std::string_view, std::string_view>> failures{
+            {R"attrs(("dup", 1), ("\x64up", 2))attrs", "duplicate row ID 'dup'"},
+            {R"attrs(("with id", 1), (2))attrs", "requires an ID on every row"},
+            {R"attrs(("", 1))attrs", "nonblank UTF-8 string literal"},
+            {R"attrs(("   ", 1))attrs", "nonblank UTF-8 string literal"},
+            {R"attrs(("a\nb", 1))attrs", "no control characters"},
+            {R"attrs(("a\0b", 1))attrs", "no control characters"},
+            {R"attrs(("\xFF", 1))attrs", "UTF-8 string literal"},
+            {R"attrs(("\q", 1))attrs", "valid escapes"},
+            {R"attrs(("a" + "b", 1))attrs", "UTF-8 string literal"},
+            {R"attrs((1, 2))attrs", "value tuple arity mismatch"},
+        };
+        for (const auto &[rows, expected] : failures) {
+            const auto               attrs = parse_attribute_list("test, parameters_pack((n), " + std::string(rows) + ")");
+            std::vector<std::string> diags;
+            const auto               summary = validate_attributes(attrs, [&](const std::string &m) { diags.push_back(m); });
+            t.expect(summary.had_error &&
+                         std::ranges::any_of(diags, [&](const auto &diag) { return diag.find(expected) != std::string::npos; }),
+                     "named row rejection: " + std::string(rows));
+        }
     }
 
     // Regression: comment markers inside string, character and raw-string
@@ -833,8 +880,8 @@ int main() {
             t.expect(summary.param_packs[0].names.size() == 1, "parameters_pack regression: one parameter name");
             t.expect(summary.param_packs[0].rows.size() == 2, "parameters_pack regression: two rows");
             if (summary.param_packs[0].rows.size() >= 2) {
-                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack regression: row0 arity");
-                t.expect(summary.param_packs[0].rows[1].size() == 1, "parameters_pack regression: row1 arity");
+                t.expect(summary.param_packs[0].rows[0].values.size() == 1, "parameters_pack regression: row0 arity");
+                t.expect(summary.param_packs[0].rows[1].values.size() == 1, "parameters_pack regression: row1 arity");
             }
         }
     }
@@ -849,7 +896,7 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack comparison regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 2, "parameters_pack comparison regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].values.size() == 2, "parameters_pack comparison regression: row arity");
             }
         }
     }
@@ -864,7 +911,7 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack identifier comparison regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 2, "parameters_pack identifier comparison regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].values.size() == 2, "parameters_pack identifier comparison regression: row arity");
             }
         }
     }
@@ -879,7 +926,7 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack digit separator regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 2, "parameters_pack digit separator regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].values.size() == 2, "parameters_pack digit separator regression: row arity");
             }
         }
     }
@@ -894,7 +941,7 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack spacing regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack spacing regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].values.size() == 1, "parameters_pack spacing regression: row arity");
             }
         }
     }
@@ -909,7 +956,7 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack qualifier regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack qualifier regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].values.size() == 1, "parameters_pack qualifier regression: row arity");
             }
         }
     }
@@ -924,7 +971,7 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack nested qualifier regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack nested qualifier regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].values.size() == 1, "parameters_pack nested qualifier regression: row arity");
             }
         }
     }
@@ -939,7 +986,7 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack declarator regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack declarator regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].values.size() == 1, "parameters_pack declarator regression: row arity");
             }
         }
     }
@@ -954,7 +1001,7 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack spaced declarator regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack spaced declarator regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].values.size() == 1, "parameters_pack spaced declarator regression: row arity");
             }
         }
     }
@@ -969,7 +1016,7 @@ int main() {
         if (summary.param_packs.size() == 1) {
             t.expect(summary.param_packs[0].rows.size() == 1, "parameters_pack char literal regression: one row");
             if (summary.param_packs[0].rows.size() == 1) {
-                t.expect(summary.param_packs[0].rows[0].size() == 1, "parameters_pack char literal regression: row arity");
+                t.expect(summary.param_packs[0].rows[0].values.size() == 1, "parameters_pack char literal regression: row arity");
             }
         }
     }

@@ -2,6 +2,7 @@ module;
 
 #include "gentest/benchmark.h"
 #include "gentest/runner.h"
+#include "gentest/temporary_directory.h"
 // Installed interfaces have adjacent headers; build-system staging may copy only module files.
 #if __has_include("record.h")
 #include "record.h"
@@ -119,6 +120,7 @@ using ::gentest::set_current_token;
 using ::gentest::skip;
 using ::gentest::skip_if;
 using ::gentest::SuspensionKind;
+using ::gentest::TemporaryDirectory;
 using ::gentest::WatchdogConfig;
 using ::gentest::WatchdogFailure;
 using ::gentest::WatchdogFailureCode;

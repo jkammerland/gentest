@@ -3,6 +3,7 @@
 #include "validate.hpp"
 
 #include "attr_rules.hpp"
+#include "gentest/detail/utf8.h"
 #include "parse_core.hpp"
 
 #include <algorithm>
@@ -57,6 +58,36 @@ bool parse_positive_u64(std::string_view text, std::uint64_t &out) {
         return false;
     }
     out = value;
+    return true;
+}
+
+// Require a single quoted literal, not an expression that merely
+// begins and ends in quotes (for example "a" + "b").
+bool isStringLiteral(std::string_view token) {
+    if (token.size() < 2 || token.front() != '"' || token.back() != '"')
+        return false;
+    for (std::size_t j = 1; j + 1 < token.size(); ++j) {
+        if (token[j] == '\\') {
+            ++j;
+            if (j + 1 >= token.size())
+                return false;
+        } else if (token[j] == '"')
+            return false;
+    }
+    return true;
+}
+
+bool isValidRowId(std::string_view id) {
+    if (id.find_first_not_of(' ') == std::string_view::npos)
+        return false;
+
+    for (std::size_t pos = 0; pos < id.size();) {
+        const auto [code_point, width, valid] = gentest::detail::decodeUtf8(id, pos);
+        // Keep names representable in CLI arguments, JSON and JUnit XML.
+        if (!valid || code_point < 0x20 || (code_point >= 0x7F && code_point < 0xA0) || code_point == 0xFFFE || code_point == 0xFFFF)
+            return false;
+        pos += width;
+    }
     return true;
 }
 
@@ -368,15 +399,38 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'parameters_pack' first tuple must list at least one parameter name");
                 continue;
             }
-            // Remaining arguments: value tuples matching arity
+            // Each row can start with an ID in addition to its parameter values.
+            std::set<std::string> row_ids;
             for (std::size_t i = 1; i < attr.arguments.size(); ++i) {
-                auto row = parse_tuple(attr.arguments[i]);
-                if (row.size() != pack.names.size()) {
+                auto        row = parse_tuple(attr.arguments[i]);
+                std::string id;
+                if (row.size() == pack.names.size() + 1 && row.front().starts_with('"')) {
+                    auto valid_literal = isStringLiteral(row.front());
+                    if (valid_literal)
+                        id = decode_string_literal(row.front(), &valid_literal);
+                    if (!valid_literal || !isValidRowId(id)) {
+                        summary.had_error = true;
+                        report("'parameters_pack' row ID must be a nonblank UTF-8 string literal with valid escapes and no control "
+                               "characters");
+                        continue;
+                    }
+                    if (!row_ids.insert(id).second) {
+                        summary.had_error = true;
+                        report(fmt::format("'parameters_pack' duplicate row ID '{}'", id));
+                        continue;
+                    }
+                    row.erase(row.begin());
+                } else if (row.size() != pack.names.size()) {
                     summary.had_error = true;
                     report("'parameters_pack' value tuple arity mismatch");
                     continue;
                 }
-                pack.rows.push_back(std::move(row));
+                if (!pack.rows.empty() && (pack.rows.front().id.empty() != id.empty())) {
+                    summary.had_error = true;
+                    report("'parameters_pack' requires an ID on every row in a named pack");
+                    continue;
+                }
+                pack.rows.push_back({.id = std::move(id), .values = std::move(row)});
             }
             if (pack.rows.empty()) {
                 summary.had_error = true;
@@ -391,23 +445,8 @@ auto validate_attributes(const std::vector<ParsedAttribute> &parsed, const std::
                 report("'tag' requires at least one nonempty string literal");
             }
             for (std::size_t i = 0; i < attr.arguments.size(); ++i) {
-                auto value = attr.arguments[i];
-                // Require a single quoted literal, not an expression that merely
-                // begins and ends in quotes (for example "a" + "b").
-                const auto is_string_literal = [](std::string_view token) {
-                    if (token.size() < 2 || token.front() != '"' || token.back() != '"')
-                        return false;
-                    for (std::size_t j = 1; j + 1 < token.size(); ++j) {
-                        if (token[j] == '\\') {
-                            ++j;
-                            if (j + 1 >= token.size())
-                                return false;
-                        } else if (token[j] == '"')
-                            return false;
-                    }
-                    return true;
-                };
-                bool valid_literal = i < attr.argument_tokens.size() && is_string_literal(attr.argument_tokens[i]);
+                auto value         = attr.arguments[i];
+                bool valid_literal = i < attr.argument_tokens.size() && isStringLiteral(attr.argument_tokens[i]);
                 // Unknown escapes must not silently become different user labels.
                 if (valid_literal)
                     value = decode_string_literal(attr.argument_tokens[i], &valid_literal);

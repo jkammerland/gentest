@@ -13,7 +13,7 @@
 
 namespace gentest::codegen::render {
 
-std::string escape_string(std::string_view value) {
+std::string escape_string(std::string_view value, bool ascii_only) {
     std::string escaped;
     escaped.reserve(value.size());
     for (const char ch : value) {
@@ -24,9 +24,9 @@ std::string escape_string(std::string_view value) {
         case '\r': escaped += "\\r"; break;
         case '\t': escaped += "\\t"; break;
         default:
-            // Remaining control characters (including NUL) as three-digit
-            // octal escapes, which a following digit cannot extend.
-            if (const unsigned byte = static_cast<unsigned char>(ch); byte < 0x20U || byte == 0x7FU) {
+            // Three-digit octal escapes preserve bytes in C++ literals through
+            // compiler character-set conversions and cannot absorb the next digit.
+            if (const unsigned byte = static_cast<unsigned char>(ch); byte < 0x20U || byte == 0x7FU || (ascii_only && byte >= 0x80U)) {
                 escaped.push_back('\\');
                 escaped.push_back(static_cast<char>('0' + ((byte >> 6U) & 0x7U)));
                 escaped.push_back(static_cast<char>('0' + ((byte >> 3U) & 0x7U)));
@@ -997,7 +997,7 @@ std::string render_case_entries(const std::vector<TestCaseInfo> &cases, const st
         const bool  has_measured_entrypoint =
             (test.is_benchmark || test.is_jitter) && !test.returns_async && test.fixture_qualified_name.empty();
         append_format_runtime(
-            out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name)),
+            out, tpl_case_entry, fmt::arg("name", escape_string(test.display_name, true)),
             fmt::arg("wrapper", std::string("::kCaseInvoke_") + std::to_string(idx)), fmt::arg("file", escape_string(test.filename)),
             fmt::arg("line", test.line), fmt::arg("is_bench", test.is_benchmark ? "true" : "false"),
             fmt::arg("is_jitter", test.is_jitter ? "true" : "false"), fmt::arg("is_baseline", test.is_baseline ? "true" : "false"),

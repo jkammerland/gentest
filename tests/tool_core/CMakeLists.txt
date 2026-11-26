@@ -37,7 +37,7 @@ add_executable(gentest_core_tests
     ${_gentest_tool_core_src_dir}/validate.cpp)
 
 target_compile_features(gentest_core_tests PRIVATE cxx_std_20)
-target_include_directories(gentest_core_tests PRIVATE ${_gentest_tool_core_src_dir})
+target_include_directories(gentest_core_tests PRIVATE ${_gentest_tool_core_src_dir} ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(gentest_core_tests PRIVATE fmt::fmt)
 
 add_test(NAME gentest_core_parse_validate
@@ -150,6 +150,7 @@ if(TARGET gentest_codegen_support)
     target_compile_features(gentest_core_discovery_tests PRIVATE cxx_std_20)
     target_include_directories(gentest_core_discovery_tests PRIVATE
         ${_gentest_tool_core_src_dir}
+        "${PROJECT_SOURCE_DIR}/include"
         ${LLVM_INCLUDE_DIRS})
     target_link_libraries(gentest_core_discovery_tests PRIVATE gentest_codegen_support)
     _gentest_copy_codegen_runtime_settings(gentest_core_discovery_tests)

@@ -38,7 +38,7 @@ template <> struct fmt::formatter<public_module_surface_support::FmtOnlyValue> :
 
 export module public_module_surface.cases;
 
-import gentest;
+export import gentest;
 
 static_assert(std::is_same_v<decltype(gentest::get_current_context().stop_token()), std::stop_token>);
 static_assert(std::is_same_v<decltype(gentest::get_current_context().stop_requested()), bool>);
@@ -69,8 +69,8 @@ void benchmark_measurement(BenchmarkFixture &sample) {
 }
 
 [[using gentest: test("expect_true")]]
-void expect_true_case() {
-    gentest::expect_true(true);
+void expect_true_case(gentest::TemporaryDirectory &directory) {
+    gentest::expect_true(directory.path().is_absolute());
 }
 
 [[using gentest: test("format_value")]]
