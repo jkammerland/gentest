@@ -1,6 +1,6 @@
 set_project("gentest")
 -- Keep in sync with CMakeLists.txt (checked by gentest_vcpkg_manifest_metadata).
-local gentest_version = "2.0.0"
+local gentest_version = "2.1.0"
 set_version(gentest_version)
 set_languages("cxx20")
 set_policy("build.ccache", false)

@@ -1,4 +1,4 @@
-project('gentest', 'cpp', version: '2.0.0', default_options: ['cpp_std=c++20'])
+project('gentest', 'cpp', version: '2.1.0', default_options: ['cpp_std=c++20'])
 
 cpp = meson.get_compiler('cpp')
 fs = import('fs')
