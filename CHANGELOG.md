@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.1.0 - 2026-11-26
+
+### Added
+
+- `gentest::TemporaryDirectory` gives each invocation a private scratch directory
+  with automatic cleanup and optional retention on failure (#372).
+- Named `parameters_pack` rows use stable string IDs in case names, exact
+  selectors, CTest discovery, JUnit, and rerun commands (#373).
+
+### Changed
+
+- The QEMU mock test groups reuse a shared target runtime and fmt build (#371).
+
+### Fixed
+
+- The built-in Windows runner preserves Unicode in case selectors, rerun
+  commands, and report paths (#373).
+
 ## 2.0.0 - 2026-11-19
 
 ### Upgrading
